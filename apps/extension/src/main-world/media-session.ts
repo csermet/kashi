@@ -13,7 +13,16 @@ import { MAIN_WORLD_MARKER, type MainWorldSnapshot } from '../shared/messages.js
 
 const SAFETY_NET_MS = 5000;
 
+/**
+ * Current videoId, best source first:
+ * 1. the id delivered IN the `videodatachange` event payload (authoritative —
+ *    a separate getVideoData() call can return the PREVIOUS video mid-switch)
+ * 2. getVideoData() as cold-load fallback.
+ */
+let eventVideoId: string | null = null;
+
 function playerVideoId(): string | null {
+  if (eventVideoId) return eventVideoId;
   const player = document.querySelector('#movie_player') as
     | { getVideoData?: () => { video_id?: string } }
     | null;
@@ -73,13 +82,33 @@ function observePlayerBar(): void {
 }
 
 let attachedPlayer: Element | null = null;
+let dataUpdatedFallback: number | undefined;
+
+/**
+ * `videodatachange` is the player's own callback API with (name, videoData)
+ * args, two-phased: 'dataloaded' fires first (data may be incomplete) and
+ * 'dataupdated' second (authoritative) — but 'dataupdated' can be silently
+ * dropped on shuffle/auto-advance (bug shipped in pear-desktop too, fixed in
+ * their v3.11.0), hence the 1.5 s fallback re-post.
+ */
+function onVideoDataChange(name?: string, videoData?: { video_id?: string }): void {
+  if (videoData?.video_id) eventVideoId = videoData.video_id;
+  clearTimeout(dataUpdatedFallback);
+  if (name === 'dataloaded') {
+    dataUpdatedFallback = window.setTimeout(() => post(true), 1500);
+  }
+  post(true);
+}
 
 function observePlayer(): void {
   const attach = () => {
     const player = document.querySelector('#movie_player');
     if (!player || player === attachedPlayer) return;
     attachedPlayer = player;
-    player.addEventListener('videodatachange', () => post(true));
+    (player.addEventListener as (type: string, cb: unknown) => void)(
+      'videodatachange',
+      onVideoDataChange,
+    );
     console.debug(
       `[kashi-mw] player attached, getVideoData -> ${playerVideoId() ?? 'null'}`,
     );

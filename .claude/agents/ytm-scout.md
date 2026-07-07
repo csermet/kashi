@@ -19,9 +19,13 @@ date; when you cannot verify something, say "unverified" explicitly.
   scripts see `null` → MAIN-world script + `window.postMessage` bridge (web-scrobbler pattern).
 - Position: `video.currentTime` + `timeupdate` event readable from ISOLATED world; `timeupdate`
   keeps firing in background tabs while media plays.
-- Track change: PRIMARY signal is `videodatachange` on `#movie_player` (fires per-track incl.
-  radio/autoplay advance, exposes `getVideoData()`); `yt-navigate-finish`/`yt-navigate-start` on
-  `document` as page-nav backup. videoId comes from the `watch?v=` URL.
+- Track change: PRIMARY signal is `videodatachange` bound on the `#movie_player` ELEMENT (its
+  own callback API with `(name, videoData)` args — NOT a DOM event on `document`). Two-phased:
+  'dataloaded' first (incomplete), 'dataupdated' second (authoritative) — 'dataupdated' can be
+  silently DROPPED on shuffle/auto-advance (pear-desktop shipped this bug, fixed v3.11.0); use a
+  ~1.5s fallback. Take video_id from the EVENT PAYLOAD (a separate getVideoData() call can return
+  the previous video mid-switch). `yt-navigate-finish` as page-nav backup only. The URL `?v=` is
+  STALE on queue auto-advance (YTM does not navigate) — never use it as primary.
 - Player bar: `ytmusic-player-bar`; time info `.ytmusic-player-bar .time-info`; ad state
   `.ytmusic-player-bar.advertisement` (class on the player-bar element itself). Metadata updates
   lag track changes by milliseconds (race). Title/artist come from mediaSession/getPlayerResponse,

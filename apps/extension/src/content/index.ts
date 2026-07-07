@@ -83,6 +83,8 @@ function refreshAdState(): void {
 }
 
 let pendingVideoId: string | null = null;
+let lastAnnouncedTitle: string | null = null;
+let staleTitleRetries = 0;
 
 function maybeAnnounceTrack(): void {
   const videoId = currentVideoId();
@@ -90,6 +92,7 @@ function maybeAnnounceTrack(): void {
   if (videoId !== pendingVideoId) {
     pendingVideoId = videoId;
     videoIdChangedAt = Date.now(); // stamp the actual id change, not each call
+    staleTitleRetries = 0;
   }
 
   // Debounce: metadata settles milliseconds after the track signal, and radio
@@ -100,7 +103,15 @@ function maybeAnnounceTrack(): void {
     if (!id || id === announcedVideoId) return;
     const meta = latestSnapshot;
     if (!meta?.title || adActive) return; // wait for metadata / skip ads
+    // New id but the title still equals the previous track's → mediaSession
+    // hasn't caught up yet; announcing now would look up the WRONG lyrics.
+    if (meta.title === lastAnnouncedTitle && staleTitleRetries < 4) {
+      staleTitleRetries++;
+      trackTimer = window.setTimeout(() => maybeAnnounceTrack(), TRACK_DEBOUNCE_MS);
+      return;
+    }
     announcedVideoId = id;
+    lastAnnouncedTitle = meta.title;
     console.debug(
       `[kashi] announcing ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'})`,
     );
@@ -173,6 +184,7 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   if ((message as { kind?: string })?.kind !== 'reannounce') return;
   announcedVideoId = null;
   pendingVideoId = null;
+  lastAnnouncedTitle = null; // avoid the stale-title delay on same-track reannounce
   attachVideo();
   refreshAdState();
   maybeAnnounceTrack();
