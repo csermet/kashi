@@ -45,12 +45,13 @@ function sendEvent(event: ContentEvent): void {
 }
 
 function currentVideoId(): string | null {
-  // URL first; player-API fallback covers YTM restoring a paused session on a
-  // URL without ?v= (home page). Never from mediaSession metadata (R-9).
+  // Player API FIRST: on queue auto-advance YTM does not navigate, so the URL
+  // ?v= stays stuck on the first song of the list. getVideoData tracks the
+  // actually-playing video; the URL is only a fallback (cold load, before the
+  // MAIN-world bridge posts). Never from mediaSession metadata (R-9).
   return (
-    new URL(window.location.href).searchParams.get('v') ??
     latestSnapshot?.videoId ??
-    null
+    new URL(window.location.href).searchParams.get('v')
   );
 }
 
