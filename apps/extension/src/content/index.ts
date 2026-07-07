@@ -164,39 +164,50 @@ function attachVideo(): boolean {
 
 // --- wiring ---------------------------------------------------------------
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  const data = event.data as MainWorldSnapshot;
-  if (data?.source !== MAIN_WORLD_MARKER || data.kind !== 'snapshot') return;
-  latestSnapshot = data;
-  if (data.trackSignal || data.title) maybeAnnounceTrack();
-});
+function init(): void {
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const data = event.data as MainWorldSnapshot;
+    if (data?.source !== MAIN_WORLD_MARKER || data.kind !== 'snapshot') return;
+    latestSnapshot = data;
+    if (data.trackSignal || data.title) maybeAnnounceTrack();
+  });
 
-document.addEventListener('yt-navigate-finish', () => {
-  attachVideo();
-  refreshAdState();
-  maybeAnnounceTrack();
-});
+  document.addEventListener('yt-navigate-finish', () => {
+    attachVideo();
+    refreshAdState();
+    maybeAnnounceTrack();
+  });
 
-// SW asks for a fresh announce after (re)connecting to the overlay — live
-// state must beat whatever stale snapshot the SW replayed.
-chrome.runtime.onMessage.addListener((message: unknown) => {
-  if ((message as { kind?: string })?.kind !== 'reannounce') return;
-  announcedVideoId = null;
-  pendingVideoId = null;
-  lastAnnouncedTitle = null; // avoid the stale-title delay on same-track reannounce
-  attachVideo();
-  refreshAdState();
-  maybeAnnounceTrack();
-  const evt = positionEvent('playback_state');
-  if (evt) sendEvent(evt);
-});
+  // SW asks for a fresh announce after (re)connecting to the overlay — live
+  // state must beat whatever stale snapshot the SW replayed.
+  chrome.runtime.onMessage.addListener((message: unknown) => {
+    if ((message as { kind?: string })?.kind !== 'reannounce') return;
+    announcedVideoId = null;
+    pendingVideoId = null;
+    lastAnnouncedTitle = null; // avoid the stale-title delay on same-track reannounce
+    attachVideo();
+    refreshAdState();
+    maybeAnnounceTrack();
+    const evt = positionEvent('playback_state');
+    if (evt) sendEvent(evt);
+  });
 
-// The <video> element renders late on cold loads; retry until attached.
-if (!attachVideo()) {
-  const retry = setInterval(() => {
-    if (attachVideo()) clearInterval(retry);
-  }, 1000);
+  // The <video> element renders late on cold loads; retry until attached.
+  if (!attachVideo()) {
+    const retry = setInterval(() => {
+      if (attachVideo()) clearInterval(retry);
+    }, 1000);
+  }
+
+  console.debug('[kashi] content script ready');
 }
 
-console.debug('[kashi] content script ready');
+// Chrome PRERENDERS list/next pages: our script would run in those phantom
+// documents and announce tracks that are not actually playing, fighting the
+// real tab for the overlay. Do nothing until the document becomes active.
+if ((document as Document & { prerendering?: boolean }).prerendering) {
+  document.addEventListener('prerenderingchange', () => init(), { once: true });
+} else {
+  init();
+}

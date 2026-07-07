@@ -30,6 +30,9 @@ date; when you cannot verify something, say "unverified" explicitly.
   `.ytmusic-player-bar.advertisement` (class on the player-bar element itself). Metadata updates
   lag track changes by milliseconds (race). Title/artist come from mediaSession/getPlayerResponse,
   NOT DOM text scraping (no reliable text selectors exist).
+- Prerendering: Chrome prerenders YTM list/next pages; content scripts run there under DISTINCT
+  phantom tab-ids and announce tracks that never play. Gate on `document.prerendering` and drop
+  `sender.documentLifecycle !== 'active'` in the SW.
 - Platform: Chrome 147+ extends Local Network Access permission prompts to loopback WebSockets;
   content-script requests are attributed to the PAGE origin and get gated, while extension
   service-worker contexts with proper host permissions are exempt (SW-exemption regression fixed

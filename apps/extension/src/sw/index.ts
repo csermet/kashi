@@ -105,12 +105,12 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
   connection.ensureConnected();
   const state = await readState();
 
+  // A tab earns isPlaying only through playback events — announcing a track
+  // proves nothing (phantom/prerender pages announce without ever playing).
   const isPlaying =
-    event.kind === 'track_changed'
-      ? (state.tabs[tabId]?.isPlaying ?? true)
-      : event.kind === 'ad_state'
-        ? (state.tabs[tabId]?.isPlaying ?? false)
-        : event.is_playing;
+    event.kind === 'track_changed' || event.kind === 'ad_state'
+      ? (state.tabs[tabId]?.isPlaying ?? false)
+      : event.is_playing;
   state.tabs[tabId] = { isPlaying, lastEventAt: Date.now() };
 
   const msg = toProtocolMessage(event, tabId);
@@ -158,6 +158,11 @@ async function replayActiveSnapshot(): Promise<void> {
 chrome.runtime.onMessage.addListener((message, sender) => {
   const tabId = sender.tab?.id;
   if (typeof tabId !== 'number') return;
+  // Prerendered/cached documents are phantom senders with their own tab ids —
+  // their announcements must never reach the overlay (defense in depth on top
+  // of the content-script prerender gate).
+  const lifecycle = (sender as { documentLifecycle?: string }).documentLifecycle;
+  if (lifecycle && lifecycle !== 'active') return;
   void handleContentEvent(message as ContentEvent, tabId);
 });
 

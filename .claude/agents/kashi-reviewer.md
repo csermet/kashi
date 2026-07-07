@@ -53,6 +53,10 @@ file:line and the checklist item it violates.
 - Ad filtering present (`.ytmusic-player-bar.advertisement` or equivalent); position stream pauses
   during ads.
 - Permissions stay minimal: only `music.youtube.com` host permissions; no remote code.
+- Prerender defense: content scripts gate on `document.prerendering` (+`prerenderingchange`), and
+  the SW drops messages with `sender.documentLifecycle !== 'active'` — Chrome prerenders list/next
+  pages as phantom tab-ids that announce never-playing tracks. A tab earns `isPlaying` only via
+  playback events, never via track_changed.
 
 ### D. Overlay (Electron)
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`; preload exposes only a

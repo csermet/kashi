@@ -121,8 +121,18 @@ function observePlayer(): void {
   }, 5000);
 }
 
-observePlayerBar();
-observePlayer();
-document.addEventListener('yt-navigate-finish', () => post(true));
-setInterval(() => post(false), SAFETY_NET_MS);
-post(false);
+function init(): void {
+  observePlayerBar();
+  observePlayer();
+  document.addEventListener('yt-navigate-finish', () => post(true));
+  setInterval(() => post(false), SAFETY_NET_MS);
+  post(false);
+}
+
+// Same prerender gate as the ISOLATED script: phantom documents must not
+// post snapshots for tracks that are not actually playing.
+if ((document as Document & { prerendering?: boolean }).prerendering) {
+  document.addEventListener('prerenderingchange', () => init(), { once: true });
+} else {
+  init();
+}
