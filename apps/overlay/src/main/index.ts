@@ -53,6 +53,10 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
     case 'track_changed': {
       activeSource = { clientId, tabId: msg.tab_id };
       const key = trackKey(msg.track);
+      console.debug(
+        `[kashi] track_changed: ${key} "${msg.track.artist} - ${msg.track.title}"` +
+          ` (tab ${msg.tab_id}, client ${clientId})${key === currentTrackKey ? ' [dup]' : ''}`,
+      );
       if (key === currentTrackKey) return; // metadata refresh for same track
       currentTrackKey = key;
       send('kashi:track', { key, track: msg.track });

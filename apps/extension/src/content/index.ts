@@ -101,6 +101,9 @@ function maybeAnnounceTrack(): void {
     const meta = latestSnapshot;
     if (!meta?.title || adActive) return; // wait for metadata / skip ads
     announcedVideoId = id;
+    console.debug(
+      `[kashi] announcing ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'})`,
+    );
     sendEvent({
       kind: 'track_changed',
       videoId: id,

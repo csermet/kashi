@@ -72,18 +72,24 @@ function observePlayerBar(): void {
   }
 }
 
+let attachedPlayer: Element | null = null;
+
 function observePlayer(): void {
   const attach = () => {
     const player = document.querySelector('#movie_player');
-    if (!player) return false;
+    if (!player || player === attachedPlayer) return;
+    attachedPlayer = player;
     player.addEventListener('videodatachange', () => post(true));
-    return true;
+    console.debug(
+      `[kashi-mw] player attached, getVideoData -> ${playerVideoId() ?? 'null'}`,
+    );
   };
-  if (!attach()) {
-    const retry = setInterval(() => {
-      if (attach()) clearInterval(retry);
-    }, 1000);
-  }
+  attach();
+  // YTM can replace the player element on SPA transitions — a listener on a
+  // detached node dies silently, so keep verifying and re-attach when needed.
+  setInterval(() => {
+    if (!attachedPlayer?.isConnected) attach();
+  }, 5000);
 }
 
 observePlayerBar();
