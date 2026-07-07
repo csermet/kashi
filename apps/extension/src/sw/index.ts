@@ -169,6 +169,20 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
     } else if (msg.type === 'position') {
       snapshot.position = { ...msg, seq: 0 } as Snapshot['position'];
       snapshot.savedAt = Date.now();
+    } else if (msg.type === 'seek' || msg.type === 'playback_state') {
+      // A pause MUST land in the snapshot: replaying a stale is_playing=true
+      // report catapults the overlay clock forward by the whole gap.
+      snapshot.position = {
+        type: 'position',
+        seq: 0,
+        sent_at: msg.sent_at,
+        tab_id: tabId,
+        position_ms: msg.position_ms,
+        playback_rate: snapshot.position?.playback_rate ?? 1,
+        is_playing: msg.is_playing,
+        captured_at: msg.captured_at,
+      } as Snapshot['position'];
+      snapshot.savedAt = Date.now();
     }
     state.snapshots[tabId] = snapshot;
 
@@ -261,11 +275,23 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     delete state.snapshots[tabId];
     slog('tabs', `tab ${tabId} closed`);
     if (state.activeTabId === tabId) {
-      state.activeTabId = selectActiveTab(state.tabs, null);
+      // Only a tab that is actually PLAYING may take over; a paused leftover
+      // must not resurrect stale lyrics. No successor -> clear immediately.
+      const playing = Object.fromEntries(
+        Object.entries(state.tabs).filter(([, t]) => t.isPlaying),
+      );
+      state.activeTabId = selectActiveTab(playing, null);
       slog('seat', `tab ${tabId} -> ${state.activeTabId ?? '-'} (active tab closed)`);
-      const next = state.activeTabId !== null ? state.snapshots[state.activeTabId] : null;
+      if (state.activeTabId === null) {
+        connection.send({ type: 'source_gone', sent_at: Date.now() });
+        return;
+      }
+      const next = state.snapshots[state.activeTabId];
       if (next?.track) connection.send(next.track);
       if (next?.position) connection.send(next.position);
+      // Refresh from the live page — its snapshot may be minutes old.
+      const successor = state.activeTabId;
+      void chrome.tabs.sendMessage(successor, { kind: 'reannounce' }).catch(() => {});
     }
   });
 });
@@ -281,4 +307,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.5');
+console.debug('[kashi-sw] service worker ready v0.1.6');

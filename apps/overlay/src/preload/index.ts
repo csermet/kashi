@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('kashi', {
   onPlayback: subscribe('kashi:playback'),
   onLyrics: subscribe('kashi:lyrics'),
   onConnection: subscribe('kashi:connection'),
+  onSourceGone: subscribe('kashi:source-gone'),
   /** Flip window interactivity (click-through ↔ draggable) on hover. */
   setInteractive: (interactive: boolean) =>
     ipcRenderer.send('kashi:set-interactive', interactive === true),

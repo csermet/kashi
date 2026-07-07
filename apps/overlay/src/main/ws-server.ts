@@ -45,7 +45,7 @@ export interface OverlayWsServerOptions {
   onMessage: (msg: ExtensionToOverlayMessage, clientId: number) => void;
   /** Both callbacks receive the number of remaining handshaken clients. */
   onClientConnected?: (connectedCount: number) => void;
-  onClientDisconnected?: (connectedCount: number) => void;
+  onClientDisconnected?: (connectedCount: number, clientId: number) => void;
   log?: (line: string) => void;
 }
 
@@ -115,6 +115,8 @@ export function isValidExtensionMessage(msg: unknown): msg is ExtensionToOverlay
       return isNum(m['tab_id']) && isBool(m['is_ad']);
     case 'log':
       return isStr(m['context']) && isStr(m['line']) && (m['line'] as string).length <= 2000;
+    case 'source_gone':
+      return true;
     default:
       return false;
   }
@@ -226,7 +228,7 @@ export class OverlayWsServer {
       this.forgetClient(client);
       if (client.helloDone && !client.notifiedDisconnect && !this.stopping) {
         client.notifiedDisconnect = true;
-        this.opts.onClientDisconnected?.(this.connectedCount);
+        this.opts.onClientDisconnected?.(this.connectedCount, client.id);
       }
     });
   }

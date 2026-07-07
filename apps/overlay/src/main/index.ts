@@ -48,10 +48,26 @@ function send(channel: string, payload: unknown): void {
   }
 }
 
+/** Clear every trace of the current source (close/disconnect/source_gone). */
+function clearSource(reason: string): void {
+  console.debug(`[kashi] source cleared (${reason})`);
+  lookupAbort?.abort();
+  if (debounceTimer) clearTimeout(debounceTimer);
+  currentTrackKey = null;
+  activeSource = null;
+  lastPayloads.delete('kashi:track');
+  lastPayloads.delete('kashi:lyrics');
+  send('kashi:source-gone', {});
+}
+
 function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): void {
   if (msg.type === 'log') {
     console.debug(`[ext:${msg.context}] ${msg.line}`);
     return; // diagnostics only — never forwarded to the renderer
+  }
+  if (msg.type === 'source_gone') {
+    clearSource('source_gone');
+    return;
   }
   switch (msg.type) {
     case 'track_changed': {
@@ -244,10 +260,17 @@ app.whenReady().then(async () => {
     // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass
     // allowedOrigins (+ optional token) from settings. Until then any
     // chrome-extension:// origin is accepted; payloads are shape-validated.
-    expectedClient: 'kashi-extension/0.1.5', // keep in sync with the manifest
+    expectedClient: 'kashi-extension/0.1.6', // keep in sync with the manifest
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
-    onClientDisconnected: (count) => send('kashi:connection', { connected: count > 0 }),
+    onClientDisconnected: (count, clientId) => {
+      // The latch owner vanished (browser closed / reconnect with a new id):
+      // without this, the surviving stream is filtered forever (audit K3).
+      if (count === 0 || activeSource?.clientId === clientId) {
+        clearSource(count === 0 ? 'last client disconnected' : 'latch owner disconnected');
+      }
+      send('kashi:connection', { connected: count > 0 });
+    },
     log: (line) => console.debug(`[kashi] ${line}`),
   });
   const port = await server.start();

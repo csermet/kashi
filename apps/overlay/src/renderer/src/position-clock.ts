@@ -61,7 +61,9 @@ export class PositionClock {
   update(report: PositionReport, isSeek = false): void {
     const mono = this.nowMono();
     const rate = report.playback_rate ?? this.rate;
-    const latencyMs = Math.max(0, this.nowEpoch() - report.captured_at);
+    // Clamp: a snapshot replayed minutes after capture must not catapult the
+    // position forward by the whole gap (transport latency is what we model).
+    const latencyMs = Math.min(5000, Math.max(0, this.nowEpoch() - report.captured_at));
     const compensated = report.position_ms + (report.is_playing ? latencyMs * rate : 0);
 
     if (!this.hasAnchor || isSeek) {

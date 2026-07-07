@@ -24,6 +24,7 @@ interface KashiBridge {
   onPlayback: (cb: (payload: unknown) => void) => () => void;
   onLyrics: (cb: (payload: unknown) => void) => () => void;
   onConnection: (cb: (payload: unknown) => void) => () => void;
+  onSourceGone: (cb: (payload: unknown) => void) => () => void;
   setInteractive: (interactive: boolean) => void;
   dragStart: () => void;
   dragEnd: () => void;
@@ -115,6 +116,18 @@ window.kashi.onPlayback((payload) => {
     msg.type === 'seek',
   );
   lastPlaybackMono = performance.now();
+  ensureLoop();
+});
+
+window.kashi.onSourceGone(() => {
+  window.kashi.log('source gone -> idle');
+  currentKey = null;
+  lines = [];
+  activeIndex = -1;
+  adActive = false;
+  clock.reset();
+  statusText = 'Kashi';
+  statusDim = true;
   ensureLoop();
 });
 

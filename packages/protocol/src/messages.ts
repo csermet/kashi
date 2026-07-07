@@ -107,6 +107,14 @@ export interface LogMessage extends Envelope {
   line: string;
 }
 
+/**
+ * The active source disappeared and NO playing tab can take over — the
+ * overlay must clear to idle immediately (additive in v1).
+ */
+export interface SourceGoneMessage extends Envelope {
+  type: 'source_gone';
+}
+
 export type ExtensionToOverlayMessage =
   | HelloMessage
   | TrackChangedMessage
@@ -115,7 +123,8 @@ export type ExtensionToOverlayMessage =
   | AdStateMessage
   | PlaybackStateMessage
   | PongMessage
-  | LogMessage;
+  | LogMessage
+  | SourceGoneMessage;
 
 // ---------------------------------------------------------------------------
 // Overlay → extension
