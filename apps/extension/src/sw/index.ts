@@ -1,9 +1,14 @@
 /**
  * Service worker glue: receives ContentEvents from tabs, maintains per-tab
  * state in chrome.storage.session (survives SW death — R-10), picks the
- * active tab (playing > most recent), and forwards ONLY the active tab's
- * stream to the overlay. On (re)connect the active tab's last track+position
- * snapshot is replayed so the overlay never starts blind.
+ * active tab (sticky; audible > playing > recency) and forwards ONLY the
+ * active tab's stream to the overlay. On (re)connect the active tab's last
+ * track+position snapshot is replayed so the overlay never starts blind.
+ *
+ * ALL state mutations run through a lock: handlers interleave at awaits
+ * (4 Hz position events vs tabs.onRemoved etc.), and an unserialized
+ * read-modify-write can resurrect a closed tab as the active source with a
+ * stale copy — silently dropping the surviving tab's stream.
  */
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import type { ContentEvent } from '../shared/messages.js';
@@ -61,6 +66,20 @@ async function writeState(state: SessionState): Promise<void> {
   await chrome.storage.session.set({ [STATE_KEY]: state });
 }
 
+let stateLock: Promise<unknown> = Promise.resolve();
+
+/** Serialized read-modify-write; the mutator may send while holding the lock. */
+function withState<T>(mutate: (state: SessionState) => T | Promise<T>): Promise<T> {
+  const run = stateLock.then(async () => {
+    const state = await readState();
+    const result = await mutate(state);
+    await writeState(state);
+    return result;
+  });
+  stateLock = run.catch(() => {});
+  return run;
+}
+
 function toProtocolMessage(event: ContentEvent, tabId: number): Sendable | null {
   switch (event.kind) {
     case 'track_changed': {
@@ -103,66 +122,69 @@ function toProtocolMessage(event: ContentEvent, tabId: number): Sendable | null 
 
 async function handleContentEvent(event: ContentEvent, tabId: number): Promise<void> {
   connection.ensureConnected();
-  const state = await readState();
-
-  // A tab earns isPlaying only through playback events — announcing a track
-  // proves nothing (phantom/prerender pages announce without ever playing).
-  const isPlaying =
-    event.kind === 'track_changed' || event.kind === 'ad_state'
-      ? (state.tabs[tabId]?.isPlaying ?? false)
-      : event.is_playing;
 
   // Ground truth check on announcements: the sender must be a REAL tab.
   // chrome.tabs.get throws for phantom contexts — drop those entirely.
-  let audible = state.tabs[tabId]?.audible;
+  // (Queried OUTSIDE the lock; applied inside.)
+  let freshAudible: boolean | undefined;
   if (event.kind === 'track_changed') {
     try {
-      audible = (await chrome.tabs.get(tabId)).audible ?? false;
+      freshAudible = (await chrome.tabs.get(tabId)).audible ?? false;
     } catch {
       console.debug(`[kashi-sw] dropped announce from non-existent tab ${tabId}`);
       return;
     }
   }
-  state.tabs[tabId] = { isPlaying, lastEventAt: Date.now(), audible };
 
-  const msg = toProtocolMessage(event, tabId);
-  if (!msg) return;
+  await withState((state) => {
+    // A tab earns isPlaying only through playback events — announcing a track
+    // proves nothing (phantom/prerender pages announce without ever playing).
+    const isPlaying =
+      event.kind === 'track_changed' || event.kind === 'ad_state'
+        ? (state.tabs[tabId]?.isPlaying ?? false)
+        : event.is_playing;
+    const audible = freshAudible ?? state.tabs[tabId]?.audible;
+    state.tabs[tabId] = { isPlaying, lastEventAt: Date.now(), audible };
 
-  const snapshot = state.snapshots[tabId] ?? {};
-  if (msg.type === 'track_changed') {
-    snapshot.track = { ...msg, seq: 0 } as Snapshot['track'];
-    snapshot.position = undefined;
-    snapshot.savedAt = Date.now();
-  } else if (msg.type === 'position') {
-    snapshot.position = { ...msg, seq: 0 } as Snapshot['position'];
-    snapshot.savedAt = Date.now();
-  }
-  state.snapshots[tabId] = snapshot;
+    const msg = toProtocolMessage(event, tabId);
+    if (!msg) return;
 
-  const previousActive = state.activeTabId;
-  state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
-  await writeState(state);
+    const snapshot = state.snapshots[tabId] ?? {};
+    if (msg.type === 'track_changed') {
+      snapshot.track = { ...msg, seq: 0 } as Snapshot['track'];
+      snapshot.position = undefined;
+      snapshot.savedAt = Date.now();
+    } else if (msg.type === 'position') {
+      snapshot.position = { ...msg, seq: 0 } as Snapshot['position'];
+      snapshot.savedAt = Date.now();
+    }
+    state.snapshots[tabId] = snapshot;
 
-  if (state.activeTabId !== tabId) return; // inactive tab — recorded, not forwarded
+    const previousActive = state.activeTabId;
+    state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
 
-  // The active tab changed → re-announce its track before streaming (protocol
-  // §multi-tab: the overlay must never apply positions to the wrong track).
-  if (previousActive !== state.activeTabId && msg.type !== 'track_changed') {
-    const track = state.snapshots[tabId]?.track;
-    if (track) connection.send(track);
-  }
-  connection.send(msg);
+    if (state.activeTabId !== tabId) return; // inactive tab — recorded, not forwarded
+
+    // The active tab changed → re-announce its track before streaming (protocol
+    // §multi-tab: the overlay must never apply positions to the wrong track).
+    if (previousActive !== state.activeTabId && msg.type !== 'track_changed') {
+      const track = state.snapshots[tabId]?.track;
+      if (track) connection.send(track);
+    }
+    connection.send(msg);
+  });
 }
 
 async function replayActiveSnapshot(): Promise<void> {
-  const state = await readState();
-  if (state.activeTabId === null) return;
-  const snapshot = state.snapshots[state.activeTabId];
-  // Stale snapshots (e.g. overlay restarted hours later) must not resurrect
-  // an old track — the reannounce that follows will bring live state.
-  if (!snapshot?.savedAt || Date.now() - snapshot.savedAt > SNAPSHOT_MAX_AGE_MS) return;
-  if (snapshot.track) connection.send(snapshot.track);
-  if (snapshot.position) connection.send(snapshot.position);
+  await withState((state) => {
+    if (state.activeTabId === null) return;
+    const snapshot = state.snapshots[state.activeTabId];
+    // Stale snapshots (e.g. overlay restarted hours later) must not resurrect
+    // an old track — the reannounce that follows will bring live state.
+    if (!snapshot?.savedAt || Date.now() - snapshot.savedAt > SNAPSHOT_MAX_AGE_MS) return;
+    if (snapshot.track) connection.send(snapshot.track);
+    if (snapshot.position) connection.send(snapshot.position);
+  });
 }
 
 // --- listeners (top-level, so every SW wake re-registers them) -------------
@@ -182,25 +204,22 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 // picking the active source. Reselect on every audibility flip.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.audible === undefined) return;
-  void (async () => {
-    const state = await readState();
+  void withState((state) => {
     const tab = state.tabs[tabId];
     if (!tab) return;
     tab.audible = changeInfo.audible;
     const previous = state.activeTabId;
     state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
-    await writeState(state);
     if (state.activeTabId !== previous && state.activeTabId !== null) {
       const snapshot = state.snapshots[state.activeTabId];
       if (snapshot?.track) connection.send(snapshot.track);
       if (snapshot?.position) connection.send(snapshot.position);
     }
-  })();
+  });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void (async () => {
-    const state = await readState();
+  void withState((state) => {
     delete state.tabs[tabId];
     delete state.snapshots[tabId];
     if (state.activeTabId === tabId) {
@@ -209,8 +228,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
       if (next?.track) connection.send(next.track);
       if (next?.position) connection.send(next.position);
     }
-    await writeState(state);
-  })();
+  });
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -224,4 +242,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.1');
+console.debug('[kashi-sw] service worker ready v0.1.2');
