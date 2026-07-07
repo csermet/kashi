@@ -244,6 +244,7 @@ app.whenReady().then(async () => {
     // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass
     // allowedOrigins (+ optional token) from settings. Until then any
     // chrome-extension:// origin is accepted; payloads are shape-validated.
+    expectedClient: 'kashi-extension/0.1.5', // keep in sync with the manifest
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
     onClientDisconnected: (count) => send('kashi:connection', { connected: count > 0 }),

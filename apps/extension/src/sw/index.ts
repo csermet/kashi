@@ -173,21 +173,17 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
     state.snapshots[tabId] = snapshot;
 
     const before = state.activeTabId;
-    // USER INTENT: hitting play/resume in a tab captures the seat outright —
-    // that's the one signal that unambiguously says "I want THIS one now".
-    // Otherwise selection stays sticky (background playback can't steal).
-    let seatReason = 'sticky';
-    if (!wasPlaying && isPlaying && event.kind !== 'track_changed' && event.kind !== 'ad_state') {
-      state.activeTabId = tabId;
-      seatReason = 'play-capture';
-    } else {
-      state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
-    }
+    // Pure STICKY selection — deliberately NO "play-capture": Chrome's
+    // audible flag lags ~1s behind a resume, so capturing on play and then
+    // losing the strictly-higher-score comparison produced a 1s seat flash
+    // (user verdict 2026-07-08: resume must NOT steal from a playing source;
+    // handover happens only when the incumbent stops/pauses/closes).
+    state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
     if (state.activeTabId !== before) {
       const scores = Object.entries(state.tabs)
         .map(([id, t]) => `${id}:${t.audible ? 'A' : '-'}${t.isPlaying ? 'P' : '-'}`)
         .join(' ');
-      slog('seat', `tab ${before ?? '-'} -> ${state.activeTabId} (${seatReason}, via ${event.kind} from tab ${tabId}; ${scores})`);
+      slog('seat', `tab ${before ?? '-'} -> ${state.activeTabId} (sticky, via ${event.kind} from tab ${tabId}; ${scores})`);
     }
 
     // Forwarding rules (order matters — the overlay must always see a
@@ -285,4 +281,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.4');
+console.debug('[kashi-sw] service worker ready v0.1.5');

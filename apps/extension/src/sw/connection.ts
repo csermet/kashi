@@ -19,7 +19,7 @@ import {
 } from '@kashi/protocol';
 import { backoffDelayMs } from './logic.js';
 
-const CLIENT_ID = 'kashi-extension/0.1.4';
+const CLIENT_ID = 'kashi-extension/0.1.5';
 const ACK_TIMEOUT_MS = 3000;
 
 /** Omit must distribute over the message union (plain Omit collapses it). */

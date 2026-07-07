@@ -55,7 +55,7 @@ export interface LrclibClientOptions {
 }
 
 const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 12_000; // field data: cold lrclib responses can exceed 8s
 const SEARCH_DURATION_TOLERANCE_S = 3;
 const LAST_LINE_FALLBACK_MS = 5000;
 

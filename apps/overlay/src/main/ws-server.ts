@@ -39,6 +39,8 @@ export interface OverlayWsServerOptions {
   allowedOrigins?: string[];
   /** Optional shared token; when set, `hello.token` must match. */
   token?: string;
+  /** Warn loudly when a connecting client identifies as a different build. */
+  expectedClient?: string;
   /** Called for every accepted, shape-valid post-handshake message. */
   onMessage: (msg: ExtensionToOverlayMessage, clientId: number) => void;
   /** Both callbacks receive the number of remaining handshaken clients. */
@@ -295,6 +297,13 @@ export class OverlayWsServer {
     this.startPinging(client);
     this.opts.onClientConnected?.(this.connectedCount);
     this.log(`client ${client.id} connected: ${hello.client}`);
+    if (this.opts.expectedClient && hello.client !== this.opts.expectedClient) {
+      this.log(
+        `*** UYARI: eklenti surumu eski/farkli (${hello.client}, beklenen ` +
+          `${this.opts.expectedClient}) — 'pnpm --filter kashi-extension build' + ` +
+          `chrome://extensions'ta yenile + YTM sekmesini F5'le ***`,
+      );
+    }
   }
 
   private startPinging(client: ClientState): void {
