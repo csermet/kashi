@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "0.1.0",
+  "generated_at": "2026-07-06T14:30:00Z",
+  "track": {
+    "source": { "type": "youtube", "id": "dQw4w9WgXcQ" },
+    "title": "Never Gonna Give You Up",
+    "artist": "Rick Astley",
+    "album": "Whenever You Need Somebody",
+    "duration_ms": 213000,
+    "canonical_group": "rick astley|never gonna give you up|215"
+  },
+  "sync": "word",
+  "alignment": {
+    "method": "ctc-forced-aligner/mms-300m",
+    "lyrics_source": "lrclib",
+    "lyrics_source_id": 12345,
+    "vocals_separated": true,
+    "quality_score": 0.87,
+    "speed_factor": 1.0
+  },
+  "lines": [
+    {
+      "start_ms": 18500,
+      "end_ms": 22100,
+      "text": "We're no strangers to love",
+      "score": 0.91,
+      "words": [
+        { "start_ms": 18500, "end_ms": 18900, "text": "We're" },
+        { "start_ms": 18900, "end_ms": 19200, "text": "no" },
+        { "start_ms": 19200, "end_ms": 20100, "text": "strangers" },
+        { "start_ms": 20150, "end_ms": 20500, "text": "to" },
+        { "start_ms": 20500, "end_ms": 22100, "text": "love" }
+      ]
+    },
+    {
+      "start_ms": 22600,
+      "end_ms": 26000,
+      "text": "You know the rules and so do I",
+      "words": [
+        { "start_ms": 22600, "end_ms": 22850, "text": "You" },
+        { "start_ms": 22850, "end_ms": 23200, "text": "know" },
+        { "start_ms": 23200, "end_ms": 23400, "text": "the" },
+        { "start_ms": 23400, "end_ms": 24000, "text": "rules" },
+        { "start_ms": 24050, "end_ms": 24300, "text": "and" },
+        { "start_ms": 24300, "end_ms": 24700, "text": "so" },
+        { "start_ms": 24700, "end_ms": 25000, "text": "do" },
+        { "start_ms": 25000, "end_ms": 26000, "text": "I" }
+      ]
+    }
+  ],
+  "beats": {
+    "bpm": 113.2,
+    "confidence": 0.91,
+    "times_ms": [480, 1010, 1540, 2070],
+    "downbeat_indices": [0]
+  },
+  "palette": {
+    "source": "album_art",
+    "primary": "#e84545",
+    "secondary": "#f5d76e",
+    "background": "#1a1a2e",
+    "text": "#ffffff",
+    "accent": "#903749"
+  }
+}

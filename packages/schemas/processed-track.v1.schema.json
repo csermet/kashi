@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/csermet/kashi/packages/schemas/processed-track.v1.schema.json",
+  "title": "KashiProcessedTrackV1",
+  "description": "Processed lyrics document for one track. All timings are integer milliseconds. Schema version 1 is additive-only: consumers MUST ignore unknown fields; breaking changes require schema_version 2. When sync is \"line\", line objects carry no `words` array at all.",
+  "type": "object",
+  "required": ["schema_version", "pipeline_version", "generated_at", "track", "sync", "alignment", "lines"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "pipeline_version": {
+      "type": "string",
+      "description": "Semver of the processing pipeline that produced this document; key input for reprocessing decisions.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "track": {
+      "type": "object",
+      "required": ["source", "title", "artist", "duration_ms"],
+      "properties": {
+        "source": {
+          "type": "object",
+          "required": ["type", "id"],
+          "properties": {
+            "type": { "enum": ["youtube", "plex", "upload"] },
+            "id": { "type": "string", "minLength": 1 }
+          }
+        },
+        "title": { "type": "string" },
+        "artist": { "type": "string" },
+        "album": { "type": "string" },
+        "duration_ms": { "$ref": "#/$defs/ms" },
+        "canonical_group": {
+          "type": "string",
+          "description": "normalize(artist)|normalize(title)|round5(duration_s). Discovery index ONLY — never a cache key (source variants align differently)."
+        }
+      }
+    },
+    "sync": {
+      "enum": ["word", "line"],
+      "description": "Granularity of timing data. \"line\": no per-word timings anywhere in `lines`."
+    },
+    "alignment": {
+      "type": "object",
+      "required": ["method", "quality_score"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "description": "e.g. \"ctc-forced-aligner/mms-300m\" or \"lrclib-passthrough\" for line-only documents."
+        },
+        "lyrics_source": { "type": "string" },
+        "lyrics_source_id": { "type": "integer" },
+        "vocals_separated": { "type": "boolean" },
+        "quality_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Normalized alignment confidence. Clients should fall back to line rendering below ~0.5."
+        },
+        "speed_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Playback-speed factor the audio was corrected by before alignment (nightcore workflow); 1.0 for unmodified audio."
+        }
+      }
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start_ms", "end_ms", "text"],
+        "properties": {
+          "start_ms": { "$ref": "#/$defs/ms" },
+          "end_ms": { "$ref": "#/$defs/ms" },
+          "text": { "type": "string" },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Optional per-line alignment confidence (enables mixed word/line rendering)."
+          },
+          "words": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["start_ms", "end_ms", "text"],
+              "properties": {
+                "start_ms": { "$ref": "#/$defs/ms" },
+                "end_ms": { "$ref": "#/$defs/ms" },
+                "text": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "beats": {
+      "type": "object",
+      "required": ["bpm", "times_ms"],
+      "properties": {
+        "bpm": { "type": "number", "exclusiveMinimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "times_ms": { "type": "array", "items": { "$ref": "#/$defs/ms" } },
+        "downbeat_indices": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0 },
+          "description": "Indices into times_ms."
+        }
+      }
+    },
+    "palette": {
+      "type": "object",
+      "properties": {
+        "source": { "enum": ["album_art", "default"] },
+        "primary": { "$ref": "#/$defs/color" },
+        "secondary": { "$ref": "#/$defs/color" },
+        "background": { "$ref": "#/$defs/color" },
+        "text": { "$ref": "#/$defs/color" },
+        "accent": { "$ref": "#/$defs/color" }
+      }
+    }
+  },
+  "$defs": {
+    "ms": { "type": "integer", "minimum": 0 },
+    "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+  }
+}

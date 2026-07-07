@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Kashi",
+  "version": "0.1.0",
+  "description": "Sends YouTube Music now-playing state to the Kashi lyrics overlay.",
+  "background": {
+    "service_worker": "src/sw/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["src/main-world/media-session.ts"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage", "alarms", "tabs"],
+  "host_permissions": ["https://music.youtube.com/*"]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@kashi/schemas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/generated/processed-track.ts",
+  "scripts": {
+    "codegen": "json2ts -i processed-track.v1.schema.json -o src/generated/processed-track.ts --bannerComment \"/* AUTO-GENERATED from processed-track.v1.schema.json — do not edit. Run \\\"pnpm codegen\\\". */\" --additionalProperties false",
+    "validate": "node scripts/validate-examples.mjs",
+    "build": "npm run validate",
+    "typecheck": "tsc --noEmit src/generated/processed-track.ts"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "json-schema-to-typescript": "15.0.4",
+    "typescript": "^6.0.0"
+  }
+}

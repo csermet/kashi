@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "0.1.0",
+  "generated_at": "2026-07-06T15:00:00Z",
+  "track": {
+    "source": { "type": "youtube", "id": "abc123XYZ_-" },
+    "title": "Some Song Without Word Alignment",
+    "artist": "Some Artist",
+    "duration_ms": 187000
+  },
+  "sync": "line",
+  "alignment": {
+    "method": "lrclib-passthrough",
+    "lyrics_source": "lrclib",
+    "lyrics_source_id": 67890,
+    "quality_score": 1.0
+  },
+  "lines": [
+    { "start_ms": 12340, "end_ms": 15200, "text": "First line of the song" },
+    { "start_ms": 15200, "end_ms": 18900, "text": "Second line of the song" },
+    { "start_ms": 18900, "end_ms": 23400, "text": "Third line keeps on going" }
+  ]
+}

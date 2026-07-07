@@ -1,0 +1,32 @@
+[project]
+name = "kashi-server"
+version = "0.1.0"
+description = "Kashi processing server: lyrics alignment, beat grid and palette extraction"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.139.0",
+    "uvicorn==0.50.2",
+    "pydantic==2.13.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.15.20",
+    "httpx>=0.28",
+    "jsonschema>=4.23",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
