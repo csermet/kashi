@@ -1,17 +1,106 @@
 /**
  * Kashi overlay — Electron main process.
  *
- * Window contract (see plan R-4/R-7): transparent, frameless, always-on-top at
- * screen-saver level, visible over fullscreen apps, click-through with hover
- * forwarding, no background throttling, hardened webPreferences.
+ * Window contract (plan R-4/R-7): transparent, frameless, always-on-top at
+ * screen-saver level, visible over fullscreen apps, hardened webPreferences.
  *
- * Phase 2 will add: local WS server (127.0.0.1:17890-17894, Origin allowlist),
- * position extrapolation clock, lrclib client + disk cache, tray menu,
- * display-aware position persistence.
+ * Wiring: OverlayWsServer (extension messages) → renderer via IPC; lyrics are
+ * fetched from LRCLIB on track changes (500 ms debounce, AbortController +
+ * 10 s timeout per lookup, stale responses matched by track key — plan R-9).
+ * Playback messages are latched to the (client, tab) that sent the last
+ * track_changed so a second YTM tab cannot corrupt the clock (R-9).
+ * Last known state is replayed to the renderer after (re)load.
+ *
+ * Still TODO (later in Phase 2 / Phase 4, plan D.7/R-4): tray menu, settings
+ * UI (extension-ID allowlist + optional token), window position persistence
+ * with display-id validation.
  */
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
-import { PROTOCOL_VERSION } from '@kashi/protocol';
+import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
+import { LrclibClient } from './lrclib.js';
+import { OverlayWsServer } from './ws-server.js';
+
+const TRACK_DEBOUNCE_MS = 500;
+const LYRICS_TIMEOUT_MS = 10_000;
+
+let window: BrowserWindow | null = null;
+let lrclib: LrclibClient;
+
+let currentTrackKey: string | null = null;
+/** Only the (client, tab) that sent the last track_changed drives playback. */
+let activeSource: { clientId: number; tabId: number } | null = null;
+let debounceTimer: NodeJS.Timeout | null = null;
+let lookupAbort: AbortController | null = null;
+
+/** Last payloads, replayed to the renderer on (re)load. */
+const lastPayloads = new Map<string, unknown>();
+
+function trackKey(track: TrackInfo): string {
+  return `${track.source.type}:${track.source.id}`;
+}
+
+function send(channel: string, payload: unknown): void {
+  if (channel !== 'kashi:playback') lastPayloads.set(channel, payload);
+  if (window && !window.isDestroyed()) {
+    window.webContents.send(channel, payload);
+  }
+}
+
+function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): void {
+  switch (msg.type) {
+    case 'track_changed': {
+      activeSource = { clientId, tabId: msg.tab_id };
+      const key = trackKey(msg.track);
+      if (key === currentTrackKey) return; // metadata refresh for same track
+      currentTrackKey = key;
+      send('kashi:track', { key, track: msg.track });
+
+      // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
+      if (debounceTimer) clearTimeout(debounceTimer);
+      lookupAbort?.abort();
+      debounceTimer = setTimeout(() => void lookupLyrics(key, msg.track), TRACK_DEBOUNCE_MS);
+      return;
+    }
+    case 'position':
+    case 'seek':
+    case 'playback_state':
+    case 'ad_state':
+      if (
+        activeSource &&
+        (clientId !== activeSource.clientId || msg.tab_id !== activeSource.tabId)
+      ) {
+        return; // another tab/client — not the one playing our track
+      }
+      send('kashi:playback', msg);
+      return;
+    default:
+      return;
+  }
+}
+
+async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
+  const abort = new AbortController();
+  lookupAbort = abort;
+  const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(LYRICS_TIMEOUT_MS)]);
+  try {
+    const result = await lrclib.getLyrics(
+      {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        duration_ms: track.duration_ms,
+      },
+      signal,
+    );
+    if (key !== currentTrackKey) return; // stale response guard (R-9)
+    send('kashi:lyrics', { key, ...result });
+  } catch (err) {
+    if (abort.signal.aborted) return; // superseded by a newer track
+    console.warn('[kashi] lyrics lookup failed:', err);
+    if (key === currentTrackKey) send('kashi:lyrics', { key, found: false });
+  }
+}
 
 function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -21,8 +110,12 @@ function createOverlayWindow(): BrowserWindow {
     frame: false,
     hasShadow: false,
     skipTaskbar: true,
+    // Electron docs: transparent windows must not be resizable — resizing can
+    // break transparency on some platforms.
+    resizable: false,
+    fullscreenable: false,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -33,6 +126,21 @@ function createOverlayWindow(): BrowserWindow {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
+  // Click-through by default (R-4): clicks land on the app underneath.
+  // forward:true keeps mousemove flowing to the renderer, which flips the
+  // window interactive while the cursor hovers the lyric text (drag support).
+  win.setIgnoreMouseEvents(true, { forward: true });
+
+  win.on('closed', () => {
+    window = null;
+  });
+  // Replay last known state after every load (startup, reload, crash restart).
+  win.webContents.on('did-finish-load', () => {
+    for (const [channel, payload] of lastPayloads) {
+      win.webContents.send(channel, payload);
+    }
+  });
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
@@ -41,9 +149,30 @@ function createOverlayWindow(): BrowserWindow {
   return win;
 }
 
-app.whenReady().then(() => {
-  console.debug(`[kashi] overlay starting (protocol v${PROTOCOL_VERSION})`);
-  createOverlayWindow();
+ipcMain.on('kashi:set-interactive', (_event, interactive: unknown) => {
+  window?.setIgnoreMouseEvents(interactive !== true, { forward: true });
+});
+
+app.whenReady().then(async () => {
+  lrclib = new LrclibClient({
+    cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
+  });
+
+  window = createOverlayWindow();
+
+  const server = new OverlayWsServer({
+    // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass
+    // allowedOrigins (+ optional token) from settings. Until then any
+    // chrome-extension:// origin is accepted; payloads are shape-validated.
+    onMessage: onExtensionMessage,
+    onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
+    onClientDisconnected: (count) => send('kashi:connection', { connected: count > 0 }),
+    log: (line) => console.debug(`[kashi] ${line}`),
+  });
+  const port = await server.start();
+  console.debug(`[kashi] overlay ready, ws on 127.0.0.1:${port}`);
+
+  app.on('before-quit', () => void server.stop());
 });
 
 app.on('window-all-closed', () => {

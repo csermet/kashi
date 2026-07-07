@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "fake-extension": "node scripts/fake-extension.mjs"
   },
   "dependencies": {
     "@kashi/protocol": "workspace:*",
@@ -19,6 +21,7 @@
     "electron": "42.6.0",
     "electron-vite": "^5.0.0",
     "typescript": "^6.0.0",
-    "vite": "^7.3.0"
+    "vite": "^7.3.0",
+    "vitest": "^4.1.0"
   }
 }

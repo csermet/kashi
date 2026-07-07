@@ -60,8 +60,13 @@ file:line and the checklist item it violates.
 - WS server binds `127.0.0.1` only and validates `Origin: chrome-extension://<id>` allowlist.
 - Renderer loads no remote content; CSP restricts to `'self'` + `img-src https: data:`.
 - `backgroundThrottling: false` on the overlay window.
-- Position clock: extrapolation on `performance.now()`; delta rules: <30 ms ignore, 30–300 ms
-  slew over ~250 ms, >1500 ms snap (seek). Rendering directly off `Date.now()` is a violation.
+- Transparent windows: `resizable: false` (Electron docs — resizing can break
+  transparency); overlay stays frameless + skipTaskbar.
+- Workspace packages (`@kashi/*`) are BUNDLED into main/preload output
+  (electron-vite `externalizeDeps.exclude`) — externalized they resolve to TS
+  source at runtime and crash the ESM loader.
+- Position clock: extrapolation on `performance.now()`; delta rules: <30 ms ignore, 30–1500 ms
+  slew over ~250 ms (buffering stalls included), >1500 ms snap (real seek). Rendering directly off `Date.now()` is a violation.
 - Window position persisted with display id + bounds and validated against connected displays
   on startup.
 
