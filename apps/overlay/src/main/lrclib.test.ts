@@ -175,6 +175,30 @@ describe('LrclibClient', () => {
     expect(rb).toMatchObject({ found: true, sourceId: 7 });
   });
 
+  it('times out a hung request via the per-request budget', async () => {
+    const { fetchFn } = makeFetch(
+      (url) =>
+        new Promise<Response>((resolve, reject) => {
+          // Simulate a black-holed connection: resolve never, but honor abort.
+          void url;
+        }),
+    );
+    // Wire abort through like real fetch would:
+    const hangingFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('timeout', 'TimeoutError')),
+        );
+      })) as typeof fetch;
+    const client = new LrclibClient({
+      cacheDir,
+      fetchFn: hangingFetch,
+      requestTimeoutMs: 50,
+    });
+    await expect(client.getLyrics(QUERY)).rejects.toThrow();
+    void fetchFn;
+  });
+
   it('does not negative-cache aborted lookups', async () => {
     const controller = new AbortController();
     const { fetchFn, calls } = makeFetch(() => {

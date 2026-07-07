@@ -22,7 +22,8 @@ import { LrclibClient } from './lrclib.js';
 import { OverlayWsServer } from './ws-server.js';
 
 const TRACK_DEBOUNCE_MS = 500;
-const LYRICS_TIMEOUT_MS = 10_000;
+/** Retry delays for transient lrclib failures (timeout/network). */
+const LYRICS_RETRY_DELAYS_MS = [0, 2000, 6000];
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
@@ -79,34 +80,56 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
   }
 }
 
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
 async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
   const abort = new AbortController();
   lookupAbort = abort;
-  const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(LYRICS_TIMEOUT_MS)]);
-  try {
-    const result = await lrclib.getLyrics(
-      {
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        duration_ms: track.duration_ms,
-      },
-      signal,
-    );
-    if (key !== currentTrackKey) return; // stale response guard (R-9)
-    if (!result.found) {
-      console.debug(
-        `[kashi] no synced lyrics: "${track.artist} - ${track.title}"` +
-          ` (duration_ms=${track.duration_ms ?? 'yok'})`,
+  const query = {
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    duration_ms: track.duration_ms,
+  };
+
+  // Transient lrclib slowness (per-request 8s timeout) gets a few retries —
+  // one hiccup must not mean a whole song without lyrics.
+  for (const [attempt, delay] of LYRICS_RETRY_DELAYS_MS.entries()) {
+    await abortableSleep(delay, abort.signal);
+    if (abort.signal.aborted) return; // superseded by a newer track
+    try {
+      const result = await lrclib.getLyrics(query, abort.signal);
+      if (key !== currentTrackKey) return; // stale response guard (R-9)
+      if (!result.found) {
+        console.debug(
+          `[kashi] no synced lyrics: "${track.artist} - ${track.title}"` +
+            ` (duration_ms=${track.duration_ms ?? 'yok'})`,
+        );
+      }
+      send('kashi:lyrics', { key, ...result });
+      return;
+    } catch (err) {
+      if (abort.signal.aborted) return;
+      console.warn(
+        `[kashi] lyrics lookup failed (attempt ${attempt + 1}/${LYRICS_RETRY_DELAYS_MS.length}):`,
+        err,
       );
     }
-    send('kashi:lyrics', { key, ...result });
-  } catch (err) {
-    if (abort.signal.aborted) return; // superseded by a newer track
-    console.warn('[kashi] lyrics lookup FAILED (network/timeout):', err);
-    // error !== genuine miss — renderer shows a different message.
-    if (key === currentTrackKey) send('kashi:lyrics', { key, found: false, error: true });
   }
+  // error !== genuine miss — renderer shows a different message.
+  if (key === currentTrackKey) send('kashi:lyrics', { key, found: false, error: true });
 }
 
 function createOverlayWindow(): BrowserWindow {

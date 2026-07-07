@@ -48,11 +48,14 @@ export interface LrclibClientOptions {
   fetchFn?: typeof fetch;
   nowFn?: () => number;
   negativeTtlMs?: number;
+  /** Per-request timeout (exact-get and search each get their own budget). */
+  requestTimeoutMs?: number;
   baseUrl?: string;
   log?: (line: string) => void;
 }
 
 const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 8000;
 const SEARCH_DURATION_TOLERANCE_S = 3;
 const LAST_LINE_FALLBACK_MS = 5000;
 
@@ -164,8 +167,11 @@ export class LrclibClient {
 
   private request(path: string, signal?: AbortSignal): Promise<Response> {
     const fetchFn = this.opts.fetchFn ?? fetch;
+    // Each request gets its own timeout budget — a single slow lrclib response
+    // must not eat the whole lookup (exact-get + search are sequential).
+    const timeout = AbortSignal.timeout(this.opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
     return fetchFn(`${this.opts.baseUrl ?? 'https://lrclib.net'}${path}`, {
-      signal: signal ?? null,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: {
         'User-Agent':
           this.opts.userAgent ?? 'kashi/0.1.0 (+https://github.com/csermet/kashi)',
