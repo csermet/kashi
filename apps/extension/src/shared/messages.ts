@@ -18,8 +18,18 @@ export interface MainWorldSnapshot {
   album: string | null;
   artworkUrl: string | null;
   playbackState: 'none' | 'paused' | 'playing';
+  /**
+   * From the player API (#movie_player getVideoData) — authoritative fallback
+   * when YTM restores a paused session on a URL without ?v= (home page).
+   */
+  videoId: string | null;
   /** Set when the player fired `videodatachange` (primary track signal). */
   trackSignal: boolean;
+}
+
+/** Service worker → content script: re-announce current state (fresh beats stale). */
+export interface ReannounceRequest {
+  kind: 'reannounce';
 }
 
 /** Content script → service worker events (SW adds seq + tab_id). */

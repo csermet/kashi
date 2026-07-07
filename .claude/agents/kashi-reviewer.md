@@ -46,7 +46,8 @@ file:line and the checklist item it violates.
   a violation (Chrome 147 Local Network Access prompt).
 - SW state that must survive SW death lives in `chrome.storage.session`.
 - `chrome.alarms` watchdog exists for reconnect; no reliance on long-lived SW globals alone.
-- videoId comes from the URL, never from mediaSession metadata; `track_changed` debounced ~500 ms.
+- videoId comes from the URL (player-API `getVideoData` fallback for URL-less session restore),
+  never from mediaSession metadata; `track_changed` debounced ~500 ms.
 - Position tracking uses the video element's `timeupdate` event, not polling/setInterval.
 - Ad filtering present (`.ytmusic-player-bar.advertisement` or equivalent); position stream pauses
   during ads.

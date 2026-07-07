@@ -15,7 +15,7 @@
  * UI (extension-ID allowlist + optional token), window position persistence
  * with display-id validation.
  */
-import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, net, screen } from 'electron';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import { LrclibClient } from './lrclib.js';
@@ -219,6 +219,9 @@ ipcMain.on('kashi:drag-end', stopDrag);
 app.whenReady().then(async () => {
   lrclib = new LrclibClient({
     cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
+    // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)
+    // — Node's fetch stalls for seconds on broken IPv6 routes.
+    fetchFn: net.fetch.bind(net) as typeof fetch,
   });
 
   window = createOverlayWindow();

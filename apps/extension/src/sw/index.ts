@@ -16,7 +16,11 @@ const WATCHDOG_ALARM = 'kashi-watchdog';
 type Snapshot = {
   track?: Extract<ExtensionToOverlayMessage, { type: 'track_changed' }>;
   position?: Extract<ExtensionToOverlayMessage, { type: 'position' }>;
+  savedAt?: number;
 };
+
+/** Snapshots older than this are not replayed — a fresh reannounce wins. */
+const SNAPSHOT_MAX_AGE_MS = 5 * 60_000;
 
 interface SessionState {
   tabs: Record<number, TabState>;
@@ -27,9 +31,26 @@ interface SessionState {
 const EMPTY_STATE: SessionState = { tabs: {}, snapshots: {}, activeTabId: null };
 
 const connection = new OverlayConnection(
-  () => void replayActiveSnapshot(),
+  () => {
+    // Instant UX from the stored snapshot, then ask the live page to
+    // re-announce — fresh state corrects anything stale.
+    void replayActiveSnapshot().then(requestReannounce);
+  },
   (line) => console.debug(`[kashi-sw] ${line}`),
 );
+
+async function requestReannounce(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({ url: 'https://music.youtube.com/*' });
+    for (const tab of tabs) {
+      if (tab.id !== undefined) {
+        void chrome.tabs.sendMessage(tab.id, { kind: 'reannounce' }).catch(() => {});
+      }
+    }
+  } catch {
+    /* no tabs / no permission — nothing to refresh */
+  }
+}
 
 async function readState(): Promise<SessionState> {
   const stored = await chrome.storage.session.get(STATE_KEY);
@@ -99,8 +120,10 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
   if (msg.type === 'track_changed') {
     snapshot.track = { ...msg, seq: 0 } as Snapshot['track'];
     snapshot.position = undefined;
+    snapshot.savedAt = Date.now();
   } else if (msg.type === 'position') {
     snapshot.position = { ...msg, seq: 0 } as Snapshot['position'];
+    snapshot.savedAt = Date.now();
   }
   state.snapshots[tabId] = snapshot;
 
@@ -123,8 +146,11 @@ async function replayActiveSnapshot(): Promise<void> {
   const state = await readState();
   if (state.activeTabId === null) return;
   const snapshot = state.snapshots[state.activeTabId];
-  if (snapshot?.track) connection.send(snapshot.track);
-  if (snapshot?.position) connection.send(snapshot.position);
+  // Stale snapshots (e.g. overlay restarted hours later) must not resurrect
+  // an old track — the reannounce that follows will bring live state.
+  if (!snapshot?.savedAt || Date.now() - snapshot.savedAt > SNAPSHOT_MAX_AGE_MS) return;
+  if (snapshot.track) connection.send(snapshot.track);
+  if (snapshot.position) connection.send(snapshot.position);
 }
 
 // --- listeners (top-level, so every SW wake re-registers them) -------------

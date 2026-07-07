@@ -13,6 +13,17 @@ import { MAIN_WORLD_MARKER, type MainWorldSnapshot } from '../shared/messages.js
 
 const SAFETY_NET_MS = 5000;
 
+function playerVideoId(): string | null {
+  const player = document.querySelector('#movie_player') as
+    | { getVideoData?: () => { video_id?: string } }
+    | null;
+  try {
+    return player?.getVideoData?.()?.video_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function readSnapshot(trackSignal: boolean): MainWorldSnapshot {
   const meta = navigator.mediaSession.metadata;
   const artwork = meta?.artwork?.[meta.artwork.length - 1]?.src ?? null;
@@ -24,6 +35,7 @@ function readSnapshot(trackSignal: boolean): MainWorldSnapshot {
     album: meta?.album ?? null,
     artworkUrl: artwork,
     playbackState: navigator.mediaSession.playbackState,
+    videoId: playerVideoId(),
     trackSignal,
   };
 }

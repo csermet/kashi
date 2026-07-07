@@ -45,7 +45,13 @@ function sendEvent(event: ContentEvent): void {
 }
 
 function currentVideoId(): string | null {
-  return new URL(window.location.href).searchParams.get('v');
+  // URL first; player-API fallback covers YTM restoring a paused session on a
+  // URL without ?v= (home page). Never from mediaSession metadata (R-9).
+  return (
+    new URL(window.location.href).searchParams.get('v') ??
+    latestSnapshot?.videoId ??
+    null
+  );
 }
 
 function isAdPlaying(): boolean {
@@ -155,6 +161,19 @@ document.addEventListener('yt-navigate-finish', () => {
   attachVideo();
   refreshAdState();
   maybeAnnounceTrack();
+});
+
+// SW asks for a fresh announce after (re)connecting to the overlay — live
+// state must beat whatever stale snapshot the SW replayed.
+chrome.runtime.onMessage.addListener((message: unknown) => {
+  if ((message as { kind?: string })?.kind !== 'reannounce') return;
+  announcedVideoId = null;
+  pendingVideoId = null;
+  attachVideo();
+  refreshAdState();
+  maybeAnnounceTrack();
+  const evt = positionEvent('playback_state');
+  if (evt) sendEvent(evt);
 });
 
 // The <video> element renders late on cold loads; retry until attached.
