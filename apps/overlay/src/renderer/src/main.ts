@@ -64,13 +64,18 @@ window.kashi.onTrack((payload) => {
 });
 
 window.kashi.onLyrics((payload) => {
-  const data = payload as { key: string; found: boolean; lines?: LyricLine[] };
+  const data = payload as {
+    key: string;
+    found: boolean;
+    error?: boolean;
+    lines?: LyricLine[];
+  };
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.found && data.lines) {
     lines = data.lines;
   } else {
     lines = [];
-    statusText = 'No synced lyrics found';
+    statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
     statusDim = true;
   }
   activeIndex = -1;

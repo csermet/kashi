@@ -94,11 +94,18 @@ async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
       signal,
     );
     if (key !== currentTrackKey) return; // stale response guard (R-9)
+    if (!result.found) {
+      console.debug(
+        `[kashi] no synced lyrics: "${track.artist} - ${track.title}"` +
+          ` (duration_ms=${track.duration_ms ?? 'yok'})`,
+      );
+    }
     send('kashi:lyrics', { key, ...result });
   } catch (err) {
     if (abort.signal.aborted) return; // superseded by a newer track
-    console.warn('[kashi] lyrics lookup failed:', err);
-    if (key === currentTrackKey) send('kashi:lyrics', { key, found: false });
+    console.warn('[kashi] lyrics lookup FAILED (network/timeout):', err);
+    // error !== genuine miss — renderer shows a different message.
+    if (key === currentTrackKey) send('kashi:lyrics', { key, found: false, error: true });
   }
 }
 

@@ -20,6 +20,23 @@ let announcedVideoId: string | null = null;
 let trackTimer: number | undefined;
 let adActive = false;
 let video: HTMLVideoElement | null = null;
+let lastDurationChangeAt = 0;
+let videoIdChangedAt = 0;
+
+/**
+ * YTM streams via MSE: on track switches the <video> keeps its old duration
+ * until the new source's metadata lands. A stale duration poisons the LRCLIB
+ * duration-tolerance match, so only trust it when `durationchange` fired
+ * after (or shortly before) the current videoId appeared.
+ */
+function freshDurationMs(): number | undefined {
+  const durationS = video?.duration;
+  if (!durationS || !Number.isFinite(durationS)) return undefined;
+  const fresh =
+    lastDurationChangeAt >= videoIdChangedAt ||
+    videoIdChangedAt - lastDurationChangeAt < 8000;
+  return fresh ? Math.round(durationS * 1000) : undefined;
+}
 
 function sendEvent(event: ContentEvent): void {
   // SW may be asleep; sendMessage wakes it. Errors (e.g. during extension
@@ -58,9 +75,15 @@ function refreshAdState(): void {
   }
 }
 
+let pendingVideoId: string | null = null;
+
 function maybeAnnounceTrack(): void {
   const videoId = currentVideoId();
   if (!videoId || videoId === announcedVideoId) return;
+  if (videoId !== pendingVideoId) {
+    pendingVideoId = videoId;
+    videoIdChangedAt = Date.now(); // stamp the actual id change, not each call
+  }
 
   // Debounce: metadata settles milliseconds after the track signal, and radio
   // skip-chains must not spam (R-9). Built from the LATEST snapshot at fire.
@@ -71,17 +94,15 @@ function maybeAnnounceTrack(): void {
     const meta = latestSnapshot;
     if (!meta?.title || adActive) return; // wait for metadata / skip ads
     announcedVideoId = id;
-    const durationS = video?.duration;
     sendEvent({
       kind: 'track_changed',
       videoId: id,
       title: meta.title,
       artist: meta.artist ?? '',
       album: meta.album ?? undefined,
-      duration_ms:
-        durationS && Number.isFinite(durationS)
-          ? Math.round(durationS * 1000)
-          : undefined,
+      // undefined beats a stale value: the overlay's search fallback still
+      // finds lyrics without a duration, but a WRONG duration rejects all.
+      duration_ms: freshDurationMs(),
       artwork_url: meta.artworkUrl ?? undefined,
       sent_at: Date.now(),
     });
@@ -95,6 +116,9 @@ function attachVideo(): boolean {
   if (!el || el === video) return el !== null;
   video = el;
 
+  video.addEventListener('durationchange', () => {
+    lastDurationChangeAt = Date.now();
+  });
   video.addEventListener('timeupdate', () => {
     refreshAdState();
     if (adActive) return; // position stream pauses during ads
