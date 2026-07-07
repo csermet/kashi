@@ -23,4 +23,7 @@ contextBridge.exposeInMainWorld('kashi', {
   /** Flip window interactivity (click-through ↔ draggable) on hover. */
   setInteractive: (interactive: boolean) =>
     ipcRenderer.send('kashi:set-interactive', interactive === true),
+  /** Manual window dragging (app-region would swallow mouse events). */
+  dragStart: () => ipcRenderer.send('kashi:drag-start'),
+  dragEnd: () => ipcRenderer.send('kashi:drag-end'),
 });

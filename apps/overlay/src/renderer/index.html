@@ -17,23 +17,35 @@
         font-family: system-ui, sans-serif;
         user-select: none;
       }
+      /* NOTE: no -webkit-app-region here — drag regions swallow ALL mouse
+         events, which breaks hover detection and click-through toggling.
+         Dragging is implemented manually (mousedown → IPC → cursor-follow). */
       #drag-region {
         height: 100%;
         display: grid;
         place-items: center;
-        -webkit-app-region: drag;
       }
       .lyric {
         color: #fff;
         font-size: 28px;
         font-weight: 600;
         text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+        cursor: grab;
+        transition: font-size 0.2s, opacity 0.2s;
+      }
+      .lyric.dim {
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0.45;
+      }
+      .lyric:active {
+        cursor: grabbing;
       }
     </style>
   </head>
   <body>
     <div id="drag-region">
-      <div class="lyric" id="lyric-line">Kashi overlay — skeleton</div>
+      <div class="lyric dim" id="lyric-line">Kashi</div>
     </div>
     <script type="module" src="./src/main.ts"></script>
   </body>

@@ -15,7 +15,7 @@
  * UI (extension-ID allowlist + optional token), window position persistence
  * with display-id validation.
  */
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import { LrclibClient } from './lrclib.js';
@@ -152,6 +152,39 @@ function createOverlayWindow(): BrowserWindow {
 ipcMain.on('kashi:set-interactive', (_event, interactive: unknown) => {
   window?.setIgnoreMouseEvents(interactive !== true, { forward: true });
 });
+
+/**
+ * Manual dragging: the window follows the cursor while the renderer reports a
+ * drag (mousedown on the lyric). Because the window moves WITH the cursor,
+ * the cursor never leaves it and the terminating mouseup always arrives.
+ */
+let drag: { offsetX: number; offsetY: number; timer: NodeJS.Timeout } | null = null;
+
+function stopDrag(): void {
+  if (drag) {
+    clearInterval(drag.timer);
+    drag = null;
+  }
+}
+
+ipcMain.on('kashi:drag-start', () => {
+  if (!window || window.isDestroyed() || drag) return;
+  const cursor = screen.getCursorScreenPoint();
+  const [winX, winY] = window.getPosition();
+  drag = {
+    offsetX: cursor.x - winX,
+    offsetY: cursor.y - winY,
+    timer: setInterval(() => {
+      if (!window || window.isDestroyed()) {
+        stopDrag();
+        return;
+      }
+      const point = screen.getCursorScreenPoint();
+      window.setPosition(point.x - (drag?.offsetX ?? 0), point.y - (drag?.offsetY ?? 0));
+    }, 16),
+  };
+});
+ipcMain.on('kashi:drag-end', stopDrag);
 
 app.whenReady().then(async () => {
   lrclib = new LrclibClient({

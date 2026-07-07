@@ -25,6 +25,8 @@ interface KashiBridge {
   onLyrics: (cb: (payload: unknown) => void) => () => void;
   onConnection: (cb: (payload: unknown) => void) => () => void;
   setInteractive: (interactive: boolean) => void;
+  dragStart: () => void;
+  dragEnd: () => void;
 }
 
 declare global {
@@ -40,10 +42,14 @@ let currentKey: string | null = null;
 let lines: LyricLine[] = [];
 let activeIndex = -1;
 let adActive = false;
-let statusText = 'Kashi — waiting for music…';
+// Idle default (Caner's call): no big "waiting" text — a small dim badge.
+let statusText = 'Kashi';
+let statusDim = true;
 
-function setLine(text: string): void {
-  if (lineEl && lineEl.textContent !== text) lineEl.textContent = text;
+function setLine(text: string, dim = false): void {
+  if (!lineEl) return;
+  if (lineEl.textContent !== text) lineEl.textContent = text;
+  lineEl.classList.toggle('dim', dim);
 }
 
 window.kashi.onTrack((payload) => {
@@ -53,6 +59,7 @@ window.kashi.onTrack((payload) => {
   activeIndex = -1;
   clock.reset();
   statusText = `♪ ${track.artist} — ${track.title}`;
+  statusDim = false;
   ensureLoop();
 });
 
@@ -64,6 +71,7 @@ window.kashi.onLyrics((payload) => {
   } else {
     lines = [];
     statusText = 'No synced lyrics found';
+    statusDim = true;
   }
   activeIndex = -1;
   ensureLoop();
@@ -90,15 +98,28 @@ window.kashi.onPlayback((payload) => {
 
 window.kashi.onConnection((payload) => {
   const { connected } = payload as { connected: boolean };
-  if (!connected) statusText = 'Kashi — extension disconnected';
+  if (!connected) {
+    // Source gone → back to the small idle badge (no stale lyrics on screen).
+    currentKey = null;
+    lines = [];
+    activeIndex = -1;
+    adActive = false;
+    clock.reset();
+    statusText = 'Kashi';
+    statusDim = true;
+  }
   ensureLoop();
 });
 
 // Hover ↔ click-through: the window ignores mouse events by default but
 // forwards mousemove; hovering the lyric text flips it interactive so it can
-// be dragged, leaving flips it back (R-4).
+// be dragged, leaving flips it back (R-4). Dragging is manual (mousedown →
+// IPC cursor-follow) because -webkit-app-region would swallow mouse events.
 let interactive = false;
+let dragging = false;
+
 document.addEventListener('mousemove', (event) => {
+  if (dragging) return;
   const over = lineEl?.contains(event.target as Node) ?? false;
   if (over !== interactive) {
     interactive = over;
@@ -106,9 +127,26 @@ document.addEventListener('mousemove', (event) => {
   }
 });
 document.documentElement.addEventListener('mouseleave', () => {
-  if (interactive) {
+  if (interactive && !dragging) {
     interactive = false;
     window.kashi.setInteractive(false);
+  }
+});
+lineEl?.addEventListener('mousedown', (event) => {
+  if (event.button !== 0) return;
+  dragging = true;
+  window.kashi.dragStart();
+});
+window.addEventListener('mouseup', () => {
+  if (dragging) {
+    dragging = false;
+    window.kashi.dragEnd();
+  }
+});
+window.addEventListener('blur', () => {
+  if (dragging) {
+    dragging = false;
+    window.kashi.dragEnd();
   }
 });
 
@@ -142,7 +180,7 @@ function frame(): void {
   if (adActive) {
     setLine('');
   } else if (lines.length === 0) {
-    setLine(statusText);
+    setLine(statusText, statusDim);
   } else {
     const index = findActiveLine(clock.positionAt());
     if (index !== activeIndex) {
