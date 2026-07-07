@@ -170,7 +170,7 @@ function stopDrag(): void {
 ipcMain.on('kashi:drag-start', () => {
   if (!window || window.isDestroyed() || drag) return;
   const cursor = screen.getCursorScreenPoint();
-  const [winX, winY] = window.getPosition();
+  const [winX = 0, winY = 0] = window.getPosition();
   drag = {
     offsetX: cursor.x - winX,
     offsetY: cursor.y - winY,
