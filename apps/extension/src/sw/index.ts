@@ -41,8 +41,14 @@ const connection = new OverlayConnection(
     // re-announce — fresh state corrects anything stale.
     void replayActiveSnapshot().then(requestReannounce);
   },
-  (line) => console.debug(`[kashi-sw] ${line}`),
+  (line) => slog('conn', line),
 );
+
+/** Diagnostic: SW console + mirrored to the overlay terminal when connected. */
+function slog(context: string, line: string): void {
+  console.debug(`[kashi-sw:${context}] ${line}`);
+  connection.send({ type: 'log', context, line, sent_at: Date.now() });
+}
 
 async function requestReannounce(): Promise<void> {
   try {
@@ -123,6 +129,11 @@ function toProtocolMessage(event: ContentEvent, tabId: number): Sendable | null 
 async function handleContentEvent(event: ContentEvent, tabId: number): Promise<void> {
   connection.ensureConnected();
 
+  if (event.kind === 'log') {
+    slog(`tab${tabId}`, event.line);
+    return;
+  }
+
   // Ground truth check on announcements: the sender must be a REAL tab.
   // chrome.tabs.get throws for phantom contexts — drop those entirely.
   // (Queried OUTSIDE the lock; applied inside.)
@@ -165,10 +176,18 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
     // USER INTENT: hitting play/resume in a tab captures the seat outright —
     // that's the one signal that unambiguously says "I want THIS one now".
     // Otherwise selection stays sticky (background playback can't steal).
+    let seatReason = 'sticky';
     if (!wasPlaying && isPlaying && event.kind !== 'track_changed' && event.kind !== 'ad_state') {
       state.activeTabId = tabId;
+      seatReason = 'play-capture';
     } else {
       state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
+    }
+    if (state.activeTabId !== before) {
+      const scores = Object.entries(state.tabs)
+        .map(([id, t]) => `${id}:${t.audible ? 'A' : '-'}${t.isPlaying ? 'P' : '-'}`)
+        .join(' ');
+      slog('seat', `tab ${before ?? '-'} -> ${state.activeTabId} (${seatReason}, via ${event.kind} from tab ${tabId}; ${scores})`);
     }
 
     // Forwarding rules (order matters — the overlay must always see a
@@ -226,8 +245,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     const tab = state.tabs[tabId];
     if (!tab) return;
     tab.audible = changeInfo.audible;
+    slog('tabs', `tab ${tabId} audible -> ${changeInfo.audible}`);
     const previous = state.activeTabId;
     state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
+    if (state.activeTabId !== previous) {
+      slog('seat', `tab ${previous ?? '-'} -> ${state.activeTabId ?? '-'} (audible-flip)`);
+    }
     if (state.activeTabId !== previous && state.activeTabId !== null) {
       const snapshot = state.snapshots[state.activeTabId];
       if (snapshot?.track) connection.send(snapshot.track);
@@ -240,8 +263,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void withState((state) => {
     delete state.tabs[tabId];
     delete state.snapshots[tabId];
+    slog('tabs', `tab ${tabId} closed`);
     if (state.activeTabId === tabId) {
       state.activeTabId = selectActiveTab(state.tabs, null);
+      slog('seat', `tab ${tabId} -> ${state.activeTabId ?? '-'} (active tab closed)`);
       const next = state.activeTabId !== null ? state.snapshots[state.activeTabId] : null;
       if (next?.track) connection.send(next.track);
       if (next?.position) connection.send(next.position);
@@ -260,4 +285,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.3');
+console.debug('[kashi-sw] service worker ready v0.1.4');

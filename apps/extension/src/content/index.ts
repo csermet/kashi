@@ -44,6 +44,12 @@ function sendEvent(event: ContentEvent): void {
   void chrome.runtime.sendMessage(event).catch(() => {});
 }
 
+/** Diagnostic: local console + relayed to the overlay terminal via the SW. */
+function log(line: string): void {
+  console.debug(`[kashi] ${line}`);
+  sendEvent({ kind: 'log', line, sent_at: Date.now() });
+}
+
 function currentVideoId(): string | null {
   // Player API FIRST: on queue auto-advance YTM does not navigate, so the URL
   // ?v= stays stuck on the first song of the list. getVideoData tracks the
@@ -78,6 +84,7 @@ function refreshAdState(): void {
   const isAd = isAdPlaying();
   if (isAd !== adActive) {
     adActive = isAd;
+    log(`ad_state -> ${isAd}`);
     sendEvent({ kind: 'ad_state', is_ad: isAd, sent_at: Date.now() });
   }
 }
@@ -107,13 +114,14 @@ function maybeAnnounceTrack(): void {
     // hasn't caught up yet; announcing now would look up the WRONG lyrics.
     if (meta.title === lastAnnouncedTitle && staleTitleRetries < 4) {
       staleTitleRetries++;
+      log(`announce deferred (stale title "${meta.title}", retry ${staleTitleRetries})`);
       trackTimer = window.setTimeout(() => maybeAnnounceTrack(), TRACK_DEBOUNCE_MS);
       return;
     }
     announcedVideoId = id;
     lastAnnouncedTitle = meta.title;
-    console.debug(
-      `[kashi] announcing ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'})`,
+    log(
+      `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'}, dur=${freshDurationMs() ?? 'yok'})`,
     );
     sendEvent({
       kind: 'track_changed',
@@ -136,6 +144,7 @@ function attachVideo(): boolean {
   const el = document.querySelector('video');
   if (!el || el === video) return el !== null;
   video = el;
+  log('video element attached');
 
   video.addEventListener('durationchange', () => {
     lastDurationChangeAt = Date.now();
@@ -183,6 +192,7 @@ function init(): void {
   // state must beat whatever stale snapshot the SW replayed.
   chrome.runtime.onMessage.addListener((message: unknown) => {
     if ((message as { kind?: string })?.kind !== 'reannounce') return;
+    log('reannounce requested by SW');
     announcedVideoId = null;
     pendingVideoId = null;
     lastAnnouncedTitle = null; // avoid the stale-title delay on same-track reannounce
@@ -200,7 +210,7 @@ function init(): void {
     }, 1000);
   }
 
-  console.debug('[kashi] content script ready v0.1.3');
+  console.debug('[kashi] content script ready v0.1.4');
 }
 
 // Chrome PRERENDERS list/next pages: our script would run in those phantom

@@ -52,4 +52,5 @@ export type ContentEvent =
       captured_at: number;
       sent_at: number;
     }
-  | { kind: 'ad_state'; is_ad: boolean; sent_at: number };
+  | { kind: 'ad_state'; is_ad: boolean; sent_at: number }
+  | { kind: 'log'; line: string; sent_at: number };

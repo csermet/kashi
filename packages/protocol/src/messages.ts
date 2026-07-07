@@ -96,6 +96,17 @@ export interface PongMessage extends Envelope {
   type: 'pong';
 }
 
+/**
+ * Diagnostic line, printed to the overlay's terminal so ALL debugging
+ * (SW seat decisions, content-script announces, …) surfaces in one
+ * copy-pasteable stream (additive in v1; never forwarded to the renderer).
+ */
+export interface LogMessage extends Envelope {
+  type: 'log';
+  context: string;
+  line: string;
+}
+
 export type ExtensionToOverlayMessage =
   | HelloMessage
   | TrackChangedMessage
@@ -103,7 +114,8 @@ export type ExtensionToOverlayMessage =
   | SeekMessage
   | AdStateMessage
   | PlaybackStateMessage
-  | PongMessage;
+  | PongMessage
+  | LogMessage;
 
 // ---------------------------------------------------------------------------
 // Overlay → extension

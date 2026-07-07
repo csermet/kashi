@@ -26,4 +26,6 @@ contextBridge.exposeInMainWorld('kashi', {
   /** Manual window dragging (app-region would swallow mouse events). */
   dragStart: () => ipcRenderer.send('kashi:drag-start'),
   dragEnd: () => ipcRenderer.send('kashi:drag-end'),
+  /** Diagnostic line, printed to the overlay's terminal. */
+  log: (line: string) => ipcRenderer.send('kashi:rlog', String(line)),
 });

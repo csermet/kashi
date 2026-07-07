@@ -49,6 +49,10 @@ function send(channel: string, payload: unknown): void {
 }
 
 function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): void {
+  if (msg.type === 'log') {
+    console.debug(`[ext:${msg.context}] ${msg.line}`);
+    return; // diagnostics only — never forwarded to the renderer
+  }
   switch (msg.type) {
     case 'track_changed': {
       activeSource = { clientId, tabId: msg.tab_id };
@@ -187,6 +191,10 @@ function createOverlayWindow(): BrowserWindow {
 
 ipcMain.on('kashi:set-interactive', (_event, interactive: unknown) => {
   window?.setIgnoreMouseEvents(interactive !== true, { forward: true });
+});
+
+ipcMain.on('kashi:rlog', (_event, line: unknown) => {
+  console.debug(`[renderer] ${String(line).slice(0, 500)}`);
 });
 
 /**

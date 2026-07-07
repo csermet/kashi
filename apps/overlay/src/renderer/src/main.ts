@@ -27,6 +27,7 @@ interface KashiBridge {
   setInteractive: (interactive: boolean) => void;
   dragStart: () => void;
   dragEnd: () => void;
+  log: (line: string) => void;
 }
 
 declare global {
@@ -63,6 +64,7 @@ window.kashi.onTrack((payload) => {
   trackLabel = `♪ ${track.artist} — ${track.title}`;
   statusText = trackLabel;
   statusDim = false;
+  window.kashi.log(`track set: ${key} ${trackLabel}`);
   ensureLoop();
 });
 
@@ -85,10 +87,12 @@ window.kashi.onLyrics((payload) => {
   }
   if (data.found && data.lines) {
     lines = data.lines;
+    window.kashi.log(`lyrics applied: ${lines.length} lines`);
   } else {
     lines = [];
     statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
     statusDim = true;
+    window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
   }
   activeIndex = -1;
   ensureLoop();
@@ -116,6 +120,7 @@ window.kashi.onPlayback((payload) => {
 
 window.kashi.onConnection((payload) => {
   const { connected } = payload as { connected: boolean };
+  window.kashi.log(`connection: ${connected}`);
   if (!connected) {
     // Source gone → back to the small idle badge (no stale lyrics on screen).
     currentKey = null;
@@ -199,6 +204,7 @@ function frame(): void {
   // means the source vanished mid-play (tab closed, browser gone) — don't
   // keep scrolling ghost lyrics forever, drop to the idle badge.
   if (clock.isPlaying && performance.now() - lastPlaybackMono > 10_000) {
+    window.kashi.log('data-loss watchdog: no position for 10s -> idle');
     currentKey = null;
     lines = [];
     activeIndex = -1;

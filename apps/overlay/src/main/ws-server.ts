@@ -111,6 +111,8 @@ export function isValidExtensionMessage(msg: unknown): msg is ExtensionToOverlay
       );
     case 'ad_state':
       return isNum(m['tab_id']) && isBool(m['is_ad']);
+    case 'log':
+      return isStr(m['context']) && isStr(m['line']) && (m['line'] as string).length <= 2000;
     default:
       return false;
   }
