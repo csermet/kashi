@@ -1,8 +1,9 @@
 /**
  * Service worker glue: receives ContentEvents from tabs, maintains per-tab
- * state in chrome.storage.session (survives SW death — R-10), picks the
- * active tab (sticky; audible > playing > recency) and forwards ONLY the
- * active tab's stream to the overlay. On (re)connect the active tab's last
+ * state in chrome.storage.session (survives SW death — R-10). The seat is
+ * TAB-PINNED: it belongs to one tab until that tab closes (pause/resume/
+ * track-changes never move it); succession happens only in tabs.onRemoved,
+ * and ONLY that tab's stream reaches the overlay. On (re)connect the active tab's last
  * track+position snapshot is replayed so the overlay never starts blind.
  *
  * ALL state mutations run through a lock: handlers interleave at awaits
@@ -187,38 +188,26 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
     state.snapshots[tabId] = snapshot;
 
     const before = state.activeTabId;
-    // Pure STICKY selection — deliberately NO "play-capture": Chrome's
-    // audible flag lags ~1s behind a resume, so capturing on play and then
-    // losing the strictly-higher-score comparison produced a 1s seat flash
-    // (user verdict 2026-07-08: resume must NOT steal from a playing source;
-    // handover happens only when the incumbent stops/pauses/closes).
-    state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
-    if (state.activeTabId !== before) {
-      const scores = Object.entries(state.tabs)
-        .map(([id, t]) => `${id}:${t.audible ? 'A' : '-'}${t.isPlaying ? 'P' : '-'}`)
-        .join(' ');
-      slog('seat', `tab ${before ?? '-'} -> ${state.activeTabId} (sticky, via ${event.kind} from tab ${tabId}; ${scores})`);
+    // TAB-PINNED seat (user verdict 2026-07-08 final): lyrics belong to a TAB
+    // until that tab CLOSES. Pause/resume/track-changes/transient silence
+    // never move the seat — YTM goes briefly silent on every track switch,
+    // which made any state-based handover jump to another tab mid-listening.
+    // An empty seat is claimed by the first tab that plays (or announces);
+    // succession on close lives in tabs.onRemoved.
+    if (state.activeTabId === null && (isPlaying || msg.type === 'track_changed')) {
+      state.activeTabId = tabId;
+      slog('seat', `tab - -> ${tabId} (claim, via ${event.kind})`);
     }
 
-    // Forwarding rules (order matters — the overlay must always see a
-    // coherent story):
-    // 1. The incumbent's own state change (incl. its PAUSE) is forwarded even
-    //    when that very change costs it the seat — otherwise the overlay's
-    //    clock keeps extrapolating a source that just stopped.
-    if (tabId === before) {
-      connection.send(msg);
+    if (state.activeTabId !== tabId) return; // not the seat tab — recorded only
+
+    // Fresh claim via a non-track event: re-key the overlay first so the
+    // position stream never applies to a previous source's lyrics.
+    if (before === null && msg.type !== 'track_changed') {
+      const track = state.snapshots[tabId]?.track;
+      if (track) connection.send(track);
     }
-    // 2. Seat changed (for ANY reason) → push the new source's full snapshot
-    //    so the overlay re-keys before its positions arrive.
-    if (state.activeTabId !== before && state.activeTabId !== null) {
-      const next = state.snapshots[state.activeTabId];
-      if (next?.track) connection.send(next.track);
-      if (next?.position && state.activeTabId !== tabId) connection.send(next.position);
-    }
-    // 3. The (possibly newly) active tab's live event, if not already sent.
-    if (tabId === state.activeTabId && tabId !== before) {
-      connection.send(msg);
-    }
+    connection.send(msg);
   });
 }
 
@@ -247,8 +236,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   void handleContentEvent(message as ContentEvent, tabId);
 });
 
-// Chrome tells us when sound starts/stops in a tab — the strongest signal for
-// picking the active source. Reselect on every audibility flip.
+// Audibility is RECORDED only (it feeds succession choice on tab close) —
+// it never moves the seat: YTM flips audible around every track switch and a
+// state-based handover made lyrics jump between tabs (user verdict).
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.audible === undefined) return;
   void withState((state) => {
@@ -256,16 +246,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (!tab) return;
     tab.audible = changeInfo.audible;
     slog('tabs', `tab ${tabId} audible -> ${changeInfo.audible}`);
-    const previous = state.activeTabId;
-    state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
-    if (state.activeTabId !== previous) {
-      slog('seat', `tab ${previous ?? '-'} -> ${state.activeTabId ?? '-'} (audible-flip)`);
-    }
-    if (state.activeTabId !== previous && state.activeTabId !== null) {
-      const snapshot = state.snapshots[state.activeTabId];
-      if (snapshot?.track) connection.send(snapshot.track);
-      if (snapshot?.position) connection.send(snapshot.position);
-    }
   });
 });
 
@@ -307,4 +287,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.6');
+console.debug('[kashi-sw] service worker ready v0.1.7');
