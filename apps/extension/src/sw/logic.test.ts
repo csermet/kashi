@@ -37,7 +37,22 @@ describe('selectActiveTab', () => {
     ).toBe(1);
   });
 
-  it('breaks ties by most recent event', () => {
+  it('audible beats everything (ground truth over self-reports)', () => {
+    expect(
+      selectActiveTab({
+        1: { isPlaying: true, lastEventAt: 999 },
+        2: { isPlaying: false, lastEventAt: 100, audible: true },
+      }),
+    ).toBe(2);
+    expect(
+      selectActiveTab({
+        1: { isPlaying: true, lastEventAt: 100, audible: true },
+        2: { isPlaying: true, lastEventAt: 999, audible: false },
+      }),
+    ).toBe(1);
+  });
+
+  it('breaks ties by most recent event (no incumbent)', () => {
     expect(
       selectActiveTab({
         1: { isPlaying: true, lastEventAt: 100 },
@@ -50,5 +65,36 @@ describe('selectActiveTab', () => {
         4: { isPlaying: false, lastEventAt: 250 },
       }),
     ).toBe(3);
+  });
+
+  it('is sticky: an equal-score newcomer cannot steal the seat', () => {
+    const tabs = {
+      1: { isPlaying: true, lastEventAt: 100, audible: true },
+      2: { isPlaying: true, lastEventAt: 999, audible: true }, // newer, same score
+    };
+    expect(selectActiveTab(tabs, 1)).toBe(1);
+    // ...and no flip-flop as events alternate:
+    tabs[1].lastEventAt = 1000;
+    expect(selectActiveTab(tabs, 1)).toBe(1);
+    tabs[2].lastEventAt = 1001;
+    expect(selectActiveTab(tabs, 1)).toBe(1);
+  });
+
+  it('switches when the incumbent actually stops', () => {
+    expect(
+      selectActiveTab(
+        {
+          1: { isPlaying: false, lastEventAt: 999, audible: false }, // stopped
+          2: { isPlaying: true, lastEventAt: 100, audible: true },
+        },
+        1,
+      ),
+    ).toBe(2);
+  });
+
+  it('falls back to normal selection when the incumbent is gone', () => {
+    expect(
+      selectActiveTab({ 2: { isPlaying: true, lastEventAt: 100, audible: true } }, 1),
+    ).toBe(2);
   });
 });

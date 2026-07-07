@@ -108,6 +108,8 @@ async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
     duration_ms: track.duration_ms,
   };
 
+  send('kashi:lyrics', { key, searching: true });
+
   // Transient lrclib slowness (per-request 8s timeout) gets a few retries —
   // one hiccup must not mean a whole song without lyrics.
   for (const [attempt, delay] of LYRICS_RETRY_DELAYS_MS.entries()) {

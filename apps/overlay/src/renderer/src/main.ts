@@ -45,6 +45,8 @@ let adActive = false;
 // Idle default (Caner's call): no big "waiting" text — a small dim badge.
 let statusText = 'Kashi';
 let statusDim = true;
+let trackLabel = '';
+let lastPlaybackMono = performance.now();
 
 function setLine(text: string, dim = false): void {
   if (!lineEl) return;
@@ -58,7 +60,8 @@ window.kashi.onTrack((payload) => {
   lines = [];
   activeIndex = -1;
   clock.reset();
-  statusText = `♪ ${track.artist} — ${track.title}`;
+  trackLabel = `♪ ${track.artist} — ${track.title}`;
+  statusText = trackLabel;
   statusDim = false;
   ensureLoop();
 });
@@ -66,11 +69,20 @@ window.kashi.onTrack((payload) => {
 window.kashi.onLyrics((payload) => {
   const data = payload as {
     key: string;
-    found: boolean;
+    found?: boolean;
+    searching?: boolean;
     error?: boolean;
     lines?: LyricLine[];
   };
   if (data.key !== currentKey) return; // stale (R-9)
+  if (data.searching) {
+    lines = [];
+    activeIndex = -1;
+    statusText = `${trackLabel}  ·  lyrics ⋯`;
+    statusDim = false;
+    ensureLoop();
+    return;
+  }
   if (data.found && data.lines) {
     lines = data.lines;
   } else {
@@ -98,6 +110,7 @@ window.kashi.onPlayback((payload) => {
     },
     msg.type === 'seek',
   );
+  lastPlaybackMono = performance.now();
   ensureLoop();
 });
 
@@ -182,6 +195,18 @@ function findActiveLine(pos: number): number {
 let loopActive = false;
 
 function frame(): void {
+  // Data-loss watchdog: a "playing" clock with no position reports for 10 s
+  // means the source vanished mid-play (tab closed, browser gone) — don't
+  // keep scrolling ghost lyrics forever, drop to the idle badge.
+  if (clock.isPlaying && performance.now() - lastPlaybackMono > 10_000) {
+    currentKey = null;
+    lines = [];
+    activeIndex = -1;
+    adActive = false;
+    clock.reset();
+    statusText = 'Kashi';
+    statusDim = true;
+  }
   if (adActive) {
     setLine('');
   } else if (lines.length === 0) {
