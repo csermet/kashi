@@ -1,9 +1,81 @@
 /**
- * MAIN-world script: reads `navigator.mediaSession.metadata` (invisible to
- * ISOLATED content scripts) and forwards it via window.postMessage.
- * Pattern proven by web-scrobbler's YTM connector.
+ * MAIN-world bridge: reads what ISOLATED content scripts cannot —
+ * `navigator.mediaSession.metadata` — and forwards snapshots via
+ * window.postMessage (web-scrobbler's proven pattern).
  *
- * Phase 2 will add: MutationObserver on playback state, metadata debounce
- * (metadata settles milliseconds after track changes).
+ * Signals that trigger a snapshot:
+ *  - `videodatachange` on #movie_player (primary per-track signal; fires on
+ *    radio/autoplay advance without a page navigation — ytm-scout 2026-07)
+ *  - MutationObserver on the play/pause button and title wrapper
+ *  - a slow safety-net interval (covers observer misses after YTM updates)
  */
-console.debug('[kashi] main-world bridge loaded');
+import { MAIN_WORLD_MARKER, type MainWorldSnapshot } from '../shared/messages.js';
+
+const SAFETY_NET_MS = 5000;
+
+function readSnapshot(trackSignal: boolean): MainWorldSnapshot {
+  const meta = navigator.mediaSession.metadata;
+  const artwork = meta?.artwork?.[meta.artwork.length - 1]?.src ?? null;
+  return {
+    source: MAIN_WORLD_MARKER,
+    kind: 'snapshot',
+    title: meta?.title ?? null,
+    artist: meta?.artist ?? null,
+    album: meta?.album ?? null,
+    artworkUrl: artwork,
+    playbackState: navigator.mediaSession.playbackState,
+    trackSignal,
+  };
+}
+
+let lastSerialized = '';
+
+function post(trackSignal: boolean): void {
+  const snapshot = readSnapshot(trackSignal);
+  const serialized = JSON.stringify(snapshot);
+  if (!trackSignal && serialized === lastSerialized) return; // dedup noise
+  lastSerialized = serialized;
+  window.postMessage(snapshot, window.location.origin);
+}
+
+function observePlayerBar(): void {
+  const observer = new MutationObserver(() => post(false));
+  const attach = () => {
+    const playPause = document.querySelector('#play-pause-button');
+    const info = document.querySelector('.content-info-wrapper');
+    let attached = false;
+    for (const el of [playPause, info]) {
+      if (el) {
+        observer.observe(el, { subtree: true, attributes: true, childList: true });
+        attached = true;
+      }
+    }
+    return attached;
+  };
+  if (!attach()) {
+    // Player bar renders late on cold loads — retry until present.
+    const retry = setInterval(() => {
+      if (attach()) clearInterval(retry);
+    }, 1000);
+  }
+}
+
+function observePlayer(): void {
+  const attach = () => {
+    const player = document.querySelector('#movie_player');
+    if (!player) return false;
+    player.addEventListener('videodatachange', () => post(true));
+    return true;
+  };
+  if (!attach()) {
+    const retry = setInterval(() => {
+      if (attach()) clearInterval(retry);
+    }, 1000);
+  }
+}
+
+observePlayerBar();
+observePlayer();
+document.addEventListener('yt-navigate-finish', () => post(true));
+setInterval(() => post(false), SAFETY_NET_MS);
+post(false);

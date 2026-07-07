@@ -11,13 +11,13 @@
     {
       "matches": ["https://music.youtube.com/*"],
       "js": ["src/content/index.ts"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     },
     {
       "matches": ["https://music.youtube.com/*"],
       "js": ["src/main-world/media-session.ts"],
       "world": "MAIN",
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "permissions": ["storage", "alarms", "tabs"],
