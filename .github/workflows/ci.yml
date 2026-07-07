@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ts:
+    name: TypeScript (contracts, extension, overlay)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate schema fixtures
+        run: pnpm --filter @kashi/schemas validate
+      - name: Codegen drift check
+        run: |
+          pnpm --filter @kashi/schemas codegen
+          git diff --exit-code -- packages/schemas/src/generated
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  python:
+    name: Python (server)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run pytest -q
