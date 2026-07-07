@@ -139,9 +139,10 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
   await withState((state) => {
     // A tab earns isPlaying only through playback events — announcing a track
     // proves nothing (phantom/prerender pages announce without ever playing).
+    const wasPlaying = state.tabs[tabId]?.isPlaying ?? false;
     const isPlaying =
       event.kind === 'track_changed' || event.kind === 'ad_state'
-        ? (state.tabs[tabId]?.isPlaying ?? false)
+        ? wasPlaying
         : event.is_playing;
     const audible = freshAudible ?? state.tabs[tabId]?.audible;
     state.tabs[tabId] = { isPlaying, lastEventAt: Date.now(), audible };
@@ -160,18 +161,35 @@ async function handleContentEvent(event: ContentEvent, tabId: number): Promise<v
     }
     state.snapshots[tabId] = snapshot;
 
-    const previousActive = state.activeTabId;
-    state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
-
-    if (state.activeTabId !== tabId) return; // inactive tab — recorded, not forwarded
-
-    // The active tab changed → re-announce its track before streaming (protocol
-    // §multi-tab: the overlay must never apply positions to the wrong track).
-    if (previousActive !== state.activeTabId && msg.type !== 'track_changed') {
-      const track = state.snapshots[tabId]?.track;
-      if (track) connection.send(track);
+    const before = state.activeTabId;
+    // USER INTENT: hitting play/resume in a tab captures the seat outright —
+    // that's the one signal that unambiguously says "I want THIS one now".
+    // Otherwise selection stays sticky (background playback can't steal).
+    if (!wasPlaying && isPlaying && event.kind !== 'track_changed' && event.kind !== 'ad_state') {
+      state.activeTabId = tabId;
+    } else {
+      state.activeTabId = selectActiveTab(state.tabs, state.activeTabId);
     }
-    connection.send(msg);
+
+    // Forwarding rules (order matters — the overlay must always see a
+    // coherent story):
+    // 1. The incumbent's own state change (incl. its PAUSE) is forwarded even
+    //    when that very change costs it the seat — otherwise the overlay's
+    //    clock keeps extrapolating a source that just stopped.
+    if (tabId === before) {
+      connection.send(msg);
+    }
+    // 2. Seat changed (for ANY reason) → push the new source's full snapshot
+    //    so the overlay re-keys before its positions arrive.
+    if (state.activeTabId !== before && state.activeTabId !== null) {
+      const next = state.snapshots[state.activeTabId];
+      if (next?.track) connection.send(next.track);
+      if (next?.position && state.activeTabId !== tabId) connection.send(next.position);
+    }
+    // 3. The (possibly newly) active tab's live event, if not already sent.
+    if (tabId === state.activeTabId && tabId !== before) {
+      connection.send(msg);
+    }
   });
 }
 
@@ -242,4 +260,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.2');
+console.debug('[kashi-sw] service worker ready v0.1.3');

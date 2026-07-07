@@ -200,7 +200,7 @@ function init(): void {
     }, 1000);
   }
 
-  console.debug('[kashi] content script ready v0.1.2');
+  console.debug('[kashi] content script ready v0.1.3');
 }
 
 // Chrome PRERENDERS list/next pages: our script would run in those phantom
