@@ -3,5 +3,8 @@ packages:
   - apps/overlay
   - packages/*
 allowBuilds:
+  # electron>=42 ships NO postinstall script — the binary is fetched by
+  # kashi-overlay's own postinstall (`install-electron`). pnpm still asks for
+  # an explicit decision, so: false (nothing to run there).
+  electron: false
   esbuild: true
-  electron: true

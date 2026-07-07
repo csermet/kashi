@@ -9,6 +9,9 @@ jobs:
   ts:
     name: TypeScript (contracts, extension, overlay)
     runs-on: ubuntu-latest
+    env:
+      # electron-vite builds don't execute Electron; skip the ~100MB binary.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
