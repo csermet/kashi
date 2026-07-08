@@ -22,7 +22,7 @@ import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { LrclibClient } from './lrclib.js';
 import { adjustAlpha, clampAlpha, isPositionVisible } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
-import { createTray, type TrayHandle } from './tray.js';
+import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
 import { OverlayWsServer } from './ws-server.js';
 
 const TRACK_DEBOUNCE_MS = 500;
@@ -35,6 +35,7 @@ let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;
+let menuOptions: KashiMenuOptions | null = null;
 
 let currentTrackKey: string | null = null;
 /** Only the (client, tab) that sent the last track_changed drives playback. */
@@ -311,6 +312,13 @@ ipcMain.on('kashi:rlog', (_event, line: unknown) => {
   console.debug(`[renderer] ${String(line).slice(0, 500)}`);
 });
 
+// Right-click on the lyric box pops the same menu the tray serves — the tray
+// icon can be buried in the Windows overflow area, the box is always at hand.
+ipcMain.on('kashi:open-menu', () => {
+  if (!window || window.isDestroyed() || !menuOptions) return;
+  buildKashiMenu(menuOptions).popup({ window });
+});
+
 /**
  * Manual dragging: the window follows the cursor while the renderer reports a
  * drag (mousedown on the lyric box). Because the window moves WITH the cursor,
@@ -385,13 +393,14 @@ app.whenReady().then(async () => {
   // Seed the replay map so every renderer load starts with current settings.
   send('kashi:settings', { box_alpha: settings.get().box_alpha });
 
-  tray = createTray({
+  menuOptions = {
     version: KASHI_VERSION,
     getAlpha: () => settings?.get().box_alpha ?? 0,
     onAlphaSelect: applyBoxAlpha,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
-  });
+  };
+  tray = createTray(menuOptions);
 
   const server = new OverlayWsServer({
     // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass

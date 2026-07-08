@@ -46,7 +46,7 @@ describe('adjustAlpha', () => {
     expect(adjustAlpha(0.1, 1)).toBeCloseTo(0.12);
     expect(adjustAlpha(0.1, -1)).toBeCloseTo(0.08);
     expect(adjustAlpha(0.01, -5)).toBe(0);
-    expect(adjustAlpha(0.49, 5)).toBe(OPACITY_MAX);
+    expect(adjustAlpha(0.75, 5)).toBe(OPACITY_MAX);
   });
 
   it('recovers from a corrupt current value instead of propagating NaN', () => {
@@ -59,6 +59,7 @@ describe('presets', () => {
     expect(presetLabel(0)).toBe('Off');
     expect(presetLabel(0.05)).toBe('5%');
     expect(presetLabel(0.3)).toBe('30%');
+    expect(presetLabel(0.8)).toBe('80%');
   });
 
   it('matches presets with tolerance and reports custom values as -1', () => {

@@ -3,9 +3,10 @@
  * Persistence lives in settings.ts; this file owns validation and math.
  */
 
-export const OPACITY_PRESETS = [0, 0.05, 0.1, 0.2, 0.3] as const;
+export const OPACITY_PRESETS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8] as const;
 export const OPACITY_MIN = 0;
-export const OPACITY_MAX = 0.5;
+// 0.8 keeps a hint of see-through at full dark (user: "daha koyu olabilmeli").
+export const OPACITY_MAX = 0.8;
 /** One Ctrl+scroll notch. */
 export const OPACITY_STEP = 0.02;
 export const DEFAULT_BOX_ALPHA = 0.1;

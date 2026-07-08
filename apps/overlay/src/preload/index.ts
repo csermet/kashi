@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('kashi', {
   dragEnd: () => ipcRenderer.send('kashi:drag-end'),
   /** Ctrl+scroll opacity nudge; main clamps, persists and broadcasts back. */
   adjustOpacity: (deltaSteps: number) => ipcRenderer.send('kashi:adjust-opacity', deltaSteps),
+  /** Right-click on the box: pop the Kashi menu (same one the tray serves). */
+  openMenu: () => ipcRenderer.send('kashi:open-menu'),
   /** Diagnostic line, printed to the overlay's terminal. */
   log: (line: string) => ipcRenderer.send('kashi:rlog', String(line)),
 });

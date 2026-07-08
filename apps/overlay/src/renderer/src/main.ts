@@ -38,6 +38,7 @@ interface KashiBridge {
   dragStart: () => void;
   dragEnd: () => void;
   adjustOpacity: (deltaSteps: number) => void;
+  openMenu: () => void;
   log: (line: string) => void;
 }
 
@@ -219,6 +220,12 @@ boxEl?.addEventListener('mousedown', (event) => {
   if (event.button !== 0) return;
   dragging = true;
   window.kashi.dragStart();
+});
+// Right-click opens the Kashi menu (opacity presets / reset / quit) — same
+// template the tray uses; the box is easier to find than the tray icon.
+boxEl?.addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  window.kashi.openMenu();
 });
 window.addEventListener('mouseup', () => {
   if (dragging) {
