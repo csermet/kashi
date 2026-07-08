@@ -217,8 +217,22 @@ ipcMain.on('kashi:rlog', (_event, line: unknown) => {
  * Manual dragging: the window follows the cursor while the renderer reports a
  * drag (mousedown on the lyric). Because the window moves WITH the cursor,
  * the cursor never leaves it and the terminating mouseup always arrives.
+ *
+ * DPI trap (Windows, scaled displays): repeated setPosition calls make the
+ * window CREEP right/down — DIP↔pixel rounding is not idempotent and the
+ * error accumulates at 60 fps. Fix: pin the size via setBounds (cached at
+ * drag start) and skip ticks whose target did not change.
  */
-let drag: { offsetX: number; offsetY: number; timer: NodeJS.Timeout } | null = null;
+interface DragState {
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  lastX: number;
+  lastY: number;
+  timer: NodeJS.Timeout;
+}
+let drag: DragState | null = null;
 
 function stopDrag(): void {
   if (drag) {
@@ -231,16 +245,26 @@ ipcMain.on('kashi:drag-start', () => {
   if (!window || window.isDestroyed() || drag) return;
   const cursor = screen.getCursorScreenPoint();
   const [winX = 0, winY = 0] = window.getPosition();
+  const [width = 560, height = 180] = window.getSize();
   drag = {
     offsetX: cursor.x - winX,
     offsetY: cursor.y - winY,
+    width,
+    height,
+    lastX: Number.NaN,
+    lastY: Number.NaN,
     timer: setInterval(() => {
-      if (!window || window.isDestroyed()) {
+      if (!window || window.isDestroyed() || !drag) {
         stopDrag();
         return;
       }
       const point = screen.getCursorScreenPoint();
-      window.setPosition(point.x - (drag?.offsetX ?? 0), point.y - (drag?.offsetY ?? 0));
+      const x = point.x - drag.offsetX;
+      const y = point.y - drag.offsetY;
+      if (x === drag.lastX && y === drag.lastY) return; // no-op tick: no rounding creep
+      drag.lastX = x;
+      drag.lastY = y;
+      window.setBounds({ x, y, width: drag.width, height: drag.height });
     }, 16),
   };
 });
