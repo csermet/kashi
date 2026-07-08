@@ -100,8 +100,24 @@ file:line and the checklist item it violates.
 - yt-dlp error classification (12 error types from the VDL kit) preserved; transient vs permanent
   retry behavior intact.
 - Downloaded audio is deleted after processing — any code path that persists audio is a violation.
+  The worker's per-job tmp dir must be removed in a `finally` (success, failure AND exception
+  paths), backed by a startup orphan sweep.
 - VDL kit fidelity: `ytdlp_opts.py` core policies untouched (player_client cascade, `js_runtimes`
   dict format, fail-fast retry); cookie-less mode keeps download concurrency 1–2.
+- Documents are validated against `processed-track.v1.schema.json` BEFORE persist (hard gate);
+  `sync:"line"` documents must not contain any `words` arrays.
+- Server-side lrclib calls carry the `kashi-server/x.y (+repo url)` User-Agent; the server never
+  proxies lrclib content to clients (R-5), and `lyrics_not_found` is a PERMANENT failure that
+  blocks re-enqueue churn for 7 days.
+- Canonical JSON/ETag single definition: `sha256(json.dumps(doc, sort_keys=True,
+  separators=(",", ":"), ensure_ascii=False))[:32]` — a second divergent implementation
+  (Python vs TS) is a violation.
+- Overlay↔server rules: processed JSON and lrclib results are NEVER blended (R-8; quality gate
+  strips words in overlay MAIN, single point); auto-enqueue only after ≥20 s uninterrupted
+  listening on the still-current track (R-9); with `server_url` unset the code path must be
+  byte-for-byte the serverless behavior.
+- Secrets hygiene: DATABASE_URL/API keys only via env or SealedSecret; no secret material in
+  code, compose files committed with placeholders only.
 
 ### G. Banned dependencies
 - `stable-ts` (archived), `torchaudio` forced-alignment API (removal scheduled), unofficial
