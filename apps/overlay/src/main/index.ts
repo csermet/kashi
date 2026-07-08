@@ -136,8 +136,18 @@ async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
     await abortableSleep(delay, abort.signal);
     if (abort.signal.aborted) return; // superseded by a newer track
     try {
-      const result = await lrclib.getLyrics(query, abort.signal);
+      let result = await lrclib.getLyrics(query, abort.signal);
       if (key !== currentTrackKey) return; // stale response guard (R-9)
+      if (!result.found && query.duration_ms) {
+        // The reported duration can be transiently WRONG during YTM's
+        // auto-advance (MSE mid-transition) — a bad duration rejects every
+        // candidate, so retry once without it before giving up.
+        console.debug(
+          `[kashi] duration-scoped lookup missed (duration_ms=${query.duration_ms}), retrying without duration`,
+        );
+        result = await lrclib.getLyrics({ ...query, duration_ms: undefined }, abort.signal);
+        if (key !== currentTrackKey) return;
+      }
       if (!result.found) {
         console.debug(
           `[kashi] no synced lyrics: "${track.artist} - ${track.title}"` +
@@ -284,7 +294,7 @@ app.whenReady().then(async () => {
     // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass
     // allowedOrigins (+ optional token) from settings. Until then any
     // chrome-extension:// origin is accepted; payloads are shape-validated.
-    expectedClient: 'kashi-extension/0.1.7', // keep in sync with the manifest
+    expectedClient: 'kashi-extension/0.1.8', // keep in sync with the manifest
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
     onClientDisconnected: (count, clientId) => {

@@ -179,6 +179,7 @@ function init(): void {
     const data = event.data as MainWorldSnapshot;
     if (data?.source !== MAIN_WORLD_MARKER || data.kind !== 'snapshot') return;
     latestSnapshot = data;
+    if (data.trackSignal) attachVideo(); // element may have been swapped
     if (data.trackSignal || data.title) maybeAnnounceTrack();
   });
 
@@ -203,14 +204,13 @@ function init(): void {
     if (evt) sendEvent(evt);
   });
 
-  // The <video> element renders late on cold loads; retry until attached.
-  if (!attachVideo()) {
-    const retry = setInterval(() => {
-      if (attachVideo()) clearInterval(retry);
-    }, 1000);
-  }
+  // The <video> element renders late on cold loads AND can be REPLACED on
+  // queue auto-advance — a listener on the old element dies silently and the
+  // position stream stops. Keep verifying forever (cheap identity check).
+  attachVideo();
+  setInterval(() => attachVideo(), 3000);
 
-  console.debug('[kashi] content script ready v0.1.7');
+  console.debug('[kashi] content script ready v0.1.8');
 }
 
 // Chrome PRERENDERS list/next pages: our script would run in those phantom

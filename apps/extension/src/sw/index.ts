@@ -287,4 +287,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.7');
+console.debug('[kashi-sw] service worker ready v0.1.8');
