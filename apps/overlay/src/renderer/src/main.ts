@@ -61,6 +61,8 @@ window.kashi.onTrack((payload) => {
   currentKey = key;
   lines = [];
   activeIndex = -1;
+  adActive = false; // a track announce proves no ad is playing (audit: a lost
+  // ad_state=false otherwise blanks every following song forever)
   clock.reset();
   trackLabel = `♪ ${track.artist} — ${track.title}`;
   statusText = trackLabel;
@@ -88,14 +90,16 @@ window.kashi.onLyrics((payload) => {
   }
   if (data.found && data.lines) {
     lines = data.lines;
+    activeIndex = -2; // sentinel: force the first paint even when the active
+    // line is -1 (intro) — otherwise the previous text stays frozen on screen
     window.kashi.log(`lyrics applied: ${lines.length} lines`);
   } else {
     lines = [];
+    activeIndex = -1;
     statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
     statusDim = true;
     window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
   }
-  activeIndex = -1;
   ensureLoop();
 });
 
@@ -103,6 +107,7 @@ window.kashi.onPlayback((payload) => {
   const msg = payload as PlaybackMessage;
   if (msg.type === 'ad_state') {
     adActive = msg.is_ad;
+    ensureLoop(); // repaint — ad end must not leave a blank stopped screen
     return;
   }
   clock.update(
@@ -250,5 +255,10 @@ function ensureLoop(): void {
   requestAnimationFrame(frame);
 }
 ensureLoop();
+
+// Self-healing repaint: several halt states (stopped loop + stale screen) had
+// no exit path when the position stream dies mid-transition. One cheap frame
+// per second guarantees the display always converges to current state.
+setInterval(() => ensureLoop(), 1000);
 
 export {};

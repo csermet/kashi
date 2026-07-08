@@ -219,7 +219,10 @@ async function replayActiveSnapshot(): Promise<void> {
     // an old track — the reannounce that follows will bring live state.
     if (!snapshot?.savedAt || Date.now() - snapshot.savedAt > SNAPSHOT_MAX_AGE_MS) return;
     if (snapshot.track) connection.send(snapshot.track);
-    if (snapshot.position) connection.send(snapshot.position);
+    // Replayed positions go out PAUSED: the clock anchors at the last known
+    // spot instead of extrapolating a stale is_playing=true report (the
+    // latency clamp caps compensation at 5s, so minutes-old gaps time-shift).
+    if (snapshot.position) connection.send({ ...snapshot.position, is_playing: false });
   });
 }
 
@@ -268,7 +271,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
       }
       const next = state.snapshots[state.activeTabId];
       if (next?.track) connection.send(next.track);
-      if (next?.position) connection.send(next.position);
+      if (next?.position) connection.send({ ...next.position, is_playing: false });
       // Refresh from the live page — its snapshot may be minutes old.
       const successor = state.activeTabId;
       void chrome.tabs.sendMessage(successor, { kind: 'reannounce' }).catch(() => {});
@@ -287,4 +290,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.8');
+console.debug('[kashi-sw] service worker ready v0.1.9');

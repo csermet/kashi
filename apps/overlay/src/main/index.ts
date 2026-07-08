@@ -33,6 +33,8 @@ let currentTrackKey: string | null = null;
 let activeSource: { clientId: number; tabId: number } | null = null;
 let debounceTimer: NodeJS.Timeout | null = null;
 let lookupAbort: AbortController | null = null;
+/** In-flight positions captured BEFORE the current track's announce are stale. */
+let lastTrackSentAt = 0;
 
 /** Last payloads, replayed to the renderer on (re)load. */
 const lastPayloads = new Map<string, unknown>();
@@ -42,11 +44,23 @@ function trackKey(track: TrackInfo): string {
 }
 
 function send(channel: string, payload: unknown): void {
-  if (channel !== 'kashi:playback') lastPayloads.set(channel, payload);
+  if (channel !== 'kashi:playback') {
+    lastPayloads.set(channel, payload);
+  } else {
+    const msg = payload as { type?: string; is_playing?: boolean };
+    if (msg.type === 'position' || msg.type === 'seek' || msg.type === 'playback_state') {
+      // Keep a PAUSED copy for renderer-reload replay: without an anchor the
+      // reloaded renderer shows nothing until the next live report.
+      lastPayloads.set('kashi:playback', { ...msg, is_playing: false });
+    }
+  }
   if (window && !window.isDestroyed()) {
     window.webContents.send(channel, payload);
   }
 }
+
+/** Replay order matters: connection -> track -> lyrics -> playback anchor. */
+const REPLAY_ORDER = ['kashi:connection', 'kashi:track', 'kashi:lyrics', 'kashi:playback'];
 
 /** Clear every trace of the current source (close/disconnect/source_gone). */
 function clearSource(reason: string): void {
@@ -55,8 +69,10 @@ function clearSource(reason: string): void {
   if (debounceTimer) clearTimeout(debounceTimer);
   currentTrackKey = null;
   activeSource = null;
+  lastTrackSentAt = 0;
   lastPayloads.delete('kashi:track');
   lastPayloads.delete('kashi:lyrics');
+  lastPayloads.delete('kashi:playback');
   send('kashi:source-gone', {});
 }
 
@@ -79,6 +95,7 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       );
       if (key === currentTrackKey) return; // metadata refresh for same track
       currentTrackKey = key;
+      lastTrackSentAt = msg.sent_at;
       send('kashi:track', { key, track: msg.track });
 
       // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
@@ -97,6 +114,10 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       ) {
         return; // another tab/client — not the one playing our track
       }
+      // An in-flight report captured BEFORE the current announce belongs to
+      // the previous track — anchoring the fresh clock with it would start
+      // the new lyrics at the old song's offset (audit).
+      if ('captured_at' in msg && msg.captured_at < lastTrackSentAt) return;
       send('kashi:playback', msg);
       return;
     default:
@@ -202,8 +223,9 @@ function createOverlayWindow(): BrowserWindow {
   });
   // Replay last known state after every load (startup, reload, crash restart).
   win.webContents.on('did-finish-load', () => {
-    for (const [channel, payload] of lastPayloads) {
-      win.webContents.send(channel, payload);
+    for (const channel of REPLAY_ORDER) {
+      const payload = lastPayloads.get(channel);
+      if (payload !== undefined) win.webContents.send(channel, payload);
     }
   });
 
@@ -294,7 +316,7 @@ app.whenReady().then(async () => {
     // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass
     // allowedOrigins (+ optional token) from settings. Until then any
     // chrome-extension:// origin is accepted; payloads are shape-validated.
-    expectedClient: 'kashi-extension/0.1.8', // keep in sync with the manifest
+    expectedClient: 'kashi-extension/0.1.9', // keep in sync with the manifest
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
     onClientDisconnected: (count, clientId) => {

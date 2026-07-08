@@ -208,9 +208,12 @@ function init(): void {
   // queue auto-advance — a listener on the old element dies silently and the
   // position stream stops. Keep verifying forever (cheap identity check).
   attachVideo();
-  setInterval(() => attachVideo(), 3000);
+  setInterval(() => {
+    attachVideo();
+    refreshAdState(); // a lost ad_state=false must not blank the overlay forever
+  }, 3000);
 
-  console.debug('[kashi] content script ready v0.1.8');
+  console.debug('[kashi] content script ready v0.1.9');
 }
 
 // Chrome PRERENDERS list/next pages: our script would run in those phantom
