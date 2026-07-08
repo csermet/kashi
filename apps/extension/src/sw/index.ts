@@ -290,4 +290,4 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 connection.ensureConnected();
-console.debug('[kashi-sw] service worker ready v0.1.9');
+console.debug(`[kashi-sw] service worker ready v${chrome.runtime.getManifest().version}`);

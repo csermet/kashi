@@ -1,0 +1,134 @@
+/**
+ * Pure settings logic — no Electron/fs imports so every rule is unit-testable.
+ * Persistence lives in settings.ts; this file owns validation and math.
+ */
+
+export const OPACITY_PRESETS = [0, 0.05, 0.1, 0.2, 0.3] as const;
+export const OPACITY_MIN = 0;
+export const OPACITY_MAX = 0.5;
+/** One Ctrl+scroll notch. */
+export const OPACITY_STEP = 0.02;
+export const DEFAULT_BOX_ALPHA = 0.1;
+
+/** Minimum part of the window that must stay on a screen to trust saved bounds. */
+const MIN_VISIBLE_WIDTH = 120;
+const MIN_VISIBLE_HEIGHT = 60;
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface StoredSettings {
+  schema_version: 1;
+  box_alpha: number;
+  window_bounds: WindowBounds | null;
+}
+
+export const DEFAULT_SETTINGS: StoredSettings = {
+  schema_version: 1,
+  box_alpha: DEFAULT_BOX_ALPHA,
+  window_bounds: null,
+};
+
+/** Clamp to [OPACITY_MIN, OPACITY_MAX], 2 decimals; garbage → default. */
+export function clampAlpha(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_BOX_ALPHA;
+  const clamped = Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, value));
+  return Math.round(clamped * 100) / 100;
+}
+
+/**
+ * IPC payloads are untrusted (R-7): coerce to a small integer step count.
+ * Anything non-finite → 0; magnitude capped so a burst can't teleport alpha.
+ */
+export function sanitizeDeltaSteps(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.max(-5, Math.min(5, Math.trunc(value)));
+}
+
+export function adjustAlpha(current: number, deltaSteps: number): number {
+  return clampAlpha(clampAlpha(current) + sanitizeDeltaSteps(deltaSteps) * OPACITY_STEP);
+}
+
+export function presetLabel(alpha: number): string {
+  return alpha === 0 ? 'Off' : `${Math.round(alpha * 100)}%`;
+}
+
+/** Index into OPACITY_PRESETS matching alpha (±0.005), or -1 (custom value). */
+export function nearestPresetIndex(alpha: number): number {
+  return OPACITY_PRESETS.findIndex((preset) => Math.abs(preset - alpha) < 0.005);
+}
+
+export interface WorkAreaLike {
+  workArea: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Saved bounds are trusted only if a usable chunk of the window still lands on
+ * a CURRENT display (monitors get unplugged, resolutions change — R-4);
+ * otherwise the caller falls back to the default centered position.
+ */
+export function isPositionVisible(
+  bounds: WindowBounds,
+  displays: readonly WorkAreaLike[],
+): boolean {
+  return displays.some(({ workArea }) => {
+    const visibleW =
+      Math.min(bounds.x + bounds.width, workArea.x + workArea.width) -
+      Math.max(bounds.x, workArea.x);
+    const visibleH =
+      Math.min(bounds.y + bounds.height, workArea.y + workArea.height) -
+      Math.max(bounds.y, workArea.y);
+    return visibleW >= MIN_VISIBLE_WIDTH && visibleH >= MIN_VISIBLE_HEIGHT;
+  });
+}
+
+/** Tolerant parse (corrupt/hand-edited/future file must never crash startup). */
+export function parseSettings(raw: string): StoredSettings {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+  if (typeof data !== 'object' || data === null) return { ...DEFAULT_SETTINGS };
+  const record = data as Record<string, unknown>;
+
+  const alpha =
+    typeof record['box_alpha'] === 'number' ? clampAlpha(record['box_alpha']) : DEFAULT_BOX_ALPHA;
+
+  let bounds: WindowBounds | null = null;
+  const rawBounds = record['window_bounds'];
+  if (typeof rawBounds === 'object' && rawBounds !== null) {
+    const b = rawBounds as Record<string, unknown>;
+    const x = b['x'];
+    const y = b['y'];
+    const width = b['width'];
+    const height = b['height'];
+    if (
+      typeof x === 'number' &&
+      typeof y === 'number' &&
+      typeof width === 'number' &&
+      typeof height === 'number' &&
+      [x, y, width, height].every(Number.isFinite) &&
+      width > 0 &&
+      height > 0
+    ) {
+      bounds = {
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(width),
+        height: Math.round(height),
+      };
+    }
+  }
+
+  // Spread the raw record first: fields written by a NEWER kashi must survive
+  // a round-trip through this build (read → tweak alpha → save), or a version
+  // rollback silently strips them. Known fields are then overridden with
+  // their validated values.
+  return { ...record, schema_version: 1, box_alpha: alpha, window_bounds: bounds };
+}

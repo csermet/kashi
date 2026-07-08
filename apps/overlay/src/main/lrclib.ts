@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { KASHI_VERSION } from '../shared/version.js';
 
 export interface TrackQuery {
   title: string;
@@ -174,7 +175,7 @@ export class LrclibClient {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: {
         'User-Agent':
-          this.opts.userAgent ?? 'kashi/0.1.0 (+https://github.com/csermet/kashi)',
+          this.opts.userAgent ?? `kashi/${KASHI_VERSION} (+https://github.com/csermet/kashi)`,
       },
     });
   }

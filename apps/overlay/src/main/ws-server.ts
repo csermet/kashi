@@ -25,6 +25,7 @@ import {
   type HelloMessage,
   type PingMessage,
 } from '@kashi/protocol';
+import { KASHI_VERSION } from '../shared/version.js';
 
 export interface OverlayWsServerOptions {
   portStart?: number;
@@ -283,7 +284,7 @@ export class OverlayWsServer {
       seq: client.seq++,
       sent_at: Date.now(),
       protocol_version: PROTOCOL_VERSION,
-      server: 'kashi-overlay/0.1.0',
+      server: `kashi-overlay/${KASHI_VERSION}`,
       accepted,
     };
     client.socket.send(JSON.stringify(ack));

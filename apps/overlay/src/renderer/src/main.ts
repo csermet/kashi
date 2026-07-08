@@ -1,6 +1,8 @@
 /**
  * Renderer: line-level lyrics display driven by the position clock.
  * All dynamic text goes through textContent — never innerHTML (plan R-7).
+ * Screen-state rules live in view-logic.ts (pure, unit-tested); this file is
+ * the wiring: IPC subscriptions, the rAF loop, hover/drag/wheel plumbing.
  */
 import type {
   AdStateMessage,
@@ -9,6 +11,12 @@ import type {
   SeekMessage,
 } from '@kashi/protocol';
 import { PositionClock } from './position-clock.js';
+import {
+  accumulateWheel,
+  deriveView,
+  watchdogShouldReset,
+  type ViewOutput,
+} from './view-logic.js';
 
 interface LyricLine {
   start_ms: number;
@@ -25,9 +33,11 @@ interface KashiBridge {
   onLyrics: (cb: (payload: unknown) => void) => () => void;
   onConnection: (cb: (payload: unknown) => void) => () => void;
   onSourceGone: (cb: (payload: unknown) => void) => () => void;
+  onSettings: (cb: (payload: unknown) => void) => () => void;
   setInteractive: (interactive: boolean) => void;
   dragStart: () => void;
   dragEnd: () => void;
+  adjustOpacity: (deltaSteps: number) => void;
   log: (line: string) => void;
 }
 
@@ -37,30 +47,65 @@ declare global {
   }
 }
 
+const boxEl = document.getElementById('lyric-box');
 const lineEl = document.getElementById('lyric-line');
+const searchEl = document.getElementById('search-line');
 
 const clock = new PositionClock();
 let currentKey: string | null = null;
 let lines: LyricLine[] = [];
-let activeIndex = -1;
 let adActive = false;
+let searching = false;
 // Idle default (Caner's call): no big "waiting" text — a small dim badge.
 let statusText = 'Kashi';
 let statusDim = true;
 let trackLabel = '';
 let lastPlaybackMono = performance.now();
 
-function setLine(text: string, dim = false): void {
-  if (!lineEl) return;
-  if (lineEl.textContent !== text) lineEl.textContent = text;
-  lineEl.classList.toggle('dim', dim);
+/** Last applied view — repaint only on change (keeps idle frames free). */
+let appliedView: ViewOutput | null = null;
+
+function applyView(view: ViewOutput): void {
+  if (
+    appliedView &&
+    appliedView.boxVisible === view.boxVisible &&
+    appliedView.lineText === view.lineText &&
+    appliedView.lineDim === view.lineDim &&
+    appliedView.searchVisible === view.searchVisible
+  ) {
+    return;
+  }
+  appliedView = view;
+  boxEl?.classList.toggle('hidden', !view.boxVisible);
+  if (lineEl) {
+    if (lineEl.textContent !== view.lineText) lineEl.textContent = view.lineText;
+    lineEl.classList.toggle('dim', view.lineDim);
+  }
+  if (searchEl) searchEl.hidden = !view.searchVisible;
+  // The box can hide under a MOTIONLESS cursor (ad start, watchdog reset) —
+  // no mousemove follows, so without this the invisible window keeps
+  // swallowing clicks until the user happens to move the mouse.
+  if (!view.boxVisible && interactive && !dragging) {
+    interactive = false;
+    window.kashi.setInteractive(false);
+  }
+}
+
+function resetToIdle(): void {
+  currentKey = null;
+  lines = [];
+  adActive = false;
+  searching = false;
+  clock.reset();
+  statusText = 'Kashi';
+  statusDim = true;
 }
 
 window.kashi.onTrack((payload) => {
   const { key, track } = payload as { key: string; track: { title: string; artist: string } };
   currentKey = key;
   lines = [];
-  activeIndex = -1;
+  searching = false;
   adActive = false; // a track announce proves no ad is playing (audit: a lost
   // ad_state=false otherwise blanks every following song forever)
   clock.reset();
@@ -82,20 +127,18 @@ window.kashi.onLyrics((payload) => {
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
     lines = [];
-    activeIndex = -1;
-    statusText = `${trackLabel}  ·  lyrics ⋯`;
+    searching = true;
+    statusText = trackLabel;
     statusDim = false;
     ensureLoop();
     return;
   }
+  searching = false;
   if (data.found && data.lines) {
     lines = data.lines;
-    activeIndex = -2; // sentinel: force the first paint even when the active
-    // line is -1 (intro) — otherwise the previous text stays frozen on screen
     window.kashi.log(`lyrics applied: ${lines.length} lines`);
   } else {
     lines = [];
-    activeIndex = -1;
     statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
     statusDim = true;
     window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
@@ -107,6 +150,10 @@ window.kashi.onPlayback((payload) => {
   const msg = payload as PlaybackMessage;
   if (msg.type === 'ad_state') {
     adActive = msg.is_ad;
+    // Both ad edges reset the starvation timer: positions are suppressed on
+    // purpose during ads, and after one the clock may extrapolate for a beat
+    // before the first fresh report — neither is data loss (closure review).
+    lastPlaybackMono = performance.now();
     ensureLoop(); // repaint — ad end must not leave a blank stopped screen
     return;
   }
@@ -126,13 +173,7 @@ window.kashi.onPlayback((payload) => {
 
 window.kashi.onSourceGone(() => {
   window.kashi.log('source gone -> idle');
-  currentKey = null;
-  lines = [];
-  activeIndex = -1;
-  adActive = false;
-  clock.reset();
-  statusText = 'Kashi';
-  statusDim = true;
+  resetToIdle();
   ensureLoop();
 });
 
@@ -141,27 +182,28 @@ window.kashi.onConnection((payload) => {
   window.kashi.log(`connection: ${connected}`);
   if (!connected) {
     // Source gone → back to the small idle badge (no stale lyrics on screen).
-    currentKey = null;
-    lines = [];
-    activeIndex = -1;
-    adActive = false;
-    clock.reset();
-    statusText = 'Kashi';
-    statusDim = true;
+    resetToIdle();
   }
   ensureLoop();
 });
 
+window.kashi.onSettings((payload) => {
+  const { box_alpha } = payload as { box_alpha?: unknown };
+  if (typeof box_alpha !== 'number' || !Number.isFinite(box_alpha)) return;
+  document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
+});
+
 // Hover ↔ click-through: the window ignores mouse events by default but
-// forwards mousemove; hovering the lyric text flips it interactive so it can
-// be dragged, leaving flips it back (R-4). Dragging is manual (mousedown →
-// IPC cursor-follow) because -webkit-app-region would swallow mouse events.
+// forwards mousemove; hovering the lyric BOX flips it interactive so it can
+// be dragged (and Ctrl+scrolled), leaving flips it back (R-4). Dragging is
+// manual (mousedown → IPC cursor-follow) because -webkit-app-region would
+// swallow mouse events.
 let interactive = false;
 let dragging = false;
 
 document.addEventListener('mousemove', (event) => {
   if (dragging) return;
-  const over = lineEl?.contains(event.target as Node) ?? false;
+  const over = boxEl?.contains(event.target as Node) ?? false;
   if (over !== interactive) {
     interactive = over;
     window.kashi.setInteractive(over);
@@ -173,7 +215,7 @@ document.documentElement.addEventListener('mouseleave', () => {
     window.kashi.setInteractive(false);
   }
 });
-lineEl?.addEventListener('mousedown', (event) => {
+boxEl?.addEventListener('mousedown', (event) => {
   if (event.button !== 0) return;
   dragging = true;
   window.kashi.dragStart();
@@ -190,6 +232,22 @@ window.addEventListener('blur', () => {
     window.kashi.dragEnd();
   }
 });
+// Ctrl+scroll over the box tunes its background opacity (persisted in main).
+// Deltas go through an accumulator (view-logic) so touchpads and classic
+// wheels both land on ~1 step per comfortable gesture unit.
+let wheelAccPx = 0;
+boxEl?.addEventListener(
+  'wheel',
+  (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const { accumulatedPx, steps } = accumulateWheel(wheelAccPx, event.deltaY, event.deltaMode);
+    wheelAccPx = accumulatedPx;
+    // Scroll up (negative deltaY) increases opacity.
+    if (steps !== 0) window.kashi.adjustOpacity(-steps);
+  },
+  { passive: false },
+);
 
 /** Index of the line covering `pos`, or -1. Assumes lines sorted by start. */
 function findActiveLine(pos: number): number {
@@ -220,28 +278,20 @@ let loopActive = false;
 function frame(): void {
   // Data-loss watchdog: a "playing" clock with no position reports for 10 s
   // means the source vanished mid-play (tab closed, browser gone) — don't
-  // keep scrolling ghost lyrics forever, drop to the idle badge.
-  if (clock.isPlaying && performance.now() - lastPlaybackMono > 10_000) {
-    window.kashi.log('data-loss watchdog: no position for 10s -> idle');
-    currentKey = null;
-    lines = [];
-    activeIndex = -1;
-    adActive = false;
-    clock.reset();
-    statusText = 'Kashi';
-    statusDim = true;
+  // keep scrolling ghost lyrics forever, drop to the idle badge. Ads get a
+  // 3-minute leash instead (see watchdogShouldReset).
+  if (watchdogShouldReset(clock.isPlaying, adActive, performance.now() - lastPlaybackMono)) {
+    window.kashi.log('data-loss watchdog: position stream starved -> idle');
+    resetToIdle();
   }
-  if (adActive) {
-    setLine('');
-  } else if (lines.length === 0) {
-    setLine(statusText, statusDim);
-  } else {
+  let activeText: string | null = null;
+  if (!adActive && lines.length > 0) {
     const index = findActiveLine(clock.positionAt());
-    if (index !== activeIndex) {
-      activeIndex = index;
-      setLine(index >= 0 ? (lines[index]?.text ?? '') : '♪');
-    }
+    activeText = index >= 0 ? (lines[index]?.text ?? null) : null;
   }
+  applyView(
+    deriveView({ adActive, hasLines: lines.length > 0, activeText, statusText, statusDim, searching }),
+  );
   if (clock.isPlaying && !adActive) {
     requestAnimationFrame(frame);
   } else {

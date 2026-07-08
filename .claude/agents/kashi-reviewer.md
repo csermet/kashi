@@ -73,8 +73,17 @@ file:line and the checklist item it violates.
   source at runtime and crash the ESM loader.
 - Position clock: extrapolation on `performance.now()`; delta rules: <30 ms ignore, 30–1500 ms
   slew over ~250 ms (buffering stalls included), >1500 ms snap (real seek). Rendering directly off `Date.now()` is a violation.
-- Window position persisted with display id + bounds and validated against connected displays
-  on startup.
+- Window position persisted and validated against connected displays on startup; restores and
+  programmatic moves use `setBounds` with the REAL window size pinned — position-only moves
+  across a Windows DPI boundary rescale the window (same trap as the drag path).
+- Renderer data-loss watchdog: 10 s starvation trip while playing, but ads get a LONGER leash
+  (~3 min), never a full exemption — positions are suppressed on purpose during ads, yet a
+  content script that dies mid-ad never sends `ad_state=false`; a full exemption leaves the
+  overlay invisible forever. Watchdog resets must also drop window interactivity (a box hidden
+  under a motionless cursor otherwise swallows clicks until the next mousemove).
+- User-input deltas (wheel etc.) are device-normalized and accumulated into whole steps before
+  IPC (pixel-delta touchpads fire dozens of events per gesture); IPC payloads from the renderer
+  are still untrusted — main sanitizes/clamps them.
 
 ### E. Network etiquette
 - lrclib: meaningful User-Agent (`kashi/x.y (+repo url)`), positive AND negative caching

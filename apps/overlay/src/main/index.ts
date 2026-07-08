@@ -11,22 +11,30 @@
  * track_changed so a second YTM tab cannot corrupt the clock (R-9).
  * Last known state is replayed to the renderer after (re)load.
  *
- * Still TODO (later in Phase 2 / Phase 4, plan D.7/R-4): tray menu, settings
- * UI (extension-ID allowlist + optional token), window position persistence
- * with display-id validation.
+ * Paket C: tray menu (opacity presets / reset position / quit), settings
+ * persistence (box alpha + window position with display validation, R-4).
+ * Still TODO (Faz 3+, plan D.7): extension-ID allowlist + optional token UI.
  */
 import { app, BrowserWindow, ipcMain, net, screen } from 'electron';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
+import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { LrclibClient } from './lrclib.js';
+import { adjustAlpha, clampAlpha, isPositionVisible } from './settings-logic.js';
+import { SettingsStore } from './settings.js';
+import { createTray, type TrayHandle } from './tray.js';
 import { OverlayWsServer } from './ws-server.js';
 
 const TRACK_DEBOUNCE_MS = 500;
 /** Retry delays for transient lrclib failures (timeout/network). */
 const LYRICS_RETRY_DELAYS_MS = [0, 2000, 6000];
+const WINDOW_WIDTH = 560;
+const WINDOW_HEIGHT = 180;
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
+let settings: SettingsStore | null = null;
+let tray: TrayHandle | null = null;
 
 let currentTrackKey: string | null = null;
 /** Only the (client, tab) that sent the last track_changed drives playback. */
@@ -59,8 +67,14 @@ function send(channel: string, payload: unknown): void {
   }
 }
 
-/** Replay order matters: connection -> track -> lyrics -> playback anchor. */
-const REPLAY_ORDER = ['kashi:connection', 'kashi:track', 'kashi:lyrics', 'kashi:playback'];
+/** Replay order matters: settings -> connection -> track -> lyrics -> anchor. */
+const REPLAY_ORDER = [
+  'kashi:settings',
+  'kashi:connection',
+  'kashi:track',
+  'kashi:lyrics',
+  'kashi:playback',
+];
 
 /** Clear every trace of the current source (close/disconnect/source_gone). */
 function clearSource(reason: string): void {
@@ -191,8 +205,8 @@ async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
 
 function createOverlayWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 560,
-    height: 180,
+    width: WINDOW_WIDTH,
+    height: WINDOW_HEIGHT,
     transparent: true,
     frame: false,
     hasShadow: false,
@@ -215,8 +229,26 @@ function createOverlayWindow(): BrowserWindow {
 
   // Click-through by default (R-4): clicks land on the app underneath.
   // forward:true keeps mousemove flowing to the renderer, which flips the
-  // window interactive while the cursor hovers the lyric text (drag support).
+  // window interactive while the cursor hovers the lyric box (drag support).
   win.setIgnoreMouseEvents(true, { forward: true });
+
+  // Restore the saved position ONLY when it still lands on a live display —
+  // monitors get unplugged and resolutions change between runs (R-4). Both
+  // the visibility check and the restore use the REAL window size: stored
+  // width/height could be hand-edited, and a position-only move across a DPI
+  // boundary rescales the window (same trap as the drag path — review).
+  const savedBounds = settings?.get().window_bounds;
+  if (savedBounds) {
+    const target = {
+      x: savedBounds.x,
+      y: savedBounds.y,
+      width: WINDOW_WIDTH,
+      height: WINDOW_HEIGHT,
+    };
+    if (isPositionVisible(target, screen.getAllDisplays())) {
+      win.setBounds(target);
+    }
+  }
 
   win.on('closed', () => {
     window = null;
@@ -237,8 +269,42 @@ function createOverlayWindow(): BrowserWindow {
   return win;
 }
 
+function persistWindowBounds(): void {
+  if (!window || window.isDestroyed() || !settings) return;
+  settings.update({ window_bounds: window.getBounds() });
+}
+
+/** Persist + broadcast a new box alpha (tray preset or Ctrl+scroll nudge). */
+let trayRefreshTimer: NodeJS.Timeout | null = null;
+function applyBoxAlpha(alpha: number): void {
+  const clamped = clampAlpha(alpha);
+  settings?.update({ box_alpha: clamped });
+  send('kashi:settings', { box_alpha: clamped });
+  // Debounced: a scroll burst must not rebuild the tray menu per event.
+  if (trayRefreshTimer) clearTimeout(trayRefreshTimer);
+  trayRefreshTimer = setTimeout(() => tray?.refresh(), 200);
+}
+
+function resetWindowPosition(): void {
+  if (!window || window.isDestroyed()) return;
+  const workArea = screen.getPrimaryDisplay().workArea;
+  window.setBounds({
+    x: workArea.x + Math.round((workArea.width - WINDOW_WIDTH) / 2),
+    y: workArea.y + Math.round((workArea.height - WINDOW_HEIGHT) / 2),
+    width: WINDOW_WIDTH,
+    height: WINDOW_HEIGHT,
+  });
+  persistWindowBounds();
+}
+
 ipcMain.on('kashi:set-interactive', (_event, interactive: unknown) => {
   window?.setIgnoreMouseEvents(interactive !== true, { forward: true });
+});
+
+ipcMain.on('kashi:adjust-opacity', (_event, deltaSteps: unknown) => {
+  if (!settings) return;
+  // adjustAlpha sanitizes the untrusted IPC delta (R-7) and clamps the result.
+  applyBoxAlpha(adjustAlpha(settings.get().box_alpha, deltaSteps as number));
 });
 
 ipcMain.on('kashi:rlog', (_event, line: unknown) => {
@@ -247,7 +313,7 @@ ipcMain.on('kashi:rlog', (_event, line: unknown) => {
 
 /**
  * Manual dragging: the window follows the cursor while the renderer reports a
- * drag (mousedown on the lyric). Because the window moves WITH the cursor,
+ * drag (mousedown on the lyric box). Because the window moves WITH the cursor,
  * the cursor never leaves it and the terminating mouseup always arrives.
  *
  * DPI trap (Windows, scaled displays): repeated setPosition calls make the
@@ -270,6 +336,7 @@ function stopDrag(): void {
   if (drag) {
     clearInterval(drag.timer);
     drag = null;
+    persistWindowBounds(); // remember where the user parked the box (R-4)
   }
 }
 
@@ -277,7 +344,7 @@ ipcMain.on('kashi:drag-start', () => {
   if (!window || window.isDestroyed() || drag) return;
   const cursor = screen.getCursorScreenPoint();
   const [winX = 0, winY = 0] = window.getPosition();
-  const [width = 560, height = 180] = window.getSize();
+  const [width = WINDOW_WIDTH, height = WINDOW_HEIGHT] = window.getSize();
   drag = {
     offsetX: cursor.x - winX,
     offsetY: cursor.y - winY,
@@ -303,6 +370,10 @@ ipcMain.on('kashi:drag-start', () => {
 ipcMain.on('kashi:drag-end', stopDrag);
 
 app.whenReady().then(async () => {
+  settings = new SettingsStore(join(app.getPath('userData'), 'kashi-settings.json'), (line) =>
+    console.debug(`[kashi] ${line}`),
+  );
+
   lrclib = new LrclibClient({
     cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
     // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)
@@ -311,12 +382,22 @@ app.whenReady().then(async () => {
   });
 
   window = createOverlayWindow();
+  // Seed the replay map so every renderer load starts with current settings.
+  send('kashi:settings', { box_alpha: settings.get().box_alpha });
+
+  tray = createTray({
+    version: KASHI_VERSION,
+    getAlpha: () => settings?.get().box_alpha ?? 0,
+    onAlphaSelect: applyBoxAlpha,
+    onResetPosition: resetWindowPosition,
+    onQuit: () => app.quit(),
+  });
 
   const server = new OverlayWsServer({
     // TODO(R-6): once the extension ID is pinned via the manifest `key`, pass
     // allowedOrigins (+ optional token) from settings. Until then any
     // chrome-extension:// origin is accepted; payloads are shape-validated.
-    expectedClient: 'kashi-extension/0.1.9', // keep in sync with the manifest
+    expectedClient: EXPECTED_EXTENSION, // bump in shared/version.ts with the manifest
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
     onClientDisconnected: (count, clientId) => {
@@ -330,9 +411,12 @@ app.whenReady().then(async () => {
     log: (line) => console.debug(`[kashi] ${line}`),
   });
   const port = await server.start();
-  console.debug(`[kashi] overlay ready, ws on 127.0.0.1:${port}`);
+  console.debug(`[kashi] overlay v${KASHI_VERSION} ready, ws on 127.0.0.1:${port}`);
 
-  app.on('before-quit', () => void server.stop());
+  app.on('before-quit', () => {
+    settings?.flush();
+    void server.stop();
+  });
 });
 
 app.on('window-all-closed', () => {

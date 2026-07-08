@@ -213,7 +213,7 @@ function init(): void {
     refreshAdState(); // a lost ad_state=false must not blank the overlay forever
   }, 3000);
 
-  console.debug('[kashi] content script ready v0.1.9');
+  console.debug(`[kashi] content script ready v${chrome.runtime.getManifest().version}`);
 }
 
 // Chrome PRERENDERS list/next pages: our script would run in those phantom
