@@ -32,9 +32,7 @@ def queue_depth(s: Session) -> int:
     return s.scalar(select(func.count()).select_from(Job).where(Job.status.in_(LIVE_STATUSES))) or 0
 
 
-def _find_reusable(
-    s: Session, source_type: str, source_id: str, pipeline_major: int
-) -> Job | None:
+def _find_reusable(s: Session, source_type: str, source_id: str, pipeline_major: int) -> Job | None:
     """Idempotency lookups, in contract order (plan A1)."""
     live = s.scalars(
         select(Job)

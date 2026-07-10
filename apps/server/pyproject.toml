@@ -12,23 +12,53 @@ dependencies = [
     "alembic==1.18.5",
     "psycopg[binary,pool]==3.3.4",
     "yt-dlp==2026.7.4",
+    "librosa==0.11.0",
+    "pillow==12.3.0",
+    "fast-langdetect==1.0.1",
+    "prometheus-client==0.25.0",
+    "httpx>=0.28",
+    "jsonschema>=4.23",
+]
+
+[project.optional-dependencies]
+# The alignment stack is an EXTRA, not a base dependency: ctc-forced-aligner has
+# no wheels and compiles a C++ extension, so `uv sync` would demand a compiler
+# from anyone who only wants to run the API tests or the linter. The worker
+# image and the CI slow job install it explicitly (`--extra align`); tests that
+# need it are marked `slow` and skip when it is absent.
+align = [
+    "torch==2.9.1",
+    "torchaudio==2.9.1",
+    "ctc-forced-aligner",
 ]
 
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
     "ruff==0.15.20",
-    "httpx>=0.28",
-    "jsonschema>=4.23",
     "pyright==1.1.409",
 ]
 
 [tool.uv]
 package = false
 
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
+ctc-forced-aligner = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner", rev = "264e7a1f81bff9ff5e787a5537020c2ad0b0df02" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+# explicit: only the packages pinned to this index above may resolve from it.
+# Without it, uv looks up every dependency here first (dependency confusion).
+explicit = true
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = ["slow: needs the alignment extra (torch + ctc-forced-aligner)"]
+addopts = "-m 'not slow'"
 
 [tool.ruff]
 line-length = 100
