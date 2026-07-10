@@ -112,3 +112,9 @@ def test_quality_gate_reads_requested_formats():
 
 def test_quality_gate_trusts_download_without_bitrate_info():
     assert validate_audio_quality({"formats": [_fmt(250, "opus")]})[0]
+
+
+def test_googlevideo_403_is_transient():
+    assert classify_error_message("unable to download video data: HTTP Error 403: Forbidden") == (
+        "network"
+    )

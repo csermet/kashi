@@ -61,6 +61,13 @@ def common_ytdlp_opts() -> dict:
         "no_warnings": True,
         "noprogress": True,
         "noplaylist": True,
+        # KASHI ADDITION (not in VDL, which pinned pre-EJS-overhaul yt-dlp):
+        # 2026.x solves signature/n challenges with a REMOTE solver script.
+        # Without this a fresh container has no cached component, every format
+        # loses its URL and downloads die with a misleading 403 (bit us at the
+        # 3A acceptance run). The download is cached under XDG_CACHE_HOME,
+        # which the image points at the persistent /models volume.
+        "remote_components": ["ejs:github"],
         "sleep_interval": SLEEP_INTERVAL,
         "max_sleep_interval": MAX_SLEEP_INTERVAL,
         "sleep_interval_requests": SLEEP_INTERVAL_REQUESTS,

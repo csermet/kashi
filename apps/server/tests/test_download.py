@@ -167,3 +167,16 @@ def test_ytdlp_exceptions_are_classified(tmp_path, message, expected):
             ydl_factory=_factory(info={}, raises=RuntimeError(message)),
         )
     assert exc.value.error_type == expected
+
+
+def test_remote_components_enabled_for_ejs(tmp_path):
+    """A fresh container has no cached EJS solver; without this option every
+    format loses its URL and downloads 403 (hit at the 3A acceptance run)."""
+    captured = {}
+
+    def factory(opts):
+        captured.update(opts)
+        return FakeYdl(opts, info=_info(tmp_path))
+
+    download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
+    assert captured["remote_components"] == ["ejs:github"]

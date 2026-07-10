@@ -120,6 +120,10 @@ def classify_error_message(msg: str) -> str:
         return "video_unavailable"
     if any(p in text for p in ("network", "timed out", "timeout", "connection", "socket")):
         return "network"
+    if "403" in text and "forbidden" in text:
+        # KASHI ADDITION: a googlevideo 403 is a stale/failed signature or a
+        # bot-check hiccup, not a permanent property of the video — retry.
+        return "network"
     return "other"
 
 

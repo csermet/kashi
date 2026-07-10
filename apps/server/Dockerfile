@@ -42,7 +42,10 @@ ENV PATH=/app/.venv/bin:$PATH \
     KASHI_SCHEMA_PATH=/app/schemas/processed-track.v1.schema.json \
     HF_HOME=/models \
     DATA_DIR=/scratch \
-    MODEL_CACHE_DIR=/models
+    MODEL_CACHE_DIR=/models \
+    XDG_CACHE_HOME=/models/.cache
+# XDG_CACHE_HOME on the volume: yt-dlp keeps its EJS challenge-solver script
+# there — fetched once, survives container restarts.
 
 USER 1000
 WORKDIR /app

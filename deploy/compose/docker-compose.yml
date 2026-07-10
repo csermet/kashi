@@ -1,0 +1,75 @@
+# Kashi server — self-host stack (API + worker + Postgres).
+#
+#   cp .env.example .env   # edit the two secrets
+#   docker compose up -d --build
+#   curl http://localhost:8080/v1/health
+#
+# The optional bgutil PoToken sidecar stays off unless you run with
+# `--profile pot` (home IPs at low volume don't need it — see the yt-dlp docs).
+
+name: kashi
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: kashi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
+      POSTGRES_DB: kashi
+    volumes:
+      - kashi-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kashi -d kashi"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: kashi-server:local
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://kashi:${POSTGRES_PASSWORD}@postgres:5432/kashi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: kashi-server:local
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql+psycopg://kashi:${POSTGRES_PASSWORD}@postgres:5432/kashi
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set it in .env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    image: kashi-server:local
+    command: ["python", "-m", "kashi_server.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://kashi:${POSTGRES_PASSWORD}@postgres:5432/kashi
+      SEPARATION_MODE: ${SEPARATION_MODE:-off}
+      BGUTIL_POT_PROVIDER_URL: ${BGUTIL_POT_PROVIDER_URL:-}
+    volumes:
+      - kashi-models:/models    # MMS weights (~1.2 GB) survive restarts
+      - kashi-scratch:/scratch  # per-job tmp; auto-cleaned, kept off the image fs
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  bgutil:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    profiles: ["pot"]
+    restart: unless-stopped
+
+volumes:
+  kashi-pgdata:
+  kashi-models:
+  kashi-scratch:
