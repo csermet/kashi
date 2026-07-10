@@ -19,6 +19,8 @@ import { app, BrowserWindow, ipcMain, net, screen } from 'electron';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
+import { EnqueueGate } from './enqueue-gate.js';
+import { KashiServerClient } from './kashi-server.js';
 import { LrclibClient } from './lrclib.js';
 import { adjustAlpha, clampAlpha, isPositionVisible } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
@@ -36,6 +38,13 @@ let lrclib: LrclibClient;
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;
 let menuOptions: KashiMenuOptions | null = null;
+/** Non-null only when settings carry a server_url — otherwise the code path
+ * stays byte-for-byte the serverless v0.1.11 behavior (plan R-F3-8). */
+let serverClient: KashiServerClient | null = null;
+const enqueueGate = new EnqueueGate();
+let gateTimer: NodeJS.Timeout | null = null;
+/** Last known playing state (feeds the enqueue gate). */
+let lastIsPlaying = false;
 
 let currentTrackKey: string | null = null;
 /** Only the (client, tab) that sent the last track_changed drives playback. */
@@ -111,6 +120,7 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       if (key === currentTrackKey) return; // metadata refresh for same track
       currentTrackKey = key;
       lastTrackSentAt = msg.sent_at;
+      enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
       send('kashi:track', { key, track: msg.track });
 
       // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
@@ -133,11 +143,40 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       // the previous track — anchoring the fresh clock with it would start
       // the new lyrics at the old song's offset (audit).
       if ('captured_at' in msg && msg.captured_at < lastTrackSentAt) return;
+      if ('is_playing' in msg) {
+        lastIsPlaying = msg.is_playing;
+        enqueueGate.playback(msg.is_playing, Date.now());
+      }
       send('kashi:playback', msg);
       return;
     default:
       return;
   }
+}
+
+/** Poll the gate once per second while armed; fire-and-forget the ingest. */
+function armGateTimer(track: TrackInfo): void {
+  if (gateTimer) clearInterval(gateTimer);
+  gateTimer = setInterval(() => {
+    const firedKey = enqueueGate.tick(Date.now());
+    if (!enqueueGate.armed && gateTimer) {
+      clearInterval(gateTimer);
+      gateTimer = null;
+    }
+    if (firedKey && serverClient) {
+      console.debug(`[kashi] 20s of listening on ${firedKey} — enqueueing for processing`);
+      void serverClient.enqueue(
+        { type: track.source.type, id: track.source.id },
+        {
+          title: track.title,
+          artist: track.artist,
+          album: track.album ?? undefined,
+          duration_ms: track.duration_ms ?? undefined,
+          artwork_url: track.artwork_url ?? undefined,
+        },
+      );
+    }
+  }, 1000);
 }
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -165,6 +204,33 @@ async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
   };
 
   send('kashi:lyrics', { key, searching: true });
+
+  // Server first when configured. A processed document is the SINGLE source
+  // of truth — on a hit lrclib is never consulted, never blended (R-8).
+  if (serverClient) {
+    const result = await serverClient.getProcessed(
+      track.source.type,
+      track.source.id,
+      abort.signal,
+    );
+    if (abort.signal.aborted || key !== currentTrackKey) return; // stale (R-9)
+    if ('found' in result && result.found) {
+      console.debug(
+        `[kashi] server hit: ${key} sync=${result.sync} quality=${result.qualityScore}`,
+      );
+      send('kashi:lyrics', { key, ...result });
+      return;
+    }
+    if ('found' in result && !result.found) {
+      // Genuinely unprocessed: arm the >=20 s listening gate (R-9), then let
+      // the lrclib flow below fill the screen in the meantime.
+      enqueueGate.serverMiss(key, Date.now(), lastIsPlaying);
+      armGateTimer(track);
+      console.debug(`[kashi] server 404: ${key} — lrclib fallback + enqueue gate armed`);
+    } else {
+      console.debug(`[kashi] server error for ${key} — lrclib fallback (gate NOT armed)`);
+    }
+  }
 
   // Transient lrclib slowness (per-request 8s timeout) gets a few retries —
   // one hiccup must not mean a whole song without lyrics.
@@ -388,6 +454,20 @@ app.whenReady().then(async () => {
     // — Node's fetch stalls for seconds on broken IPv6 routes.
     fetchFn: net.fetch.bind(net) as typeof fetch,
   });
+
+  const { server_url: serverUrl, server_api_key: serverApiKey } = settings.get();
+  if (serverUrl && serverApiKey) {
+    serverClient = new KashiServerClient({
+      baseUrl: serverUrl,
+      apiKey: serverApiKey,
+      cacheDir: join(app.getPath('userData'), 'cache', 'kashi-server'),
+      fetchFn: net.fetch.bind(net) as typeof fetch,
+      log: (line) => console.debug(`[kashi] ${line}`),
+    });
+    console.debug(`[kashi] server configured: ${serverUrl}`);
+  } else if (serverUrl || serverApiKey) {
+    console.warn('[kashi] server_url and server_api_key must BOTH be set — server disabled');
+  }
 
   window = createOverlayWindow();
   // Seed the replay map so every renderer load starts with current settings.
