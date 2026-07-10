@@ -70,6 +70,16 @@ body {
   opacity: 0.45;
 }
 
+/* Word karaoke (server word-sync docs): brightness-only in Faz 3 — the
+   fancy transitions belong to the Faz 4 effect engine. */
+.word {
+  opacity: 0.55;
+}
+
+.word-active {
+  opacity: 1;
+}
+
 /* Animated "searching" row: lives on its own line under the track label. */
 #search-line {
   margin-top: 6px;

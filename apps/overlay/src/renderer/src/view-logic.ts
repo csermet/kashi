@@ -46,6 +46,36 @@ export function deriveView(state: ViewState): ViewOutput {
   };
 }
 
+export interface WordTiming {
+  start_ms: number;
+  end_ms: number;
+  text: string;
+}
+
+/**
+ * Index of the word covering `pos` — the LAST word whose start_ms <= pos, so
+ * the previous word stays lit through inter-word gaps (no flicker between
+ * words). -1 before the first word. Binary search, same pattern as
+ * findActiveLine in main.ts.
+ */
+export function findActiveWord(words: readonly WordTiming[], pos: number): number {
+  let lo = 0;
+  let hi = words.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const word = words[mid];
+    if (!word) break;
+    if (word.start_ms <= pos) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
 export const WATCHDOG_THRESHOLD_MS = 10_000;
 /**
  * Ads get a longer leash, NOT a full exemption: position silence during an ad

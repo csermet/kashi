@@ -3,6 +3,7 @@ import {
   WHEEL_PX_PER_STEP,
   accumulateWheel,
   deriveView,
+  findActiveWord,
   watchdogShouldReset,
 } from './view-logic.js';
 
@@ -141,5 +142,36 @@ describe('accumulateWheel', () => {
 
   it('survives non-finite deltas', () => {
     expect(accumulateWheel(10, Number.NaN, 0)).toEqual({ accumulatedPx: 10, steps: 0 });
+  });
+});
+
+describe('findActiveWord', () => {
+  const words = [
+    { start_ms: 1000, end_ms: 1400, text: 'a' },
+    { start_ms: 1500, end_ms: 2000, text: 'b' },
+    { start_ms: 2600, end_ms: 3000, text: 'c' },
+  ];
+
+  it('returns -1 before the first word', () => {
+    expect(findActiveWord(words, 0)).toBe(-1);
+    expect(findActiveWord(words, 999)).toBe(-1);
+  });
+
+  it('finds the covering word', () => {
+    expect(findActiveWord(words, 1000)).toBe(0);
+    expect(findActiveWord(words, 1700)).toBe(1);
+    expect(findActiveWord(words, 2600)).toBe(2);
+  });
+
+  it('keeps the previous word lit through inter-word gaps (no flicker)', () => {
+    expect(findActiveWord(words, 2300)).toBe(1); // between b.end and c.start
+  });
+
+  it('keeps the last word lit after the line ends', () => {
+    expect(findActiveWord(words, 99_000)).toBe(2);
+  });
+
+  it('handles empty input', () => {
+    expect(findActiveWord([], 1000)).toBe(-1);
   });
 });

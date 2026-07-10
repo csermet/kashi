@@ -14,14 +14,18 @@ import { PositionClock } from './position-clock.js';
 import {
   accumulateWheel,
   deriveView,
+  findActiveWord,
   watchdogShouldReset,
   type ViewOutput,
+  type WordTiming,
 } from './view-logic.js';
 
 interface LyricLine {
   start_ms: number;
   end_ms: number;
   text: string;
+  /** Present on kashi-server word-sync documents (Faz 3B). */
+  words?: WordTiming[];
 }
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
@@ -66,6 +70,41 @@ let lastPlaybackMono = performance.now();
 /** Last applied view — repaint only on change (keeps idle frames free). */
 let appliedView: ViewOutput | null = null;
 
+// Word mode: spans are (re)built ONLY when the active line changes; the
+// per-frame work is toggling one class. Built with createElement/textContent
+// exclusively — innerHTML stays banned (R-7).
+let wordLineIndex = -1; // index of the line the spans belong to (-1 = none)
+let wordSpans: HTMLSpanElement[] = [];
+let activeWordIndex = -1;
+
+function clearWordSpans(): void {
+  wordLineIndex = -1;
+  wordSpans = [];
+  activeWordIndex = -1;
+}
+
+function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
+  if (!lineEl) return;
+  lineEl.replaceChildren();
+  wordSpans = words.map((word, i) => {
+    if (i > 0) lineEl.appendChild(document.createTextNode(' '));
+    const span = document.createElement('span');
+    span.className = 'word';
+    span.textContent = word.text;
+    lineEl.appendChild(span);
+    return span;
+  });
+  wordLineIndex = lineIndex;
+  activeWordIndex = -1;
+}
+
+function highlightWord(index: number): void {
+  if (index === activeWordIndex) return;
+  wordSpans[activeWordIndex]?.classList.remove('word-active');
+  wordSpans[index]?.classList.add('word-active');
+  activeWordIndex = index;
+}
+
 function applyView(view: ViewOutput): void {
   if (
     appliedView &&
@@ -79,9 +118,11 @@ function applyView(view: ViewOutput): void {
   appliedView = view;
   boxEl?.classList.toggle('hidden', !view.boxVisible);
   if (lineEl) {
+    // Plain-text mode always wins here; word mode repopulates right after.
     if (lineEl.textContent !== view.lineText) lineEl.textContent = view.lineText;
     lineEl.classList.toggle('dim', view.lineDim);
   }
+  clearWordSpans(); // any full repaint invalidates the span cache
   if (searchEl) searchEl.hidden = !view.searchVisible;
   // The box can hide under a MOTIONLESS cursor (ad start, watchdog reset) —
   // no mousemove follows, so without this the invisible window keeps
@@ -291,14 +332,25 @@ function frame(): void {
     window.kashi.log('data-loss watchdog: position stream starved -> idle');
     resetToIdle();
   }
+  const pos = clock.positionAt();
   let activeText: string | null = null;
+  let lineIndex = -1;
   if (!adActive && lines.length > 0) {
-    const index = findActiveLine(clock.positionAt());
-    activeText = index >= 0 ? (lines[index]?.text ?? null) : null;
+    lineIndex = findActiveLine(pos);
+    activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   }
   applyView(
     deriveView({ adActive, hasLines: lines.length > 0, activeText, statusText, statusDim, searching }),
   );
+
+  // Word karaoke (kashi-server word-sync documents): applyView's change
+  // detection leaves the spans alone on quiet frames; a line change repaints
+  // the text and clears the span cache, and they are rebuilt here once.
+  const words = lineIndex >= 0 ? lines[lineIndex]?.words : undefined;
+  if (words && words.length > 0 && activeText !== null && !adActive) {
+    if (wordLineIndex !== lineIndex) buildWordSpans(lineIndex, words);
+    highlightWord(findActiveWord(words, pos));
+  }
   if (clock.isPlaying && !adActive) {
     requestAnimationFrame(frame);
   } else {
