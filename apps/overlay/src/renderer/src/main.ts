@@ -15,6 +15,7 @@ import {
   accumulateWheel,
   deriveView,
   findActiveWord,
+  findDisplayLine,
   watchdogShouldReset,
   type ViewOutput,
   type WordTiming,
@@ -111,7 +112,8 @@ function applyView(view: ViewOutput): void {
     appliedView.boxVisible === view.boxVisible &&
     appliedView.lineText === view.lineText &&
     appliedView.lineDim === view.lineDim &&
-    appliedView.searchVisible === view.searchVisible
+    appliedView.searchVisible === view.searchVisible &&
+    appliedView.interlude === view.interlude
   ) {
     return;
   }
@@ -121,6 +123,7 @@ function applyView(view: ViewOutput): void {
     // Plain-text mode always wins here; word mode repopulates right after.
     if (lineEl.textContent !== view.lineText) lineEl.textContent = view.lineText;
     lineEl.classList.toggle('dim', view.lineDim);
+    lineEl.classList.toggle('interlude', view.interlude);
   }
   clearWordSpans(); // any full repaint invalidates the span cache
   if (searchEl) searchEl.hidden = !view.searchVisible;
@@ -297,27 +300,6 @@ boxEl?.addEventListener(
   { passive: false },
 );
 
-/** Index of the line covering `pos`, or -1. Assumes lines sorted by start. */
-function findActiveLine(pos: number): number {
-  let lo = 0;
-  let hi = lines.length - 1;
-  let found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const line = lines[mid];
-    if (!line) break;
-    if (line.start_ms <= pos) {
-      found = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  if (found === -1) return -1;
-  const line = lines[found];
-  return line && pos < line.end_ms ? found : -1;
-}
-
 // The rAF loop only runs while there is motion to render (playing clock);
 // otherwise we render the static state once and stop — keeps the compositor
 // asleep when idle (battery).
@@ -336,7 +318,9 @@ function frame(): void {
   let activeText: string | null = null;
   let lineIndex = -1;
   if (!adActive && lines.length > 0) {
-    lineIndex = findActiveLine(pos);
+    // Short gaps HOLD the previous line; only long breaks yield the interlude
+    // mark (Caner's feedback — the ♪ was flashing between every section).
+    lineIndex = findDisplayLine(lines, pos);
     activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   }
   applyView(

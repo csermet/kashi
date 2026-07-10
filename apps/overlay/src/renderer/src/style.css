@@ -70,6 +70,25 @@ body {
   opacity: 0.45;
 }
 
+/* Interlude mark (intro / long instrumental break): a gently pulsing ♪,
+   centered by the box itself. Short gaps never reach this state — the
+   previous line is held instead (findDisplayLine). */
+.lyric.interlude {
+  animation: kashi-interlude 1.8s ease-in-out infinite;
+}
+
+@keyframes kashi-interlude {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
+  }
+}
+
 /* Word karaoke (server word-sync docs): brightness-only in Faz 3 — the
    fancy transitions belong to the Faz 4 effect engine. */
 .word {

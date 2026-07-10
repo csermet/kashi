@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  INTERLUDE_GAP_MS,
   WHEEL_PX_PER_STEP,
   accumulateWheel,
   deriveView,
   findActiveWord,
+  findDisplayLine,
   watchdogShouldReset,
 } from './view-logic.js';
 
@@ -25,7 +27,7 @@ describe('deriveView', () => {
       activeText: 'la la',
       searching: true,
     });
-    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false });
+    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false });
   });
 
   it('shows the active lyric line bright', () => {
@@ -35,13 +37,19 @@ describe('deriveView', () => {
       lineText: 'Never gonna give you up',
       lineDim: false,
       searchVisible: false,
+      interlude: false,
     });
   });
 
-  it('shows ♪ during intros/instrumental gaps (never a blank box)', () => {
+  it('shows the ANIMATED interlude mark when no line is held', () => {
     const view = deriveView({ ...base, hasLines: true, activeText: null });
     expect(view.lineText).toBe('♪');
+    expect(view.interlude).toBe(true);
     expect(view.boxVisible).toBe(true);
+  });
+
+  it('a held/active line is never marked as interlude', () => {
+    expect(deriveView({ ...base, hasLines: true, activeText: 'text' }).interlude).toBe(false);
   });
 
   it('lyrics win over a stale searching flag', () => {
@@ -56,6 +64,7 @@ describe('deriveView', () => {
       lineText: 'Kashi',
       lineDim: true,
       searchVisible: false,
+      interlude: false,
     });
   });
 
@@ -71,6 +80,7 @@ describe('deriveView', () => {
       lineText: '♪ Artist — Title',
       lineDim: false,
       searchVisible: true,
+      interlude: false,
     });
   });
 });
@@ -173,5 +183,41 @@ describe('findActiveWord', () => {
 
   it('handles empty input', () => {
     expect(findActiveWord([], 1000)).toBe(-1);
+  });
+});
+
+describe('findDisplayLine', () => {
+  const lines = [
+    { start_ms: 1000, end_ms: 4000 },   // line 0
+    { start_ms: 5000, end_ms: 8000 },   // line 1 (1 s gap: HOLD)
+    { start_ms: 30_000, end_ms: 33_000 }, // line 2 (22 s break: interlude)
+  ];
+
+  it('is -1 during the intro', () => {
+    expect(findDisplayLine(lines, 0)).toBe(-1);
+    expect(findDisplayLine(lines, 999)).toBe(-1);
+  });
+
+  it('returns the covering line', () => {
+    expect(findDisplayLine(lines, 2000)).toBe(0);
+    expect(findDisplayLine(lines, 31_000)).toBe(2);
+  });
+
+  it('HOLDS the previous line through a short gap (no ♪ flash)', () => {
+    expect(findDisplayLine(lines, 4500)).toBe(0); // between 0 and 1
+  });
+
+  it('shows the interlude during a long instrumental break', () => {
+    expect(findDisplayLine(lines, 9000)).toBe(-1);  // 8s..30s break
+    expect(findDisplayLine(lines, 29_000)).toBe(-1);
+  });
+
+  it('holds the last line briefly after the song, then interludes', () => {
+    expect(findDisplayLine(lines, 33_000 + INTERLUDE_GAP_MS - 1)).toBe(2);
+    expect(findDisplayLine(lines, 33_000 + INTERLUDE_GAP_MS + 1)).toBe(-1);
+  });
+
+  it('handles empty input', () => {
+    expect(findDisplayLine([], 1000)).toBe(-1);
   });
 });

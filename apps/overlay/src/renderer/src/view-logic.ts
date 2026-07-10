@@ -23,19 +23,23 @@ export interface ViewOutput {
   lineText: string;
   lineDim: boolean;
   searchVisible: boolean;
+  /** Animated ♪ (intro / long instrumental break) instead of a static glyph. */
+  interlude: boolean;
 }
 
 export function deriveView(state: ViewState): ViewOutput {
   if (state.adActive) {
-    return { boxVisible: false, lineText: '', lineDim: false, searchVisible: false };
+    return { boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false };
   }
   if (state.hasLines) {
-    // ♪ marks intros/instrumental gaps — the box must not go blank mid-song.
+    // activeText null = interlude territory (short gaps HOLD the previous
+    // line upstream in findDisplayLine, so this really is a long break).
     return {
       boxVisible: true,
       lineText: state.activeText ?? '♪',
       lineDim: false,
       searchVisible: false,
+      interlude: state.activeText === null,
     };
   }
   return {
@@ -43,6 +47,7 @@ export function deriveView(state: ViewState): ViewOutput {
     lineText: state.statusText,
     lineDim: state.statusDim,
     searchVisible: state.searching,
+    interlude: false,
   };
 }
 
@@ -50,6 +55,55 @@ export interface WordTiming {
   start_ms: number;
   end_ms: number;
   text: string;
+}
+
+export interface LineSpan {
+  start_ms: number;
+  end_ms: number;
+}
+
+/**
+ * Gaps shorter than this HOLD the previous line on screen (Caner's call:
+ * "bir sonraki kısım gelene kadar öncekiler yazmalı"); only genuinely long
+ * instrumental breaks show the animated interlude mark instead.
+ */
+export const INTERLUDE_GAP_MS = 5_000;
+
+/**
+ * Which line to DISPLAY at `pos`: the covering line, or the previous one held
+ * through a short gap. -1 means interlude territory (intro, a long break, or
+ * long past the last line).
+ */
+export function findDisplayLine(
+  lines: readonly LineSpan[],
+  pos: number,
+  gapMs: number = INTERLUDE_GAP_MS,
+): number {
+  let lo = 0;
+  let hi = lines.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const line = lines[mid];
+    if (!line) break;
+    if (line.start_ms <= pos) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (found === -1) return -1; // intro — nothing sung yet
+  const line = lines[found];
+  if (!line) return -1;
+  if (pos < line.end_ms) return found; // inside the line
+  const next = lines[found + 1];
+  if (!next) {
+    // Outro: hold the last line briefly, then hand over to the interlude.
+    return pos - line.end_ms > gapMs ? -1 : found;
+  }
+  // Short gap: hold the previous line. Long break: show the interlude.
+  return next.start_ms - line.end_ms > gapMs ? -1 : found;
 }
 
 /**
