@@ -1,0 +1,97 @@
+"""Album-art color palette (Pillow median-cut) — enrichment for Faz 4 theming.
+
+Every failure path returns the fixed default palette; artwork problems must
+never fail a job.
+"""
+
+import io
+import logging
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_PALETTE = {
+    "source": "default",
+    "primary": "#e84545",
+    "secondary": "#f5d76e",
+    "background": "#1a1a2e",
+    "text": "#ffffff",
+    "accent": "#903749",
+}
+
+_MAX_ART_BYTES = 5 * 1024 * 1024
+_MIN_SHARE = 0.05
+
+
+def _hex(rgb: tuple[int, int, int]) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
+
+
+def _luminance(rgb: tuple[int, int, int]) -> float:
+    """Relative luminance on plain sRGB values — a deliberate approximation;
+    WCAG linearization would not change which color is darkest."""
+    r, g, b = (c / 255 for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _saturation(rgb: tuple[int, int, int]) -> float:
+    high, low = max(rgb), min(rgb)
+    return 0.0 if high == 0 else (high - low) / high
+
+
+def palette_from_image_bytes(data: bytes) -> dict:
+    """Pure part, unit-testable with a generated PNG."""
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(data)).convert("RGB")
+    image.thumbnail((64, 64))
+    quantized = image.quantize(colors=8, method=Image.Quantize.MEDIANCUT)
+    counts = quantized.getcolors()  # [(pixel_count, palette_index)]
+    palette_data = quantized.getpalette()
+    total = sum(count for count, _ in counts)
+
+    colors: list[tuple[float, tuple[int, int, int]]] = []
+    for count, index in counts:
+        rgb = tuple(palette_data[index * 3 : index * 3 + 3])
+        colors.append((count / total, rgb))
+    colors.sort(reverse=True)
+
+    background = min(
+        (rgb for share, rgb in colors if share >= _MIN_SHARE),
+        key=_luminance,
+        default=colors[0][1],
+    )
+    by_pop = [(share * _saturation(rgb), rgb) for share, rgb in colors if rgb != background] or [
+        (1.0, colors[0][1])
+    ]
+    by_pop.sort(reverse=True)
+
+    primary = by_pop[0][1]
+    secondary = by_pop[1][1] if len(by_pop) > 1 else primary
+    remaining = [rgb for _, rgb in by_pop[2:]] or [primary]
+    accent = max(remaining, key=_saturation)
+    text = "#111111" if _luminance(background) > 0.5 else "#ffffff"
+
+    return {
+        "source": "album_art",
+        "primary": _hex(primary),
+        "secondary": _hex(secondary),
+        "background": _hex(background),
+        "text": text,
+        "accent": _hex(accent),
+    }
+
+
+def extract_palette(artwork_url: str | None, *, timeout_s: float = 10.0) -> dict:
+    if not artwork_url or not artwork_url.startswith(("http://", "https://")):
+        return dict(DEFAULT_PALETTE)
+    try:
+        import httpx
+
+        response = httpx.get(artwork_url, timeout=timeout_s, follow_redirects=True)
+        response.raise_for_status()
+        if len(response.content) > _MAX_ART_BYTES:
+            raise ValueError("artwork too large")
+        return palette_from_image_bytes(response.content)
+    except Exception as exc:
+        logger.warning("palette extraction failed (%s) — using the default palette", exc)
+        return dict(DEFAULT_PALETTE)

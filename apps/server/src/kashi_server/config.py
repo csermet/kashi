@@ -11,7 +11,16 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+def _default_schema_path() -> Path:
+    """Walk up towards a repo checkout; fall back to the image's baked-in copy.
+    A fixed parents[N] index crashed at import inside the container, where the
+    module sits only 3 levels deep (/app/src/kashi_server/config.py)."""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "packages" / "schemas" / "processed-track.v1.schema.json"
+        if candidate.exists():
+            return candidate
+    return Path("/app/schemas/processed-track.v1.schema.json")
 
 
 class Settings(BaseSettings):
@@ -29,7 +38,7 @@ class Settings(BaseSettings):
     bgutil_pot_provider_url: str | None = None
     metrics_port: int = 9090
     schema_path: Path = Field(
-        default=_REPO_ROOT / "packages" / "schemas" / "processed-track.v1.schema.json",
+        default_factory=_default_schema_path,
         validation_alias=AliasChoices("KASHI_SCHEMA_PATH", "SCHEMA_PATH"),
     )
 
