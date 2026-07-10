@@ -251,6 +251,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
+    { name = "yt-dlp" },
 ]
 
 [package.dev-dependencies]
@@ -271,6 +272,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = "==2.14.2" },
     { name = "sqlalchemy", specifier = "==2.0.51" },
     { name = "uvicorn", specifier = "==0.50.2" },
+    { name = "yt-dlp", specifier = "==2026.7.4" },
 ]
 
 [package.metadata.requires-dev]
@@ -838,4 +840,13 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9f/f6/cc9aadc0e481344a42095d222bfa764122fb8cfba708d1922917bd8bfb01/uvicorn-0.50.2.tar.gz", hash = "sha256:b92bf03509b82bcb9d49e7335b4fd364518ad021c2dc18b4e6a2fec8c955a0bb", size = 93716, upload-time = "2026-07-06T10:38:31.984Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/aa/f0/7c228ee10c7ab8fd3a21d06579a6f7c6075c6ce72594a20fb5d2f206ff24/uvicorn-0.50.2-py3-none-any.whl", hash = "sha256:4ae72a385630bcc17a0adb8290f26c993865e0b43a2114c2aab96420172c056a", size = 72846, upload-time = "2026-07-06T10:38:30.543Z" },
+]
+
+[[package]]
+name = "yt-dlp"
+version = "2026.7.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/c5/9972af4b472b0d55badf841ebafd2f98944cb0ae0f46e11d01f363ea5b91/yt_dlp-2026.7.4.tar.gz", hash = "sha256:b094813404f87a9dd2186f00815231df32e5fd8a5403be0f807b3bb2d21a4432", size = 3049326, upload-time = "2026-07-04T22:42:14.837Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/8a/cd4c9b02c10c563adfe78118310129641900e1cd6de888cfae2452072696/yt_dlp-2026.7.4-py3-none-any.whl", hash = "sha256:f11f2b11d5a8ac4059f9bdf29fa4407dc7c6bb00c5097e95ca22a7a9db518266", size = 3184705, upload-time = "2026-07-04T22:42:12.989Z" },
 ]

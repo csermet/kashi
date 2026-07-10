@@ -70,9 +70,7 @@ def test_bootstrap_restores_disabled_admin_key(client, db_session):
 
     _bootstrap_admin_key()  # what a restart does
     assert client.get("/v1/admin/keys", headers=_auth(TEST_ADMIN_KEY)).status_code == 200
-    restored = db_session.scalars(
-        select(ApiKey).where(ApiKey.name == "bootstrap-admin")
-    ).first()
+    restored = db_session.scalars(select(ApiKey).where(ApiKey.name == "bootstrap-admin")).first()
     assert restored is not None and restored.disabled is False
 
 
