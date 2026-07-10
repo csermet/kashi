@@ -2,6 +2,7 @@
  * Pure settings logic — no Electron/fs imports so every rule is unit-testable.
  * Persistence lives in settings.ts; this file owns validation and math.
  */
+import { normalizeServerUrl } from './kashi-server-logic.js';
 
 export const OPACITY_PRESETS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8] as const;
 export const OPACITY_MIN = 0;
@@ -26,12 +27,18 @@ export interface StoredSettings {
   schema_version: 1;
   box_alpha: number;
   window_bounds: WindowBounds | null;
+  /** kashi-server base URL (hand-edited for now — settings UI comes later). */
+  server_url: string | null;
+  /** API key for the server ("ksh_..."); meaningless without server_url. */
+  server_api_key: string | null;
 }
 
 export const DEFAULT_SETTINGS: StoredSettings = {
   schema_version: 1,
   box_alpha: DEFAULT_BOX_ALPHA,
   window_bounds: null,
+  server_url: null,
+  server_api_key: null,
 };
 
 /** Clamp to [OPACITY_MIN, OPACITY_MAX], 2 decimals; garbage → default. */
@@ -127,9 +134,22 @@ export function parseSettings(raw: string): StoredSettings {
     }
   }
 
+  const serverUrl = normalizeServerUrl(record['server_url']);
+  const apiKey =
+    typeof record['server_api_key'] === 'string' && record['server_api_key'].trim() !== ''
+      ? record['server_api_key'].trim()
+      : null;
+
   // Spread the raw record first: fields written by a NEWER kashi must survive
   // a round-trip through this build (read → tweak alpha → save), or a version
   // rollback silently strips them. Known fields are then overridden with
   // their validated values.
-  return { ...record, schema_version: 1, box_alpha: alpha, window_bounds: bounds };
+  return {
+    ...record,
+    schema_version: 1,
+    box_alpha: alpha,
+    window_bounds: bounds,
+    server_url: serverUrl,
+    server_api_key: apiKey,
+  };
 }

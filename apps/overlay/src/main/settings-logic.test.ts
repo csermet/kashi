@@ -115,8 +115,21 @@ describe('parseSettings', () => {
       schema_version: 1,
       box_alpha: 0.2,
       window_bounds: { x: 10, y: 20, width: 560, height: 180 },
+      server_url: 'http://cnr-intel:8080',
+      server_api_key: 'ksh_' + 'a'.repeat(32),
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
+  });
+
+  it('normalizes the server fields (hand-edited JSON is untrusted)', () => {
+    const parsed = parseSettings(
+      JSON.stringify({ server_url: 'http://cnr-intel:8080///', server_api_key: '  ksh_x  ' }),
+    );
+    expect(parsed.server_url).toBe('http://cnr-intel:8080');
+    expect(parsed.server_api_key).toBe('ksh_x');
+    const bad = parseSettings(JSON.stringify({ server_url: 'not a url', server_api_key: '' }));
+    expect(bad.server_url).toBeNull();
+    expect(bad.server_api_key).toBeNull();
   });
 
   it('clamps out-of-range alpha and drops malformed bounds', () => {
