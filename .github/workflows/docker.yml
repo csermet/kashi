@@ -1,0 +1,54 @@
+# Server image: build-check on server PRs, publish to ghcr on server-v* tags.
+#
+# Publishing is TAG-GATED on purpose (plan/B1): main stays cheap, releases are
+# explicit. Cut one with:  git tag server-v0.1.0 && git push --tags
+name: Server image
+
+on:
+  pull_request:
+    paths: ['apps/server/**', 'packages/schemas/**']
+  push:
+    tags: ['server-v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Resolve version from the tag
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        run: echo "VERSION=${GITHUB_REF_NAME#server-v}" >> "$GITHUB_ENV"
+      - name: Log in to ghcr
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (and push on tags)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/server-v') }}
+          tags: |
+            ghcr.io/csermet/kashi-server:${{ env.VERSION || 'pr' }}
+            ghcr.io/csermet/kashi-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Probe the published image
+        if: startsWith(github.ref, 'refs/tags/server-v')
+        run: |
+          docker run -d --rm --name probe -p 8080:8080 \
+            ghcr.io/csermet/kashi-server:${VERSION}
+          for i in $(seq 1 20); do
+            if curl -sf localhost:8080/v1/health; then echo; echo PROBE_OK; break; fi
+            sleep 2
+            [ "$i" = 20 ] && (docker logs probe; exit 1)
+          done
+          docker stop probe

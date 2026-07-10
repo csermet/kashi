@@ -64,7 +64,7 @@ def _decode(src: Path, dest: Path, rate: int) -> Path:
 def _separate_vocals(audio: Path, tmp: Path) -> Path:
     """htdemucs vocals via audio-separator. Imported lazily: separation_mode is
     'off' by default and the dependency stack is heavy."""
-    from audio_separator.separator import Separator
+    from audio_separator.separator import Separator  # pyright: ignore[reportMissingImports]
 
     separator = Separator(
         output_dir=str(tmp / "separated"),

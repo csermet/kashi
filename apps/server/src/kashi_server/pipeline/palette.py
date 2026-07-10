@@ -6,8 +6,11 @@ never fail a job.
 
 import io
 import logging
+from typing import cast
 
 logger = logging.getLogger(__name__)
+
+RGB = tuple[int, int, int]
 
 DEFAULT_PALETTE = {
     "source": "default",
@@ -45,13 +48,16 @@ def palette_from_image_bytes(data: bytes) -> dict:
     image = Image.open(io.BytesIO(data)).convert("RGB")
     image.thumbnail((64, 64))
     quantized = image.quantize(colors=8, method=Image.Quantize.MEDIANCUT)
-    counts = quantized.getcolors()  # [(pixel_count, palette_index)]
-    palette_data = quantized.getpalette()
-    total = sum(count for count, _ in counts)
+    # P-mode getcolors() yields (pixel_count, palette_index); the stubs type
+    # the second element for every mode at once, hence the casts.
+    counts = quantized.getcolors() or []
+    palette_data = quantized.getpalette() or []
+    total = sum(count for count, _ in counts) or 1
 
-    colors: list[tuple[float, tuple[int, int, int]]] = []
+    colors: list[tuple[float, RGB]] = []
     for count, index in counts:
-        rgb = tuple(palette_data[index * 3 : index * 3 + 3])
+        idx = cast(int, index)
+        rgb = cast(RGB, tuple(palette_data[idx * 3 : idx * 3 + 3]))
         colors.append((count / total, rgb))
     colors.sort(reverse=True)
 

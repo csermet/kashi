@@ -108,6 +108,7 @@ def fetch_lyrics(
         if owns_client:
             http.close()
 
+    assert record is not None  # extracted != None implies a record
     line_texts, had_synced = extracted
     logger.info(
         "lyrics for %s - %s: %d lines (%s)",

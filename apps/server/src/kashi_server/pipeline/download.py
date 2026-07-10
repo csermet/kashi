@@ -132,11 +132,14 @@ def _main() -> int:  # pragma: no cover - manual stage test
     if args.simulate:
         import yt_dlp
 
-        with yt_dlp.YoutubeDL(common_ytdlp_opts()) as ydl:
+        with yt_dlp.YoutubeDL(common_ytdlp_opts()) as ydl:  # pyright: ignore[reportArgumentType]
             info = ydl.extract_info(
                 f"https://www.youtube.com/watch?v={args.video_id}", download=False
             )
-        formats = len(info.get("formats", []))
+        if info is None:
+            print("extraction returned nothing")
+            return 1
+        formats = len(info.get("formats") or [])
         print(f"ok: {info.get('title')} ({info.get('duration')}s, {formats} formats)")
         return 0
 

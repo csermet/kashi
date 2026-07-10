@@ -54,6 +54,11 @@ url = "https://download.pytorch.org/whl/cpu"
 # Without it, uv looks up every dependency here first (dependency confusion).
 explicit = true
 
+[tool.pyright]
+# Typecheck the shipped code. Tests lean on fixtures and assert-based
+# narrowing that pyright can't follow; they're guarded by pytest instead.
+include = ["src"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

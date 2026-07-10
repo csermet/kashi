@@ -54,8 +54,9 @@ def _load_model():
     """Loaded once per worker process; the weights are ~1.2 GB on disk."""
     global _model, _tokenizer
     if _model is None:
-        import torch
-        from ctc_forced_aligner import load_alignment_model
+        # The [align] extra — absent in plain dev installs, present in the image.
+        import torch  # pyright: ignore[reportMissingImports]
+        from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
 
         logger.info("loading alignment model %s (cpu)", MODEL_NAME)
         _model, _tokenizer = load_alignment_model(
@@ -181,7 +182,7 @@ def _line_only_fallback(line_texts: list[str], results: list[dict]) -> AlignResu
 
 
 def align(wav_path: Path, line_texts: list[str], language: str) -> AlignResult:
-    from ctc_forced_aligner import (
+    from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         generate_emissions,
         get_alignments,
         get_spans,

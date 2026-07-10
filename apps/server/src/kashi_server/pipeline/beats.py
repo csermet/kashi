@@ -57,7 +57,7 @@ def extract_beats(wav_path: Path) -> Beats | None:
         phase = _downbeat_phase(onset_env, beat_frames)
         downbeats = list(range(phase, len(times_ms), 4))
 
-        bpm = float(tempo if np.isscalar(tempo) else tempo.item())
+        bpm = float(np.atleast_1d(np.asarray(tempo))[0])
         if bpm <= 0:  # schema: exclusiveMinimum 0
             logger.info("beats: non-positive tempo, omitting grid")
             return None

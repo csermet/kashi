@@ -35,9 +35,25 @@ jobs:
     defaults:
       run:
         working-directory: apps/server
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: kashi
+          POSTGRES_PASSWORD: kashi
+          POSTGRES_DB: kashi
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U kashi -d kashi"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+    env:
+      DATABASE_URL: postgresql+psycopg://kashi:kashi@localhost:5432/kashi
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
       - run: uv run ruff check .
+      - run: uv run pyright
+      - run: uv run alembic upgrade head
       - run: uv run pytest -q
+
