@@ -53,8 +53,23 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
   ]);
 }
 
+/**
+ * The shipped icon is a 64 px white glyph on transparency. Windows/Linux trays
+ * scale that themselves; the macOS menu bar does not — it would render a
+ * 64 pt white shape, invisible on a light menu bar. There the icon must be a
+ * ~16 pt TEMPLATE image: macOS reads only its alpha channel and paints the
+ * glyph black or white to match the current appearance.
+ */
+function trayIcon() {
+  const image = nativeImage.createFromPath(trayIconPath);
+  if (process.platform !== 'darwin') return image;
+  const scaled = image.resize({ width: 16, height: 16 });
+  scaled.setTemplateImage(true);
+  return scaled;
+}
+
 export function createTray(opts: KashiMenuOptions): TrayHandle {
-  const tray = new Tray(nativeImage.createFromPath(trayIconPath));
+  const tray = new Tray(trayIcon());
   tray.setToolTip('Kashi');
   const refresh = (): void => {
     tray.setContextMenu(buildKashiMenu(opts));
