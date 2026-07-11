@@ -213,6 +213,106 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
     assert doc["lines"][0]["words"]  # neighbours keep karaoke
 
 
+def _align_result(quality: float) -> AlignResult:
+    return AlignResult(
+        sync="word",
+        lines=[LineTiming(0, 1000, "hello world", quality)],
+        words_per_line=[[AlignedWord(0, 400, "hello", 0.8), AlignedWord(500, 1000, "world", 0.8)]],
+        quality_score=quality,
+    )
+
+
+def test_second_pass_runs_on_low_quality_and_keeps_the_better_result(
+    db_session, job, scratch, monkeypatch
+):
+    """separation_mode=second_pass: a low first-pass score triggers vocal
+    separation + realign; the better result wins and the flag lands in the doc."""
+    real_align_stage = wp._align_stage  # keep the real one; _happy_stages mocks it
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "separation_mode", "second_pass")
+    monkeypatch.setattr(wp, "_align_stage", real_align_stage)
+
+    statuses: list[str] = []
+    real_set_status = queue.set_status
+
+    def spy_set_status(s, j, status):
+        statuses.append(status)
+        real_set_status(s, j, status)
+
+    monkeypatch.setattr(wp.queue, "set_status", spy_set_status)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+    separated = []
+    monkeypatch.setattr(
+        wp, "_separate_vocals", lambda audio, tmp: separated.append(audio) or (tmp / "vocals.wav")
+    )
+    aligns = iter([_align_result(0.2), _align_result(0.7)])
+    monkeypatch.setattr(wp, "align", lambda wav, texts, lang: next(aligns))
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert len(separated) == 1
+    assert "separating" in statuses and "aligning" in statuses
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["vocals_separated"] is True
+    assert doc["alignment"]["quality_score"] == pytest.approx(0.7)
+
+
+def test_second_pass_worse_result_is_discarded(db_session, job, scratch, monkeypatch):
+    real_align_stage = wp._align_stage
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "separation_mode", "second_pass")
+    monkeypatch.setattr(wp, "_align_stage", real_align_stage)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+    monkeypatch.setattr(wp, "_separate_vocals", lambda audio, tmp: tmp / "vocals.wav")
+    aligns = iter([_align_result(0.2), _align_result(0.1)])  # second pass is WORSE
+    monkeypatch.setattr(wp, "align", lambda wav, texts, lang: next(aligns))
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["vocals_separated"] is False
+    assert doc["alignment"]["quality_score"] == pytest.approx(0.2)
+
+
+def test_good_first_pass_skips_separation(db_session, job, scratch, monkeypatch):
+    real_align_stage = wp._align_stage
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "separation_mode", "second_pass")
+    monkeypatch.setattr(wp, "_align_stage", real_align_stage)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+
+    def never(*a, **k):  # pragma: no cover - must not run
+        raise AssertionError("separation must not run above the gate")
+
+    monkeypatch.setattr(wp, "_separate_vocals", never)
+    monkeypatch.setattr(wp, "align", lambda wav, texts, lang: _align_result(0.8))
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+
 def test_sweep_orphans_removes_stale_dirs_only(tmp_path):
     import os
 

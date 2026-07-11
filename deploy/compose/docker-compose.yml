@@ -1,4 +1,7 @@
-# Kashi server — self-host stack (API + worker + Postgres).
+# Kashi server — compose stack (API + worker + Postgres) for local
+# development and quick self-host trials. A long-lived deployment is better
+# served by an orchestrator (the reference production setup runs on
+# Kubernetes via GitOps; this file is the fastest way to get one machine up).
 #
 #   cp .env.example .env   # edit the two secrets
 #   docker compose up -d --build
