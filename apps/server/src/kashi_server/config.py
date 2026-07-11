@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/scratch")
     model_cache_dir: Path = Path("/models")  # exported as HF_HOME by the worker
     separation_mode: Literal["off", "second_pass", "always"] = "off"
+    # lrclib-anchored windowed alignment (P3). Ships dark: flips to True in
+    # the 2.0.0 rollout together with the separation default.
+    windowed_alignment: bool = False
     # audio-separator registry filename. BS-RoFormer: best measured vocal SDR of
     # the CPU-viable models (hizalama-v2 research); Voc_FT is the fallback if
     # its wall-clock blows up on the worker (see benchmarks/).

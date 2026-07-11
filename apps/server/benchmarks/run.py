@@ -97,15 +97,28 @@ def _separated_audio(
 
 
 def _align_song(
-    audio: Path, line_texts: list[str], language: str
+    audio: Path,
+    line_texts: list[str],
+    language: str,
+    anchors: list[int | None] | None = None,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
     with tempfile.TemporaryDirectory(prefix="kashi-bench-dec-") as tmp:
         wav = _decode_16k(audio, Path(tmp) / "align.wav")
         started = time.monotonic()
-        result = align(wav, line_texts, language)
+        result = align(wav, line_texts, language, synced_starts_ms=anchors)
     return result, time.monotonic() - started
+
+
+def _jittered(starts: list[int], stem: str, jitter_ms: int) -> list[int | None]:
+    """Deterministic per-song jitter. Jamendo's line starts double as ground
+    truth, so feeding them back verbatim as window anchors would measure an
+    upper bound; jitter simulates crowd-sourced lrclib stamp noise."""
+    import random
+
+    rng = random.Random(f"{stem}:{jitter_ms}")
+    return [max(0, s + rng.randint(-jitter_ms, jitter_ms)) for s in starts]
 
 
 def _hyp_words(result: AlignResult) -> list[tuple[int, str]]:
@@ -139,7 +152,12 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 if args.separation == "full-mix"
                 else _separated_audio(song.audio_path, song.stem, args.separation, args.mixback)
             )
-            result, align_s = _align_song(audio, song.line_texts, song.language)
+            anchors = (
+                _jittered(song.line_starts_ms, song.stem, args.anchor_jitter_ms)
+                if args.windowed
+                else None
+            )
+            result, align_s = _align_song(audio, song.line_texts, song.language, anchors)
         except Exception as exc:  # keep sweeping; a broken song is a data point
             logger.exception("%s failed", song.stem)
             entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -274,7 +292,8 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
                 if args.separation == "full-mix"
                 else _separated_audio(audio, case.id, args.separation, args.mixback)
             )
-            result, align_s = _align_song(source, line_texts, case.language)
+            anchors = [start for start, _ in reference] if args.windowed else None
+            result, align_s = _align_song(source, line_texts, case.language, anchors)
         except Exception as exc:
             logger.exception("case %s failed", case.id)
             entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -323,6 +342,13 @@ def main() -> int:
     parser.add_argument("--songs", nargs="*", help="jamendo stems to include")
     parser.add_argument("--limit", type=int, help="max jamendo songs (after filters)")
     parser.add_argument("--tolerances", default="0.1,0.2,0.3,0.5", help="PCO tolerances, seconds")
+    parser.add_argument("--windowed", action="store_true", help="line-anchored windowed alignment")
+    parser.add_argument(
+        "--anchor-jitter-ms",
+        type=int,
+        default=400,
+        help="jamendo only: simulate lrclib stamp noise on the anchors (0 = ground-truth anchors)",
+    )
     parser.add_argument("--label", help="results filename label (default: config name)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -333,6 +359,8 @@ def main() -> int:
     config_name = args.separation + (
         f"-mb{args.mixback:g}" if args.separation != "full-mix" else ""
     )
+    if args.windowed:
+        config_name += "-win"
     started = time.monotonic()
 
     from kashi_server.pipeline.alignment import MODEL_NAME
@@ -346,7 +374,8 @@ def main() -> int:
             "alignment_model": MODEL_NAME,
             "separation": args.separation,
             "mixback": args.mixback if args.separation != "full-mix" else None,
-            "windowed": False,  # joins the matrix with P3
+            "windowed": args.windowed,
+            "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
             "host": platform.node(),
             "cpus": os.cpu_count(),
             "tolerances_s": [t / 1000 for t in tolerances_ms],

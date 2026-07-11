@@ -127,8 +127,10 @@ def _align_stage(
 ) -> tuple[AlignResult, bool]:
     """Align; optionally re-align on separated vocals when the score is low."""
     language = detect_language(lyrics.full_text)
+    # Windowing needs the lrclib stamps; the flag is the single rollout switch.
+    anchors = lyrics.synced_starts_ms if settings.windowed_alignment else None
     wav = _decode(source_audio, tmp / "align.wav", rate=16000)
-    result = align(wav, lyrics.line_texts, language)
+    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors)
 
     if (
         result.quality_score < SECOND_PASS_QUALITY_GATE
@@ -146,7 +148,7 @@ def _align_stage(
         queue.set_status(s, job, "aligning")
         s.commit()
         vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000)
-        second = align(vocal_wav, lyrics.line_texts, language)
+        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors)
         if second.quality_score > result.quality_score:
             return second, True
     return result, False

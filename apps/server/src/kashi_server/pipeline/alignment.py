@@ -16,6 +16,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from kashi_server.pipeline.windows import plan_windows, reconcile_seams
 from kashi_server.vdl_kit.errors import PipelineError
 
 logger = logging.getLogger(__name__)
@@ -185,23 +186,20 @@ def _line_only_fallback(line_texts: list[str], results: list[dict]) -> AlignResu
     )
 
 
-def align(wav_path: Path, line_texts: list[str], language: str) -> AlignResult:
+def _align_texts(model, tokenizer, audio, texts: list[str], language: str) -> list[dict]:
+    """One emissions+Viterbi pass over `audio` for `texts`. Results are
+    [{start, end, text, score}] in SECONDS relative to the given audio."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         generate_emissions,
         get_alignments,
         get_spans,
-        load_audio,
         postprocess_results,
         preprocess_text,
     )
 
-    model, tokenizer = _load_model()
-    full_text = " ".join(line_texts)
-
-    audio = load_audio(str(wav_path), model.dtype, model.device)
     emissions, stride = generate_emissions(model, audio, batch_size=4)
     tokens_starred, text_starred = preprocess_text(
-        full_text,
+        " ".join(texts),
         romanize=True,  # uroman: required by the multilingual MMS model
         language=language,
         split_size="word",
@@ -209,7 +207,51 @@ def align(wav_path: Path, line_texts: list[str], language: str) -> AlignResult:
     )
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     spans = get_spans(tokens_starred, segments, blank)
-    results = postprocess_results(text_starred, spans, stride, scores)
+    return postprocess_results(text_starred, spans, stride, scores)
+
+
+SAMPLES_PER_MS = 16  # load_audio normalizes to 16 kHz mono
+
+
+def align(
+    wav_path: Path,
+    line_texts: list[str],
+    language: str,
+    synced_starts_ms: list[int | None] | None = None,
+) -> AlignResult:
+    """Whole-audio alignment, or — when line stamps are provided and viable —
+    lrclib-anchored WINDOWED alignment (P3): each window is aligned
+    independently, so a CTC lock loss cannot propagate past a window edge.
+    The merged word stream then flows through the same regroup/fallback path
+    as the whole-audio mode."""
+    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
+
+    model, tokenizer = _load_model()
+    audio = load_audio(str(wav_path), model.dtype, model.device)
+
+    plan = None
+    if synced_starts_ms is not None:
+        total_ms = audio.shape[-1] // SAMPLES_PER_MS
+        plan = plan_windows(line_texts, synced_starts_ms, total_ms)
+
+    if plan is None:
+        results = _align_texts(model, tokenizer, audio, line_texts, language)
+    else:
+        logger.info("windowed alignment: %d windows over %d lines", len(plan), len(line_texts))
+        merged: list[dict] = []
+        for window in plan:
+            piece = audio[
+                ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
+            ]
+            texts = [line_texts[i] for i in window.line_indices]
+            offset_s = window.slice_start_ms / 1000
+            for r in _align_texts(model, tokenizer, piece, texts, language):
+                if r.get("text") == STAR_TOKEN:
+                    continue  # regroup drops them anyway; keep offsets word-only
+                merged.append(
+                    {**r, "start": float(r["start"]) + offset_s, "end": float(r["end"]) + offset_s}
+                )
+        results = reconcile_seams(merged)
 
     regrouped = regroup_words_into_lines(line_texts, results)
     if regrouped is None:

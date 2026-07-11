@@ -251,7 +251,7 @@ def test_second_pass_runs_on_low_quality_and_keeps_the_better_result(
         wp, "_separate_vocals", lambda audio, tmp: separated.append(audio) or (tmp / "vocals.wav")
     )
     aligns = iter([_align_result(0.2), _align_result(0.7)])
-    monkeypatch.setattr(wp, "align", lambda wav, texts, lang: next(aligns))
+    monkeypatch.setattr(wp, "align", lambda wav, texts, lang, **kw: next(aligns))
 
     wp.process_job(db_session, job)
     db_session.refresh(job)
@@ -279,7 +279,7 @@ def test_second_pass_worse_result_is_discarded(db_session, job, scratch, monkeyp
     monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
     monkeypatch.setattr(wp, "_separate_vocals", lambda audio, tmp: tmp / "vocals.wav")
     aligns = iter([_align_result(0.2), _align_result(0.1)])  # second pass is WORSE
-    monkeypatch.setattr(wp, "align", lambda wav, texts, lang: next(aligns))
+    monkeypatch.setattr(wp, "align", lambda wav, texts, lang, **kw: next(aligns))
 
     wp.process_job(db_session, job)
     db_session.refresh(job)
@@ -308,7 +308,7 @@ def test_good_first_pass_skips_separation(db_session, job, scratch, monkeypatch)
         raise AssertionError("separation must not run above the gate")
 
     monkeypatch.setattr(wp, "_separate_vocals", never)
-    monkeypatch.setattr(wp, "align", lambda wav, texts, lang: _align_result(0.8))
+    monkeypatch.setattr(wp, "align", lambda wav, texts, lang, **kw: _align_result(0.8))
 
     wp.process_job(db_session, job)
     db_session.refresh(job)
