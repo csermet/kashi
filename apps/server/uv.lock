@@ -324,7 +324,7 @@ wheels = [
 [[package]]
 name = "ctc-forced-aligner"
 version = "0.3.0"
-source = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner?rev=264e7a1f81bff9ff5e787a5537020c2ad0b0df02#264e7a1f81bff9ff5e787a5537020c2ad0b0df02" }
+source = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner?rev=c344f5bc900323aa434a7cb200b7c629d463bd02#c344f5bc900323aa434a7cb200b7c629d463bd02" }
 dependencies = [
     { name = "nltk" },
     { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
@@ -695,7 +695,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = "==1.18.5" },
-    { name = "ctc-forced-aligner", marker = "extra == 'align'", git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner?rev=264e7a1f81bff9ff5e787a5537020c2ad0b0df02" },
+    { name = "ctc-forced-aligner", marker = "extra == 'align'", git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner?rev=c344f5bc900323aa434a7cb200b7c629d463bd02" },
     { name = "fast-langdetect", specifier = "==1.0.1" },
     { name = "fastapi", specifier = "==0.139.0" },
     { name = "httpx", specifier = ">=0.28" },

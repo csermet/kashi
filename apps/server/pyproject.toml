@@ -45,7 +45,7 @@ package = false
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchaudio = { index = "pytorch-cpu" }
-ctc-forced-aligner = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner", rev = "264e7a1f81bff9ff5e787a5537020c2ad0b0df02" }
+ctc-forced-aligner = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner", rev = "c344f5bc900323aa434a7cb200b7c629d463bd02" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
