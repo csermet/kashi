@@ -15,7 +15,8 @@
    0.3,
    0.5
   ],
-  "wall_s": 5443.1
+  "wall_s": 5443.1,
+  "notes": "cases section re-run after fixing the Rick Astley lrclib record (1009665, the one prod picked) and adding lrclib retry; both cases FAIL on the RAW aligner by design — TiK ToK's 8 over-threshold lines match the 8 prod line_qa snapped (1.1.0), Rick's 6 are new signal (its prod doc predates line_qa). PCO/MAE aggregates: see jamendo section."
  },
  "jamendo": {
   "aggregate": {
@@ -2597,26 +2598,41 @@
     "id": "tiktok",
     "title": "TiK ToK",
     "artist": "Kesha",
-    "error": "ReadTimeout: The read operation timed out"
+    "separate_s": 0.0,
+    "align_s": 72.4,
+    "sync": "word",
+    "quality_score": 0.8412,
+    "offset_ms": -100,
+    "lines_over_threshold": 8,
+    "passed": false,
+    "lines": {
+     "count": 59,
+     "mae_ms": 1503.2203389830509,
+     "medae_ms": 300.0,
+     "p95_ms": 9720.0,
+     "pcs": {
+      "0.3": 0.5084745762711864
+     }
+    }
    },
    {
     "id": "never-gonna-give-you-up",
     "title": "Never Gonna Give You Up",
     "artist": "Rick Astley",
     "separate_s": 0.0,
-    "align_s": 69.7,
+    "align_s": 69.2,
     "sync": "word",
     "quality_score": 0.675,
-    "offset_ms": -270,
+    "offset_ms": -380,
     "lines_over_threshold": 6,
     "passed": false,
     "lines": {
      "count": 58,
-     "mae_ms": 888.9655172413793,
-     "medae_ms": 215.0,
-     "p95_ms": 6410.0,
+     "mae_ms": 863.448275862069,
+     "medae_ms": 235.0,
+     "p95_ms": 6060.0,
      "pcs": {
-      "0.3": 0.5862068965517241
+      "0.3": 0.603448275862069
      }
     }
    }
