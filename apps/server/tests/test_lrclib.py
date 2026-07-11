@@ -43,6 +43,38 @@ def test_exact_hit_strips_timestamps():
     assert lyrics.had_synced and lyrics.source_id == 42
 
 
+def test_synced_starts_are_kept_parallel_to_lines():
+    def handler(request):
+        synced = "[00:12.34] First\n[00:15.00]\n[01:02.500] Second\nBare line"
+        return httpx.Response(200, json={"id": 1, "syncedLyrics": synced})
+
+    lyrics = _fetch(handler)
+    assert lyrics.line_texts == ["First", "Second", "Bare line"]
+    # 2-digit fraction = centiseconds, 3-digit (below) = milliseconds; a
+    # stampless line keeps its slot as None so the lists stay parallel.
+    assert lyrics.synced_starts_ms == [12_340, 62_500, None]
+    assert len(lyrics.synced_starts_ms) == len(lyrics.line_texts)
+
+
+def test_multi_stamp_lrc_line_uses_first_stamp_and_clean_text():
+    def handler(request):
+        synced = "[00:10.00][00:40.000] Repeated hook"
+        return httpx.Response(200, json={"id": 1, "syncedLyrics": synced})
+
+    lyrics = _fetch(handler)
+    assert lyrics.line_texts == ["Repeated hook"]  # no stamp leaks into the text
+    assert lyrics.synced_starts_ms == [10_000]
+
+
+def test_plain_lyrics_have_no_synced_starts():
+    def handler(request):
+        return httpx.Response(200, json={"id": 1, "plainLyrics": "one\ntwo"})
+
+    lyrics = _fetch(handler)
+    assert lyrics.line_texts == ["one", "two"]
+    assert lyrics.synced_starts_ms is None and not lyrics.had_synced
+
+
 def test_user_agent_identifies_the_project():
     assert USER_AGENT.startswith("kashi-server/")
     assert "github.com/csermet/kashi" in USER_AGENT

@@ -163,6 +163,56 @@ def test_cancel_between_stages_aborts_quietly(db_session, job, scratch, monkeypa
     assert list(scratch.glob("job-*")) == []  # tmp cleaned even on abort
 
 
+def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scratch, monkeypatch):
+    """End-to-end through process_job: a line far off its lrclib synced time is
+    snapped and persisted WITHOUT words, while the good lines keep theirs."""
+    _happy_stages(monkeypatch, scratch)
+    texts = ["one a", "two b", "three c", "four d"]
+    lines = [
+        LineTiming(1000, 1800, texts[0], 0.9),
+        LineTiming(5000, 5800, texts[1], 0.9),
+        LineTiming(9000, 9800, texts[2], 0.9),
+        LineTiming(34_000, 34_800, texts[3], 0.1),  # sung at 46 s — drifted
+    ]
+    words = [
+        [
+            AlignedWord(ln.start_ms, ln.start_ms + 300, ln.text.split()[0], 0.8),
+            AlignedWord(ln.start_ms + 400, ln.start_ms + 700, ln.text.split()[1], 0.8),
+        ]
+        for ln in lines
+    ]
+    monkeypatch.setattr(
+        wp,
+        "_align_stage",
+        lambda s, j, tmp, audio, lyrics: (
+            AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.8),
+            False,
+        ),
+    )
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: LyricsText(
+            texts, " ".join(texts), 5, True, synced_starts_ms=[1000, 5000, 9000, 46_000]
+        ),
+    )
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    row = db_session.scalars(select(ProcessedTrack)).one()
+    doc = row.document
+    assert doc["pipeline_version"] == "1.1.0"
+    assert doc["sync"] == "word"
+    assert doc["lines"][3]["start_ms"] == 46_000
+    assert "words" not in doc["lines"][3]  # dropped by QA
+    assert doc["lines"][0]["words"]  # neighbours keep karaoke
+
+
 def test_sweep_orphans_removes_stale_dirs_only(tmp_path):
     import os
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "pipeline_version": "0.1.0",
+  "pipeline_version": "1.1.0",
   "generated_at": "2026-07-06T15:00:00Z",
   "track": {
     "source": { "type": "youtube", "id": "abc123XYZ_-" },

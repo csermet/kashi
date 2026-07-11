@@ -96,7 +96,11 @@ def test_bgutil_only_wired_when_configured(tmp_path, monkeypatch):
     download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert "youtubepot-bgutilhttp" not in captured["extractor_args"]
 
-    monkeypatch.setenv("BGUTIL_POT_PROVIDER_URL", "http://pot:4416")
+    # Wired through settings (single source of truth), not a direct env read —
+    # in production the env var still lands here via pydantic-settings.
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "bgutil_pot_provider_url", "http://pot:4416")
     download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert captured["extractor_args"]["youtubepot-bgutilhttp"]["base_url"] == ["http://pot:4416"]
 

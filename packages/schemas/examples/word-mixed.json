@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "1.1.0",
+  "generated_at": "2026-07-11T12:00:00Z",
+  "track": {
+    "source": { "type": "youtube", "id": "RxUZLmN5RsY" },
+    "title": "TiK ToK",
+    "artist": "Kesha",
+    "duration_ms": 200000,
+    "canonical_group": "kesha|tik tok|200"
+  },
+  "sync": "word",
+  "alignment": {
+    "method": "ctc-forced-aligner/mms-300m",
+    "lyrics_source": "lrclib",
+    "lyrics_source_id": 12212948,
+    "vocals_separated": false,
+    "quality_score": 0.71,
+    "speed_factor": 1.0
+  },
+  "lines": [
+    {
+      "start_ms": 28320,
+      "end_ms": 29500,
+      "text": "Tryin' to get a little bit tipsy",
+      "score": 1.0,
+      "words": [
+        { "start_ms": 28320, "end_ms": 28600, "text": "Tryin'" },
+        { "start_ms": 28600, "end_ms": 28750, "text": "to" },
+        { "start_ms": 28750, "end_ms": 28950, "text": "get" },
+        { "start_ms": 28950, "end_ms": 29050, "text": "a" },
+        { "start_ms": 29050, "end_ms": 29200, "text": "little" },
+        { "start_ms": 29200, "end_ms": 29320, "text": "bit" },
+        { "start_ms": 29320, "end_ms": 29500, "text": "tipsy" }
+      ]
+    },
+    {
+      "start_ms": 32140,
+      "end_ms": 35620,
+      "text": "Don't stop, make it pop, D.J., blow my speakers up",
+      "score": 0.0
+    },
+    {
+      "start_ms": 64160,
+      "end_ms": 67420,
+      "text": "Ain't got a care in the world, but got plenty of beer",
+      "score": 1.0,
+      "words": [
+        { "start_ms": 64160, "end_ms": 64400, "text": "Ain't" },
+        { "start_ms": 64400, "end_ms": 64600, "text": "got" },
+        { "start_ms": 64600, "end_ms": 64700, "text": "a" },
+        { "start_ms": 64700, "end_ms": 65000, "text": "care" },
+        { "start_ms": 65000, "end_ms": 65200, "text": "in" },
+        { "start_ms": 65200, "end_ms": 65400, "text": "the" },
+        { "start_ms": 65400, "end_ms": 65900, "text": "world," },
+        { "start_ms": 65900, "end_ms": 66100, "text": "but" },
+        { "start_ms": 66100, "end_ms": 66400, "text": "got" },
+        { "start_ms": 66400, "end_ms": 66900, "text": "plenty" },
+        { "start_ms": 66900, "end_ms": 67050, "text": "of" },
+        { "start_ms": 67050, "end_ms": 67420, "text": "beer" }
+      ]
+    }
+  ],
+  "palette": {
+    "source": "default",
+    "primary": "#e84545",
+    "secondary": "#f5d76e",
+    "background": "#1a1a2e",
+    "text": "#ffffff",
+    "accent": "#903749"
+  }
+}

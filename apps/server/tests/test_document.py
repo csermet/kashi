@@ -82,6 +82,45 @@ def test_line_document_has_no_words_keys():
     assert "beats" not in doc
 
 
+def test_mixed_word_document_omits_words_for_qa_dropped_lines():
+    lines = [
+        LineTiming(1000, 2000, "hello world", 0.8),
+        LineTiming(3000, 3500, "again", 0.0),
+    ]
+    words = [
+        [AlignedWord(1000, 1400, "hello", 0.7), AlignedWord(1500, 2000, "world", 0.9)],
+        [],  # line QA dropped this line's words
+    ]
+    result = AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.7)
+    doc = build_document(
+        _job(), _lyrics(), result, None, dict(DEFAULT_PALETTE), vocals_separated=False
+    )
+    validate_document(doc)  # mixed documents are contract-valid
+    assert "words" in doc["lines"][0]
+    assert "words" not in doc["lines"][1]  # omitted, never an empty array
+
+
+def test_word_document_without_any_words_is_rejected():
+    doc = build_document(
+        _job(), _lyrics(), _word_result(), None, dict(DEFAULT_PALETTE), vocals_separated=False
+    )
+    for line in doc["lines"]:
+        line.pop("words", None)
+    with pytest.raises(PipelineError) as exc:
+        validate_document(doc)
+    assert "no word timings" in exc.value.message
+
+
+def test_line_document_carrying_words_is_rejected():
+    doc = build_document(
+        _job(), _lyrics(), _word_result(), None, dict(DEFAULT_PALETTE), vocals_separated=False
+    )
+    doc["sync"] = "line"  # words stayed — structural invariant must fire
+    with pytest.raises(PipelineError) as exc:
+        validate_document(doc)
+    assert "sync=line" in exc.value.message
+
+
 def test_duration_falls_back_to_downloaded_audio():
     job = _job()
     job.hints = {"title": "Song", "artist": "Artist"}  # no duration hint

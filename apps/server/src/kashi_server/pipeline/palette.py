@@ -93,11 +93,19 @@ def extract_palette(artwork_url: str | None, *, timeout_s: float = 10.0) -> dict
     try:
         import httpx
 
-        response = httpx.get(artwork_url, timeout=timeout_s, follow_redirects=True)
-        response.raise_for_status()
-        if len(response.content) > _MAX_ART_BYTES:
-            raise ValueError("artwork too large")
-        return palette_from_image_bytes(response.content)
+        # Streamed with a running cap: artwork_url is client-supplied, so the
+        # size check must fire BEFORE the body is buffered (a multi-GB response
+        # would otherwise OOM the worker at its memory limit).
+        chunks: list[bytes] = []
+        received = 0
+        with httpx.stream("GET", artwork_url, timeout=timeout_s, follow_redirects=True) as response:
+            response.raise_for_status()
+            for chunk in response.iter_bytes():
+                received += len(chunk)
+                if received > _MAX_ART_BYTES:
+                    raise ValueError("artwork too large")
+                chunks.append(chunk)
+        return palette_from_image_bytes(b"".join(chunks))
     except Exception as exc:
         logger.warning("palette extraction failed (%s) — using the default palette", exc)
         return dict(DEFAULT_PALETTE)

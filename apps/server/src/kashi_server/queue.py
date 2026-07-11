@@ -32,9 +32,8 @@ def queue_depth(s: Session) -> int:
     return s.scalar(select(func.count()).select_from(Job).where(Job.status.in_(LIVE_STATUSES))) or 0
 
 
-def _find_reusable(s: Session, source_type: str, source_id: str, pipeline_major: int) -> Job | None:
-    """Idempotency lookups, in contract order (plan A1)."""
-    live = s.scalars(
+def _find_live(s: Session, source_type: str, source_id: str, pipeline_major: int) -> Job | None:
+    return s.scalars(
         select(Job)
         .where(
             Job.source_type == source_type,
@@ -44,6 +43,11 @@ def _find_reusable(s: Session, source_type: str, source_id: str, pipeline_major:
         )
         .limit(1)
     ).first()
+
+
+def _find_reusable(s: Session, source_type: str, source_id: str, pipeline_major: int) -> Job | None:
+    """Idempotency lookups, in contract order (plan A1)."""
+    live = _find_live(s, source_type, source_id, pipeline_major)
     if live is not None:
         return live
 
@@ -112,6 +116,47 @@ def enqueue(
         # uq_jobs_active race: another request inserted first — return the winner.
         s.rollback()
         winner = _find_reusable(s, source_type, source_id, pipeline_major)
+        if winner is None:  # pragma: no cover — winner just won the unique index
+            raise
+        return winner
+    return job
+
+
+def enqueue_reprocess(
+    s: Session,
+    *,
+    source_type: str,
+    source_id: str,
+    pipeline_major: int,
+    hints: dict[str, Any],
+    options: dict[str, Any],
+    requested_by: uuid.UUID | None,
+) -> Job:
+    """Admin-forced fresh run: bypasses the processed-track and permanent-fail
+    reuse (a completed document would otherwise pin its old job forever). A
+    LIVE job still wins — uq_jobs_active allows exactly one, and stealing it
+    would orphan a worker's lease. Completion overwrites the stored document
+    in place (persist upsert), so no lyrics-less window opens."""
+    live = _find_live(s, source_type, source_id, pipeline_major)
+    if live is not None:
+        return live
+    if queue_depth(s) >= settings.queue_depth_limit:
+        raise QueueFull
+    job = Job(
+        source_type=source_type,
+        source_id=source_id,
+        pipeline_major=pipeline_major,
+        hints=hints,
+        options=options,
+        requested_by=requested_by,
+    )
+    s.add(job)
+    try:
+        s.flush()
+    except IntegrityError:
+        # uq_jobs_active race — return the live winner.
+        s.rollback()
+        winner = _find_live(s, source_type, source_id, pipeline_major)
         if winner is None:  # pragma: no cover — winner just won the unique index
             raise
         return winner

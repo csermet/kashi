@@ -28,7 +28,7 @@ export interface KashiProcessedTrackV1 {
     canonical_group?: string;
   };
   /**
-   * Granularity of timing data. "line": no per-word timings anywhere in `lines`.
+   * Granularity of timing data. "line": no per-word timings anywhere in `lines`. "word": at least one line carries `words`; a line whose word timings were rejected by server-side QA omits the array and renders as plain text (mixed documents).
    */
   sync: "word" | "line";
   alignment: {

@@ -1,6 +1,8 @@
 // Validates every fixture in examples/ against the v1 schema, plus the two
 // structural rules the schema itself cannot express cleanly:
-//   - sync=word  → every line has a non-empty `words` array
+//   - sync=word  → at least ONE line has a non-empty `words` array (a line
+//     whose word timings were rejected by server-side QA omits the field;
+//     the overlay renders such lines as plain text)
 //   - sync=line  → no line carries a `words` field at all
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -24,12 +26,12 @@ for (const file of readdirSync(join(root, 'examples')).filter((f) => f.endsWith(
     errors.push(...validate.errors.map((e) => `${e.instancePath || '/'} ${e.message}`));
   }
   for (const [i, line] of (doc.lines ?? []).entries()) {
-    if (doc.sync === 'word' && !(Array.isArray(line.words) && line.words.length > 0)) {
-      errors.push(`/lines/${i}: sync=word requires a non-empty words array`);
-    }
     if (doc.sync === 'line' && 'words' in line) {
       errors.push(`/lines/${i}: sync=line forbids a words field`);
     }
+  }
+  if (doc.sync === 'word' && !(doc.lines ?? []).some((l) => Array.isArray(l.words) && l.words.length > 0)) {
+    errors.push('/lines: sync=word requires at least one line with non-empty words');
   }
 
   if (errors.length > 0) {

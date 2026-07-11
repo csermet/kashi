@@ -11,9 +11,9 @@ import logging
 import shutil
 import subprocess
 import threading
-from dataclasses import dataclass
 from pathlib import Path
 
+from prometheus_client import Counter
 from sqlalchemy.orm import Session
 
 from kashi_server import queue
@@ -24,6 +24,7 @@ from kashi_server.pipeline.beats import extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.langid import detect_language
+from kashi_server.pipeline.line_qa import apply_line_qa
 from kashi_server.pipeline.lrclib import LyricsText, fetch_lyrics
 from kashi_server.pipeline.palette import extract_palette
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
@@ -32,12 +33,15 @@ logger = logging.getLogger(__name__)
 
 SECOND_PASS_QUALITY_GATE = 0.5
 
-
-@dataclass
-class StageMetrics:
-    """Filled by the loop's prometheus wrapper; kept import-light here."""
-
-    observe: object = None  # callable(stage: str, seconds: float) | None
+LINE_QA_DOCS = Counter(
+    "kashi_line_qa_docs_total",
+    "Documents by line-QA outcome",
+    ["outcome"],  # clean | snapped | degraded
+)
+LINE_QA_SNAPPED_LINES = Counter(
+    "kashi_line_qa_snapped_lines_total",
+    "Lines snapped to lrclib reference times by line QA",
+)
 
 
 def checkpoint(s: Session, job: Job) -> None:
@@ -109,7 +113,7 @@ def _align_stage(
     return result, False
 
 
-def process_job(s: Session, job: Job, *, metrics: StageMetrics | None = None) -> None:
+def process_job(s: Session, job: Job) -> None:
     tmp = settings.data_dir / f"job-{job.id}"
     tmp.mkdir(parents=True, exist_ok=True)
     try:
@@ -134,6 +138,21 @@ def process_job(s: Session, job: Job, *, metrics: StageMetrics | None = None) ->
         s.commit()
         lyrics = fetch_lyrics(job.hints or {}, base_url=settings.lrclib_base_url)
         result, vocals_separated = _align_stage(s, job, tmp, source_audio, lyrics)
+        qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
+        result = qa.result
+        if qa.degraded_to_line or qa.flagged:
+            logger.warning(
+                "job %s: line QA %s %d line(s), offset %+dms",
+                job.id,
+                "degraded to line sync after flagging" if qa.degraded_to_line else "snapped",
+                len(qa.flagged),
+                qa.offset_ms,
+            )
+        LINE_QA_DOCS.labels(
+            "degraded" if qa.degraded_to_line else ("snapped" if qa.flagged else "clean")
+        ).inc()
+        if not qa.degraded_to_line:
+            LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
         checkpoint(s, job)
 
         # --- postprocessing ---

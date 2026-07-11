@@ -40,6 +40,12 @@ class IngestResponse(BaseModel):
     status: str
 
 
+class ReprocessRequest(BaseModel):
+    source: SourceRef
+    # Optional: when omitted, the latest job's hints for this source are reused.
+    hints: IngestHints | None = None
+
+
 class JobOut(BaseModel):
     id: uuid.UUID
     status: str

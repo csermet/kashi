@@ -4,10 +4,12 @@ This is not the overlay's lrclib client and never becomes one: the server does
 not proxy lyrics to clients (plan R-5). It fetches the words once, aligns them
 against the audio, and only the derived timings ever leave the pipeline.
 
-The `syncedLyrics` variant is preferred and its timestamps are STRIPPED — its
-line breaks are exactly what a line-mode client displays, so word-level output
-regroups into the same lines. The timestamps themselves are discarded; every
-time in the output comes from the aligner.
+The `syncedLyrics` variant is preferred — its line breaks are exactly what a
+line-mode client displays, so word-level output regroups into the same lines.
+Every time in the OUTPUT still comes from the aligner; the lrclib timestamps
+are kept only as a QA reference (`synced_starts_ms`) so line_qa can catch
+sections where the aligner lost lock (drifted far from where the line is
+actually sung).
 """
 
 import logging
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 USER_AGENT = f"kashi-server/{PIPELINE_VERSION} (+https://github.com/csermet/kashi)"
 SEARCH_DURATION_TOLERANCE_S = 3
-_TIMESTAMP = re.compile(r"^\[\d{2}:\d{2}[.:]\d{2,3}\]\s*")
+_TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
 _TOPIC_SUFFIX = re.compile(r"\s*-\s*Topic$", re.IGNORECASE)
 
 
@@ -33,6 +35,10 @@ class LyricsText:
     full_text: str
     source_id: int
     had_synced: bool
+    # Parallel to line_texts when the lyrics came from syncedLyrics: the [mm:ss.xx]
+    # start of each line (None for a rare stampless line). None entirely for plain
+    # lyrics. QA reference only — never copied into the output document.
+    synced_starts_ms: list[int | None] | None = None
 
 
 def normalize_artist(artist: str) -> str:
@@ -40,28 +46,47 @@ def normalize_artist(artist: str) -> str:
     return _TOPIC_SUFFIX.sub("", artist).strip()
 
 
-def _lines_from_synced(synced: str) -> list[str]:
-    lines = [_TIMESTAMP.sub("", raw).strip() for raw in synced.splitlines()]
-    return [line for line in lines if line]
+def _parse_synced(synced: str) -> list[tuple[int | None, str]]:
+    """One (start_ms, text) entry per non-empty lyric line.
+
+    Strips EVERY leading [mm:ss.xx] stamp (multi-stamp LRC lines repeat one text
+    at several times; the first stamp wins, none may leak into the text). Empty
+    lines drop time and text together, so the result stays parallel to the
+    line_texts the aligner sees.
+    """
+    entries: list[tuple[int | None, str]] = []
+    for raw in synced.splitlines():
+        rest = raw
+        start_ms: int | None = None
+        while (match := _TIMESTAMP.match(rest)) is not None:
+            if start_ms is None:
+                mm, ss, frac = match.groups()
+                frac_ms = int(frac) if len(frac) == 3 else int(frac) * 10
+                start_ms = int(mm) * 60_000 + int(ss) * 1_000 + frac_ms
+            rest = rest[match.end() :]
+        text = rest.strip()
+        if text:
+            entries.append((start_ms, text))
+    return entries
 
 
 def _lines_from_plain(plain: str) -> list[str]:
     return [line.strip() for line in plain.splitlines() if line.strip()]
 
 
-def _extract(record: dict) -> tuple[list[str], bool] | None:
+def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | None:
     if record.get("instrumental"):
         return None
     synced = record.get("syncedLyrics")
     if synced:
-        lines = _lines_from_synced(synced)
-        if lines:
-            return lines, True
+        entries = _parse_synced(synced)
+        if entries:
+            return [text for _, text in entries], [start for start, _ in entries], True
     plain = record.get("plainLyrics")
     if plain:
         lines = _lines_from_plain(plain)
         if lines:
-            return lines, False
+            return lines, None, False
     return None
 
 
@@ -109,7 +134,7 @@ def fetch_lyrics(
             http.close()
 
     assert record is not None  # extracted != None implies a record
-    line_texts, had_synced = extracted
+    line_texts, synced_starts_ms, had_synced = extracted
     logger.info(
         "lyrics for %s - %s: %d lines (%s)",
         artist,
@@ -122,6 +147,7 @@ def fetch_lyrics(
         full_text=" ".join(line_texts),
         source_id=int(record.get("id") or 0),
         had_synced=had_synced,
+        synced_starts_ms=synced_starts_ms,
     )
 
 

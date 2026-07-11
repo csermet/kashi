@@ -53,8 +53,51 @@ def test_network_failure_returns_default(monkeypatch):
     def boom(*args, **kwargs):
         raise httpx.ConnectError("down")
 
-    monkeypatch.setattr(httpx, "get", boom)
+    monkeypatch.setattr(httpx, "stream", boom)
     assert extract_palette("https://example.test/art.jpg") == DEFAULT_PALETTE
+
+
+class _FakeStream:
+    """Stands in for httpx.stream(...)'s context manager."""
+
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.served = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    def iter_bytes(self):
+        for chunk in self._chunks:
+            self.served += 1
+            yield chunk
+
+
+def test_streamed_artwork_is_assembled(monkeypatch):
+    import httpx
+
+    data = _png([((10, 10, 40), 48), ((230, 60, 60), 16)])
+    half = len(data) // 2
+    fake = _FakeStream([data[:half], data[half:]])
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: fake)
+    assert extract_palette("https://example.test/art.png")["source"] == "album_art"
+
+
+def test_oversized_body_is_cut_off_mid_stream(monkeypatch):
+    import httpx
+
+    # 200 x 64 KiB = 12.8 MB on offer; the 5 MB cap must stop consumption long
+    # before the stream is exhausted (pre-fix, the whole body was buffered).
+    fake = _FakeStream([b"x" * 65536] * 200)
+    monkeypatch.setattr(httpx, "stream", lambda *a, **k: fake)
+    assert extract_palette("https://example.test/art.jpg") == DEFAULT_PALETTE
+    assert fake.served <= 82  # 5 MiB / 64 KiB = 80 chunks (+ rounding slack)
 
 
 def test_default_palette_is_schema_shaped():

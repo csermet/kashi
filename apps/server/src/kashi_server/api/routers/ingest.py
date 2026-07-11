@@ -2,11 +2,10 @@
 represents this source, whether fresh, already running, or already done)."""
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from kashi_server import queue
-from kashi_server.api.deps import get_db, rate_limited
+from kashi_server.api.deps import get_db, queue_full_response, rate_limited
 from kashi_server.api.schemas import IngestRequest, IngestResponse
 from kashi_server.db.models import ApiKey
 from kashi_server.version import PIPELINE_MAJOR
@@ -31,5 +30,5 @@ def ingest(
             requested_by=key.id,
         )
     except queue.QueueFull:
-        return JSONResponse(status_code=503, content={"error": "queue_full"})
+        return queue_full_response()
     return IngestResponse(job_id=job.id, status=job.status)

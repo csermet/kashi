@@ -21,13 +21,17 @@ def test_example_validates(example_path: Path) -> None:
     doc = json.loads(example_path.read_text())
     Draft202012Validator(SCHEMA).validate(doc)
 
+    # Mirrors validate-examples.mjs: sync=line forbids words everywhere;
+    # sync=word needs at least ONE worded line (QA-snapped lines omit words).
     for i, line in enumerate(doc["lines"]):
-        if doc["sync"] == "word":
-            assert line.get("words"), f"lines[{i}]: sync=word requires non-empty words"
         if doc["sync"] == "line":
             assert "words" not in line, f"lines[{i}]: sync=line forbids words"
+    if doc["sync"] == "word":
+        assert any(line.get("words") for line in doc["lines"]), (
+            "sync=word requires at least one line with non-empty words"
+        )
 
 
 def test_examples_exist() -> None:
     names = {p.name for p in EXAMPLES}
-    assert {"word.json", "line-only.json"} <= names
+    assert {"word.json", "word-mixed.json", "line-only.json"} <= names

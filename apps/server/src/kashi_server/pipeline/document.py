@@ -67,7 +67,10 @@ def build_document(
             "text": line.text,
             "score": round(line.score, 4),
         }
-        if align_result.sync == "word":
+        # Per-line: a word-sync document may carry wordless lines (line QA drops
+        # the words of a snapped line); an empty array is never written (schema
+        # minItems). The overlay renders such lines as plain text.
+        if align_result.sync == "word" and align_result.words_per_line[index]:
             entry["words"] = [
                 {"start_ms": w.start_ms, "end_ms": w.end_ms, "text": w.text}
                 for w in align_result.words_per_line[index]
@@ -130,6 +133,15 @@ def validate_document(doc: dict) -> None:
         raise PipelineError(
             "alignment_failed", f"document failed schema validation at {path}: {first.message}"
         )
+    # Structural sync invariants the schema cannot express (kept in lockstep
+    # with packages/schemas/scripts/validate-examples.mjs):
+    #   sync=line -> no line carries a words field
+    #   sync=word -> at least one line carries non-empty words
+    lines = doc.get("lines") or []
+    if doc.get("sync") == "line" and any("words" in line for line in lines):
+        raise PipelineError("alignment_failed", "sync=line document carries word timings")
+    if doc.get("sync") == "word" and not any(line.get("words") for line in lines):
+        raise PipelineError("alignment_failed", "sync=word document has no word timings at all")
 
 
 _UPSERT_SQL = sa_text(

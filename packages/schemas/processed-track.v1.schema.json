@@ -37,7 +37,7 @@
     },
     "sync": {
       "enum": ["word", "line"],
-      "description": "Granularity of timing data. \"line\": no per-word timings anywhere in `lines`."
+      "description": "Granularity of timing data. \"line\": no per-word timings anywhere in `lines`. \"word\": at least one line carries `words`; a line whose word timings were rejected by server-side QA omits the array and renders as plain text (mixed documents)."
     },
     "alignment": {
       "type": "object",

@@ -1,7 +1,7 @@
 """FastAPI application.
 
 v1 surface: /v1/health + /v1/ready (unauthenticated probes), /v1/lyrics,
-/v1/ingest, /v1/jobs (Bearer auth) and /v1/admin/keys (admin role).
+/v1/ingest, /v1/jobs (Bearer auth) and /v1/admin/{keys,reprocess} (admin role).
 Lifespan bootstraps the ADMIN_API_KEY env value as the `bootstrap-admin` key.
 """
 
@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 
 from kashi_server import __version__
 from kashi_server.api.middleware import ContentLengthLimitMiddleware
-from kashi_server.api.routers import admin_keys, ingest, jobs, lyrics
+from kashi_server.api.routers import admin_keys, admin_ops, ingest, jobs, lyrics
 from kashi_server.auth import hash_key, looks_like_key
 from kashi_server.config import settings
 from kashi_server.db.models import ApiKey
@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest.router)
     app.include_router(jobs.router)
     app.include_router(admin_keys.router)
+    app.include_router(admin_ops.router)
 
     @app.get("/v1/health")
     def health() -> dict[str, str]:

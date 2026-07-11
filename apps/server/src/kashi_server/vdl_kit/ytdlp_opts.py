@@ -13,8 +13,6 @@ Policy notes carried over verbatim, do not "optimize" them away:
   retry layer.
 """
 
-import os
-
 SLEEP_INTERVAL = 0
 MAX_SLEEP_INTERVAL = 2
 SLEEP_INTERVAL_REQUESTS = 1
@@ -52,9 +50,11 @@ def common_ytdlp_opts() -> dict:
     }
     # The bgutil PoToken sidecar is optional (home IP, low volume). Only wire it
     # up when a provider URL is configured, otherwise yt-dlp probes a dead host.
-    pot_provider_url = os.environ.get("BGUTIL_POT_PROVIDER_URL")
-    if pot_provider_url:
-        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_provider_url]}
+    # Read through settings (single source of truth), not os.environ directly.
+    from kashi_server.config import settings
+
+    if settings.bgutil_pot_provider_url:
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [settings.bgutil_pot_provider_url]}
 
     return {
         "quiet": True,

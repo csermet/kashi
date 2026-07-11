@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,11 @@ from kashi_server.db.models import ApiKey
 from kashi_server.ratelimit import RATE_LIMITS, buckets
 
 LAST_USED_WRITE_INTERVAL = timedelta(seconds=60)
+
+
+def queue_full_response() -> JSONResponse:
+    """Shared QueueFull -> 503 mapping (ingest + admin reprocess)."""
+    return JSONResponse(status_code=503, content={"error": "queue_full"})
 
 
 def get_db() -> Iterator[Session]:

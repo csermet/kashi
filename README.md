@@ -8,8 +8,11 @@ self-hostable) server get word-by-word karaoke highlighting, beat-synced effects
 album-art color themes; everything else falls back to line-level synced lyrics from
 [LRCLIB](https://lrclib.net).
 
-> **Status: early development.** Nothing usable yet — the skeleton, data contracts and
-> CI are being laid down. See `docs/` as it fills in.
+> **Status: working end-to-end (Phase 3).** The Electron overlay renders line- and
+> word-synced lyrics for YouTube Music via the browser extension, with lrclib as the
+> zero-setup source. The optional self-hosted server pre-processes tracks into
+> word-timed documents (yt-dlp → lrclib → forced alignment → beats/palette).
+> Effects engine (Phase 4) and packaged releases (Phase 5) are still ahead.
 
 ## How it works
 
