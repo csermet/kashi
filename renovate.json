@@ -17,8 +17,17 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "ctc-forced-aligner is a git-SHA pin (no releases) — renovate must not touch it",
-      "matchPackageNames": ["ctc-forced-aligner"],
+      "description": "ctc-forced-aligner is a git-SHA pin (no releases) — renovate must not touch it. Matched by name AND git slug: the PEP 508 git URL registers under the repo slug, which let PR #1 slip past the name-only rule.",
+      "matchPackageNames": [
+        "ctc-forced-aligner",
+        "MahmoudAshraf97/ctc-forced-aligner",
+        "https://github.com/MahmoudAshraf97/ctc-forced-aligner"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Belt and braces: no git-digest bumps anywhere (only the aligner is pinned that way; a digest bump changes aligner code without a smoke test)",
+      "matchDatasources": ["git-refs", "git-tags"],
       "enabled": false
     },
     {
