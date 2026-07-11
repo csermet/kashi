@@ -1,0 +1,369 @@
+{
+ "meta": {
+  "generated_at": "2026-07-11T21:20:41+00:00",
+  "label": "ryzen-subset8-voc-ft-mb0.15",
+  "pipeline_version": "1.2.0",
+  "alignment_model": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+  "separation": "voc_ft",
+  "mixback": 0.15,
+  "windowed": false,
+  "host": "kashi-bench-voc-ft-mb015-28rdc",
+  "cpus": 12,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 1660.1
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 8,
+   "scored": 8,
+   "failed": [],
+   "word_mae_ms_mean": 239.4,
+   "word_mae_ms_median": 134.3,
+   "word_medae_ms_mean": 35.9,
+   "pco": {
+    "0.1": 0.8832,
+    "0.2": 0.9437,
+    "0.3": 0.9552,
+    "0.5": 0.9653
+   },
+   "align_s_total": 319.9,
+   "align_x_realtime": 0.191,
+   "per_language": {
+    "deu": {
+     "songs": 2,
+     "word_mae_ms_mean": 645.0,
+     "pco_0.3": 0.9177
+    },
+    "eng": {
+     "songs": 2,
+     "word_mae_ms_mean": 137.9,
+     "pco_0.3": 0.9632
+    },
+    "fra": {
+     "songs": 2,
+     "word_mae_ms_mean": 105.9,
+     "pco_0.3": 0.9437
+    },
+    "spa": {
+     "songs": 2,
+     "word_mae_ms_mean": 68.8,
+     "pco_0.3": 0.996
+    }
+   },
+   "separate_x_realtime": 0.598
+  },
+  "songs": [
+   {
+    "stem": "HILA_-_Give_Me_the_Same",
+    "language": "eng",
+    "duration_s": 230.5,
+    "n_words": 322,
+    "n_lines": 58,
+    "separate_s": 129.0,
+    "align_s": 51.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 322,
+     "mae_ms": 90.40683229813665,
+     "medae_ms": 44.0,
+     "p95_ms": 351.0,
+     "pcs": {
+      "0.1": 0.7950310559006211,
+      "0.2": 0.9161490683229814,
+      "0.3": 0.937888198757764,
+      "0.5": 0.9720496894409938
+     }
+    },
+    "lines": {
+     "count": 58,
+     "mae_ms": 98.75862068965517,
+     "medae_ms": 34.5,
+     "p95_ms": 439.0,
+     "pcs": {
+      "0.3": 0.9310344827586207
+     }
+    }
+   },
+   {
+    "stem": "Quentin_Hannappe_-_Keep_On",
+    "language": "eng",
+    "duration_s": 164.7,
+    "n_words": 175,
+    "n_lines": 27,
+    "separate_s": 110.5,
+    "align_s": 33.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 175,
+     "mae_ms": 185.4742857142857,
+     "medae_ms": 29.0,
+     "p95_ms": 137.0,
+     "pcs": {
+      "0.1": 0.9314285714285714,
+      "0.2": 0.9828571428571429,
+      "0.3": 0.9885714285714285,
+      "0.5": 0.9942857142857143
+     }
+    },
+    "lines": {
+     "count": 27,
+     "mae_ms": 41.851851851851855,
+     "medae_ms": 33.0,
+     "p95_ms": 151.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "1_Freak_-_Automatisch_Gekommen",
+    "language": "deu",
+    "duration_s": 185.4,
+    "n_words": 367,
+    "n_lines": 60,
+    "separate_s": 116.6,
+    "align_s": 33.7,
+    "sync": "word",
+    "quality_score": 0.7242,
+    "words": {
+     "count": 367,
+     "mae_ms": 192.85558583106268,
+     "medae_ms": 28.0,
+     "p95_ms": 875.0,
+     "pcs": {
+      "0.1": 0.8801089918256131,
+      "0.2": 0.9346049046321526,
+      "0.3": 0.9373297002724795,
+      "0.5": 0.9427792915531336
+     }
+    },
+    "lines": {
+     "count": 60,
+     "mae_ms": 310.3666666666667,
+     "medae_ms": 40.5,
+     "p95_ms": 1109.0,
+     "pcs": {
+      "0.3": 0.9
+     }
+    }
+   },
+   {
+    "stem": "Baila_-_Alfonso_Lugo",
+    "language": "spa",
+    "duration_s": 185.5,
+    "n_words": 282,
+    "n_lines": 36,
+    "separate_s": 124.6,
+    "align_s": 38.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 282,
+     "mae_ms": 33.734042553191486,
+     "medae_ms": 29.0,
+     "p95_ms": 69.0,
+     "pcs": {
+      "0.1": 0.9822695035460993,
+      "0.2": 0.9964539007092199,
+      "0.3": 0.9964539007092199,
+      "0.5": 0.9964539007092199
+     }
+    },
+    "lines": {
+     "count": 36,
+     "mae_ms": 24.694444444444443,
+     "medae_ms": 23.5,
+     "p95_ms": 65.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Besando_Sapos_-_Dream_Tabu",
+    "language": "spa",
+    "duration_s": 238.8,
+    "n_words": 228,
+    "n_lines": 64,
+    "separate_s": 127.0,
+    "align_s": 42.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 228,
+     "mae_ms": 103.80263157894737,
+     "medae_ms": 41.0,
+     "p95_ms": 93.0,
+     "pcs": {
+      "0.1": 0.9605263157894737,
+      "0.2": 0.9956140350877193,
+      "0.3": 0.9956140350877193,
+      "0.5": 0.9956140350877193
+     }
+    },
+    "lines": {
+     "count": 64,
+     "mae_ms": 36.984375,
+     "medae_ms": 33.5,
+     "p95_ms": 78.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Bitte_beweg_dich_nicht_-_Bukto",
+    "language": "deu",
+    "duration_s": 259.5,
+    "n_words": 353,
+    "n_lines": 38,
+    "separate_s": 161.6,
+    "align_s": 47.7,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 353,
+     "mae_ms": 1097.2351274787536,
+     "medae_ms": 32.0,
+     "p95_ms": 6194.0,
+     "pcs": {
+      "0.1": 0.8186968838526912,
+      "0.2": 0.8923512747875354,
+      "0.3": 0.8980169971671388,
+      "0.5": 0.9008498583569405
+     }
+    },
+    "lines": {
+     "count": 38,
+     "mae_ms": 1580.842105263158,
+     "medae_ms": 27.0,
+     "p95_ms": 13859.0,
+     "pcs": {
+      "0.3": 0.868421052631579
+     }
+    }
+   },
+   {
+    "stem": "Capotes_à_un_Franc_-_elmanu",
+    "language": "fra",
+    "duration_s": 183.3,
+    "n_words": 245,
+    "n_lines": 26,
+    "separate_s": 100.7,
+    "align_s": 33.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 245,
+     "mae_ms": 46.95102040816327,
+     "medae_ms": 37.0,
+     "p95_ms": 117.0,
+     "pcs": {
+      "0.1": 0.9061224489795918,
+      "0.2": 0.9918367346938776,
+      "0.3": 0.9959183673469387,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 26,
+     "mae_ms": 38.46153846153846,
+     "medae_ms": 37.5,
+     "p95_ms": 65.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "CHRISTMAS_AVEC_TOI_-_imfreshyourepretty",
+    "language": "fra",
+    "duration_s": 229.6,
+    "n_words": 350,
+    "n_lines": 40,
+    "separate_s": 133.7,
+    "align_s": 38.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 350,
+     "mae_ms": 164.88,
+     "medae_ms": 47.0,
+     "p95_ms": 1074.0,
+     "pcs": {
+      "0.1": 0.7914285714285715,
+      "0.2": 0.84,
+      "0.3": 0.8914285714285715,
+      "0.5": 0.92
+     }
+    },
+    "lines": {
+     "count": 40,
+     "mae_ms": 109.725,
+     "medae_ms": 64.0,
+     "p95_ms": 289.0,
+     "pcs": {
+      "0.3": 0.95
+     }
+    }
+   }
+  ]
+ },
+ "cases": {
+  "aggregate": {
+   "cases": 2,
+   "passed": 0
+  },
+  "results": [
+   {
+    "id": "tiktok",
+    "title": "TiK ToK",
+    "artist": "Kesha",
+    "separate_s": 104.7,
+    "align_s": 33.8,
+    "sync": "word",
+    "quality_score": 0.9848,
+    "offset_ms": -110,
+    "lines_over_threshold": 7,
+    "passed": false,
+    "lines": {
+     "count": 59,
+     "mae_ms": 1788.4745762711864,
+     "medae_ms": 270.0,
+     "p95_ms": 12240.0,
+     "pcs": {
+      "0.3": 0.5423728813559322
+     }
+    }
+   },
+   {
+    "id": "never-gonna-give-you-up",
+    "title": "Never Gonna Give You Up",
+    "artist": "Rick Astley",
+    "separate_s": 112.6,
+    "align_s": 38.3,
+    "sync": "word",
+    "quality_score": 0.7702,
+    "offset_ms": -240,
+    "lines_over_threshold": 11,
+    "passed": false,
+    "lines": {
+     "count": 58,
+     "mae_ms": 1455.1724137931035,
+     "medae_ms": 225.0,
+     "p95_ms": 8020.0,
+     "pcs": {
+      "0.3": 0.5689655172413793
+     }
+    }
+   }
+  ]
+ }
+}
