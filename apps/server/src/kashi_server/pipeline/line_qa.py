@@ -18,7 +18,7 @@ unit-tested with synthetic data.
 """
 
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from statistics import median
 
 from kashi_server.pipeline.alignment import AlignResult, LineTiming, quality_from_probs
@@ -35,6 +35,29 @@ MIN_REFERENCE_LINES = 3
 # If more than this fraction of referenced lines is flagged, the alignment is
 # wholesale garbage: fall back to lrclib line timings for the whole document.
 MAX_FLAGGED_FRACTION = 0.5
+# QA v2 border-case gate (field case: TiK ToK line 10 "fast flow then stall").
+# A lock loss rarely ends EXACTLY at the flagged lines: their neighbours often
+# carry damaged word timings that stayed just under the drift threshold. Both
+# signals below therefore apply ONLY within this radius of a flagged line —
+# a document with no flags never enters the gate (no instrumental-tail false
+# positives).
+NEIGHBOR_RADIUS = 2
+# Signal A: words covering less than this fraction of the line's lrclib
+# reference duration are compressed garbage (CTC dumped them at the window
+# start). Denominator is the REFERENCE duration — the aligner's own line
+# duration is derived from the same words and would always ratio to ~1.
+MIN_WORD_DENSITY = 0.30
+# When the NEXT stamp is far away, the reference "duration" is mostly an
+# instrumental gap, not sung time — the density ratio says nothing there, so
+# signal A only fires on plausibly line-sized reference windows.
+MAX_PLAUSIBLE_LINE_MS = 10_000
+# ...and only on lines with enough words to measure: a one-word exclamation
+# legitimately covers a sliver of its window (reviewer catch).
+MIN_DENSITY_WORDS = 3
+# Signal B: a zero score next to a lock loss is corroborating evidence. Score
+# alone is deliberately NOT a signal (good lines can score 0.00); adjacency is
+# what makes it meaningful.
+NEIGHBOR_SCORE_FLOOR = 0.01
 
 
 @dataclass(frozen=True)
@@ -43,6 +66,7 @@ class LineQAOutcome:
     flagged: list[int]  # indexes into result.lines that were snapped
     offset_ms: int  # median (aligner - lrclib) offset that was compensated
     degraded_to_line: bool
+    density_dropped: list[int] = field(default_factory=list)  # neighbours that lost words
 
 
 def _match_references(
@@ -187,8 +211,10 @@ def apply_line_qa(
             line = replace(line, start_ms=max(0, ref + offset_ms))
         lines.append(line)
     lines = _clamp_monotonic(_recompute_ends(lines, flagged_set, result.lines))
+    density_dropped = _border_case_drops(result, refs, flagged_set)
     words_per_line = [
-        [] if i in flagged_set else words for i, words in enumerate(result.words_per_line)
+        [] if i in flagged_set or i in density_dropped else words
+        for i, words in enumerate(result.words_per_line)
     ]
 
     for i in flagged:
@@ -200,9 +226,16 @@ def apply_line_qa(
             lines[i].start_ms,
             result.lines[i].score,
         )
+    for i in sorted(density_dropped):
+        logger.info(
+            "line QA border drop: line %d %r (score %.3f)",
+            i,
+            result.lines[i].text[:40],
+            result.lines[i].score,
+        )
 
     surviving_probs = [w.prob for chunk in words_per_line for w in chunk]
-    if not surviving_probs:  # every word-bearing line was flagged
+    if not surviving_probs:  # flag + border drops emptied every word-bearing line
         return _degrade_to_line(result, refs, flagged, offset_ms)
 
     return LineQAOutcome(
@@ -215,4 +248,43 @@ def apply_line_qa(
         flagged=flagged,
         offset_ms=offset_ms,
         degraded_to_line=False,
+        density_dropped=sorted(density_dropped),
     )
+
+
+def _border_case_drops(
+    result: AlignResult,
+    refs: list[int | None],
+    flagged: set[int],
+) -> set[int]:
+    """Word drops for damaged NEIGHBOURS of a lock loss (QA v2, field case:
+    a line whose drift stayed just under the threshold but whose word timings
+    are garbage — "fast flow then stall"). Runs only around flagged lines."""
+    neighborhood = {
+        j
+        for i in flagged
+        for j in range(i - NEIGHBOR_RADIUS, i + NEIGHBOR_RADIUS + 1)
+        if 0 <= j < len(result.lines) and j not in flagged
+    }
+    drops: set[int] = set()
+    for i in sorted(neighborhood):
+        words = result.words_per_line[i] if i < len(result.words_per_line) else []
+        if not words:
+            continue
+        # Signal B: zero score right next to a lock loss (no stamp needed —
+        # it reads only the aligner's own confidence).
+        if result.lines[i].score < NEIGHBOR_SCORE_FLOOR:
+            drops.add(i)
+            continue
+        # Signal A: words compressed into a fraction of the lrclib reference
+        # duration (needs this line's stamp AND the next one's).
+        ref = refs[i]
+        next_ref = refs[i + 1] if i + 1 < len(refs) else None
+        if len(words) < MIN_DENSITY_WORDS:
+            continue
+        if ref is None or next_ref is None or not 0 < next_ref - ref <= MAX_PLAUSIBLE_LINE_MS:
+            continue
+        coverage = (words[-1].end_ms - words[0].start_ms) / (next_ref - ref)
+        if coverage < MIN_WORD_DENSITY:
+            drops.add(i)
+    return drops

@@ -174,10 +174,12 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
         LineTiming(9000, 9800, texts[2], 0.9),
         LineTiming(34_000, 34_800, texts[3], 0.1),  # sung at 46 s — drifted
     ]
+    # Words spread across the line (realistic density — the border-case gate
+    # must not fire on the healthy neighbours of the flagged line).
     words = [
         [
-            AlignedWord(ln.start_ms, ln.start_ms + 300, ln.text.split()[0], 0.8),
-            AlignedWord(ln.start_ms + 400, ln.start_ms + 700, ln.text.split()[1], 0.8),
+            AlignedWord(ln.start_ms, ln.start_ms + 1400, ln.text.split()[0], 0.8),
+            AlignedWord(ln.start_ms + 1500, ln.start_ms + 2900, ln.text.split()[1], 0.8),
         ]
         for ln in lines
     ]
@@ -206,11 +208,11 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
 
     row = db_session.scalars(select(ProcessedTrack)).one()
     doc = row.document
-    assert doc["pipeline_version"] == "1.1.0"
+    assert doc["pipeline_version"] == "1.2.0"
     assert doc["sync"] == "word"
     assert doc["lines"][3]["start_ms"] == 46_000
     assert "words" not in doc["lines"][3]  # dropped by QA
-    assert doc["lines"][0]["words"]  # neighbours keep karaoke
+    assert doc["lines"][0]["words"] and doc["lines"][2]["words"]  # healthy neighbours keep karaoke
 
 
 def _align_result(quality: float) -> AlignResult:

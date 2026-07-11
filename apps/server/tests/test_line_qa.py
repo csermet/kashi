@@ -193,3 +193,166 @@ def test_drift_just_inside_threshold_is_kept():
     # Deviation equals the threshold after the (small) median offset shift —
     # strictly-greater comparison keeps it.
     assert outcome.flagged == []
+
+
+# --- QA v2: border-case gate (density + neighbour score) ---------------------
+
+
+def _wide_words(start_ms: int, texts: list[str], *, prob: float = 0.2) -> list[AlignedWord]:
+    """Realistic words: sung across most of a ~4 s line (density well over the
+    gate), unlike the deliberately compact `_words` helper."""
+    words = []
+    t = start_ms
+    for text in texts:
+        words.append(AlignedWord(start_ms=t, end_ms=t + 1400, text=text, prob=prob))
+        t += 1500
+    return words
+
+
+def _custom_result(entries):
+    """entries: (start_ms, text, score, words|None). words=None -> wide words."""
+    lines = []
+    words_per_line = []
+    for start_ms, text, score, words in entries:
+        tokens = text.split()
+        chunk = words if words is not None else _wide_words(start_ms, tokens)
+        end = max((w.end_ms for w in chunk), default=start_ms + 400 * len(tokens))
+        lines.append(LineTiming(start_ms=start_ms, end_ms=end, text=text, score=score))
+        words_per_line.append(chunk)
+    return AlignResult(sync="word", lines=lines, words_per_line=words_per_line, quality_score=0.8)
+
+
+def test_zero_score_neighbour_of_flagged_line_loses_words():
+    # Field case (TiK ToK line 10): drift just UNDER the threshold, score 0.00,
+    # right before a snapped block — its words are garbage and must drop.
+    entries = [
+        (1000, "one a", 0.9, None),
+        (5000, "two b", 0.9, None),
+        (7000, "ten x", 0.0, None),  # border case: -2s off its 9000 ref, score 0
+        (20_000, "flag y", 0.0, None),  # 7s off its 13_000 ref -> flagged+snapped
+        (17_500, "five z", 0.9, None),
+    ]
+    refs = [1000, 5000, 9000, 13_000, 17_500]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [3]
+    assert outcome.density_dropped == [2]
+    assert outcome.result.words_per_line[2] == []  # border case dropped
+    assert outcome.result.words_per_line[0] and outcome.result.words_per_line[1]
+    assert outcome.result.lines[2].start_ms == 7000  # timing kept (sub-threshold)
+
+
+def test_compressed_words_next_to_flagged_line_lose_words():
+    # 3 words cover 800ms of a 4000ms reference window (density 0.2 < 0.30).
+    squeezed = [
+        AlignedWord(9000, 9300, "three", 0.5),
+        AlignedWord(9300, 9550, "c", 0.5),
+        AlignedWord(9550, 9800, "d", 0.5),
+    ]
+    entries = [
+        (1000, "one a", 0.9, None),
+        (5000, "two b", 0.9, None),
+        (9000, "three c d", 0.5, squeezed),
+        (25_000, "flag y", 0.0, None),  # flagged (12s off 13_000)
+        (17_500, "five z", 0.9, None),
+    ]
+    refs = [1000, 5000, 9000, 13_000, 17_500]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [3]
+    assert 2 in outcome.density_dropped
+    assert outcome.result.words_per_line[2] == []
+
+
+def test_short_line_is_never_density_dropped():
+    # A one-word exclamation legitimately covers a sliver of its window —
+    # density needs enough words to mean anything (reviewer catch).
+    entries = [
+        (1000, "one a", 0.9, None),
+        (5000, "hey", 0.5, [AlignedWord(5000, 5400, "hey", 0.5)]),
+        (9000, "three c", 0.9, None),
+        (25_000, "flag y", 0.0, None),  # flagged
+        (17_500, "five z", 0.9, None),
+    ]
+    refs = [1000, 5000, 9000, 13_000, 17_500]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [3]
+    assert 1 not in outcome.density_dropped
+    assert outcome.result.words_per_line[1]
+
+
+def test_gate_never_runs_without_flags():
+    # Low density + zero score, but NO flagged line -> untouched (instrumental
+    # tails would otherwise false-positive).
+    squeezed = [AlignedWord(9000, 9300, "three", 0.5), AlignedWord(9300, 9600, "c", 0.5)]
+    entries = [
+        (1000, "one a", 0.0, None),
+        (5000, "two b", 0.9, None),
+        (9000, "three c", 0.0, squeezed),
+    ]
+    refs = [1000, 5000, 9000]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [] and outcome.density_dropped == []
+    assert outcome.result.words_per_line[2]
+
+
+def test_zero_score_far_from_flagged_line_is_untouched():
+    entries = [
+        (1000, "one a", 0.0, None),  # score 0 but 3+ lines away from the flag
+        (5000, "two b", 0.9, None),
+        (9000, "three c", 0.9, None),
+        (13_000, "four d", 0.9, None),
+        (30_000, "flag y", 0.0, None),  # flagged (12.5s off 17_500)
+    ]
+    refs = [1000, 5000, 9000, 13_000, 17_500]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [4]
+    assert outcome.density_dropped == []
+    assert outcome.result.words_per_line[0]
+
+
+def test_border_gate_guards_last_line_and_missing_refs():
+    # Neighbour is the LAST line (no next ref) with fine score -> density
+    # signal cannot compute, line is left alone.
+    entries = [
+        (1000, "one a", 0.9, None),
+        (5000, "two b", 0.9, None),
+        (21_000, "flag y", 0.0, None),  # flagged (12s off 9000)
+        (13_200, "last z", 0.5, None),
+    ]
+    refs = [1000, 5000, 9000, None]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [2]
+    assert outcome.density_dropped == []
+    assert outcome.result.words_per_line[3]
+
+
+def test_quality_recompute_excludes_border_dropped_words():
+    from kashi_server.pipeline.alignment import quality_from_probs
+
+    high = [AlignedWord(7000, 7300, "ten", 1.0), AlignedWord(7400, 7700, "x", 1.0)]
+    entries = [
+        (1000, "one a", 0.9, _wide_words(1000, ["one", "a"], prob=0.05)),
+        (5000, "two b", 0.9, _wide_words(5000, ["two", "b"], prob=0.05)),
+        (7000, "ten x", 0.0, high),  # border-dropped; its 1.0 probs must not leak
+        (20_000, "flag y", 0.0, None),
+        (17_500, "five z", 0.9, _wide_words(17_500, ["five", "z"], prob=0.05)),
+    ]
+    refs = [1000, 5000, 9000, 13_000, 17_500]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.density_dropped == [2]
+    assert abs(outcome.result.quality_score - quality_from_probs([0.05] * 6)) < 1e-9
+
+
+def test_density_skips_implausibly_long_reference_windows():
+    # An instrumental gap before the flagged line inflates the neighbour's
+    # reference "duration" — density says nothing there and must not fire.
+    entries = [
+        (1000, "one a", 0.9, None),
+        (5000, "two b", 0.9, None),
+        (9000, "three c", 0.9, None),  # next stamp 37s away (gap) — skip A
+        (60_000, "flag y", 0.0, None),  # flagged (14s off 46_000)
+    ]
+    refs = [1000, 5000, 9000, 46_000]
+    outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
+    assert outcome.flagged == [3]
+    assert outcome.density_dropped == []
+    assert outcome.result.words_per_line[2]
