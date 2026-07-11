@@ -1,0 +1,2591 @@
+{
+ "meta": {
+  "generated_at": "2026-07-11T21:59:46+00:00",
+  "label": "pc-voc-ft-mb0.15",
+  "pipeline_version": "1.2.0",
+  "alignment_model": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+  "separation": "voc_ft",
+  "mixback": 0.15,
+  "windowed": false,
+  "host": "c118d7097e38",
+  "cpus": 16,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 4924.4
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 79,
+   "scored": 79,
+   "failed": [],
+   "word_mae_ms_mean": 1055.4,
+   "word_mae_ms_median": 165.2,
+   "word_medae_ms_mean": 310.3,
+   "pco": {
+    "0.1": 0.8517,
+    "0.2": 0.9053,
+    "0.3": 0.9163,
+    "0.5": 0.925
+   },
+   "align_s_total": 184.5,
+   "align_x_realtime": 0.012,
+   "per_language": {
+    "deu": {
+     "songs": 20,
+     "word_mae_ms_mean": 397.6,
+     "pco_0.3": 0.9602
+    },
+    "eng": {
+     "songs": 20,
+     "word_mae_ms_mean": 2727.5,
+     "pco_0.3": 0.8362
+    },
+    "fra": {
+     "songs": 19,
+     "word_mae_ms_mean": 303.9,
+     "pco_0.3": 0.9421
+    },
+    "spa": {
+     "songs": 20,
+     "word_mae_ms_mean": 755.2,
+     "pco_0.3": 0.9279
+    }
+   },
+   "separate_x_realtime": 0.294
+  },
+  "songs": [
+   {
+    "stem": "HILA_-_Give_Me_the_Same",
+    "language": "eng",
+    "duration_s": 230.5,
+    "n_words": 322,
+    "n_lines": 58,
+    "separate_s": 83.9,
+    "align_s": 7.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 322,
+     "mae_ms": 90.40683229813665,
+     "medae_ms": 44.0,
+     "p95_ms": 351.0,
+     "pcs": {
+      "0.1": 0.7950310559006211,
+      "0.2": 0.9161490683229814,
+      "0.3": 0.937888198757764,
+      "0.5": 0.9720496894409938
+     }
+    },
+    "lines": {
+     "count": 58,
+     "mae_ms": 98.75862068965517,
+     "medae_ms": 34.5,
+     "p95_ms": 439.0,
+     "pcs": {
+      "0.3": 0.9310344827586207
+     }
+    }
+   },
+   {
+    "stem": "Quentin_Hannappe_-_Keep_On",
+    "language": "eng",
+    "duration_s": 164.7,
+    "n_words": 175,
+    "n_lines": 27,
+    "separate_s": 56.1,
+    "align_s": 2.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 175,
+     "mae_ms": 185.4742857142857,
+     "medae_ms": 29.0,
+     "p95_ms": 137.0,
+     "pcs": {
+      "0.1": 0.9314285714285714,
+      "0.2": 0.9828571428571429,
+      "0.3": 0.9885714285714285,
+      "0.5": 0.9942857142857143
+     }
+    },
+    "lines": {
+     "count": 27,
+     "mae_ms": 41.851851851851855,
+     "medae_ms": 33.0,
+     "p95_ms": 151.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Songwriterz_-_Back_In_Time",
+    "language": "eng",
+    "duration_s": 203.9,
+    "n_words": 238,
+    "n_lines": 46,
+    "separate_s": 61.0,
+    "align_s": 2.2,
+    "sync": "word",
+    "quality_score": 0.8199,
+    "words": {
+     "count": 238,
+     "mae_ms": 47.76470588235294,
+     "medae_ms": 25.5,
+     "p95_ms": 154.0,
+     "pcs": {
+      "0.1": 0.9159663865546218,
+      "0.2": 0.957983193277311,
+      "0.3": 0.9789915966386554,
+      "0.5": 0.9873949579831933
+     }
+    },
+    "lines": {
+     "count": 46,
+     "mae_ms": 40.34782608695652,
+     "medae_ms": 19.5,
+     "p95_ms": 110.0,
+     "pcs": {
+      "0.3": 0.9782608695652174
+     }
+    }
+   },
+   {
+    "stem": "Kinematic_-_Peyote",
+    "language": "eng",
+    "duration_s": 131.0,
+    "n_words": 147,
+    "n_lines": 14,
+    "separate_s": 49.0,
+    "align_s": 2.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 147,
+     "mae_ms": 455.78231292517006,
+     "medae_ms": 43.0,
+     "p95_ms": 316.0,
+     "pcs": {
+      "0.1": 0.8435374149659864,
+      "0.2": 0.9455782312925171,
+      "0.3": 0.9455782312925171,
+      "0.5": 0.9523809523809523
+     }
+    },
+    "lines": {
+     "count": 14,
+     "mae_ms": 350.14285714285717,
+     "medae_ms": 45.0,
+     "p95_ms": 2543.0,
+     "pcs": {
+      "0.3": 0.7857142857142857
+     }
+    }
+   },
+   {
+    "stem": "Avercage_-_Embers",
+    "language": "eng",
+    "duration_s": 230.6,
+    "n_words": 189,
+    "n_lines": 42,
+    "separate_s": 64.6,
+    "align_s": 4.2,
+    "sync": "word",
+    "quality_score": 0.5968,
+    "words": {
+     "count": 189,
+     "mae_ms": 3110.1164021164022,
+     "medae_ms": 201.0,
+     "p95_ms": 27661.0,
+     "pcs": {
+      "0.1": 0.30158730158730157,
+      "0.2": 0.4973544973544973,
+      "0.3": 0.5714285714285714,
+      "0.5": 0.6296296296296297
+     }
+    },
+    "lines": {
+     "count": 42,
+     "mae_ms": 3262.309523809524,
+     "medae_ms": 327.5,
+     "p95_ms": 17276.0,
+     "pcs": {
+      "0.3": 0.5
+     }
+    }
+   },
+   {
+    "stem": "Color_Out_-_Falling_Star",
+    "language": "eng",
+    "duration_s": 194.9,
+    "n_words": 224,
+    "n_lines": 37,
+    "separate_s": 62.2,
+    "align_s": 1.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 224,
+     "mae_ms": 363.875,
+     "medae_ms": 114.5,
+     "p95_ms": 840.0,
+     "pcs": {
+      "0.1": 0.44642857142857145,
+      "0.2": 0.8169642857142857,
+      "0.3": 0.9196428571428571,
+      "0.5": 0.9375
+     }
+    },
+    "lines": {
+     "count": 37,
+     "mae_ms": 343.72972972972974,
+     "medae_ms": 129.0,
+     "p95_ms": 3029.0,
+     "pcs": {
+      "0.3": 0.918918918918919
+     }
+    }
+   },
+   {
+    "stem": "The.madpix.project_-_One_Way_Street",
+    "language": "eng",
+    "duration_s": 169.6,
+    "n_words": 183,
+    "n_lines": 30,
+    "separate_s": 47.7,
+    "align_s": 1.5,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 183,
+     "mae_ms": 46.26775956284153,
+     "medae_ms": 34.0,
+     "p95_ms": 121.0,
+     "pcs": {
+      "0.1": 0.912568306010929,
+      "0.2": 0.9836065573770492,
+      "0.3": 0.994535519125683,
+      "0.5": 0.994535519125683
+     }
+    },
+    "lines": {
+     "count": 30,
+     "mae_ms": 77.7,
+     "medae_ms": 53.0,
+     "p95_ms": 220.0,
+     "pcs": {
+      "0.3": 0.9666666666666667
+     }
+    }
+   },
+   {
+    "stem": "Wordsmith_-_The_Statement",
+    "language": "eng",
+    "duration_s": 166.7,
+    "n_words": 581,
+    "n_lines": 31,
+    "separate_s": 46.5,
+    "align_s": 1.8,
+    "sync": "word",
+    "quality_score": 0.853,
+    "words": {
+     "count": 581,
+     "mae_ms": 868.8881239242685,
+     "medae_ms": 66.0,
+     "p95_ms": 3224.0,
+     "pcs": {
+      "0.1": 0.5490533562822719,
+      "0.2": 0.5834767641996558,
+      "0.3": 0.5972461273666093,
+      "0.5": 0.6144578313253012
+     }
+    },
+    "lines": {
+     "count": 31,
+     "mae_ms": 708.258064516129,
+     "medae_ms": 70.0,
+     "p95_ms": 3230.0,
+     "pcs": {
+      "0.3": 0.5806451612903226
+     }
+    }
+   },
+   {
+    "stem": "JASON_MILLER_-_CROWD_PLEASER",
+    "language": "eng",
+    "duration_s": 172.8,
+    "n_words": 521,
+    "n_lines": 82,
+    "separate_s": 52.0,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 521,
+     "mae_ms": 78.74088291746641,
+     "medae_ms": 30.0,
+     "p95_ms": 112.0,
+     "pcs": {
+      "0.1": 0.9347408829174664,
+      "0.2": 0.9884836852207294,
+      "0.3": 0.9980806142034548,
+      "0.5": 0.9980806142034548
+     }
+    },
+    "lines": {
+     "count": 82,
+     "mae_ms": 33.24390243902439,
+     "medae_ms": 28.0,
+     "p95_ms": 79.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Lower_Loveday_-_Is_It_Right_",
+    "language": "eng",
+    "duration_s": 170.4,
+    "n_words": 212,
+    "n_lines": 26,
+    "separate_s": 48.5,
+    "align_s": 1.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 212,
+     "mae_ms": 764.6415094339623,
+     "medae_ms": 51.5,
+     "p95_ms": 4157.0,
+     "pcs": {
+      "0.1": 0.7405660377358491,
+      "0.2": 0.8160377358490566,
+      "0.3": 0.8254716981132075,
+      "0.5": 0.8349056603773585
+     }
+    },
+    "lines": {
+     "count": 26,
+     "mae_ms": 1113.9615384615386,
+     "medae_ms": 71.0,
+     "p95_ms": 3827.0,
+     "pcs": {
+      "0.3": 0.6923076923076923
+     }
+    }
+   },
+   {
+    "stem": "Pure_Mids_-_The_Leader",
+    "language": "eng",
+    "duration_s": 191.1,
+    "n_words": 114,
+    "n_lines": 20,
+    "separate_s": 69.2,
+    "align_s": 3.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 114,
+     "mae_ms": 28081.51754385965,
+     "medae_ms": 21271.0,
+     "p95_ms": 88107.0,
+     "pcs": {
+      "0.1": 0.41228070175438597,
+      "0.2": 0.45614035087719296,
+      "0.3": 0.4649122807017544,
+      "0.5": 0.47368421052631576
+     }
+    },
+    "lines": {
+     "count": 20,
+     "mae_ms": 30096.95,
+     "medae_ms": 24160.0,
+     "p95_ms": 77184.0,
+     "pcs": {
+      "0.3": 0.35
+     }
+    }
+   },
+   {
+    "stem": "Ridgway_-_Fire_Inside",
+    "language": "eng",
+    "duration_s": 276.6,
+    "n_words": 304,
+    "n_lines": 50,
+    "separate_s": 75.6,
+    "align_s": 4.7,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 304,
+     "mae_ms": 3933.1940789473683,
+     "medae_ms": 59.0,
+     "p95_ms": 26939.0,
+     "pcs": {
+      "0.1": 0.5953947368421053,
+      "0.2": 0.6381578947368421,
+      "0.3": 0.6710526315789473,
+      "0.5": 0.7039473684210527
+     }
+    },
+    "lines": {
+     "count": 50,
+     "mae_ms": 4931.32,
+     "medae_ms": 57.5,
+     "p95_ms": 33505.0,
+     "pcs": {
+      "0.3": 0.68
+     }
+    }
+   },
+   {
+    "stem": "Moon_I_Mean_-_Wrong_Concept",
+    "language": "eng",
+    "duration_s": 200.0,
+    "n_words": 272,
+    "n_lines": 43,
+    "separate_s": 61.1,
+    "align_s": 1.8,
+    "sync": "word",
+    "quality_score": 0.9356,
+    "words": {
+     "count": 272,
+     "mae_ms": 995.9338235294117,
+     "medae_ms": 37.5,
+     "p95_ms": 8933.0,
+     "pcs": {
+      "0.1": 0.7941176470588235,
+      "0.2": 0.8823529411764706,
+      "0.3": 0.9044117647058824,
+      "0.5": 0.9191176470588235
+     }
+    },
+    "lines": {
+     "count": 43,
+     "mae_ms": 869.1162790697674,
+     "medae_ms": 36.0,
+     "p95_ms": 6394.0,
+     "pcs": {
+      "0.3": 0.9069767441860465
+     }
+    }
+   },
+   {
+    "stem": "Slingshot_Miracle_-_Whistler",
+    "language": "eng",
+    "duration_s": 224.8,
+    "n_words": 162,
+    "n_lines": 31,
+    "separate_s": 61.2,
+    "align_s": 2.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 162,
+     "mae_ms": 546.0432098765432,
+     "medae_ms": 34.5,
+     "p95_ms": 4521.0,
+     "pcs": {
+      "0.1": 0.8395061728395061,
+      "0.2": 0.9074074074074074,
+      "0.3": 0.9259259259259259,
+      "0.5": 0.9259259259259259
+     }
+    },
+    "lines": {
+     "count": 31,
+     "mae_ms": 1103.8387096774193,
+     "medae_ms": 29.0,
+     "p95_ms": 9242.0,
+     "pcs": {
+      "0.3": 0.8709677419354839
+     }
+    }
+   },
+   {
+    "stem": "The_Rinn_-_Voices__2017_Version_",
+    "language": "eng",
+    "duration_s": 225.7,
+    "n_words": 203,
+    "n_lines": 46,
+    "separate_s": 61.9,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 0.799,
+    "words": {
+     "count": 203,
+     "mae_ms": 64.62068965517241,
+     "medae_ms": 34.0,
+     "p95_ms": 217.0,
+     "pcs": {
+      "0.1": 0.8571428571428571,
+      "0.2": 0.9458128078817734,
+      "0.3": 0.9556650246305419,
+      "0.5": 0.9753694581280788
+     }
+    },
+    "lines": {
+     "count": 46,
+     "mae_ms": 88.82608695652173,
+     "medae_ms": 61.0,
+     "p95_ms": 307.0,
+     "pcs": {
+      "0.3": 0.9347826086956522
+     }
+    }
+   },
+   {
+    "stem": "Rxbyn_-_Bad_Side",
+    "language": "eng",
+    "duration_s": 205.1,
+    "n_words": 440,
+    "n_lines": 72,
+    "separate_s": 57.9,
+    "align_s": 2.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 440,
+     "mae_ms": 8660.363636363636,
+     "medae_ms": 59.0,
+     "p95_ms": 38793.0,
+     "pcs": {
+      "0.1": 0.6,
+      "0.2": 0.65,
+      "0.3": 0.6590909090909091,
+      "0.5": 0.6613636363636364
+     }
+    },
+    "lines": {
+     "count": 72,
+     "mae_ms": 7005.277777777777,
+     "medae_ms": 58.0,
+     "p95_ms": 38063.0,
+     "pcs": {
+      "0.3": 0.6944444444444444
+     }
+    }
+   },
+   {
+    "stem": "Tom_Orlando_-_The_One__feat._Tina_G_",
+    "language": "eng",
+    "duration_s": 203.5,
+    "n_words": 498,
+    "n_lines": 72,
+    "separate_s": 65.3,
+    "align_s": 2.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 498,
+     "mae_ms": 4554.684738955823,
+     "medae_ms": 38.0,
+     "p95_ms": 30293.0,
+     "pcs": {
+      "0.1": 0.6907630522088354,
+      "0.2": 0.7269076305220884,
+      "0.3": 0.7349397590361446,
+      "0.5": 0.7409638554216867
+     }
+    },
+    "lines": {
+     "count": 72,
+     "mae_ms": 3430.7083333333335,
+     "medae_ms": 34.5,
+     "p95_ms": 21574.0,
+     "pcs": {
+      "0.3": 0.7083333333333334
+     }
+    }
+   },
+   {
+    "stem": "LUNABLIND_-_Vision__Radio_Edit_",
+    "language": "eng",
+    "duration_s": 213.7,
+    "n_words": 288,
+    "n_lines": 53,
+    "separate_s": 61.0,
+    "align_s": 1.6,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 288,
+     "mae_ms": 1296.763888888889,
+     "medae_ms": 54.0,
+     "p95_ms": 7577.0,
+     "pcs": {
+      "0.1": 0.6597222222222222,
+      "0.2": 0.7361111111111112,
+      "0.3": 0.7569444444444444,
+      "0.5": 0.7569444444444444
+     }
+    },
+    "lines": {
+     "count": 53,
+     "mae_ms": 1296.9622641509434,
+     "medae_ms": 94.0,
+     "p95_ms": 7623.0,
+     "pcs": {
+      "0.3": 0.7169811320754716
+     }
+    }
+   },
+   {
+    "stem": "Explosive_Ear_Candy_-_Like_The_Sun",
+    "language": "eng",
+    "duration_s": 162.5,
+    "n_words": 265,
+    "n_lines": 46,
+    "separate_s": 53.6,
+    "align_s": 1.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 265,
+     "mae_ms": 165.1811320754717,
+     "medae_ms": 35.0,
+     "p95_ms": 118.0,
+     "pcs": {
+      "0.1": 0.9132075471698113,
+      "0.2": 0.9886792452830189,
+      "0.3": 0.9924528301886792,
+      "0.5": 0.9924528301886792
+     }
+    },
+    "lines": {
+     "count": 46,
+     "mae_ms": 53.02173913043478,
+     "medae_ms": 29.5,
+     "p95_ms": 88.0,
+     "pcs": {
+      "0.3": 0.9782608695652174
+     }
+    }
+   },
+   {
+    "stem": "Cortez_-_Feel__Stripped_",
+    "language": "eng",
+    "duration_s": 231.5,
+    "n_words": 355,
+    "n_lines": 42,
+    "separate_s": 65.8,
+    "align_s": 1.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 355,
+     "mae_ms": 238.8281690140845,
+     "medae_ms": 50.0,
+     "p95_ms": 1770.0,
+     "pcs": {
+      "0.1": 0.752112676056338,
+      "0.2": 0.8816901408450705,
+      "0.3": 0.9014084507042254,
+      "0.5": 0.9154929577464789
+     }
+    },
+    "lines": {
+     "count": 42,
+     "mae_ms": 252.33333333333334,
+     "medae_ms": 59.5,
+     "p95_ms": 1400.0,
+     "pcs": {
+      "0.3": 0.8809523809523809
+     }
+    }
+   },
+   {
+    "stem": "1_Freak_-_Automatisch_Gekommen",
+    "language": "deu",
+    "duration_s": 185.4,
+    "n_words": 367,
+    "n_lines": 60,
+    "separate_s": 50.0,
+    "align_s": 1.9,
+    "sync": "word",
+    "quality_score": 0.7242,
+    "words": {
+     "count": 367,
+     "mae_ms": 192.85558583106268,
+     "medae_ms": 28.0,
+     "p95_ms": 875.0,
+     "pcs": {
+      "0.1": 0.8801089918256131,
+      "0.2": 0.9346049046321526,
+      "0.3": 0.9373297002724795,
+      "0.5": 0.9427792915531336
+     }
+    },
+    "lines": {
+     "count": 60,
+     "mae_ms": 310.3666666666667,
+     "medae_ms": 40.5,
+     "p95_ms": 1109.0,
+     "pcs": {
+      "0.3": 0.9
+     }
+    }
+   },
+   {
+    "stem": "Baila_-_Alfonso_Lugo",
+    "language": "spa",
+    "duration_s": 185.5,
+    "n_words": 282,
+    "n_lines": 36,
+    "separate_s": 58.4,
+    "align_s": 1.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 282,
+     "mae_ms": 33.734042553191486,
+     "medae_ms": 29.0,
+     "p95_ms": 69.0,
+     "pcs": {
+      "0.1": 0.9822695035460993,
+      "0.2": 0.9964539007092199,
+      "0.3": 0.9964539007092199,
+      "0.5": 0.9964539007092199
+     }
+    },
+    "lines": {
+     "count": 36,
+     "mae_ms": 24.694444444444443,
+     "medae_ms": 23.5,
+     "p95_ms": 65.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Besando_Sapos_-_Dream_Tabu",
+    "language": "spa",
+    "duration_s": 238.8,
+    "n_words": 228,
+    "n_lines": 64,
+    "separate_s": 66.3,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 228,
+     "mae_ms": 103.80263157894737,
+     "medae_ms": 41.0,
+     "p95_ms": 93.0,
+     "pcs": {
+      "0.1": 0.9605263157894737,
+      "0.2": 0.9956140350877193,
+      "0.3": 0.9956140350877193,
+      "0.5": 0.9956140350877193
+     }
+    },
+    "lines": {
+     "count": 64,
+     "mae_ms": 36.984375,
+     "medae_ms": 33.5,
+     "p95_ms": 78.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Bitte_beweg_dich_nicht_-_Bukto",
+    "language": "deu",
+    "duration_s": 259.5,
+    "n_words": 353,
+    "n_lines": 38,
+    "separate_s": 75.4,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 353,
+     "mae_ms": 1097.2351274787536,
+     "medae_ms": 32.0,
+     "p95_ms": 6194.0,
+     "pcs": {
+      "0.1": 0.8186968838526912,
+      "0.2": 0.8923512747875354,
+      "0.3": 0.8980169971671388,
+      "0.5": 0.9008498583569405
+     }
+    },
+    "lines": {
+     "count": 38,
+     "mae_ms": 1580.842105263158,
+     "medae_ms": 27.0,
+     "p95_ms": 13859.0,
+     "pcs": {
+      "0.3": 0.868421052631579
+     }
+    }
+   },
+   {
+    "stem": "Burn_Out_Man_-_Abendblau",
+    "language": "deu",
+    "duration_s": 251.8,
+    "n_words": 330,
+    "n_lines": 45,
+    "separate_s": 69.9,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 330,
+     "mae_ms": 40.596969696969694,
+     "medae_ms": 23.0,
+     "p95_ms": 103.0,
+     "pcs": {
+      "0.1": 0.9424242424242424,
+      "0.2": 0.990909090909091,
+      "0.3": 0.9939393939393939,
+      "0.5": 0.996969696969697
+     }
+    },
+    "lines": {
+     "count": 45,
+     "mae_ms": 41.044444444444444,
+     "medae_ms": 25.0,
+     "p95_ms": 118.0,
+     "pcs": {
+      "0.3": 0.9777777777777777
+     }
+    }
+   },
+   {
+    "stem": "Cafe_Jenseitz_Bebelstraße_-_kangaroo.musique",
+    "language": "deu",
+    "duration_s": 144.0,
+    "n_words": 92,
+    "n_lines": 17,
+    "separate_s": 68.1,
+    "align_s": 1.7,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 92,
+     "mae_ms": 1174.5434782608695,
+     "medae_ms": 27.5,
+     "p95_ms": 120.0,
+     "pcs": {
+      "0.1": 0.8913043478260869,
+      "0.2": 0.9782608695652174,
+      "0.3": 0.9891304347826086,
+      "0.5": 0.9891304347826086
+     }
+    },
+    "lines": {
+     "count": 17,
+     "mae_ms": 41.8235294117647,
+     "medae_ms": 44.0,
+     "p95_ms": 120.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Capotes_à_un_Franc_-_elmanu",
+    "language": "fra",
+    "duration_s": 183.3,
+    "n_words": 245,
+    "n_lines": 26,
+    "separate_s": 51.0,
+    "align_s": 1.5,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 245,
+     "mae_ms": 46.95102040816327,
+     "medae_ms": 37.0,
+     "p95_ms": 117.0,
+     "pcs": {
+      "0.1": 0.9061224489795918,
+      "0.2": 0.9918367346938776,
+      "0.3": 0.9959183673469387,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 26,
+     "mae_ms": 38.46153846153846,
+     "medae_ms": 37.5,
+     "p95_ms": 65.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Caralibro_-_Vagos_Permanentes",
+    "language": "spa",
+    "duration_s": 224.1,
+    "n_words": 211,
+    "n_lines": 26,
+    "separate_s": 75.7,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 211,
+     "mae_ms": 7203.127962085308,
+     "medae_ms": 50.0,
+     "p95_ms": 46897.0,
+     "pcs": {
+      "0.1": 0.8009478672985783,
+      "0.2": 0.8104265402843602,
+      "0.3": 0.8151658767772512,
+      "0.5": 0.8199052132701422
+     }
+    },
+    "lines": {
+     "count": 26,
+     "mae_ms": 6170.692307692308,
+     "medae_ms": 49.0,
+     "p95_ms": 44983.0,
+     "pcs": {
+      "0.3": 0.8076923076923077
+     }
+    }
+   },
+   {
+    "stem": "CHRISTMAS_AVEC_TOI_-_imfreshyourepretty",
+    "language": "fra",
+    "duration_s": 229.6,
+    "n_words": 350,
+    "n_lines": 40,
+    "separate_s": 64.1,
+    "align_s": 1.7,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 350,
+     "mae_ms": 164.88,
+     "medae_ms": 47.0,
+     "p95_ms": 1074.0,
+     "pcs": {
+      "0.1": 0.7914285714285715,
+      "0.2": 0.84,
+      "0.3": 0.8914285714285715,
+      "0.5": 0.92
+     }
+    },
+    "lines": {
+     "count": 40,
+     "mae_ms": 109.725,
+     "medae_ms": 64.0,
+     "p95_ms": 289.0,
+     "pcs": {
+      "0.3": 0.95
+     }
+    }
+   },
+   {
+    "stem": "CLUB_DESTINO__-_Pensando_en_ti_-_CLUB_DESTINO",
+    "language": "spa",
+    "duration_s": 215.3,
+    "n_words": 204,
+    "n_lines": 36,
+    "separate_s": 61.1,
+    "align_s": 1.6,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 204,
+     "mae_ms": 1605.6078431372548,
+     "medae_ms": 40.0,
+     "p95_ms": 11538.0,
+     "pcs": {
+      "0.1": 0.7843137254901961,
+      "0.2": 0.8284313725490197,
+      "0.3": 0.8333333333333334,
+      "0.5": 0.8333333333333334
+     }
+    },
+    "lines": {
+     "count": 36,
+     "mae_ms": 2309.3055555555557,
+     "medae_ms": 42.5,
+     "p95_ms": 14379.0,
+     "pcs": {
+      "0.3": 0.7222222222222222
+     }
+    }
+   },
+   {
+    "stem": "Confession_-_Quesabe",
+    "language": "fra",
+    "duration_s": 137.0,
+    "n_words": 336,
+    "n_lines": 42,
+    "separate_s": 41.4,
+    "align_s": 1.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 336,
+     "mae_ms": 443.89285714285717,
+     "medae_ms": 42.0,
+     "p95_ms": 1623.0,
+     "pcs": {
+      "0.1": 0.8511904761904762,
+      "0.2": 0.8839285714285714,
+      "0.3": 0.9017857142857143,
+      "0.5": 0.9226190476190477
+     }
+    },
+    "lines": {
+     "count": 42,
+     "mae_ms": 1484.8095238095239,
+     "medae_ms": 38.5,
+     "p95_ms": 12275.0,
+     "pcs": {
+      "0.3": 0.8333333333333334
+     }
+    }
+   },
+   {
+    "stem": "Culture_&_Co._-_cool.cavemen",
+    "language": "fra",
+    "duration_s": 190.6,
+    "n_words": 132,
+    "n_lines": 25,
+    "separate_s": 56.8,
+    "align_s": 1.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 132,
+     "mae_ms": 230.68939393939394,
+     "medae_ms": 39.0,
+     "p95_ms": 255.0,
+     "pcs": {
+      "0.1": 0.8712121212121212,
+      "0.2": 0.9242424242424242,
+      "0.3": 0.9545454545454546,
+      "0.5": 0.9772727272727273
+     }
+    },
+    "lines": {
+     "count": 25,
+     "mae_ms": 34.92,
+     "medae_ms": 37.0,
+     "p95_ms": 76.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Da_wurdest_du_geboren_-_Alice_Tlustos_",
+    "language": "deu",
+    "duration_s": 200.8,
+    "n_words": 148,
+    "n_lines": 24,
+    "separate_s": 56.7,
+    "align_s": 2.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 148,
+     "mae_ms": 55.75675675675676,
+     "medae_ms": 39.0,
+     "p95_ms": 112.0,
+     "pcs": {
+      "0.1": 0.918918918918919,
+      "0.2": 0.972972972972973,
+      "0.3": 0.972972972972973,
+      "0.5": 0.972972972972973
+     }
+    },
+    "lines": {
+     "count": 24,
+     "mae_ms": 33.75,
+     "medae_ms": 26.5,
+     "p95_ms": 71.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "de_bonne_humeur_-_Le_Nez_Tordu",
+    "language": "fra",
+    "duration_s": 139.7,
+    "n_words": 266,
+    "n_lines": 40,
+    "separate_s": 45.0,
+    "align_s": 2.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 266,
+     "mae_ms": 129.9812030075188,
+     "medae_ms": 41.0,
+     "p95_ms": 115.0,
+     "pcs": {
+      "0.1": 0.9323308270676691,
+      "0.2": 0.981203007518797,
+      "0.3": 0.9962406015037594,
+      "0.5": 0.9962406015037594
+     }
+    },
+    "lines": {
+     "count": 40,
+     "mae_ms": 44.225,
+     "medae_ms": 42.5,
+     "p95_ms": 82.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Der_Baum_-_Dienstag_is_Damensauna_(2)",
+    "language": "deu",
+    "duration_s": 176.9,
+    "n_words": 222,
+    "n_lines": 46,
+    "separate_s": 56.0,
+    "align_s": 3.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 222,
+     "mae_ms": 1695.8783783783783,
+     "medae_ms": 34.0,
+     "p95_ms": 12365.0,
+     "pcs": {
+      "0.1": 0.8288288288288288,
+      "0.2": 0.8378378378378378,
+      "0.3": 0.8378378378378378,
+      "0.5": 0.8378378378378378
+     }
+    },
+    "lines": {
+     "count": 46,
+     "mae_ms": 1627.0434782608695,
+     "medae_ms": 35.5,
+     "p95_ms": 12365.0,
+     "pcs": {
+      "0.3": 0.8478260869565217
+     }
+    }
+   },
+   {
+    "stem": "Der_Musiker_-_d-music",
+    "language": "deu",
+    "duration_s": 242.2,
+    "n_words": 354,
+    "n_lines": 94,
+    "separate_s": 73.6,
+    "align_s": 6.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 354,
+     "mae_ms": 82.52542372881356,
+     "medae_ms": 21.0,
+     "p95_ms": 83.0,
+     "pcs": {
+      "0.1": 0.9519774011299436,
+      "0.2": 0.9576271186440678,
+      "0.3": 0.96045197740113,
+      "0.5": 0.9774011299435028
+     }
+    },
+    "lines": {
+     "count": 94,
+     "mae_ms": 99.45744680851064,
+     "medae_ms": 23.0,
+     "p95_ms": 372.0,
+     "pcs": {
+      "0.3": 0.9361702127659575
+     }
+    }
+   },
+   {
+    "stem": "dich_gehen_zu_sehn._-_Wingenbach_Frank",
+    "language": "deu",
+    "duration_s": 189.2,
+    "n_words": 181,
+    "n_lines": 22,
+    "separate_s": 52.4,
+    "align_s": 3.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 181,
+     "mae_ms": 73.90055248618785,
+     "medae_ms": 36.0,
+     "p95_ms": 130.0,
+     "pcs": {
+      "0.1": 0.9337016574585635,
+      "0.2": 0.9613259668508287,
+      "0.3": 0.9668508287292817,
+      "0.5": 0.9834254143646409
+     }
+    },
+    "lines": {
+     "count": 22,
+     "mae_ms": 60.77272727272727,
+     "medae_ms": 34.0,
+     "p95_ms": 242.0,
+     "pcs": {
+      "0.3": 0.9545454545454546
+     }
+    }
+   },
+   {
+    "stem": "Die_Revolution_gehört_Dir!_-_partysahnen",
+    "language": "deu",
+    "duration_s": 160.2,
+    "n_words": 156,
+    "n_lines": 28,
+    "separate_s": 45.6,
+    "align_s": 2.9,
+    "sync": "word",
+    "quality_score": 0.3094,
+    "words": {
+     "count": 156,
+     "mae_ms": 71.23717948717949,
+     "medae_ms": 29.5,
+     "p95_ms": 287.0,
+     "pcs": {
+      "0.1": 0.8910256410256411,
+      "0.2": 0.9423076923076923,
+      "0.3": 0.9551282051282052,
+      "0.5": 0.9807692307692307
+     }
+    },
+    "lines": {
+     "count": 28,
+     "mae_ms": 48.035714285714285,
+     "medae_ms": 28.0,
+     "p95_ms": 84.0,
+     "pcs": {
+      "0.3": 0.9642857142857143
+     }
+    }
+   },
+   {
+    "stem": "Diosa_de_la_noche_-_Brunela_Crochenci",
+    "language": "spa",
+    "duration_s": 202.2,
+    "n_words": 201,
+    "n_lines": 29,
+    "separate_s": 61.1,
+    "align_s": 3.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 201,
+     "mae_ms": 1154.0696517412935,
+     "medae_ms": 44.0,
+     "p95_ms": 11414.0,
+     "pcs": {
+      "0.1": 0.8308457711442786,
+      "0.2": 0.9054726368159204,
+      "0.3": 0.9104477611940298,
+      "0.5": 0.9104477611940298
+     }
+    },
+    "lines": {
+     "count": 29,
+     "mae_ms": 1402.7586206896551,
+     "medae_ms": 60.0,
+     "p95_ms": 12905.0,
+     "pcs": {
+      "0.3": 0.8620689655172413
+     }
+    }
+   },
+   {
+    "stem": "10._Disparan_-_criatura",
+    "language": "spa",
+    "duration_s": 158.2,
+    "n_words": 194,
+    "n_lines": 40,
+    "separate_s": 43.4,
+    "align_s": 2.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 194,
+     "mae_ms": 382.7113402061856,
+     "medae_ms": 38.5,
+     "p95_ms": 2843.0,
+     "pcs": {
+      "0.1": 0.7835051546391752,
+      "0.2": 0.8247422680412371,
+      "0.3": 0.8247422680412371,
+      "0.5": 0.8402061855670103
+     }
+    },
+    "lines": {
+     "count": 40,
+     "mae_ms": 472.725,
+     "medae_ms": 37.5,
+     "p95_ms": 2278.0,
+     "pcs": {
+      "0.3": 0.725
+     }
+    }
+   },
+   {
+    "stem": "Drei_Nüsse_-_patrouille",
+    "language": "deu",
+    "duration_s": 222.7,
+    "n_words": 519,
+    "n_lines": 56,
+    "separate_s": 71.4,
+    "align_s": 2.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 519,
+     "mae_ms": 97.24277456647398,
+     "medae_ms": 27.0,
+     "p95_ms": 84.0,
+     "pcs": {
+      "0.1": 0.9845857418111753,
+      "0.2": 0.9980732177263969,
+      "0.3": 0.9980732177263969,
+      "0.5": 0.9980732177263969
+     }
+    },
+    "lines": {
+     "count": 56,
+     "mae_ms": 35.19642857142857,
+     "medae_ms": 28.5,
+     "p95_ms": 87.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Esencia_-_NandoMalo_",
+    "language": "spa",
+    "duration_s": 250.2,
+    "n_words": 334,
+    "n_lines": 51,
+    "separate_s": 69.7,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 334,
+     "mae_ms": 63.0059880239521,
+     "medae_ms": 33.0,
+     "p95_ms": 91.0,
+     "pcs": {
+      "0.1": 0.9640718562874252,
+      "0.2": 0.9940119760479041,
+      "0.3": 0.9940119760479041,
+      "0.5": 0.9970059880239521
+     }
+    },
+    "lines": {
+     "count": 51,
+     "mae_ms": 35.35294117647059,
+     "medae_ms": 32.0,
+     "p95_ms": 74.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Fantasma_-_Los_Rombos",
+    "language": "spa",
+    "duration_s": 154.2,
+    "n_words": 88,
+    "n_lines": 17,
+    "separate_s": 44.8,
+    "align_s": 1.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 88,
+     "mae_ms": 872.5568181818181,
+     "medae_ms": 47.0,
+     "p95_ms": 7487.0,
+     "pcs": {
+      "0.1": 0.7159090909090909,
+      "0.2": 0.8068181818181818,
+      "0.3": 0.8181818181818182,
+      "0.5": 0.8295454545454546
+     }
+    },
+    "lines": {
+     "count": 17,
+     "mae_ms": 759.8235294117648,
+     "medae_ms": 24.0,
+     "p95_ms": 8177.0,
+     "pcs": {
+      "0.3": 0.8235294117647058
+     }
+    }
+   },
+   {
+    "stem": "Freifliegen_-_durch.dick.und.duenn",
+    "language": "deu",
+    "duration_s": 189.9,
+    "n_words": 135,
+    "n_lines": 32,
+    "separate_s": 66.3,
+    "align_s": 2.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 135,
+     "mae_ms": 504.24444444444447,
+     "medae_ms": 38.0,
+     "p95_ms": 110.0,
+     "pcs": {
+      "0.1": 0.9259259259259259,
+      "0.2": 0.9925925925925926,
+      "0.3": 0.9925925925925926,
+      "0.5": 0.9925925925925926
+     }
+    },
+    "lines": {
+     "count": 32,
+     "mae_ms": 42.75,
+     "medae_ms": 32.0,
+     "p95_ms": 105.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Fußabdrücke_-_Andreas_Jachmann",
+    "language": "deu",
+    "duration_s": 232.7,
+    "n_words": 154,
+    "n_lines": 22,
+    "separate_s": 65.1,
+    "align_s": 4.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 154,
+     "mae_ms": 29.558441558441558,
+     "medae_ms": 24.0,
+     "p95_ms": 75.0,
+     "pcs": {
+      "0.1": 0.987012987012987,
+      "0.2": 1.0,
+      "0.3": 1.0,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 22,
+     "mae_ms": 28.227272727272727,
+     "medae_ms": 26.5,
+     "p95_ms": 66.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Guayeteo_-_JhoyKing",
+    "language": "spa",
+    "duration_s": 151.9,
+    "n_words": 340,
+    "n_lines": 52,
+    "separate_s": 43.9,
+    "align_s": 2.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 340,
+     "mae_ms": 1229.7529411764706,
+     "medae_ms": 47.0,
+     "p95_ms": 10115.0,
+     "pcs": {
+      "0.1": 0.8205882352941176,
+      "0.2": 0.8323529411764706,
+      "0.3": 0.8352941176470589,
+      "0.5": 0.8411764705882353
+     }
+    },
+    "lines": {
+     "count": 52,
+     "mae_ms": 979.8076923076923,
+     "medae_ms": 52.0,
+     "p95_ms": 10047.0,
+     "pcs": {
+      "0.3": 0.8461538461538461
+     }
+    }
+   },
+   {
+    "stem": "Háblame_-_(Talk_to_me)_-_Brunela_Crochenci",
+    "language": "spa",
+    "duration_s": 211.4,
+    "n_words": 106,
+    "n_lines": 32,
+    "separate_s": 58.4,
+    "align_s": 3.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 106,
+     "mae_ms": 384.3867924528302,
+     "medae_ms": 40.0,
+     "p95_ms": 120.0,
+     "pcs": {
+      "0.1": 0.9056603773584906,
+      "0.2": 0.9811320754716981,
+      "0.3": 0.9905660377358491,
+      "0.5": 0.9905660377358491
+     }
+    },
+    "lines": {
+     "count": 32,
+     "mae_ms": 1147.28125,
+     "medae_ms": 29.0,
+     "p95_ms": 106.0,
+     "pcs": {
+      "0.3": 0.96875
+     }
+    }
+   },
+   {
+    "stem": "Ich_kann_dich_nicht_vergessen_-_Wingenbach_Frank",
+    "language": "deu",
+    "duration_s": 255.1,
+    "n_words": 198,
+    "n_lines": 40,
+    "separate_s": 71.6,
+    "align_s": 1.9,
+    "sync": "word",
+    "quality_score": 0.483,
+    "words": {
+     "count": 198,
+     "mae_ms": 46.26262626262626,
+     "medae_ms": 33.5,
+     "p95_ms": 180.0,
+     "pcs": {
+      "0.1": 0.9292929292929293,
+      "0.2": 0.9848484848484849,
+      "0.3": 0.9949494949494949,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 40,
+     "mae_ms": 57.4,
+     "medae_ms": 35.5,
+     "p95_ms": 198.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Intentando_Destacar_-_Sundayers_",
+    "language": "spa",
+    "duration_s": 192.6,
+    "n_words": 224,
+    "n_lines": 30,
+    "separate_s": 62.5,
+    "align_s": 1.5,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 224,
+     "mae_ms": 126.21428571428571,
+     "medae_ms": 33.0,
+     "p95_ms": 740.0,
+     "pcs": {
+      "0.1": 0.8571428571428571,
+      "0.2": 0.8794642857142857,
+      "0.3": 0.90625,
+      "0.5": 0.9241071428571429
+     }
+    },
+    "lines": {
+     "count": 30,
+     "mae_ms": 69.86666666666666,
+     "medae_ms": 32.0,
+     "p95_ms": 78.0,
+     "pcs": {
+      "0.3": 0.9666666666666667
+     }
+    }
+   },
+   {
+    "stem": "Intro_[Pulsschlag]_-_Zeugen_der_Leere_(2)",
+    "language": "deu",
+    "duration_s": 120.6,
+    "n_words": 82,
+    "n_lines": 12,
+    "separate_s": 42.8,
+    "align_s": 1.2,
+    "sync": "word",
+    "quality_score": 0.5489,
+    "words": {
+     "count": 82,
+     "mae_ms": 604.6219512195122,
+     "medae_ms": 43.5,
+     "p95_ms": 347.0,
+     "pcs": {
+      "0.1": 0.8780487804878049,
+      "0.2": 0.9146341463414634,
+      "0.3": 0.926829268292683,
+      "0.5": 0.9512195121951219
+     }
+    },
+    "lines": {
+     "count": 12,
+     "mae_ms": 50.583333333333336,
+     "medae_ms": 47.0,
+     "p95_ms": 115.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Keine_Lust_-_Jonny_M",
+    "language": "deu",
+    "duration_s": 226.1,
+    "n_words": 528,
+    "n_lines": 122,
+    "separate_s": 60.6,
+    "align_s": 2.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 528,
+     "mae_ms": 1792.0435606060605,
+     "medae_ms": 25.5,
+     "p95_ms": 14951.0,
+     "pcs": {
+      "0.1": 0.8162878787878788,
+      "0.2": 0.8238636363636364,
+      "0.3": 0.8238636363636364,
+      "0.5": 0.8295454545454546
+     }
+    },
+    "lines": {
+     "count": 122,
+     "mae_ms": 2186.4590163934427,
+     "medae_ms": 25.0,
+     "p95_ms": 15378.0,
+     "pcs": {
+      "0.3": 0.7786885245901639
+     }
+    }
+   },
+   {
+    "stem": "l'abandon_-_flo",
+    "language": "fra",
+    "duration_s": 190.9,
+    "n_words": 341,
+    "n_lines": 43,
+    "separate_s": 57.1,
+    "align_s": 2.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 341,
+     "mae_ms": 74.43988269794721,
+     "medae_ms": 45.0,
+     "p95_ms": 154.0,
+     "pcs": {
+      "0.1": 0.9002932551319648,
+      "0.2": 0.9560117302052786,
+      "0.3": 0.9618768328445748,
+      "0.5": 0.9824046920821115
+     }
+    },
+    "lines": {
+     "count": 43,
+     "mae_ms": 121.4186046511628,
+     "medae_ms": 49.0,
+     "p95_ms": 397.0,
+     "pcs": {
+      "0.3": 0.8837209302325582
+     }
+    }
+   },
+   {
+    "stem": "La_rumba_del_coronavirus_-_Rich_Don_Jeri",
+    "language": "spa",
+    "duration_s": 179.1,
+    "n_words": 224,
+    "n_lines": 75,
+    "separate_s": 52.9,
+    "align_s": 1.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 224,
+     "mae_ms": 124.19196428571429,
+     "medae_ms": 31.5,
+     "p95_ms": 187.0,
+     "pcs": {
+      "0.1": 0.9241071428571429,
+      "0.2": 0.9508928571428571,
+      "0.3": 0.9553571428571429,
+      "0.5": 0.9598214285714286
+     }
+    },
+    "lines": {
+     "count": 75,
+     "mae_ms": 198.33333333333334,
+     "medae_ms": 35.0,
+     "p95_ms": 2277.0,
+     "pcs": {
+      "0.3": 0.92
+     }
+    }
+   },
+   {
+    "stem": "Le_musée_d'air_contemporain_-_KPTN",
+    "language": "fra",
+    "duration_s": 178.0,
+    "n_words": 256,
+    "n_lines": 48,
+    "separate_s": 50.7,
+    "align_s": 2.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 256,
+     "mae_ms": 78.109375,
+     "medae_ms": 36.0,
+     "p95_ms": 102.0,
+     "pcs": {
+      "0.1": 0.94921875,
+      "0.2": 0.9921875,
+      "0.3": 0.9921875,
+      "0.5": 0.9921875
+     }
+    },
+    "lines": {
+     "count": 48,
+     "mae_ms": 89.1875,
+     "medae_ms": 24.0,
+     "p95_ms": 110.0,
+     "pcs": {
+      "0.3": 0.9791666666666666
+     }
+    }
+   },
+   {
+    "stem": "Les_files_d'attente_-_Law'",
+    "language": "fra",
+    "duration_s": 189.8,
+    "n_words": 319,
+    "n_lines": 47,
+    "separate_s": 54.4,
+    "align_s": 2.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 319,
+     "mae_ms": 333.0689655172414,
+     "medae_ms": 53.0,
+     "p95_ms": 1895.0,
+     "pcs": {
+      "0.1": 0.7115987460815048,
+      "0.2": 0.7523510971786834,
+      "0.3": 0.774294670846395,
+      "0.5": 0.8056426332288401
+     }
+    },
+    "lines": {
+     "count": 47,
+     "mae_ms": 378.72340425531917,
+     "medae_ms": 42.0,
+     "p95_ms": 1750.0,
+     "pcs": {
+      "0.3": 0.7659574468085106
+     }
+    }
+   },
+   {
+    "stem": "Libre_by_CybeR_AttaCK_-_CyberAttacK",
+    "language": "fra",
+    "duration_s": 156.3,
+    "n_words": 397,
+    "n_lines": 48,
+    "separate_s": 63.8,
+    "align_s": 1.6,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 397,
+     "mae_ms": 198.0705289672544,
+     "medae_ms": 31.0,
+     "p95_ms": 118.0,
+     "pcs": {
+      "0.1": 0.9143576826196473,
+      "0.2": 0.9748110831234257,
+      "0.3": 0.9848866498740554,
+      "0.5": 0.9949622166246851
+     }
+    },
+    "lines": {
+     "count": 48,
+     "mae_ms": 61.958333333333336,
+     "medae_ms": 39.5,
+     "p95_ms": 234.0,
+     "pcs": {
+      "0.3": 0.9791666666666666
+     }
+    }
+   },
+   {
+    "stem": "Mère_nature_-_Law'",
+    "language": "fra",
+    "duration_s": 222.7,
+    "n_words": 254,
+    "n_lines": 36,
+    "separate_s": 63.2,
+    "align_s": 1.5,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 254,
+     "mae_ms": 57.881889763779526,
+     "medae_ms": 52.0,
+     "p95_ms": 99.0,
+     "pcs": {
+      "0.1": 0.952755905511811,
+      "0.2": 0.9921259842519685,
+      "0.3": 0.9960629921259843,
+      "0.5": 0.9960629921259843
+     }
+    },
+    "lines": {
+     "count": 36,
+     "mae_ms": 59.833333333333336,
+     "medae_ms": 59.5,
+     "p95_ms": 127.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Mes_Larmes_-_kobzx2z",
+    "language": "fra",
+    "duration_s": 141.7,
+    "n_words": 388,
+    "n_lines": 65,
+    "separate_s": 45.6,
+    "align_s": 1.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 388,
+     "mae_ms": 2147.1623711340208,
+     "medae_ms": 42.0,
+     "p95_ms": 18409.0,
+     "pcs": {
+      "0.1": 0.7474226804123711,
+      "0.2": 0.7860824742268041,
+      "0.3": 0.7989690721649485,
+      "0.5": 0.8144329896907216
+     }
+    },
+    "lines": {
+     "count": 65,
+     "mae_ms": 1879.246153846154,
+     "medae_ms": 41.0,
+     "p95_ms": 17438.0,
+     "pcs": {
+      "0.3": 0.8461538461538461
+     }
+    }
+   },
+   {
+    "stem": "¡Óyeme_tiburón!_-_Corrientes",
+    "language": "spa",
+    "duration_s": 175.0,
+    "n_words": 210,
+    "n_lines": 54,
+    "separate_s": 52.7,
+    "align_s": 1.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 210,
+     "mae_ms": 51.58571428571429,
+     "medae_ms": 40.0,
+     "p95_ms": 103.0,
+     "pcs": {
+      "0.1": 0.9380952380952381,
+      "0.2": 0.9904761904761905,
+      "0.3": 0.9952380952380953,
+      "0.5": 0.9952380952380953
+     }
+    },
+    "lines": {
+     "count": 54,
+     "mae_ms": 65.61111111111111,
+     "medae_ms": 42.5,
+     "p95_ms": 100.0,
+     "pcs": {
+      "0.3": 0.9814814814814815
+     }
+    }
+   },
+   {
+    "stem": "Yuanan_-_Miedo_-_Yuanan",
+    "language": "spa",
+    "duration_s": 165.8,
+    "n_words": 268,
+    "n_lines": 33,
+    "separate_s": 48.9,
+    "align_s": 1.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 268,
+     "mae_ms": 913.0671641791045,
+     "medae_ms": 45.0,
+     "p95_ms": 5855.0,
+     "pcs": {
+      "0.1": 0.7873134328358209,
+      "0.2": 0.8134328358208955,
+      "0.3": 0.8171641791044776,
+      "0.5": 0.8246268656716418
+     }
+    },
+    "lines": {
+     "count": 33,
+     "mae_ms": 780.7575757575758,
+     "medae_ms": 52.0,
+     "p95_ms": 5840.0,
+     "pcs": {
+      "0.3": 0.8181818181818182
+     }
+    }
+   },
+   {
+    "stem": "Musik_-_Heiko",
+    "language": "deu",
+    "duration_s": 264.6,
+    "n_words": 237,
+    "n_lines": 36,
+    "separate_s": 79.2,
+    "align_s": 3.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 237,
+     "mae_ms": 186.23628691983123,
+     "medae_ms": 28.0,
+     "p95_ms": 88.0,
+     "pcs": {
+      "0.1": 0.9620253164556962,
+      "0.2": 0.9873417721518988,
+      "0.3": 0.9957805907172996,
+      "0.5": 0.9957805907172996
+     }
+    },
+    "lines": {
+     "count": 36,
+     "mae_ms": 22.86111111111111,
+     "medae_ms": 20.5,
+     "p95_ms": 50.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Palabras_-_Javier_Gomez_Bello",
+    "language": "spa",
+    "duration_s": 209.3,
+    "n_words": 212,
+    "n_lines": 24,
+    "separate_s": 57.9,
+    "align_s": 2.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 212,
+     "mae_ms": 38.783018867924525,
+     "medae_ms": 35.0,
+     "p95_ms": 93.0,
+     "pcs": {
+      "0.1": 0.9669811320754716,
+      "0.2": 1.0,
+      "0.3": 1.0,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 24,
+     "mae_ms": 37.958333333333336,
+     "medae_ms": 33.5,
+     "p95_ms": 67.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Pas_que_tes_pas_-_AZUL",
+    "language": "fra",
+    "duration_s": 196.6,
+    "n_words": 268,
+    "n_lines": 31,
+    "separate_s": 55.9,
+    "align_s": 2.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 268,
+     "mae_ms": 101.66044776119404,
+     "medae_ms": 50.5,
+     "p95_ms": 136.0,
+     "pcs": {
+      "0.1": 0.9067164179104478,
+      "0.2": 0.9589552238805971,
+      "0.3": 0.9701492537313433,
+      "0.5": 0.9813432835820896
+     }
+    },
+    "lines": {
+     "count": 31,
+     "mae_ms": 107.51612903225806,
+     "medae_ms": 53.0,
+     "p95_ms": 644.0,
+     "pcs": {
+      "0.3": 0.9354838709677419
+     }
+    }
+   },
+   {
+    "stem": "Pluie_d'entre_deux_saisons_-_Midnight_Prefou",
+    "language": "fra",
+    "duration_s": 198.1,
+    "n_words": 134,
+    "n_lines": 32,
+    "separate_s": 55.5,
+    "align_s": 1.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 134,
+     "mae_ms": 1130.2611940298507,
+     "medae_ms": 54.5,
+     "p95_ms": 8010.0,
+     "pcs": {
+      "0.1": 0.7089552238805971,
+      "0.2": 0.7835820895522388,
+      "0.3": 0.7985074626865671,
+      "0.5": 0.8134328358208955
+     }
+    },
+    "lines": {
+     "count": 32,
+     "mae_ms": 1412.96875,
+     "medae_ms": 59.0,
+     "p95_ms": 9792.0,
+     "pcs": {
+      "0.3": 0.8125
+     }
+    }
+   },
+   {
+    "stem": "POIGNEE_DE_MAIN_-_Cabbac",
+    "language": "fra",
+    "duration_s": 200.3,
+    "n_words": 146,
+    "n_lines": 30,
+    "separate_s": 58.7,
+    "align_s": 3.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 146,
+     "mae_ms": 45.226027397260275,
+     "medae_ms": 41.0,
+     "p95_ms": 92.0,
+     "pcs": {
+      "0.1": 0.958904109589041,
+      "0.2": 0.9931506849315068,
+      "0.3": 0.9931506849315068,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 30,
+     "mae_ms": 54.5,
+     "medae_ms": 40.0,
+     "p95_ms": 111.0,
+     "pcs": {
+      "0.3": 0.9666666666666667
+     }
+    }
+   },
+   {
+    "stem": "Quiero_y_Puedo_-_Nacidos_de_la_Tierra",
+    "language": "spa",
+    "duration_s": 234.4,
+    "n_words": 640,
+    "n_lines": 73,
+    "separate_s": 68.0,
+    "align_s": 4.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 640,
+     "mae_ms": 35.7078125,
+     "medae_ms": 33.0,
+     "p95_ms": 77.0,
+     "pcs": {
+      "0.1": 0.9796875,
+      "0.2": 0.9984375,
+      "0.3": 1.0,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 73,
+     "mae_ms": 27.17808219178082,
+     "medae_ms": 21.0,
+     "p95_ms": 66.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Schnodderdodder_-_Abendblau",
+    "language": "deu",
+    "duration_s": 188.7,
+    "n_words": 291,
+    "n_lines": 43,
+    "separate_s": 56.8,
+    "align_s": 2.6,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 291,
+     "mae_ms": 59.1958762886598,
+     "medae_ms": 30.0,
+     "p95_ms": 111.0,
+     "pcs": {
+      "0.1": 0.9347079037800687,
+      "0.2": 0.9896907216494846,
+      "0.3": 0.9896907216494846,
+      "0.5": 0.993127147766323
+     }
+    },
+    "lines": {
+     "count": 43,
+     "mae_ms": 45.30232558139535,
+     "medae_ms": 29.0,
+     "p95_ms": 144.0,
+     "pcs": {
+      "0.3": 0.9767441860465116
+     }
+    }
+   },
+   {
+    "stem": "Séculaire_feat._Nÿme_-_saru",
+    "language": "fra",
+    "duration_s": 154.1,
+    "n_words": 345,
+    "n_lines": 40,
+    "separate_s": 45.0,
+    "align_s": 1.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 345,
+     "mae_ms": 138.47246376811594,
+     "medae_ms": 32.0,
+     "p95_ms": 96.0,
+     "pcs": {
+      "0.1": 0.9507246376811594,
+      "0.2": 0.9710144927536232,
+      "0.3": 0.9826086956521739,
+      "0.5": 0.9826086956521739
+     }
+    },
+    "lines": {
+     "count": 40,
+     "mae_ms": 379.375,
+     "medae_ms": 28.5,
+     "p95_ms": 139.0,
+     "pcs": {
+      "0.3": 0.95
+     }
+    }
+   },
+   {
+    "stem": "Sehnsucht-Unplugged_-_REH-TORTE",
+    "language": "deu",
+    "duration_s": 230.5,
+    "n_words": 151,
+    "n_lines": 26,
+    "separate_s": 66.7,
+    "align_s": 3.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 151,
+     "mae_ms": 39.794701986754966,
+     "medae_ms": 36.0,
+     "p95_ms": 94.0,
+     "pcs": {
+      "0.1": 0.9735099337748344,
+      "0.2": 0.9933774834437086,
+      "0.3": 1.0,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 26,
+     "mae_ms": 38.80769230769231,
+     "medae_ms": 34.5,
+     "p95_ms": 88.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "SHANEY_23_feat._G1NA_G._x_In_den_Strassen_-_Shaney_23",
+    "language": "deu",
+    "duration_s": 203.5,
+    "n_words": 448,
+    "n_lines": 72,
+    "separate_s": 58.2,
+    "align_s": 2.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 448,
+     "mae_ms": 70.73883928571429,
+     "medae_ms": 31.5,
+     "p95_ms": 114.0,
+     "pcs": {
+      "0.1": 0.9375,
+      "0.2": 0.96875,
+      "0.3": 0.9799107142857143,
+      "0.5": 0.984375
+     }
+    },
+    "lines": {
+     "count": 72,
+     "mae_ms": 58.34722222222222,
+     "medae_ms": 33.5,
+     "p95_ms": 270.0,
+     "pcs": {
+      "0.3": 0.9583333333333334
+     }
+    }
+   },
+   {
+    "stem": "Sin_miedo_-_Living_Camboya",
+    "language": "spa",
+    "duration_s": 210.0,
+    "n_words": 171,
+    "n_lines": 28,
+    "separate_s": 58.8,
+    "align_s": 3.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 171,
+     "mae_ms": 341.5263157894737,
+     "medae_ms": 36.0,
+     "p95_ms": 123.0,
+     "pcs": {
+      "0.1": 0.935672514619883,
+      "0.2": 0.9590643274853801,
+      "0.3": 0.9649122807017544,
+      "0.5": 0.9649122807017544
+     }
+    },
+    "lines": {
+     "count": 28,
+     "mae_ms": 915.7857142857143,
+     "medae_ms": 34.0,
+     "p95_ms": 9619.0,
+     "pcs": {
+      "0.3": 0.8571428571428571
+     }
+    }
+   },
+   {
+    "stem": "te_amo_-_fabios_la_nueva_expresion_de_la_cancion",
+    "language": "spa",
+    "duration_s": 190.8,
+    "n_words": 169,
+    "n_lines": 29,
+    "separate_s": 53.9,
+    "align_s": 3.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 169,
+     "mae_ms": 42.467455621301774,
+     "medae_ms": 36.0,
+     "p95_ms": 93.0,
+     "pcs": {
+      "0.1": 0.9644970414201184,
+      "0.2": 1.0,
+      "0.3": 1.0,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 29,
+     "mae_ms": 41.44827586206897,
+     "medae_ms": 32.0,
+     "p95_ms": 88.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Te_Recuerdo_-_Wilson_Way",
+    "language": "spa",
+    "duration_s": 178.5,
+    "n_words": 458,
+    "n_lines": 51,
+    "separate_s": 52.5,
+    "align_s": 3.3,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 458,
+     "mae_ms": 115.63973799126637,
+     "medae_ms": 40.0,
+     "p95_ms": 118.0,
+     "pcs": {
+      "0.1": 0.9323144104803494,
+      "0.2": 0.962882096069869,
+      "0.3": 0.9716157205240175,
+      "0.5": 0.9716157205240175
+     }
+    },
+    "lines": {
+     "count": 51,
+     "mae_ms": 34.76470588235294,
+     "medae_ms": 24.0,
+     "p95_ms": 72.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "DON_VALDES_-_Tu_sais_Man",
+    "language": "fra",
+    "duration_s": 204.6,
+    "n_words": 505,
+    "n_lines": 60,
+    "separate_s": 55.6,
+    "align_s": 1.2,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 505,
+     "mae_ms": 90.52277227722772,
+     "medae_ms": 41.0,
+     "p95_ms": 359.0,
+     "pcs": {
+      "0.1": 0.8475247524752475,
+      "0.2": 0.8910891089108911,
+      "0.3": 0.9287128712871288,
+      "0.5": 0.9722772277227723
+     }
+    },
+    "lines": {
+     "count": 60,
+     "mae_ms": 48.4,
+     "medae_ms": 36.5,
+     "p95_ms": 149.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Une_Vie_De_Roi_-_david",
+    "language": "fra",
+    "duration_s": 237.0,
+    "n_words": 311,
+    "n_lines": 44,
+    "separate_s": 67.3,
+    "align_s": 1.4,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 311,
+     "mae_ms": 258.2250803858521,
+     "medae_ms": 37.0,
+     "p95_ms": 98.0,
+     "pcs": {
+      "0.1": 0.954983922829582,
+      "0.2": 0.9967845659163987,
+      "0.3": 0.9967845659163987,
+      "0.5": 0.9967845659163987
+     }
+    },
+    "lines": {
+     "count": 44,
+     "mae_ms": 35.34090909090909,
+     "medae_ms": 31.0,
+     "p95_ms": 87.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Vente_-_Fafarulo_Calabaza",
+    "language": "spa",
+    "duration_s": 328.5,
+    "n_words": 505,
+    "n_lines": 101,
+    "separate_s": 71.9,
+    "align_s": 1.5,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 505,
+     "mae_ms": 281.12277227722774,
+     "medae_ms": 45.0,
+     "p95_ms": 1838.0,
+     "pcs": {
+      "0.1": 0.8950495049504951,
+      "0.2": 0.9306930693069307,
+      "0.3": 0.9326732673267327,
+      "0.5": 0.9346534653465347
+     }
+    },
+    "lines": {
+     "count": 101,
+     "mae_ms": 247.68316831683168,
+     "medae_ms": 42.0,
+     "p95_ms": 1226.0,
+     "pcs": {
+      "0.3": 0.9108910891089109
+     }
+    }
+   },
+   {
+    "stem": "Veränderung_-_doromusis",
+    "language": "deu",
+    "duration_s": 191.4,
+    "n_words": 211,
+    "n_lines": 36,
+    "separate_s": 43.2,
+    "align_s": 0.9,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 211,
+     "mae_ms": 37.55450236966825,
+     "medae_ms": 26.0,
+     "p95_ms": 74.0,
+     "pcs": {
+      "0.1": 0.981042654028436,
+      "0.2": 0.985781990521327,
+      "0.3": 0.990521327014218,
+      "0.5": 0.990521327014218
+     }
+    },
+    "lines": {
+     "count": 36,
+     "mae_ms": 34.416666666666664,
+     "medae_ms": 32.5,
+     "p95_ms": 71.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Le_royaume_des_glous_glous_-_Raoul_de_QSM",
+    "language": "fra",
+    "duration_s": 162.6,
+    "n_words": 202,
+    "n_lines": 24,
+    "separate_s": 35.9,
+    "align_s": 0.8,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 202,
+     "mae_ms": 52.90594059405941,
+     "medae_ms": 42.0,
+     "p95_ms": 109.0,
+     "pcs": {
+      "0.1": 0.9257425742574258,
+      "0.2": 0.9851485148514851,
+      "0.3": 0.9851485148514851,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 24,
+     "mae_ms": 97.375,
+     "medae_ms": 58.0,
+     "p95_ms": 425.0,
+     "pcs": {
+      "0.3": 0.875
+     }
+    }
+   },
+   {
+    "stem": "En_liberté_-_tom.leyak",
+    "language": "fra",
+    "duration_s": 228.7,
+    "n_words": 266,
+    "n_lines": 42,
+    "separate_s": 49.8,
+    "align_s": 1.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 266,
+     "mae_ms": 52.13533834586466,
+     "medae_ms": 45.0,
+     "p95_ms": 111.0,
+     "pcs": {
+      "0.1": 0.924812030075188,
+      "0.2": 0.9924812030075187,
+      "0.3": 0.9962406015037594,
+      "0.5": 1.0
+     }
+    },
+    "lines": {
+     "count": 42,
+     "mae_ms": 51.19047619047619,
+     "medae_ms": 42.0,
+     "p95_ms": 110.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   }
+  ]
+ }
+}
