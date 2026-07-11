@@ -52,27 +52,40 @@ def _decode_16k(src: Path, dest: Path) -> Path:
 def _separated_audio(
     song_audio: Path, cache_key: str, separation: str, mixback: float
 ) -> tuple[Path, float]:
-    """Vocal stem (+mixback) for `song_audio`, cached under data/stems/ so a
-    later windowed (P3) sweep reuses it. Returns (path, wall_seconds) with
-    wall_seconds = 0.0 on a cache hit (never counted twice)."""
-    from kashi_server.worker.process import _separate_vocals
+    """Vocal stem (+mixback) for `song_audio`, cached under data/stems/.
 
-    stem_dir = DATA_DIR / "stems" / f"{separation}-mb{mixback:g}"
-    cached = stem_dir / f"{cache_key}.wav"
-    if cached.exists():
-        return cached, 0.0
-    stem_dir.mkdir(parents=True, exist_ok=True)
-    started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="kashi-bench-sep-") as tmp:
-        out = _separate_vocals(
-            song_audio,
-            Path(tmp),
-            model_filename=SEPARATION_MODELS[separation],
-            mixback=mixback,
-        )
-        elapsed = time.monotonic() - started
-        shutil.move(str(out), cached)  # handles tmpfs -> disk (cross-device)
-    return cached, elapsed
+    The RAW stem (pre-mixback) is cached separately from the blend: separation
+    costs double-digit minutes on CPU while blending is one ffmpeg pass, so a
+    mixback ablation (mb0 vs mb0.15) and the P3 windowed re-sweep only pay
+    alignment. Returns (path, wall_seconds); wall_seconds = 0.0 on a raw-stem
+    cache hit (a blend pass is never counted as separation time)."""
+    from kashi_server.worker.process import _mix_back, _separate_vocals
+
+    raw = DATA_DIR / "stems" / separation / f"{cache_key}.wav"
+    blend_dir = DATA_DIR / "stems" / f"{separation}-mb{mixback:g}"
+    blended = blend_dir / f"{cache_key}.wav"
+    if mixback > 0 and blended.exists():  # pre-raw-cache runs left only blends
+        return blended, 0.0
+    elapsed = 0.0
+    if not raw.exists():
+        raw.parent.mkdir(parents=True, exist_ok=True)
+        started = time.monotonic()
+        with tempfile.TemporaryDirectory(prefix="kashi-bench-sep-") as tmp:
+            out = _separate_vocals(
+                song_audio,
+                Path(tmp),
+                model_filename=SEPARATION_MODELS[separation],
+                mixback=0,  # raw stem; the blend below is cached per-mixback
+            )
+            elapsed = time.monotonic() - started
+            shutil.move(str(out), raw)  # handles tmpfs -> disk (cross-device)
+    if mixback <= 0:
+        return raw, elapsed
+    blend_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="kashi-bench-mix-") as tmp:
+        out = _mix_back(raw, song_audio, Path(tmp) / "blend.wav", mixback)
+        shutil.move(str(out), blended)
+    return blended, elapsed
 
 
 def _align_song(
