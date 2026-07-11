@@ -65,25 +65,26 @@ representative subset (`--limit`/`--languages`) and say so in the label.
 CPU separation costs double-digit minutes per song; an RTX-class GPU does it
 in seconds, so the PC runs the FULL matrix (quality numbers are
 host-independent — prod wall-clock budgeting still comes from the ryzen/CPU
-runs). One-time PowerShell flow from the Windows checkout:
+runs). One-time flow from the Windows checkout (plain cmd; each run is
+~15-40 min on GPU and they queue if pasted together):
 
-```powershell
+```bat
 git pull
 docker build -f apps/server/benchmarks/Dockerfile.gpu -t kashi-bench-gpu .
 
-# Her koşu ~15-40 dk (GPU). Sırayla; sonuçlar repo'daki results/ altına düşer.
-$bench = "docker run --rm --gpus all --ipc=host -v ${PWD}:/repo -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo"
-Invoke-Expression "$bench --separation full-mix --label pc-full-mix"
-Invoke-Expression "$bench --separation bs-roformer --mixback 0.15 --label pc-bs-roformer-mb0.15"
-Invoke-Expression "$bench --separation bs-roformer --mixback 0 --label pc-bs-roformer-mb0"
-Invoke-Expression "$bench --separation voc_ft --mixback 0.15 --label pc-voc-ft-mb0.15"
-Invoke-Expression "$bench --separation voc_ft --mixback 0 --label pc-voc-ft-mb0"
-Invoke-Expression "$bench --separation htdemucs_ft --mixback 0.15 --label pc-htdemucs-mb0.15"
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation full-mix --label pc-full-mix
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation bs-roformer --mixback 0.15 --label pc-bs-roformer-mb0.15
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation bs-roformer --mixback 0 --label pc-bs-roformer-mb0
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation voc_ft --mixback 0.15 --label pc-voc-ft-mb0.15
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation voc_ft --mixback 0 --label pc-voc-ft-mb0
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation htdemucs_ft --mixback 0.15 --label pc-htdemucs-mb0.15
 
 git add apps/server/benchmarks/results
 git commit -m "bench: GPU sweep results (RTX 5070 Ti)"
 git push
 ```
+
+(PowerShell kullanıyorsan `%cd%` yerine `${PWD}` yaz.)
 
 Notes: `pc-full-mix` doubles as a GPU-vs-CPU parity check against the intel
 baseline. Voc_FT's MDX arch runs on CPU inside this image on purpose
