@@ -225,6 +225,7 @@ def _case_reference(case: datasets.KashiCase) -> list[tuple[int | None, str]]:
     cache = DATA_DIR / "cases" / case.id / f"lrclib-{case.lrclib_id}.json"
     if not cache.exists():
         cache.parent.mkdir(parents=True, exist_ok=True)
+        response = None
         for attempt in (1, 2, 3):  # lrclib has slow days; a timeout is not a result
             try:
                 response = httpx.get(
@@ -242,6 +243,7 @@ def _case_reference(case: datasets.KashiCase) -> list[tuple[int | None, str]]:
                 if attempt == 3:
                     raise
                 time.sleep(5 * attempt)
+        assert response is not None  # loop either broke with one or raised
         cache.write_text(json.dumps(response.json()), encoding="utf-8")
     synced = json.loads(cache.read_text(encoding="utf-8")).get("syncedLyrics") or ""
     entries = _parse_synced(synced)
