@@ -12,6 +12,7 @@ line-level document instead (the overlay already renders those).
 
 import logging
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,9 +59,12 @@ def _load_model():
         import torch  # pyright: ignore[reportMissingImports]
         from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
 
-        logger.info("loading alignment model %s (cpu)", MODEL_NAME)
+        # Prod images ship CPU torch, so the default never changes behaviour;
+        # the GPU benchmark image opts in with KASHI_ALIGN_DEVICE=cuda.
+        device = os.environ.get("KASHI_ALIGN_DEVICE", "cpu")
+        logger.info("loading alignment model %s (%s)", MODEL_NAME, device)
         _model, _tokenizer = load_alignment_model(
-            device="cpu", model_path=MODEL_NAME, dtype=torch.float32
+            device=device, model_path=MODEL_NAME, dtype=torch.float32
         )
     return _model, _tokenizer
 

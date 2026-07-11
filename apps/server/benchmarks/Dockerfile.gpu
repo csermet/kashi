@@ -1,0 +1,40 @@
+# GPU benchmark image — dev-only, never deployed. Built and run on a personal
+# machine with an NVIDIA GPU (verified: RTX 5070 Ti / Blackwell, Docker Desktop
+# on Windows, --gpus all). Build context is the REPO ROOT:
+#   docker build -f apps/server/benchmarks/Dockerfile.gpu -t kashi-bench-gpu .
+#
+# The prod stack stays CPU-only; this image exists so the benchmark matrix can
+# sweep all 79 JamendoLyrics songs per config instead of an 8-song subset.
+# Verified pins (version-scout, 2026-07-11): torch 2.9.1+cu130 carries sm_120
+# kernels; audio-separator's BS-RoFormer/Demucs/VR archs ride torch and use
+# CUDA automatically; MDX (Voc_FT) stays on CPU onnxruntime on purpose —
+# onnxruntime-gpu's Blackwell support is still unconfirmed upstream.
+
+FROM python:3.12-slim AS builder
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git g++ \
+    && rm -rf /var/lib/apt/lists/*
+ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
+COPY apps/server/pyproject.toml apps/server/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --extra align --extra separate --extra bench
+# Swap the locked CPU torch for the CUDA 13.0 builds (~2.7 GB with nvidia wheels).
+RUN uv pip install --python /app/.venv \
+    --index-url https://download.pytorch.org/whl/cu130 \
+    torch==2.9.1+cu130 torchaudio==2.9.1+cu130 torchvision==0.24.1+cu130
+
+FROM python:3.12-slim
+COPY --from=mwader/static-ffmpeg:8.1.2 /ffmpeg /ffprobe /usr/local/bin/
+RUN useradd -m -u 1000 kashi && mkdir -p /models && chown 1000:1000 /models
+COPY --from=builder /app/.venv /app/.venv
+# Code arrives via the repo bind mount (results land back in the checkout);
+# models/HF cache belong on a named volume so runs don't re-download.
+ENV PATH=/app/.venv/bin:$PATH \
+    PYTHONPATH=/repo/apps/server/src \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/models \
+    MODEL_CACHE_DIR=/models \
+    KASHI_ALIGN_DEVICE=cuda
+USER 1000
+WORKDIR /repo/apps/server

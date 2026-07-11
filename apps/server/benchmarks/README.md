@@ -60,6 +60,37 @@ per song — quality-first decision, Caner 2026-07-11), htdemucs_ft similar
 Full-dataset sweeps are for `full-mix`; run separated configs on a
 representative subset (`--limit`/`--languages`) and say so in the label.
 
+## GPU sweeps (personal PC, full 79-song matrix)
+
+CPU separation costs double-digit minutes per song; an RTX-class GPU does it
+in seconds, so the PC runs the FULL matrix (quality numbers are
+host-independent — prod wall-clock budgeting still comes from the ryzen/CPU
+runs). One-time PowerShell flow from the Windows checkout:
+
+```powershell
+git pull
+docker build -f apps/server/benchmarks/Dockerfile.gpu -t kashi-bench-gpu .
+
+# Her koşu ~15-40 dk (GPU). Sırayla; sonuçlar repo'daki results/ altına düşer.
+$bench = "docker run --rm --gpus all --ipc=host -v ${PWD}:/repo -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo"
+Invoke-Expression "$bench --separation full-mix --label pc-full-mix"
+Invoke-Expression "$bench --separation bs-roformer --mixback 0.15 --label pc-bs-roformer-mb0.15"
+Invoke-Expression "$bench --separation bs-roformer --mixback 0 --label pc-bs-roformer-mb0"
+Invoke-Expression "$bench --separation voc_ft --mixback 0.15 --label pc-voc-ft-mb0.15"
+Invoke-Expression "$bench --separation voc_ft --mixback 0 --label pc-voc-ft-mb0"
+Invoke-Expression "$bench --separation htdemucs_ft --mixback 0.15 --label pc-htdemucs-mb0.15"
+
+git add apps/server/benchmarks/results
+git commit -m "bench: GPU sweep results (RTX 5070 Ti)"
+git push
+```
+
+Notes: `pc-full-mix` doubles as a GPU-vs-CPU parity check against the intel
+baseline. Voc_FT's MDX arch runs on CPU inside this image on purpose
+(onnxruntime-gpu's Blackwell support is unconfirmed) — on a 9700X that is
+still fast. If `nvidia-smi` works in a container but torch reports no CUDA,
+the known WSL2 culprit is the driver dir mount (see Dockerfile.gpu header).
+
 ## Results
 
 `results/YYYY-MM-DD-<label>.json`: `meta` (config, versions, host), per-song
