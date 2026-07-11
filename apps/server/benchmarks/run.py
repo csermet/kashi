@@ -39,6 +39,14 @@ SEPARATION_MODELS = {
     "bs-roformer": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
     "htdemucs_ft": "htdemucs_ft.yaml",
     "voc_ft": "UVR-MDX-NET-Voc_FT.onnx",
+    # Research round 2026-07-11 (MVSEP Multisong rankings): Kim MelBand family
+    # scores >= ep_317 at ~2.5-3.5x less CPU (dim 384/depth 6 vs 512/12);
+    # resurrection/revive are same-cost ep_317 upgrades (revive_v2 = best
+    # "bleedless" score, the metric most correlated with CTC lock losses).
+    "kim-melband": "mel_band_roformer_kim_ft_unwa.ckpt",
+    "kim-melband-bleedless": "mel_band_roformer_kim_ft2_bleedless_unwa.ckpt",
+    "bsr-resurrection": "bs_roformer_vocals_resurrection_unwa.ckpt",
+    "bsr-revive-v2": "bs_roformer_vocals_revive_v2_unwa.ckpt",
 }
 LINE_THRESHOLD_MS = 2500  # production line_qa drift threshold (case pass/fail)
 
