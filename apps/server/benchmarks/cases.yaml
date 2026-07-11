@@ -1,0 +1,16 @@
+# Kashi field cases (growing list). Reference = lrclib synced line starts;
+# window_s marks the section where a regression was observed in the field.
+- id: tiktok
+  title: TiK ToK
+  artist: Kesha
+  youtube_id: RxUZLmN5RsY
+  lrclib_id: 12212948
+  language: eng
+  window_s: [29, 65]   # 2026-07-11 saha bulgusu: nakaratta CTC kilit kaybi
+
+- id: never-gonna-give-you-up
+  title: Never Gonna Give You Up
+  artist: Rick Astley
+  youtube_id: dQw4w9WgXcQ
+  lrclib_id: 10903542
+  language: eng

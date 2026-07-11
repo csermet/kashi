@@ -10,3 +10,5 @@ __pycache__/
 .env
 *.local
 .DS_Store
+# Benchmark ground truth + audio (CC NC/ND — must never enter git or an image)
+apps/server/benchmarks/data/
