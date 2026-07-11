@@ -69,22 +69,57 @@ def _decode(src: Path, dest: Path, rate: int) -> Path:
     return dest
 
 
-def _separate_vocals(audio: Path, tmp: Path) -> Path:
-    """htdemucs vocals via audio-separator. Imported lazily: separation_mode is
-    'off' by default and the dependency stack is heavy."""
+def _separate_vocals(
+    audio: Path,
+    tmp: Path,
+    *,
+    model_filename: str | None = None,
+    mixback: float | None = None,
+) -> Path:
+    """Vocal stem via audio-separator (needs the `separate` extra). Imported
+    lazily: separation_mode is 'off' by default and the dependency stack is
+    heavy. The keyword overrides exist for the benchmark harness; the worker
+    always runs on settings."""
     from audio_separator.separator import Separator  # pyright: ignore[reportMissingImports]
 
     separator = Separator(
         output_dir=str(tmp / "separated"),
         output_single_stem="Vocals",
         model_file_dir=str(settings.model_cache_dir / "audio-separator"),
+        # Default 0.9 attenuates any stem peaking above it — keep original
+        # levels so the mixback blend stays faithful (amplification_threshold
+        # stays 0.0, so nothing is boosted either).
+        normalization_threshold=1.0,
     )
-    separator.load_model(model_filename="htdemucs_ft.yaml")
-    outputs = separator.separate(str(audio))
+    separator.load_model(model_filename=model_filename or settings.separation_model_filename)
+    outputs = separator.separate(str(audio), custom_output_names={"Vocals": "vocals"})
     if not outputs:
         raise PipelineError("alignment_failed", "vocal separation produced no output")
     path = Path(outputs[0])
-    return path if path.is_absolute() else tmp / "separated" / path.name
+    vocals = path if path.is_absolute() else tmp / "separated" / path.name
+    weight = settings.separation_mixback if mixback is None else mixback
+    if weight <= 0:
+        return vocals
+    return _mix_back(vocals, audio, tmp / "separated" / "vocals-mixback.wav", weight)
+
+
+def _mix_back(vocals: Path, mix: Path, dest: Path, weight: float) -> Path:
+    """vocals + `weight` x original mix. Rates may differ (stem models emit
+    44.1k, YouTube opus is 48k), so both inputs go through aresample first."""
+    graph = (
+        f"[0:a]aresample=48000,aformat=channel_layouts=stereo[v];"
+        f"[1:a]aresample=48000,aformat=channel_layouts=stereo[m];"
+        f"[v][m]amix=inputs=2:duration=first:weights='1 {weight}':normalize=0"
+    )
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(vocals), "-i", str(mix),
+         "-filter_complex", graph, "-c:a", "pcm_s16le", str(dest)],
+        capture_output=True,
+        timeout=600,
+    )
+    if result.returncode != 0:
+        raise PipelineError("other", f"ffmpeg mixback failed: {result.stderr.decode()[:500]}")
+    return dest
 
 
 def _align_stage(

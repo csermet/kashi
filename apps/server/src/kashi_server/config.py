@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/scratch")
     model_cache_dir: Path = Path("/models")  # exported as HF_HOME by the worker
     separation_mode: Literal["off", "second_pass", "always"] = "off"
+    # audio-separator registry filename. BS-RoFormer: best measured vocal SDR of
+    # the CPU-viable models (hizalama-v2 research); Voc_FT is the fallback if
+    # its wall-clock blows up on the worker (see benchmarks/).
+    separation_model_filename: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+    # Fraction of the ORIGINAL mix folded back into the vocal stem before
+    # alignment — insurance against separation artefacts eating quiet words.
+    # 0 disables the mixback pass.
+    separation_mixback: float = 0.15
     lrclib_base_url: str = "https://lrclib.net"
     max_track_duration_s: int = 1200
     queue_depth_limit: int = 200

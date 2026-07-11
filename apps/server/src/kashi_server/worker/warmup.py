@@ -62,9 +62,33 @@ def ensure_model(wav: Path = FIXTURE_WAV, transcript: Path = FIXTURE_TXT) -> flo
     return result.quality_score
 
 
+def ensure_separator() -> None:
+    """Download (once) and load the separation model. Called only when
+    separation_mode != off — a worker configured to separate must not claim
+    jobs it cannot process. The first download leans on the k8s startupProbe
+    budget, exactly like the alignment model."""
+    from kashi_server.config import settings
+
+    try:
+        from audio_separator.separator import Separator  # pyright: ignore[reportMissingImports]
+    except ImportError as exc:  # the `separate` extra is not installed
+        raise RuntimeError(
+            f"separation_mode={settings.separation_mode} but audio-separator is not "
+            "installed (image built without --extra separate)"
+        ) from exc
+
+    separator = Separator(model_file_dir=str(settings.model_cache_dir / "audio-separator"))
+    separator.load_model(model_filename=settings.separation_model_filename)
+    logger.info("separator warmup ok: %s", settings.separation_model_filename)
+
+
 def _main() -> int:  # pragma: no cover - CLI
+    from kashi_server.config import settings
+
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     quality = ensure_model()
+    if settings.separation_mode != "off":
+        ensure_separator()
     print(f"warmup ok (quality {quality:.3f})")
     return 0
 

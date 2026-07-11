@@ -17,7 +17,11 @@ ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 COPY apps/server/pyproject.toml apps/server/uv.lock ./
 # --extra align: torch + ctc-forced-aligner. Kept out of the base dependencies
 # so day-to-day work (API tests, linting) needs no C++ toolchain.
-RUN uv sync --frozen --no-dev --no-install-project --extra align
+# --extra separate: audio-separator (vocal stems, hizalama-v2 P2) — grows the
+# image by roughly a gigabyte; SEPARATION_MODE=off never imports it.
+# The benchmark container overrides SERVER_EXTRAS to add --extra bench.
+ARG SERVER_EXTRAS="--extra align --extra separate"
+RUN uv sync --frozen --no-dev --no-install-project $SERVER_EXTRAS
 
 FROM python:3.12-slim
 # Static ffmpeg/ffprobe: avoids the apt ffmpeg dependency tree, and this build

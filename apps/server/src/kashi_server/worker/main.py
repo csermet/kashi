@@ -52,9 +52,11 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     os.environ.setdefault("HF_HOME", str(settings.model_cache_dir))
 
     # Warmup gate: a worker that cannot align must not claim jobs.
-    from kashi_server.worker.warmup import ensure_model
+    from kashi_server.worker.warmup import ensure_model, ensure_separator
 
     ensure_model()
+    if settings.separation_mode != "off":
+        ensure_separator()
 
     sweep_orphans(settings.data_dir)
     start_http_server(settings.metrics_port)

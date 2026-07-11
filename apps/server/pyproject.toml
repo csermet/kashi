@@ -31,20 +31,43 @@ align = [
     "torchaudio==2.9.1",
     "ctc-forced-aligner",
 ]
+# Vocal separation (hizalama-v2 P2). Separate extra for the same reason as
+# align: heavy (torch models + onnxruntime), and separation_mode=off must keep
+# working on an install without it.
+separate = [
+    "audio-separator[cpu]==0.44.3",
+    # transitive requirement of audio-separator, declared so the pytorch-cpu
+    # source applies (uv only honours tool.uv.sources for declared deps —
+    # left transitive it resolves from PyPI, whose wheels target CUDA torch).
+    "torchvision==0.24.1",
+]
+# Benchmark harness only (benchmarks/ never ships in the image; the bench
+# container build opts in with --build-arg SERVER_EXTRAS).
+bench = [
+    "pyyaml==6.0.3",
+]
 
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
     "ruff==0.15.20",
     "pyright==1.1.409",
+    "pyyaml==6.0.3",
 ]
 
 [tool.uv]
 package = false
+# The pytorch-cpu index publishes exotic local-version variants (+d801a34,
+# win_arm64-only) that sort ABOVE +cpu; this forces the resolver to pick
+# versions that actually have wheels for the image platform.
+required-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchaudio = { index = "pytorch-cpu" }
+# transitive via audio-separator; without the pin it resolves from PyPI, whose
+# wheels are built against CUDA torch.
+torchvision = { index = "pytorch-cpu" }
 ctc-forced-aligner = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner", rev = "264e7a1f81bff9ff5e787a5537020c2ad0b0df02" }
 
 [[tool.uv.index]]
@@ -55,12 +78,16 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.pyright]
-# Typecheck the shipped code. Tests lean on fixtures and assert-based
-# narrowing that pyright can't follow; they're guarded by pytest instead.
-include = ["src"]
+# Typecheck the shipped code (+ the benchmark harness, which is plain-typed).
+# Tests lean on fixtures and assert-based narrowing that pyright can't follow;
+# they're guarded by pytest instead.
+include = ["src", "benchmarks"]
+# The downloaded dataset ships its own python scripts — not our code.
+exclude = ["benchmarks/data"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# "." makes the benchmarks package importable (its pure metrics are unit-tested).
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 markers = ["slow: needs the alignment extra (torch + ctc-forced-aligner)"]
 addopts = "-m 'not slow'"
@@ -68,6 +95,8 @@ addopts = "-m 'not slow'"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Downloaded benchmark ground truth (gitignored) carries its own scripts.
+extend-exclude = ["benchmarks/data"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
