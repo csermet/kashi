@@ -21,15 +21,21 @@ import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';
 import { KashiServerClient } from './kashi-server.js';
+import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
+import { ReplayStore } from './replay-store.js';
+import {
+  applyExtensionMessage,
+  clearReasonOnDisconnect,
+  emptyLatch,
+} from './source-latch-logic.js';
 import { adjustAlpha, clampAlpha, isPositionVisible } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
 import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
 import { OverlayWsServer } from './ws-server.js';
 
+/** NOTE: the extension keeps its own announce debounce of the same length. */
 const TRACK_DEBOUNCE_MS = 500;
-/** Retry delays for transient lrclib failures (timeout/network). */
-const LYRICS_RETRY_DELAYS_MS = [0, 2000, 6000];
 const WINDOW_WIDTH = 560;
 const WINDOW_HEIGHT = 180;
 
@@ -46,57 +52,26 @@ let gateTimer: NodeJS.Timeout | null = null;
 /** Last known playing state (feeds the enqueue gate). */
 let lastIsPlaying = false;
 
-let currentTrackKey: string | null = null;
-/** Only the (client, tab) that sent the last track_changed drives playback. */
-let activeSource: { clientId: number; tabId: number } | null = null;
+const latch = emptyLatch();
 let debounceTimer: NodeJS.Timeout | null = null;
-let lookupAbort: AbortController | null = null;
-/** In-flight positions captured BEFORE the current track's announce are stale. */
-let lastTrackSentAt = 0;
-
-/** Last payloads, replayed to the renderer on (re)load. */
-const lastPayloads = new Map<string, unknown>();
-
-function trackKey(track: TrackInfo): string {
-  return `${track.source.type}:${track.source.id}`;
-}
+const replay = new ReplayStore();
+/** Constructed in whenReady, once settings decide server vs serverless mode. */
+let lookups: LookupOrchestrator;
 
 function send(channel: string, payload: unknown): void {
-  if (channel !== 'kashi:playback') {
-    lastPayloads.set(channel, payload);
-  } else {
-    const msg = payload as { type?: string; is_playing?: boolean };
-    if (msg.type === 'position' || msg.type === 'seek' || msg.type === 'playback_state') {
-      // Keep a PAUSED copy for renderer-reload replay: without an anchor the
-      // reloaded renderer shows nothing until the next live report.
-      lastPayloads.set('kashi:playback', { ...msg, is_playing: false });
-    }
-  }
+  replay.record(channel, payload);
   if (window && !window.isDestroyed()) {
     window.webContents.send(channel, payload);
   }
 }
 
-/** Replay order matters: settings -> connection -> track -> lyrics -> anchor. */
-const REPLAY_ORDER = [
-  'kashi:settings',
-  'kashi:connection',
-  'kashi:track',
-  'kashi:lyrics',
-  'kashi:playback',
-];
-
 /** Clear every trace of the current source (close/disconnect/source_gone). */
 function clearSource(reason: string): void {
   console.debug(`[kashi] source cleared (${reason})`);
-  lookupAbort?.abort();
+  lookups?.cancel();
   if (debounceTimer) clearTimeout(debounceTimer);
-  currentTrackKey = null;
-  activeSource = null;
-  lastTrackSentAt = 0;
-  lastPayloads.delete('kashi:track');
-  lastPayloads.delete('kashi:lyrics');
-  lastPayloads.delete('kashi:playback');
+  Object.assign(latch, emptyLatch());
+  replay.clearSourceChannels();
   send('kashi:source-gone', {});
 }
 
@@ -105,49 +80,40 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
     console.debug(`[ext:${msg.context}] ${msg.line}`);
     return; // diagnostics only — never forwarded to the renderer
   }
-  if (msg.type === 'source_gone') {
-    clearSource('source_gone');
-    return;
-  }
-  switch (msg.type) {
-    case 'track_changed': {
-      activeSource = { clientId, tabId: msg.tab_id };
-      const key = trackKey(msg.track);
+  const wasKey = latch.currentTrackKey;
+  const decision = applyExtensionMessage(latch, msg, clientId);
+  switch (decision.action) {
+    case 'clear':
+      clearSource('source_gone');
+      return;
+    case 'duplicate-track':
+    case 'new-track': {
+      const dup = decision.action === 'duplicate-track';
+      const track = (msg as Extract<ExtensionToOverlayMessage, { type: 'track_changed' }>).track;
       console.debug(
-        `[kashi] track_changed: ${key} "${msg.track.artist} - ${msg.track.title}"` +
-          ` (tab ${msg.tab_id}, client ${clientId})${key === currentTrackKey ? ' [dup]' : ''}`,
+        `[kashi] track_changed: ${decision.key} "${track.artist} - ${track.title}"` +
+          ` (tab ${(msg as { tab_id: number }).tab_id}, client ${clientId})` +
+          `${dup && decision.key === wasKey ? ' [dup]' : ''}`,
       );
-      if (key === currentTrackKey) return; // metadata refresh for same track
-      currentTrackKey = key;
-      lastTrackSentAt = msg.sent_at;
+      if (dup) return; // metadata refresh for same track
       enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
-      send('kashi:track', { key, track: msg.track });
+      send('kashi:track', { key: decision.key, track: decision.track });
 
       // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
       if (debounceTimer) clearTimeout(debounceTimer);
-      lookupAbort?.abort();
-      debounceTimer = setTimeout(() => void lookupLyrics(key, msg.track), TRACK_DEBOUNCE_MS);
+      lookups.cancel();
+      debounceTimer = setTimeout(
+        () => void lookups.lookup(decision.key, decision.track),
+        TRACK_DEBOUNCE_MS,
+      );
       return;
     }
-    case 'position':
-    case 'seek':
-    case 'playback_state':
-    case 'ad_state':
-      if (
-        activeSource &&
-        (clientId !== activeSource.clientId || msg.tab_id !== activeSource.tabId)
-      ) {
-        return; // another tab/client — not the one playing our track
+    case 'playback':
+      if (decision.isPlaying !== null) {
+        lastIsPlaying = decision.isPlaying;
+        enqueueGate.playback(decision.isPlaying, Date.now());
       }
-      // An in-flight report captured BEFORE the current announce belongs to
-      // the previous track — anchoring the fresh clock with it would start
-      // the new lyrics at the old song's offset (audit).
-      if ('captured_at' in msg && msg.captured_at < lastTrackSentAt) return;
-      if ('is_playing' in msg) {
-        lastIsPlaying = msg.is_playing;
-        enqueueGate.playback(msg.is_playing, Date.now());
-      }
-      send('kashi:playback', msg);
+      send('kashi:playback', decision.msg);
       return;
     default:
       return;
@@ -177,97 +143,6 @@ function armGateTimer(track: TrackInfo): void {
       );
     }
   }, 1000);
-}
-
-function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
-}
-
-async function lookupLyrics(key: string, track: TrackInfo): Promise<void> {
-  const abort = new AbortController();
-  lookupAbort = abort;
-  const query = {
-    title: track.title,
-    artist: track.artist,
-    album: track.album,
-    duration_ms: track.duration_ms,
-  };
-
-  send('kashi:lyrics', { key, searching: true });
-
-  // Server first when configured. A processed document is the SINGLE source
-  // of truth — on a hit lrclib is never consulted, never blended (R-8).
-  if (serverClient) {
-    const result = await serverClient.getProcessed(
-      track.source.type,
-      track.source.id,
-      abort.signal,
-    );
-    if (abort.signal.aborted || key !== currentTrackKey) return; // stale (R-9)
-    if ('found' in result && result.found) {
-      console.debug(
-        `[kashi] server hit: ${key} sync=${result.sync} quality=${result.qualityScore}`,
-      );
-      send('kashi:lyrics', { key, ...result });
-      return;
-    }
-    if ('found' in result && !result.found) {
-      // Genuinely unprocessed: arm the >=20 s listening gate (R-9), then let
-      // the lrclib flow below fill the screen in the meantime.
-      enqueueGate.serverMiss(key, Date.now(), lastIsPlaying);
-      armGateTimer(track);
-      console.debug(`[kashi] server 404: ${key} — lrclib fallback + enqueue gate armed`);
-    } else {
-      console.debug(`[kashi] server error for ${key} — lrclib fallback (gate NOT armed)`);
-    }
-  }
-
-  // Transient lrclib slowness (per-request 8s timeout) gets a few retries —
-  // one hiccup must not mean a whole song without lyrics.
-  for (const [attempt, delay] of LYRICS_RETRY_DELAYS_MS.entries()) {
-    await abortableSleep(delay, abort.signal);
-    if (abort.signal.aborted) return; // superseded by a newer track
-    try {
-      let result = await lrclib.getLyrics(query, abort.signal);
-      if (key !== currentTrackKey) return; // stale response guard (R-9)
-      if (!result.found && query.duration_ms) {
-        // The reported duration can be transiently WRONG during YTM's
-        // auto-advance (MSE mid-transition) — a bad duration rejects every
-        // candidate, so retry once without it before giving up.
-        console.debug(
-          `[kashi] duration-scoped lookup missed (duration_ms=${query.duration_ms}), retrying without duration`,
-        );
-        result = await lrclib.getLyrics({ ...query, duration_ms: undefined }, abort.signal);
-        if (key !== currentTrackKey) return;
-      }
-      if (!result.found) {
-        console.debug(
-          `[kashi] no synced lyrics: "${track.artist} - ${track.title}"` +
-            ` (duration_ms=${track.duration_ms ?? 'yok'})`,
-        );
-      }
-      send('kashi:lyrics', { key, ...result });
-      return;
-    } catch (err) {
-      if (abort.signal.aborted) return;
-      console.warn(
-        `[kashi] lyrics lookup failed (attempt ${attempt + 1}/${LYRICS_RETRY_DELAYS_MS.length}):`,
-        err,
-      );
-    }
-  }
-  // error !== genuine miss — renderer shows a different message.
-  if (key === currentTrackKey) send('kashi:lyrics', { key, found: false, error: true });
 }
 
 function createOverlayWindow(): BrowserWindow {
@@ -322,10 +197,7 @@ function createOverlayWindow(): BrowserWindow {
   });
   // Replay last known state after every load (startup, reload, crash restart).
   win.webContents.on('did-finish-load', () => {
-    for (const channel of REPLAY_ORDER) {
-      const payload = lastPayloads.get(channel);
-      if (payload !== undefined) win.webContents.send(channel, payload);
-    }
+    replay.replayInto((channel, payload) => win.webContents.send(channel, payload));
   });
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -469,6 +341,22 @@ app.whenReady().then(async () => {
     console.warn('[kashi] server_url and server_api_key must BOTH be set — server disabled');
   }
 
+  lookups = new LookupOrchestrator({
+    // Server first when configured. A processed document is the SINGLE source
+    // of truth — on a hit lrclib is never consulted, never blended (R-8).
+    getProcessed: serverClient
+      ? (type, id, signal) => serverClient!.getProcessed(type, id, signal)
+      : null,
+    getLyrics: (query, signal) => lrclib.getLyrics(query, signal),
+    send: (payload) => send('kashi:lyrics', payload),
+    onServerMiss: (key, track) => {
+      enqueueGate.serverMiss(key, Date.now(), lastIsPlaying);
+      armGateTimer(track);
+    },
+    isCurrent: (key) => key === latch.currentTrackKey,
+    log: (line) => console.debug(`[kashi] ${line}`),
+  });
+
   window = createOverlayWindow();
   // Seed the replay map so every renderer load starts with current settings.
   send('kashi:settings', { box_alpha: settings.get().box_alpha });
@@ -492,9 +380,8 @@ app.whenReady().then(async () => {
     onClientDisconnected: (count, clientId) => {
       // The latch owner vanished (browser closed / reconnect with a new id):
       // without this, the surviving stream is filtered forever (audit K3).
-      if (count === 0 || activeSource?.clientId === clientId) {
-        clearSource(count === 0 ? 'last client disconnected' : 'latch owner disconnected');
-      }
+      const reason = clearReasonOnDisconnect(latch, count, clientId);
+      if (reason) clearSource(reason);
       send('kashi:connection', { connected: count > 0 });
     },
     log: (line) => console.debug(`[kashi] ${line}`),
