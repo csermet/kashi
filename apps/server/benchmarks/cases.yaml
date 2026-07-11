@@ -8,9 +8,12 @@
   language: eng
   window_s: [29, 65]   # 2026-07-11 saha bulgusu: nakaratta CTC kilit kaybi
 
+# lrclib_id = the record the PROD pipeline actually picked (document
+# alignment.lyrics_source_id) — a different record of the same song has
+# different stamps/line breaks and produces false failures.
 - id: never-gonna-give-you-up
   title: Never Gonna Give You Up
   artist: Rick Astley
   youtube_id: dQw4w9WgXcQ
-  lrclib_id: 10903542
+  lrclib_id: 1009665
   language: eng

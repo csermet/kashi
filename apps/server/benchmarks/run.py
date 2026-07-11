@@ -222,15 +222,26 @@ def _case_reference(case: datasets.KashiCase) -> list[tuple[int | None, str]]:
 
     from kashi_server.pipeline.lrclib import _parse_synced
 
-    cache = DATA_DIR / "cases" / case.id / "lrclib.json"
+    cache = DATA_DIR / "cases" / case.id / f"lrclib-{case.lrclib_id}.json"
     if not cache.exists():
         cache.parent.mkdir(parents=True, exist_ok=True)
-        response = httpx.get(
-            f"https://lrclib.net/api/get/{case.lrclib_id}",
-            headers={"User-Agent": "kashi-server-dev/benchmarks (+https://github.com/csermet/kashi)"},
-            timeout=15,
-        )
-        response.raise_for_status()
+        for attempt in (1, 2, 3):  # lrclib has slow days; a timeout is not a result
+            try:
+                response = httpx.get(
+                    f"https://lrclib.net/api/get/{case.lrclib_id}",
+                    headers={
+                        "User-Agent": (
+                            "kashi-server-dev/benchmarks (+https://github.com/csermet/kashi)"
+                        )
+                    },
+                    timeout=30,
+                )
+                response.raise_for_status()
+                break
+            except httpx.HTTPError:
+                if attempt == 3:
+                    raise
+                time.sleep(5 * attempt)
         cache.write_text(json.dumps(response.json()), encoding="utf-8")
     synced = json.loads(cache.read_text(encoding="utf-8")).get("syncedLyrics") or ""
     entries = _parse_synced(synced)
