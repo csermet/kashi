@@ -1,0 +1,31 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":timezone(Europe/Istanbul)"],
+  "labels": ["renovate"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 0,
+  "lockFileMaintenance": { "enabled": true, "schedule": ["before 6am on monday"] },
+  "packageRules": [
+    {
+      "description": "yt-dlp: monthly cadence is deliberate (weekly canary watches for breakage; nightly only as break-glass — plan pin table)",
+      "matchPackageNames": ["yt-dlp"],
+      "schedule": ["before 6am on the first day of the month"]
+    },
+    {
+      "description": "torch/torchaudio: pinned to the pytorch-cpu index resolution; bump only with an aligner smoke test (ctc-forced-aligner has no torch pin of its own)",
+      "matchPackageNames": ["torch", "torchaudio"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "ctc-forced-aligner is a git-SHA pin (no releases) — renovate must not touch it",
+      "matchPackageNames": ["ctc-forced-aligner"],
+      "enabled": false
+    },
+    {
+      "description": "Electron majors gate a manual overlay smoke test on Windows first",
+      "matchPackageNames": ["electron"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

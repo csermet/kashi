@@ -26,7 +26,11 @@ jobs:
         run: |
           pnpm --filter @kashi/schemas codegen
           git diff --exit-code -- packages/schemas/src/generated
+      - name: Version lockstep guard
+        run: node scripts/check-versions.mjs
       - run: pnpm typecheck
+      # Unit tests: the kashi-server live suite self-skips without KASHI_LIVE_URL.
+      - run: pnpm -r test
       - run: pnpm build
 
   python:
