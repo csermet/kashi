@@ -575,3 +575,54 @@ def test_nightcore_detection_off_keeps_the_plain_flow(db_session, scratch, monke
 
     doc = db_session.scalars(select(ProcessedTrack)).one().document
     assert doc["alignment"]["speed_factor"] == 1.0
+
+
+def test_nightcore_channel_artist_detects_via_title_only_retry(db_session, scratch, monkeypatch):
+    """Field case (Syrex uploads): the hint artist is a CHANNEL name that can
+    never token-match the original artist. Detection must (a) not require
+    artist overlap and (b) retry with a title-only query when the channel-
+    polluted query yields nothing plausible."""
+    job = _nightcore_job(
+        db_session,
+        title="Nightcore - We Don't Sleep At Night - (Lyrics)",
+        source_id="ncVid0005",
+    )
+    _happy_stages(monkeypatch, scratch)
+
+    def fake_decode(src, dest, rate, **kw):
+        Path(dest).write_bytes(b"wav")
+        return Path(dest)
+
+    monkeypatch.setattr(wp, "_decode", fake_decode)
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: 240.0)
+    record = {
+        "id": 7,
+        "trackName": "We Don't Sleep at Night",
+        "artistName": "Original Artist",  # ≠ channel "Chan" — must still pass
+        "duration": 240.0,
+        "syncedLyrics": "[00:01.00] hello world",
+    }
+    queries: list[str] = []
+
+    def fake_search(query, *, base_url):
+        queries.append(query)
+        # Channel-polluted query finds nothing; the title-only retry hits.
+        return [] if query.startswith("Chan ") else [record]
+
+    monkeypatch.setattr(wp, "search_candidates", fake_search)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert queries == [
+        "Chan We Don't Sleep At Night",  # noise tokens stripped from the query
+        "We Don't Sleep At Night",
+    ]
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["speed_factor"] == 1.2
+    assert doc["alignment"]["lyrics_source_id"] == 7

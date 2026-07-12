@@ -108,16 +108,20 @@ def _tokens(text: str) -> set[str]:
     return set(_WORD_TOKEN.findall(text.lower()))
 
 
-def plausible_match(record: dict, title: str, artist: str) -> bool:
+def plausible_match(record: dict, title: str, artist: str, *, require_artist: bool = True) -> bool:
     """Free-text `q=` results are loose, and a wrong record with a matching
     duration is invisible to line QA on the windowed path — so every q=-fed
-    consumer (the fallback rung AND nightcore detection) requires the candidate
-    to still look like the requested track: at least one shared token on the
-    title axis AND one on the artist axis."""
-    return bool(
-        _tokens(record.get("trackName") or "") & _tokens(title)
-        and _tokens(record.get("artistName") or "") & _tokens(artist)
-    )
+    consumer requires the candidate to still look like the requested track.
+
+    The fallback rung keeps BOTH axes (its hints carry the real artist).
+    Nightcore detection sets require_artist=False: uploads live on channel
+    "artists" ("Syrex") that can never token-match the original artist —
+    there, title overlap + the duration-ratio band carry the signal."""
+    if not _tokens(record.get("trackName") or "") & _tokens(title):
+        return False
+    if not require_artist:
+        return True
+    return bool(_tokens(record.get("artistName") or "") & _tokens(artist))
 
 
 def fetch_lyrics(

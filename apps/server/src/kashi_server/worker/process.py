@@ -229,22 +229,37 @@ def _detect_nightcore(job: Job, download: DownloadResult) -> tuple[float, dict |
     if not query_title:
         return 1.0, None, None
     artist = normalize_artist(hints.get("artist") or "")
-    candidates = [
-        rec
-        for rec in search_candidates(
-            f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
-        )
-        # q= is loose and a coincidental-duration stranger would both CONFIRM
-        # nightcore and become the lyrics source — same guard as the fallback
-        # rung (reviewer, Faz 4).
-        if plausible_match(rec, query_title, artist)
-    ]
-    detected = detect_speed_factor(candidates, download.duration_s)
+    detected = detect_speed_factor(
+        _original_song_candidates(query_title, artist), download.duration_s
+    )
     if detected is None:
         return 1.0, None, None
     r, record = detected
     logger.info("job %s: nightcore detected r=%.3f via %r", job.id, r, query_title)
     return r, record, "detected"
+
+
+def _original_song_candidates(query_title: str, artist: str) -> list[dict]:
+    """Plausibility-filtered lrclib candidates for the ORIGINAL song behind a
+    nightcore upload. The hint artist is usually a CHANNEL name ("Syrex") —
+    it may help the query but is never required for plausibility (title
+    overlap + the duration-ratio band carry the signal; reviewer guard,
+    2.2.1/2.2.2). A channel-polluted query that yields nothing plausible
+    retries once with the title alone."""
+
+    def plausible(records: list[dict]) -> list[dict]:
+        return [
+            rec
+            for rec in records
+            if plausible_match(rec, query_title, artist, require_artist=False)
+        ]
+
+    candidates = plausible(
+        search_candidates(f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url)
+    )
+    if not candidates and artist:
+        candidates = plausible(search_candidates(query_title, base_url=settings.lrclib_base_url))
+    return candidates
 
 
 def _nightcore_lyrics(
@@ -267,14 +282,9 @@ def _nightcore_lyrics(
         or ""
     )
     artist = normalize_artist(hints.get("artist") or "")
-    candidates = [
-        rec
-        for rec in search_candidates(
-            f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
-        )
-        if plausible_match(rec, query_title, artist)
-    ]
-    picked = pick_record_for_factor(candidates, download.duration_s, r)
+    picked = pick_record_for_factor(
+        _original_song_candidates(query_title, artist), download.duration_s, r
+    )
     if picked is None:
         raise PipelineError(
             "lyrics_not_found",

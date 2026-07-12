@@ -36,6 +36,9 @@ PICK_DURATION_TOLERANCE_S = 3.0
 
 _EMPTY_BRACKETS = re.compile(r"[(\[{]\s*[)\]}]")
 _EDGE_SEPARATORS = re.compile(r"^[\s\-–—|:~•/]+|[\s\-–—|:~•/]+$")
+# Upload-title noise that only pollutes the lrclib full-text query
+# ("Nightcore - X (Lyrics)" → the song is just "X").
+_NOISE_TOKENS = re.compile(r"\b(lyrics?|official|video|audio|visualizer|hq|hd|4k)\b", re.IGNORECASE)
 
 
 def clean_title(title: str) -> str | None:
@@ -44,9 +47,11 @@ def clean_title(title: str) -> str | None:
     stripped = NIGHTCORE_TOKENS.sub(" ", title)
     if stripped == title:
         return None
+    stripped = _NOISE_TOKENS.sub(" ", stripped)
     stripped = _EMPTY_BRACKETS.sub(" ", stripped)
-    stripped = _EDGE_SEPARATORS.sub("", re.sub(r"\s+", " ", stripped).strip())
-    return stripped or None
+    stripped = re.sub(r"\s+", " ", stripped).strip()
+    stripped = _EDGE_SEPARATORS.sub("", stripped)
+    return stripped.strip() or None
 
 
 def rubberband_filter(tempo: float) -> str:

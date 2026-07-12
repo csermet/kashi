@@ -15,5 +15,8 @@
 # 2.2.1: reviewer hardening — nightcore detection candidates pass the same
 # plausibility guard as the q= rung; honest provenance for caller lyrics
 # (lyrics_source="caller", no fake lrclib id).
-PIPELINE_VERSION = "2.2.1"
+# 2.2.2: field fix — nightcore uploads live on CHANNEL "artists" ("Syrex"),
+# so detection plausibility is title-only + one title-only query retry;
+# clean_title also strips (Lyrics)/Official-style noise tokens.
+PIPELINE_VERSION = "2.2.2"
 PIPELINE_MAJOR = 2

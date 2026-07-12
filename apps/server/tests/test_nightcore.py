@@ -19,6 +19,10 @@ def test_clean_title_strips_markers_and_tidies():
     assert clean_title("never gonna give you up sped up") == "never gonna give you up"
     assert clean_title("Song [Sped-Up Version]") == "Song [ Version]"
     assert clean_title("Song (speed up)") == "Song"
+    # Upload noise is stripped too (field case: "Nightcore - X - (Lyrics)").
+    cleaned = clean_title("Nightcore - We Don't Sleep At Night - (Lyrics)")
+    assert cleaned == "We Don't Sleep At Night"
+    assert clean_title("Nightcore - Come On Now (Lyrics)") == "Come On Now"
 
 
 def test_clean_title_none_without_markers():
