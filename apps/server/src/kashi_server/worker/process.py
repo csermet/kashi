@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from kashi_server import queue
 from kashi_server.config import settings
 from kashi_server.db.models import Job
-from kashi_server.pipeline.alignment import AlignResult, align
+from kashi_server.pipeline.alignment import AlignResult, align, quality_from_probs
 from kashi_server.pipeline.beats import extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
 from kashi_server.pipeline.download import DownloadResult, download_audio
@@ -32,8 +32,8 @@ from kashi_server.pipeline.lrclib import (
     lyrics_from_record,
     lyrics_from_text,
     normalize_artist,
-    plausible_match,
     search_candidates,
+    title_covers,
 )
 from kashi_server.pipeline.nightcore import (
     clean_title,
@@ -49,6 +49,14 @@ from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient
 logger = logging.getLogger(__name__)
 
 SECOND_PASS_QUALITY_GATE = 0.5
+# Wrong-song gate for DETECTED nightcore lyrics (field: "Come On Now" aligned
+# against "Come On Eileen" at anchor-agreement 0.54 and would have shown wrong
+# word karaoke). The calibrated CTC prob ramp separates right from wrong
+# lyrics cleanly (measured: correct 0.675 / wrong 0.185); anchor agreement is
+# self-fulfilling on the windowed path and cannot. Below this, the document
+# is NOT persisted — the job fails honest. Caller-supplied lyrics_text skips
+# the gate (trusted source; stretch artifacts alone could dip the prob).
+NIGHTCORE_PROB_GATE = 0.3
 
 LINE_QA_DOCS = Counter(
     "kashi_line_qa_docs_total",
@@ -248,11 +256,10 @@ def _original_song_candidates(query_title: str, artist: str) -> list[dict]:
     retries once with the title alone."""
 
     def plausible(records: list[dict]) -> list[dict]:
-        return [
-            rec
-            for rec in records
-            if plausible_match(rec, query_title, artist, require_artist=False)
-        ]
+        # Containment, not overlap: the artist axis is a channel name here, so
+        # the title must carry ALL its significant tokens ("Come On Now" must
+        # not accept "Come On Eileen" — field failure 2026-07-13).
+        return [rec for rec in records if title_covers(rec.get("trackName") or "", query_title)]
 
     candidates = plausible(
         search_candidates(f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url)
@@ -351,6 +358,18 @@ def process_job(s: Session, job: Job) -> None:
         qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
         result = qa.result
         if speed_factor != 1.0:
+            if lyrics.source != "caller":
+                # Wrong-song gate: detection can only vouch for title+duration
+                # ratio; the CTC probs are the honest lyrics-identity signal.
+                probs = [w.prob for chunk in result.words_per_line for w in chunk]
+                prob_quality = quality_from_probs(probs) if probs else 0.0
+                if prob_quality < NIGHTCORE_PROB_GATE:
+                    raise PipelineError(
+                        "lyrics_not_found",
+                        f"nightcore lyrics failed the wrong-song gate "
+                        f"(ctc prob {prob_quality:.3f} < {NIGHTCORE_PROB_GATE}; "
+                        f"lrclib id {lyrics.source_id})",
+                    )
             # QA ran on the slowed (≈ original) clock where the lrclib stamps
             # live; ONE rescale lands everything on the nightcore clock.
             result = rescale_result(result, speed_factor)

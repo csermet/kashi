@@ -17,12 +17,22 @@ def test_clean_title_strips_markers_and_tidies():
     assert clean_title("Nightcore - Never Gonna Give You Up") == "Never Gonna Give You Up"
     assert clean_title("Never Gonna Give You Up (Nightcore)") == "Never Gonna Give You Up"
     assert clean_title("never gonna give you up sped up") == "never gonna give you up"
-    assert clean_title("Song [Sped-Up Version]") == "Song [ Version]"
+    assert clean_title("Song [Sped-Up Version]") == "Song"  # whole group = marker+noise
     assert clean_title("Song (speed up)") == "Song"
     # Upload noise is stripped too (field case: "Nightcore - X - (Lyrics)").
     cleaned = clean_title("Nightcore - We Don't Sleep At Night - (Lyrics)")
     assert cleaned == "We Don't Sleep At Night"
     assert clean_title("Nightcore - Come On Now (Lyrics)") == "Come On Now"
+
+
+def test_clean_title_word_boundaries_and_noise_groups():
+    # \b guards (retro, empirically bitten): substrings must not trigger.
+    assert clean_title("Speed Upgrade Tutorial") is None
+    assert clean_title("Godspeed Up High") is None
+    # Noise words survive OUTSIDE noise-only bracket groups (real titles).
+    assert clean_title("Nightcore - Video Games") == "Video Games"
+    assert clean_title("Audio (Nightcore)") == "Audio"
+    assert clean_title("Nightcore - Song (Official Video)") == "Song"
 
 
 def test_clean_title_none_without_markers():
@@ -72,8 +82,18 @@ def test_detect_largest_cluster_wins_and_prefers_synced():
     got = detect_speed_factor(candidates, 200.0)
     assert got is not None
     r, record = got
-    assert abs(r - 1.2) < 0.01
     assert record["id"] == 2  # synced member preferred
+    # The operative r is the CHOSEN RECORD's own ratio, not the cluster median
+    # (a median r on another record's stamps is a timeline scale error).
+    assert r == 240.0 / 200.0
+
+
+def test_detect_reverts_when_no_cluster_member_is_usable():
+    # A garbage pick used to become a PERMANENT lyrics_not_found (reviewer).
+    instrumental = _rec(1, 240.0)
+    instrumental["instrumental"] = True
+    empty = {"id": 2, "duration": 240.5, "syncedLyrics": "\n\n"}  # truthy junk
+    assert detect_speed_factor([instrumental, empty], 200.0) is None
 
 
 def test_detect_skips_unusable_records_for_the_pick():

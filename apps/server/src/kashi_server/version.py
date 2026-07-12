@@ -18,5 +18,9 @@
 # 2.2.2: field fix — nightcore uploads live on CHANNEL "artists" ("Syrex"),
 # so detection plausibility is title-only + one title-only query retry;
 # clean_title also strips (Lyrics)/Official-style noise tokens.
-PIPELINE_VERSION = "2.2.2"
+# 2.2.3: wrong-song hardening (field: "Come On Eileen" served as "Come On
+# Now") — CTC-prob gate on detected nightcore lyrics, significant-token title
+# containment, duration-less q= last chance (Mor/Gasolina), Turkish-I-safe
+# casefold tokens, \b clean_title markers, record-own-ratio r, usable=extract.
+PIPELINE_VERSION = "2.2.3"
 PIPELINE_MAJOR = 2

@@ -3,7 +3,14 @@
 import httpx
 import pytest
 
-from kashi_server.pipeline.lrclib import USER_AGENT, fetch_lyrics, normalize_artist
+from kashi_server.pipeline.lrclib import (
+    USER_AGENT,
+    fetch_lyrics,
+    has_usable_lyrics,
+    normalize_artist,
+    plausible_match,
+    title_covers,
+)
 from kashi_server.vdl_kit.errors import PipelineError
 
 HINTS = {"title": "Hotel Room Service", "artist": "Pitbull", "duration_ms": 234_000}
@@ -206,6 +213,58 @@ def test_freetext_plausibility_guard_rejects_unrelated_record():
     with pytest.raises(PipelineError) as exc:
         _fetch(handler, hints=WET_HINTS)
     assert exc.value.error_type == "lyrics_not_found"
+
+
+def test_title_covers_requires_all_significant_tokens():
+    # Field failure 2026-07-13: "Come On Now" matched "Come On Eileen" via
+    # mere overlap (come/on); containment demands "now" too.
+    assert not title_covers("Come On Eileen", "Come On Now")
+    assert title_covers("We Don't Sleep at Night", "We Don't Sleep At Night")
+    assert title_covers("Come On Now (Remastered)", "Come On Now")
+
+
+def test_tokens_fold_turkish_dotted_i_and_accents():
+    # "İstanbul" vs "Istanbul" must share tokens (retro finding).
+    assert title_covers("Istanbul Hatirasi", "İstanbul Hatırası".replace("ı", "i"))
+    assert plausible_match(
+        {"trackName": "İstanbul", "artistName": "Sezen"}, "Istanbul", "SEZEN"
+    )
+
+
+def test_stopword_only_overlap_is_not_plausible():
+    stranger = {"trackName": "The Version", "artistName": "Official Audio"}
+    assert not plausible_match(stranger, "The Song", "Real Artist")
+
+
+def test_has_usable_lyrics_uses_the_real_parse():
+    assert not has_usable_lyrics({"id": 1, "syncedLyrics": "\n\n"})  # truthy junk
+    assert has_usable_lyrics({"id": 1, "plainLyrics": "hello"})
+    assert not has_usable_lyrics({"id": 1, "instrumental": True, "plainLyrics": "x"})
+
+
+def test_freetext_duration_less_last_chance_rescues_offset_records():
+    """Mor/Gasolina field failure: every rung filtered by ±3 s missed the only
+    real record whose duration differs from the video's; the q= rung now takes
+    the plausible pick without the duration constraint as a last chance."""
+
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if "q" in request.url.params:
+            return httpx.Response(
+                200,
+                json=[{
+                    "id": 77,
+                    "trackName": "Mor",
+                    "artistName": "Hande Yener",
+                    "plainLyrics": "mor",
+                    "duration": 176,  # 13 s off the video — out of tolerance
+                }],
+            )
+        return httpx.Response(200, json=[])
+
+    hints = {"title": "Mor", "artist": "Hande Yener", "duration_ms": 189_000}
+    assert _fetch(handler, hints=hints).source_id == 77
 
 
 def test_freetext_without_duration_takes_first_plausible():

@@ -14,6 +14,7 @@ actually sung).
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 
 import httpx
@@ -104,8 +105,42 @@ def _duration_matches(record: dict, wanted_s: float | None) -> bool:
     return abs(float(duration) - wanted_s) <= SEARCH_DURATION_TOLERANCE_S
 
 
+# Tokens that carry no identity: shared ones must not satisfy a plausibility
+# overlap on their own ("Come On Now" vs "Come On Eileen" share come/on).
+_STOPWORDS = frozenset(
+    "the a an and of to in on at for with feat ft x remix version edit "
+    "official video audio lyrics ve ile".split()
+)
+
+
 def _tokens(text: str) -> set[str]:
-    return set(_WORD_TOKEN.findall(text.lower()))
+    # casefold + NFKD + combining-mark drop: Turkish dotted I ("İstanbul")
+    # casefolds to "i" + combining dot; without stripping it, "İstanbul" and
+    # "Istanbul" share zero tokens (field failure class — retro finding).
+    folded = unicodedata.normalize("NFKD", text.casefold())
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return set(_WORD_TOKEN.findall(folded))
+
+
+def _significant(tokens: set[str]) -> set[str]:
+    sig = tokens - _STOPWORDS
+    return sig or tokens  # an all-stopword title still needs SOME signal
+
+
+def title_covers(record_title: str, query_title: str) -> bool:
+    """Every significant token of the QUERY title appears in the record's
+    title. The overlap rule is too weak for nightcore detection (the artist
+    axis is a channel name there): "Come On Now" vs "Come On Eileen" share
+    come/on — containment requires "now" too and rejects it. Identical-title
+    strangers still pass; the worker's wrong-song prob gate owns those."""
+    return _significant(_tokens(query_title)) <= _tokens(record_title)
+
+
+def has_usable_lyrics(record: dict) -> bool:
+    """THE definition of a lyrics-bearing record (same parse the pipeline
+    uses) — truthiness lookalikes drift (a syncedLyrics of "\n\n" is truthy
+    but parses to nothing; reviewer finding)."""
+    return _extract(record) is not None
 
 
 def plausible_match(record: dict, title: str, artist: str, *, require_artist: bool = True) -> bool:
@@ -117,11 +152,13 @@ def plausible_match(record: dict, title: str, artist: str, *, require_artist: bo
     Nightcore detection sets require_artist=False: uploads live on channel
     "artists" ("Syrex") that can never token-match the original artist —
     there, title overlap + the duration-ratio band carry the signal."""
-    if not _tokens(record.get("trackName") or "") & _tokens(title):
+    if not _significant(_tokens(record.get("trackName") or "")) & _significant(_tokens(title)):
         return False
     if not require_artist:
         return True
-    return bool(_tokens(record.get("artistName") or "") & _tokens(artist))
+    return bool(
+        _significant(_tokens(record.get("artistName") or "")) & _significant(_tokens(artist))
+    )
 
 
 def fetch_lyrics(
@@ -290,4 +327,11 @@ def _search_freetext(
     response = http.get("/api/search", params={"q": f"{artist} {title}"})
     response.raise_for_status()
     candidates = [r for r in response.json() if plausible_match(r, title, artist)]
-    return _pick_candidate(candidates, duration_s)
+    picked = _pick_candidate(candidates, duration_s)
+    if picked is None and duration_s is not None:
+        # Duration-less last chance (client precedent: its structured lookup
+        # retries without duration and finds what we used to miss — the
+        # Mor/Gasolina field failures). Plausibility already filtered the
+        # pool, so the loose pick still looks like the requested track.
+        picked = _pick_candidate(candidates, None)
+    return picked

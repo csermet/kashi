@@ -553,6 +553,77 @@ def test_explicit_speed_factor_with_lyrics_text_skips_detection(
     assert doc["lines"][0]["end_ms"] == 800
 
 
+def test_nightcore_wrong_song_gate_fails_honest(db_session, scratch, monkeypatch):
+    """Field failure 2026-07-13: 'Come On Now' aligned against 'Come On
+    Eileen' and PERSISTED at anchor-agreement 0.54. Low CTC probs (the honest
+    lyrics-identity signal) must now fail the job instead."""
+    job = _nightcore_job(db_session, source_id="ncVid0006")
+    _nightcore_stages(monkeypatch, scratch, slow_duration_s=240.0)
+
+    def garbage_align(s, j, tmp, audio, lyrics, **kw):
+        result = AlignResult(
+            sync="word",
+            lines=[LineTiming(1200, 2400, "hello world", 0.0)],
+            words_per_line=[
+                # Wrong-lyrics probs (calibrated wrong ≈ 0.185 raw CTC — use
+                # tiny values; quality_from_probs maps them near zero).
+                [AlignedWord(1200, 1800, "hello", 1e-6), AlignedWord(1800, 2400, "world", 1e-6)]
+            ],
+            quality_score=0.1,
+        )
+        return result, False
+
+    monkeypatch.setattr(wp, "_align_stage", garbage_align)
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "failed" and job.error_type == "lyrics_not_found"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    # The wrong-song document must never persist.
+    docs = db_session.scalars(
+        select(ProcessedTrack).where(ProcessedTrack.source_id == "ncVid0006")
+    ).all()
+    assert docs == []
+
+
+def test_nightcore_lyrics_text_skips_the_wrong_song_gate(db_session, scratch, monkeypatch):
+    """Caller-supplied lyrics are trusted; stretch artifacts alone must not
+    fail them (the gate is for DETECTED records only)."""
+    job = _nightcore_job(
+        db_session,
+        title="Song",
+        options={"speed_factor": 1.2, "lyrics_text": "hello world"},
+        source_id="ncVid0007",
+    )
+    _happy_stages(monkeypatch, scratch)
+
+    def fake_decode(src, dest, rate, **kw):
+        Path(dest).write_bytes(b"wav")
+        return Path(dest)
+
+    monkeypatch.setattr(wp, "_decode", fake_decode)
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: 240.0)
+
+    def lowprob_align(s, j, tmp, audio, lyrics, **kw):
+        result = AlignResult(
+            sync="word",
+            lines=[LineTiming(1200, 2400, "hello world", 0.0)],
+            words_per_line=[
+                [AlignedWord(1200, 1800, "hello", 1e-6), AlignedWord(1800, 2400, "world", 1e-6)]
+            ],
+            quality_score=0.1,
+        )
+        return result, False
+
+    monkeypatch.setattr(wp, "_align_stage", lowprob_align)
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"  # gate skipped for source="caller"
+
+
 def test_nightcore_detection_off_keeps_the_plain_flow(db_session, scratch, monkeypatch):
     from kashi_server.config import settings
 
