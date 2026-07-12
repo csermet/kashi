@@ -1,0 +1,134 @@
+{
+ "meta": {
+  "generated_at": "2026-07-12T11:33:45+00:00",
+  "label": "cases5-2.0.2-fixedwet",
+  "pipeline_version": "2.0.2",
+  "alignment_model": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+  "separation": "kim-melband",
+  "mixback": 0.0,
+  "windowed": true,
+  "anchor_jitter_ms": 400,
+  "host": "c4497348d59c",
+  "cpus": 4,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 269.0
+ },
+ "cases": {
+  "aggregate": {
+   "cases": 5,
+   "passed": 3
+  },
+  "results": [
+   {
+    "id": "tiktok",
+    "title": "TiK ToK",
+    "artist": "Kesha",
+    "separate_s": 0.0,
+    "align_s": 65.2,
+    "sync": "word",
+    "quality_score": 0.7237,
+    "offset_ms": 91,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 59,
+     "mae_ms": 343.49152542372883,
+     "medae_ms": 189.0,
+     "p95_ms": 1257.0,
+     "pcs": {
+      "0.3": 0.6949152542372882
+     }
+    }
+   },
+   {
+    "id": "never-gonna-give-you-up",
+    "title": "Never Gonna Give You Up",
+    "artist": "Rick Astley",
+    "separate_s": 0.0,
+    "align_s": 53.3,
+    "sync": "word",
+    "quality_score": 0.0,
+    "offset_ms": -140,
+    "lines_over_threshold": 1,
+    "passed": false,
+    "lines": {
+     "count": 58,
+     "mae_ms": 662.3103448275862,
+     "medae_ms": 189.0,
+     "p95_ms": 2415.0,
+     "pcs": {
+      "0.3": 0.5517241379310345
+     }
+    }
+   },
+   {
+    "id": "wet-snoop-remix",
+    "title": "Wet",
+    "artist": "Snoop Dogg",
+    "separate_s": 0.0,
+    "align_s": 51.4,
+    "sync": "word",
+    "quality_score": 0.4754,
+    "offset_ms": 254,
+    "lines_over_threshold": 3,
+    "passed": false,
+    "lines": {
+     "count": 60,
+     "mae_ms": 687.2833333333333,
+     "medae_ms": 286.5,
+     "p95_ms": 2021.5,
+     "pcs": {
+      "0.3": 0.5166666666666667
+     }
+    }
+   },
+   {
+    "id": "geliyorum-yanina",
+    "title": "Geliyorum Yanına",
+    "artist": "Hadise",
+    "separate_s": 0.0,
+    "align_s": 42.0,
+    "sync": "word",
+    "quality_score": 1.0,
+    "offset_ms": 535,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 32,
+     "mae_ms": 138.0,
+     "medae_ms": 147.0,
+     "p95_ms": 279.0,
+     "pcs": {
+      "0.3": 0.96875
+     }
+    }
+   },
+   {
+    "id": "halsey-control",
+    "title": "Control",
+    "artist": "Halsey",
+    "separate_s": 0.0,
+    "align_s": 52.8,
+    "sync": "word",
+    "quality_score": 0.6224,
+    "offset_ms": 91,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 53,
+     "mae_ms": 240.20754716981133,
+     "medae_ms": 132.0,
+     "p95_ms": 1340.0,
+     "pcs": {
+      "0.3": 0.8113207547169812
+     }
+    }
+   }
+  ]
+ }
+}
