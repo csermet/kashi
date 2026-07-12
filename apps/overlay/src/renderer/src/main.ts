@@ -233,9 +233,17 @@ window.kashi.onConnection((payload) => {
 });
 
 window.kashi.onSettings((payload) => {
-  const { box_alpha } = payload as { box_alpha?: unknown };
-  if (typeof box_alpha !== 'number' || !Number.isFinite(box_alpha)) return;
-  document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
+  const { box_alpha, timing_offset_ms } = payload as {
+    box_alpha?: unknown;
+    timing_offset_ms?: unknown;
+  };
+  if (typeof box_alpha === 'number' && Number.isFinite(box_alpha)) {
+    document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
+  }
+  if (typeof timing_offset_ms === 'number' && Number.isFinite(timing_offset_ms)) {
+    // positive = lyrics fire earlier (clamped main-side; belt here)
+    timingOffsetMs = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
+  }
 });
 
 // Hover ↔ click-through: the window ignores mouse events by default but
@@ -304,6 +312,7 @@ boxEl?.addEventListener(
 // otherwise we render the static state once and stop — keeps the compositor
 // asleep when idle (battery).
 let loopActive = false;
+let timingOffsetMs = 0;
 
 function frame(): void {
   // Data-loss watchdog: a "playing" clock with no position reports for 10 s
@@ -314,7 +323,7 @@ function frame(): void {
     window.kashi.log('data-loss watchdog: position stream starved -> idle');
     resetToIdle();
   }
-  const pos = clock.positionAt();
+  const pos = clock.positionAt() + timingOffsetMs;
   let activeText: string | null = null;
   let lineIndex = -1;
   if (!adActive && lines.length > 0) {

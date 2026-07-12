@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampTimingOffset,
+  timingOffsetLabel,
   DEFAULT_BOX_ALPHA,
   DEFAULT_SETTINGS,
   OPACITY_MAX,
@@ -117,6 +119,7 @@ describe('parseSettings', () => {
       window_bounds: { x: 10, y: 20, width: 560, height: 180 },
       server_url: 'http://cnr-intel:8080',
       server_api_key: 'ksh_' + 'a'.repeat(32),
+      timing_offset_ms: 100,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -156,5 +159,30 @@ describe('parseSettings', () => {
     expect((parsed as unknown as Record<string, unknown>)['font_size']).toBe(32);
     const roundTripped = parseSettings(JSON.stringify(parsed));
     expect((roundTripped as unknown as Record<string, unknown>)['font_size']).toBe(32);
+  });
+});
+
+describe('clampTimingOffset', () => {
+  it('accepts presets, rounds, clamps to +/-500, defaults garbage to Off', () => {
+    expect(clampTimingOffset(100)).toBe(100);
+    expect(clampTimingOffset(-100)).toBe(-100);
+    expect(clampTimingOffset(100.6)).toBe(101);
+    expect(clampTimingOffset(9999)).toBe(500);
+    expect(clampTimingOffset(-9999)).toBe(-500);
+    expect(clampTimingOffset('50')).toBe(0);
+    expect(clampTimingOffset(Number.NaN)).toBe(0);
+    expect(clampTimingOffset(undefined)).toBe(0);
+  });
+
+  it('missing field in an old settings file parses to Off', () => {
+    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).timing_offset_ms).toBe(0);
+  });
+});
+
+describe('timingOffsetLabel', () => {
+  it('labels the direction in UX terms', () => {
+    expect(timingOffsetLabel(0)).toBe('Off');
+    expect(timingOffsetLabel(100)).toBe('+100 ms (earlier)');
+    expect(timingOffsetLabel(-50)).toBe('-50 ms (later)');
   });
 });

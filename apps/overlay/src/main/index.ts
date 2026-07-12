@@ -29,7 +29,8 @@ import {
   clearReasonOnDisconnect,
   emptyLatch,
 } from './source-latch-logic.js';
-import { adjustAlpha, clampAlpha, isPositionVisible } from './settings-logic.js';
+import { adjustAlpha, clampAlpha, isPositionVisible, clampTimingOffset,
+} from './settings-logic.js';
 import { SettingsStore } from './settings.js';
 import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
 import { OverlayWsServer } from './ws-server.js';
@@ -215,6 +216,13 @@ function persistWindowBounds(): void {
 
 /** Persist + broadcast a new box alpha (tray preset or Ctrl+scroll nudge). */
 let trayRefreshTimer: NodeJS.Timeout | null = null;
+function applyTimingOffset(offsetMs: number): void {
+  const clamped = clampTimingOffset(offsetMs);
+  settings?.update({ timing_offset_ms: clamped });
+  send('kashi:settings', { timing_offset_ms: clamped });
+  tray?.refresh();
+}
+
 function applyBoxAlpha(alpha: number): void {
   const clamped = clampAlpha(alpha);
   settings?.update({ box_alpha: clamped });
@@ -359,12 +367,17 @@ app.whenReady().then(async () => {
 
   window = createOverlayWindow();
   // Seed the replay map so every renderer load starts with current settings.
-  send('kashi:settings', { box_alpha: settings.get().box_alpha });
+  send('kashi:settings', {
+    box_alpha: settings.get().box_alpha,
+    timing_offset_ms: settings.get().timing_offset_ms,
+  });
 
   menuOptions = {
     version: KASHI_VERSION,
     getAlpha: () => settings?.get().box_alpha ?? 0,
     onAlphaSelect: applyBoxAlpha,
+    getTimingOffset: () => settings?.get().timing_offset_ms ?? 0,
+    onTimingOffsetSelect: applyTimingOffset,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
   };

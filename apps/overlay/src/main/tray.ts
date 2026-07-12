@@ -11,12 +11,20 @@ import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electr
 // out/main — fine when running from the repo, but the packaged app must ship
 // resources/ alongside (electron-builder extraResources), or the icon is blank.
 import trayIconPath from '../../resources/tray.png?asset';
-import { OPACITY_PRESETS, nearestPresetIndex, presetLabel } from './settings-logic.js';
+import {
+  OPACITY_PRESETS,
+  TIMING_OFFSET_PRESETS,
+  nearestPresetIndex,
+  presetLabel,
+  timingOffsetLabel,
+} from './settings-logic.js';
 
 export interface KashiMenuOptions {
   version: string;
   getAlpha: () => number;
   onAlphaSelect: (alpha: number) => void;
+  getTimingOffset: () => number;
+  onTimingOffsetSelect: (offsetMs: number) => void;
   onResetPosition: () => void;
   onQuit: () => void;
 }
@@ -43,10 +51,26 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
       enabled: false,
     });
   }
+  const offset = opts.getTimingOffset();
+  const timingItems: MenuItemConstructorOptions[] = TIMING_OFFSET_PRESETS.map((preset) => ({
+    label: timingOffsetLabel(preset),
+    type: 'radio',
+    checked: preset === offset,
+    click: () => opts.onTimingOffsetSelect(preset),
+  }));
+  if (!TIMING_OFFSET_PRESETS.includes(offset as (typeof TIMING_OFFSET_PRESETS)[number])) {
+    timingItems.push({
+      label: `Custom: ${offset > 0 ? '+' : ''}${offset} ms`,
+      type: 'radio',
+      checked: true,
+      enabled: false,
+    });
+  }
   return Menu.buildFromTemplate([
     { label: `Kashi v${opts.version}`, enabled: false },
     { type: 'separator' },
     { label: 'Box opacity', submenu: opacityItems },
+    { label: 'Timing offset', submenu: timingItems },
     { label: 'Reset position', click: opts.onResetPosition },
     { type: 'separator' },
     { label: 'Quit Kashi', click: opts.onQuit },

@@ -12,6 +12,16 @@ export const OPACITY_MAX = 0.8;
 export const OPACITY_STEP = 0.02;
 export const DEFAULT_BOX_ALPHA = 0.1;
 
+/**
+ * Global lyric timing offset, ms ADDED to the estimated position: positive =
+ * lyrics fire EARLIER (karaoke UX convention — perception lags the ear by
+ * ~100 ms; Caner: "hafif geç hissettiriyor", 2026-07-12). Applied in the
+ * renderer frame loop; per-song data never changes.
+ */
+export const TIMING_OFFSET_PRESETS = [0, 50, 100, 150, -50, -100] as const;
+export const TIMING_OFFSET_MAX_ABS = 500;
+export const DEFAULT_TIMING_OFFSET_MS = 0;
+
 /** Minimum part of the window that must stay on a screen to trust saved bounds. */
 const MIN_VISIBLE_WIDTH = 120;
 const MIN_VISIBLE_HEIGHT = 60;
@@ -31,6 +41,8 @@ export interface StoredSettings {
   server_url: string | null;
   /** API key for the server ("ksh_..."); meaningless without server_url. */
   server_api_key: string | null;
+  /** Lyric timing offset in ms (positive = earlier). */
+  timing_offset_ms: number;
 }
 
 export const DEFAULT_SETTINGS: StoredSettings = {
@@ -39,7 +51,19 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   window_bounds: null,
   server_url: null,
   server_api_key: null,
+  timing_offset_ms: DEFAULT_TIMING_OFFSET_MS,
 };
+
+/** Integer ms in [-500, 500]; garbage → 0 (Off). */
+export function clampTimingOffset(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TIMING_OFFSET_MS;
+  return Math.max(-TIMING_OFFSET_MAX_ABS, Math.min(TIMING_OFFSET_MAX_ABS, Math.round(value)));
+}
+
+export function timingOffsetLabel(offsetMs: number): string {
+  if (offsetMs === 0) return 'Off';
+  return offsetMs > 0 ? `+${offsetMs} ms (earlier)` : `${offsetMs} ms (later)`;
+}
 
 /** Clamp to [OPACITY_MIN, OPACITY_MAX], 2 decimals; garbage → default. */
 export function clampAlpha(value: number): number {
@@ -151,5 +175,6 @@ export function parseSettings(raw: string): StoredSettings {
     window_bounds: bounds,
     server_url: serverUrl,
     server_api_key: apiKey,
+    timing_offset_ms: clampTimingOffset(record['timing_offset_ms']),
   };
 }
