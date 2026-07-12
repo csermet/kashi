@@ -170,7 +170,10 @@ body.fx-full .word-fill {
   );
   -webkit-background-clip: text;
   background-clip: text;
-  color: transparent;
+  /* text-fill-color, NOT color: color sits in .word's 120 ms transition, so
+     leaving the class would flash the word invisible while the gradient is
+     already gone (retro finding). text-fill-color snaps back instantly. */
+  -webkit-text-fill-color: transparent;
   text-shadow: none;
 }
 

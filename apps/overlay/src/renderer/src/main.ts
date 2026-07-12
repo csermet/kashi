@@ -185,6 +185,9 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   });
   wordLineIndex = lineIndex;
   activeWordIndex = -1;
+  // The old fill span is gone with the rebuild; without this reset a repeated
+  // identical ad-lib line ("Ooh" x4) never re-arms the sweep (retro finding).
+  fillSpanIndex = -1;
 }
 
 function highlightWord(index: number): void {
@@ -360,6 +363,9 @@ window.kashi.onSettings((payload) => {
     applyPaletteVars();
     rebuildBeatCursor();
   }
+  // Paused screens must repaint NOW, not on the 1 Hz self-heal — the user is
+  // looking at the box exactly when they change a setting (retro finding).
+  ensureLoop();
 });
 
 // Hover ↔ click-through: the window ignores mouse events by default but
@@ -439,7 +445,11 @@ function frame(): void {
     window.kashi.log('data-loss watchdog: position stream starved -> idle');
     resetToIdle();
   }
-  const pos = clock.positionAt() + timingOffsetMs;
+  // Lyrics render on the user-offset clock; the beat pulse must stay on the
+  // RAW clock — a +150 ms offset would detach every pulse from the heard
+  // beat (the window is only [-30,+60] ms).
+  const rawPos = clock.positionAt();
+  const pos = rawPos + timingOffsetMs;
   let activeText: string | null = null;
   let lineIndex = -1;
   if (!adActive && lines.length > 0) {
@@ -476,7 +486,7 @@ function frame(): void {
   // comparisons; DOM classes change only on window edges. No work while
   // paused/hidden/ad — and never a stuck .beat class after a stop.
   if (beatCursor && clock.isPlaying && !adActive && lines.length > 0) {
-    setBeatClasses(beatCursor.frame(pos));
+    setBeatClasses(beatCursor.frame(rawPos));
   } else {
     setBeatClasses(BEAT_IDLE);
   }
