@@ -13,7 +13,6 @@ import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electr
 import trayIconPath from '../../resources/tray.png?asset';
 import {
   OPACITY_PRESETS,
-  TIMING_OFFSET_NUDGE_MS,
   TIMING_OFFSET_PRESETS,
   nearestPresetIndex,
   presetLabel,
@@ -26,6 +25,8 @@ export interface KashiMenuOptions {
   onAlphaSelect: (alpha: number) => void;
   getTimingOffset: () => number;
   onTimingOffsetSelect: (offsetMs: number) => void;
+  /** "Other…" — open the small numeric-entry window for arbitrary values. */
+  onTimingOffsetCustom: () => void;
   onResetPosition: () => void;
   onQuit: () => void;
 }
@@ -69,15 +70,9 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
   }
   timingItems.push(
     { type: 'separator' },
-    // True custom without a dialog: click repeatedly to dial any value in.
-    {
-      label: `Nudge +${TIMING_OFFSET_NUDGE_MS} ms (earlier)`,
-      click: () => opts.onTimingOffsetSelect(opts.getTimingOffset() + TIMING_OFFSET_NUDGE_MS),
-    },
-    {
-      label: `Nudge -${TIMING_OFFSET_NUDGE_MS} ms (later)`,
-      click: () => opts.onTimingOffsetSelect(opts.getTimingOffset() - TIMING_OFFSET_NUDGE_MS),
-    },
+    // Arbitrary values are typed into a tiny prompt window (menus can't host
+    // text input); main clamps to ±TIMING_OFFSET_MAX_ABS like every other path.
+    { label: 'Other…', click: () => opts.onTimingOffsetCustom() },
   );
   return Menu.buildFromTemplate([
     { label: `Kashi v${opts.version}`, enabled: false },

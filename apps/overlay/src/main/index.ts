@@ -214,19 +214,32 @@ function persistWindowBounds(): void {
   settings.update({ window_bounds: window.getBounds() });
 }
 
+/**
+ * Every settings broadcast carries the FULL snapshot: the replay store keeps
+ * one payload per channel, so a partial `{box_alpha}` send would make a
+ * reloaded renderer lose the other settings (they'd silently reset until the
+ * next live change).
+ */
+function broadcastSettings(): void {
+  if (!settings) return;
+  const current = settings.get();
+  send('kashi:settings', {
+    box_alpha: current.box_alpha,
+    timing_offset_ms: current.timing_offset_ms,
+  });
+}
+
 /** Persist + broadcast a new box alpha (tray preset or Ctrl+scroll nudge). */
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 function applyTimingOffset(offsetMs: number): void {
-  const clamped = clampTimingOffset(offsetMs);
-  settings?.update({ timing_offset_ms: clamped });
-  send('kashi:settings', { timing_offset_ms: clamped });
+  settings?.update({ timing_offset_ms: clampTimingOffset(offsetMs) });
+  broadcastSettings();
   tray?.refresh();
 }
 
 function applyBoxAlpha(alpha: number): void {
-  const clamped = clampAlpha(alpha);
-  settings?.update({ box_alpha: clamped });
-  send('kashi:settings', { box_alpha: clamped });
+  settings?.update({ box_alpha: clampAlpha(alpha) });
+  broadcastSettings();
   // Debounced: a scroll burst must not rebuild the tray menu per event.
   if (trayRefreshTimer) clearTimeout(trayRefreshTimer);
   trayRefreshTimer = setTimeout(() => tray?.refresh(), 200);
@@ -243,6 +256,64 @@ function resetWindowPosition(): void {
   });
   persistWindowBounds();
 }
+
+/**
+ * "Other…" timing offset: a tiny single-instance prompt window. Menus can't
+ * host text input and the overlay box is click-through, so arbitrary values
+ * get their own ephemeral window (same hardened webPreferences + preload).
+ */
+const PROMPT_WIDTH = 320;
+const PROMPT_HEIGHT = 150;
+let promptWindow: BrowserWindow | null = null;
+
+function openTimingOffsetPrompt(): void {
+  if (promptWindow && !promptWindow.isDestroyed()) {
+    promptWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: PROMPT_WIDTH,
+    height: PROMPT_HEIGHT,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#14161f',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  // Same elevation as the overlay: the prompt must be reachable above
+  // fullscreen apps, or "Other…" silently opens underneath them.
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.on('blur', () => win.close());
+  win.on('closed', () => {
+    if (promptWindow === win) promptWindow = null;
+  });
+  win.once('ready-to-show', () => win.show());
+  const value = String(settings?.get().timing_offset_ms ?? 0);
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/timing-offset.html?value=${value}`);
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/timing-offset.html'), { query: { value } });
+  }
+  promptWindow = win;
+}
+
+ipcMain.on('kashi:timing-offset-submit', (event, value: unknown) => {
+  if (!promptWindow || event.sender !== promptWindow.webContents) return;
+  // Renderer only submits finite numbers; anything else changes nothing.
+  if (typeof value === 'number' && Number.isFinite(value)) applyTimingOffset(value);
+  promptWindow.close();
+});
+
+ipcMain.on('kashi:timing-offset-cancel', (event) => {
+  if (promptWindow && event.sender === promptWindow.webContents) promptWindow.close();
+});
 
 ipcMain.on('kashi:set-interactive', (_event, interactive: unknown) => {
   window?.setIgnoreMouseEvents(interactive !== true, { forward: true });
@@ -367,10 +438,7 @@ app.whenReady().then(async () => {
 
   window = createOverlayWindow();
   // Seed the replay map so every renderer load starts with current settings.
-  send('kashi:settings', {
-    box_alpha: settings.get().box_alpha,
-    timing_offset_ms: settings.get().timing_offset_ms,
-  });
+  broadcastSettings();
 
   menuOptions = {
     version: KASHI_VERSION,
@@ -378,6 +446,7 @@ app.whenReady().then(async () => {
     onAlphaSelect: applyBoxAlpha,
     getTimingOffset: () => settings?.get().timing_offset_ms ?? 0,
     onTimingOffsetSelect: applyTimingOffset,
+    onTimingOffsetCustom: openTimingOffsetPrompt,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
   };

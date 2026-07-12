@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('kashi', {
   adjustOpacity: (deltaSteps: number) => ipcRenderer.send('kashi:adjust-opacity', deltaSteps),
   /** Right-click on the box: pop the Kashi menu (same one the tray serves). */
   openMenu: () => ipcRenderer.send('kashi:open-menu'),
+  /** Timing-offset prompt window: submit a typed value (main clamps) / close. */
+  submitTimingOffset: (value: number) =>
+    ipcRenderer.send('kashi:timing-offset-submit', Number(value)),
+  cancelPrompt: () => ipcRenderer.send('kashi:timing-offset-cancel'),
   /** Diagnostic line, printed to the overlay's terminal. */
   log: (line: string) => ipcRenderer.send('kashi:rlog', String(line)),
 });

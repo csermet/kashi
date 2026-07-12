@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampTimingOffset,
   timingOffsetLabel,
+  TIMING_OFFSET_PRESETS,
   DEFAULT_BOX_ALPHA,
   DEFAULT_SETTINGS,
   OPACITY_MAX,
@@ -184,5 +185,17 @@ describe('timingOffsetLabel', () => {
     expect(timingOffsetLabel(0)).toBe('Off');
     expect(timingOffsetLabel(100)).toBe('+100 ms (earlier)');
     expect(timingOffsetLabel(-50)).toBe('-50 ms (later)');
+  });
+});
+
+describe('TIMING_OFFSET_PRESETS', () => {
+  it('is the symmetric -250..+250 ladder in 50 ms steps, sorted, with Off', () => {
+    expect([...TIMING_OFFSET_PRESETS]).toEqual([
+      -250, -200, -150, -100, -50, 0, 50, 100, 150, 200, 250,
+    ]);
+    // Every preset survives the clamp unchanged (list stays inside ±MAX_ABS).
+    for (const preset of TIMING_OFFSET_PRESETS) {
+      expect(clampTimingOffset(preset)).toBe(preset);
+    }
   });
 });

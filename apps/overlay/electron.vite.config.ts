@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'electron-vite';
 
 export default defineConfig({
@@ -18,5 +19,15 @@ export default defineConfig({
       },
     },
   },
-  renderer: {},
+  renderer: {
+    build: {
+      rollupOptions: {
+        input: {
+          // Multi-page: the overlay itself + the tiny timing-offset prompt.
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          'timing-offset': resolve(__dirname, 'src/renderer/timing-offset.html'),
+        },
+      },
+    },
+  },
 });

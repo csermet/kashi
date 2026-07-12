@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Same CSP stance as index.html: 'unsafe-inline' only for vite dev-mode
+         style injection; revisit at packaging time (Faz 5). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data:"
+    />
+    <title>Kashi — Timing offset</title>
+    <link rel="stylesheet" href="./src/timing-offset.css" />
+  </head>
+  <body>
+    <main id="prompt">
+      <label for="offset-input">Timing offset in ms (+ = lyrics earlier)</label>
+      <input id="offset-input" type="number" min="-500" max="500" step="10" />
+      <div class="buttons">
+        <button id="cancel" type="button">Cancel</button>
+        <button id="ok" type="button">OK</button>
+      </div>
+    </main>
+    <script type="module" src="./src/timing-offset.ts"></script>
+  </body>
+</html>

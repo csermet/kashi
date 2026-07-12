@@ -18,9 +18,9 @@ export const DEFAULT_BOX_ALPHA = 0.1;
  * ~100 ms; Caner: "hafif geç hissettiriyor", 2026-07-12). Applied in the
  * renderer frame loop; per-song data never changes.
  */
-export const TIMING_OFFSET_PRESETS = [0, 50, 100, 150, 200, 250, -50, -100, -150] as const;
-/** Nudge step for the tray's custom +/- items. */
-export const TIMING_OFFSET_NUDGE_MS = 10;
+export const TIMING_OFFSET_PRESETS = [
+  -250, -200, -150, -100, -50, 0, 50, 100, 150, 200, 250,
+] as const;
 export const TIMING_OFFSET_MAX_ABS = 500;
 export const DEFAULT_TIMING_OFFSET_MS = 0;
 
