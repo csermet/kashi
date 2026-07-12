@@ -122,6 +122,7 @@ describe('parseSettings', () => {
       server_api_key: 'ksh_' + 'a'.repeat(32),
       timing_offset_ms: 100,
       effect_level: 'full',
+      theme_scope: 'fixed-text',
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -186,6 +187,14 @@ describe('timingOffsetLabel', () => {
     expect(timingOffsetLabel(0)).toBe('Off');
     expect(timingOffsetLabel(100)).toBe('+100 ms (earlier)');
     expect(timingOffsetLabel(-50)).toBe('-50 ms (later)');
+  });
+});
+
+describe('theme_scope setting', () => {
+  it('defaults to full and round-trips', () => {
+    expect(DEFAULT_SETTINGS.theme_scope).toBe('full');
+    expect(parseSettings(JSON.stringify({ theme_scope: 'fixed-bg' })).theme_scope).toBe('fixed-bg');
+    expect(parseSettings(JSON.stringify({ theme_scope: 'renkler' })).theme_scope).toBe('full');
   });
 });
 

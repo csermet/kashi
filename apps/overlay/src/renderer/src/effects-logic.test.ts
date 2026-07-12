@@ -3,19 +3,23 @@ import {
   DEFAULT_EFFECT_LEVEL,
   effectLevelLabel,
   parseEffectLevel,
+  parseThemeScope,
 } from '../../shared/effect-level.js';
 import {
   BEAT_IDLE,
   BEAT_RESYNC_JUMP_MS,
   BEAT_WINDOW_AFTER_MS,
   BEAT_WINDOW_BEFORE_MS,
+  BG_MAX_LUMINANCE,
   BeatCursor,
   DEFAULT_PALETTE_VARS,
   TEXT_LUMINANCE_FLOOR,
   beatsUsable,
+  clampBackground,
+  contrastRatio,
   fillProgress,
-  isFillWord,
   paletteToCssVars,
+  planWordFills,
   relativeLuminance,
 } from './effects-logic.js';
 
@@ -33,6 +37,14 @@ describe('parseEffectLevel', () => {
     expect(effectLevelLabel('off')).toBe('Off');
     expect(effectLevelLabel('simple')).toBe('Simple');
     expect(effectLevelLabel('full')).toBe('Full');
+  });
+
+  it('parses theme scopes, defaulting garbage to full', () => {
+    expect(parseThemeScope('fixed-bg')).toBe('fixed-bg');
+    expect(parseThemeScope('fixed-text')).toBe('fixed-text');
+    expect(parseThemeScope('none')).toBe('none');
+    expect(parseThemeScope('ULTRA')).toBe('full');
+    expect(parseThemeScope(undefined)).toBe('full');
   });
 });
 
@@ -85,15 +97,45 @@ describe('paletteToCssVars', () => {
 });
 
 describe('sustained fill', () => {
-  const SHORT = { start_ms: 1000, end_ms: 1400 };
   const LONG = { start_ms: 1000, end_ms: 2200 }; // ≥ 800 ms hold
 
-  it('eligible for long-held words and any ad-lib line word, never at off', () => {
-    expect(isFillWord(LONG, false, 'simple')).toBe(true);
-    expect(isFillWord(LONG, false, 'full')).toBe(true);
-    expect(isFillWord(SHORT, false, 'simple')).toBe(false);
-    expect(isFillWord(SHORT, true, 'simple')).toBe(true); // ad-lib line
-    expect(isFillWord(LONG, true, 'off')).toBe(false);
+  // Compact word builder: durations in ms, chained.
+  const words = (...durations: number[]) => {
+    let t = 0;
+    return durations.map((d) => {
+      const w = { start_ms: t, end_ms: t + d };
+      t += d;
+      return w;
+    });
+  };
+
+  it('ad-lib lines sweep every word; off level never sweeps', () => {
+    expect(planWordFills(words(200, 300, 900), true, 'simple')).toEqual([true, true, true]);
+    expect(planWordFills(words(200, 300, 900), true, 'off')).toEqual([false, false, false]);
+    expect(planWordFills([], true, 'full')).toEqual([]);
+  });
+
+  it('a sustained LAST word sweeps alone (line-end hold)', () => {
+    expect(planWordFills(words(200, 300, 900), false, 'simple')).toEqual([false, false, true]);
+  });
+
+  it('an isolated mid-line sustained word pops like its neighbours', () => {
+    // Field feedback: per-word sweep/pop alternation reads as random.
+    expect(planWordFills(words(200, 900, 300), false, 'simple')).toEqual([false, false, false]);
+  });
+
+  it('mid-line runs of >= 2 sustained words sweep together', () => {
+    expect(planWordFills(words(200, 900, 850, 300), false, 'full')).toEqual([
+      false,
+      true,
+      true,
+      false,
+    ]);
+    expect(planWordFills(words(900, 850, 950), false, 'full')).toEqual([true, true, true]);
+  });
+
+  it('short lines with no sustained words never sweep', () => {
+    expect(planWordFills(words(200, 300, 250), false, 'full')).toEqual([false, false, false]);
   });
 
   it('progress is clamped 0..1 across the word span', () => {
@@ -103,6 +145,53 @@ describe('sustained fill', () => {
     expect(fillProgress(LONG, 2200)).toBe(1);
     expect(fillProgress(LONG, 9000)).toBe(1); // after
     expect(fillProgress({ start_ms: 1000, end_ms: 1000 }, 1000)).toBe(1); // zero span
+  });
+});
+
+describe('color rules (field feedback: readability is a RULE, not luck)', () => {
+  it('clamps light backgrounds dark, keeping grays gray', () => {
+    const clamped = clampBackground('#f5f5f5');
+    expect(relativeLuminance(clamped)).toBeLessThanOrEqual(BG_MAX_LUMINANCE);
+    // Channels scale together — a gray stays a gray.
+    expect(clamped[1]).toBe(clamped[3]);
+    // Already-dark backgrounds pass through unchanged.
+    expect(clampBackground('#1a1a2e')).toBe('#1a1a2e');
+  });
+
+  it('light palette backgrounds land dark in the CSS vars', () => {
+    const vars = paletteToCssVars({ background: '#ffffff' });
+    expect(vars['--kashi-bg-rgb']).not.toBe('255, 255, 255');
+    const [r, g, b] = vars['--kashi-bg-rgb']!.split(',').map((v) => Number(v.trim()));
+    const hex = `#${[r, g, b].map((v) => v!.toString(16).padStart(2, '0')).join('')}`;
+    expect(relativeLuminance(hex)).toBeLessThanOrEqual(BG_MAX_LUMINANCE);
+  });
+
+  it('text colors that cannot clear the contrast rule fall back to white', () => {
+    // A dark red on a dark background: luminance floor passes nothing here —
+    // contrast is the failing rule.
+    expect(contrastRatio('#5a2020', '#1a1a2e')).toBeLessThan(3);
+    const vars = paletteToCssVars({ background: '#1a1a2e', primary: '#5a2020' });
+    expect(vars['--kashi-primary']).toBe('#ffffff');
+  });
+
+  it('theme scope pins color groups (field setting)', () => {
+    const palette = {
+      primary: '#e84545',
+      background: '#1a1a2e',
+      text: '#f5d76e',
+      accent: '#903749',
+    };
+    const fixedBg = paletteToCssVars(palette, 'fixed-bg');
+    expect(fixedBg['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
+    expect(fixedBg['--kashi-text']).toBe('#f5d76e');
+    expect(fixedBg['--kashi-primary']).toBe('#e84545');
+
+    const fixedText = paletteToCssVars(palette, 'fixed-text');
+    expect(fixedText['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
+    expect(fixedText['--kashi-text']).toBe(DEFAULT_PALETTE_VARS['--kashi-text']);
+    expect(fixedText['--kashi-primary']).toBe('#e84545'); // effect colors still theme
+
+    expect(paletteToCssVars(palette, 'none')).toEqual(DEFAULT_PALETTE_VARS);
   });
 });
 

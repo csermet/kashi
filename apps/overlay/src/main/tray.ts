@@ -13,8 +13,11 @@ import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electr
 import trayIconPath from '../../resources/tray.png?asset';
 import {
   EFFECT_LEVELS,
+  THEME_SCOPES,
   effectLevelLabel,
+  themeScopeLabel,
   type EffectLevel,
+  type ThemeScope,
 } from '../shared/effect-level.js';
 import {
   OPACITY_PRESETS,
@@ -34,6 +37,8 @@ export interface KashiMenuOptions {
   onTimingOffsetCustom: () => void;
   getEffectLevel: () => EffectLevel;
   onEffectLevelSelect: (level: EffectLevel) => void;
+  getThemeScope: () => ThemeScope;
+  onThemeScopeSelect: (scope: ThemeScope) => void;
   onResetPosition: () => void;
   onQuit: () => void;
 }
@@ -88,10 +93,18 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     checked: level === effectLevel,
     click: () => opts.onEffectLevelSelect(level),
   }));
+  const themeScope = opts.getThemeScope();
+  const themeItems: MenuItemConstructorOptions[] = THEME_SCOPES.map((scope) => ({
+    label: themeScopeLabel(scope),
+    type: 'radio',
+    checked: scope === themeScope,
+    click: () => opts.onThemeScopeSelect(scope),
+  }));
   return Menu.buildFromTemplate([
     { label: `Kashi v${opts.version}`, enabled: false },
     { type: 'separator' },
     { label: 'Effects', submenu: effectItems },
+    { label: 'Theme colors', submenu: themeItems },
     { label: 'Box opacity', submenu: opacityItems },
     { label: 'Timing offset', submenu: timingItems },
     { label: 'Reset position', click: opts.onResetPosition },

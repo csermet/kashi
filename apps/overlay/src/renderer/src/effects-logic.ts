@@ -3,7 +3,7 @@
  * and the frame-loop beat cursor. DOM-free so every rule is unit-tested; the
  * class/variable writes live in main.ts.
  */
-import type { EffectLevel } from '../../shared/effect-level.js';
+import type { EffectLevel, ThemeScope } from '../../shared/effect-level.js';
 
 /** Shapes as they arrive over IPC — untrusted, everything optional. */
 export interface PaletteLike {
@@ -43,9 +43,27 @@ export const DEFAULT_PALETTE_VARS: Readonly<Record<string, string>> = {
  * (0.15 keeps saturated mid-tones like #e84545 while rejecting #1a1a2e.)
  */
 export const TEXT_LUMINANCE_FLOOR = 0.15;
+/**
+ * Field feedback (2026-07-12): light album backgrounds made lyrics unreadable
+ * and even the valid ones read too bright. The box background is CLAMPED
+ * dark — any palette background above this luminance is darkened onto it.
+ */
+export const BG_MAX_LUMINANCE = 0.1;
+/**
+ * Readability rule: text-carrying colors must reach this WCAG contrast ratio
+ * against the (clamped) background color or they fall back to white. 3:1 is
+ * the large-text threshold — the lyric is 28 px bold and additionally backed
+ * by a text-shadow.
+ */
+export const TEXT_CONTRAST_MIN = 3;
 
 function channel(hex: string, index: number): number {
   return Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+}
+
+function toHex(r: number, g: number, b: number): string {
+  const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
 }
 
 /** WCAG relative luminance of a #rrggbb color (0 = black, 1 = white). */
@@ -61,37 +79,83 @@ export function relativeLuminance(hex: string): number {
   );
 }
 
+/** WCAG contrast ratio between two colors (1..21). */
+export function contrastRatio(hexA: string, hexB: string): number {
+  const a = relativeLuminance(hexA);
+  const b = relativeLuminance(hexB);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/**
+ * Darken a color until its luminance is at most BG_MAX_LUMINANCE, keeping the
+ * hue (channels scale together). Deterministic and testable.
+ */
+export function clampBackground(hex: string): string {
+  let r = channel(hex, 0);
+  let g = channel(hex, 1);
+  let b = channel(hex, 2);
+  let out = toHex(r, g, b);
+  for (let i = 0; i < 16 && relativeLuminance(out) > BG_MAX_LUMINANCE; i += 1) {
+    r *= 0.85;
+    g *= 0.85;
+    b *= 0.85;
+    out = toHex(r, g, b);
+  }
+  return out;
+}
+
 function validHex(value: unknown): string | null {
   return typeof value === 'string' && HEX_COLOR.test(value) ? value : null;
 }
 
-function textSafeHex(value: unknown): string | null {
+/**
+ * Text-carrying colors pass BOTH readability rules or fall back to white:
+ * the absolute luminance floor (the box is translucent — the desktop behind
+ * it is arbitrary) and the contrast ratio against the box's own color.
+ */
+function textSafeHex(value: unknown, bgHex: string): string | null {
   const hex = validHex(value);
   if (hex === null) return null;
-  return relativeLuminance(hex) >= TEXT_LUMINANCE_FLOOR ? hex : null;
+  if (relativeLuminance(hex) < TEXT_LUMINANCE_FLOOR) return null;
+  if (contrastRatio(hex, bgHex) < TEXT_CONTRAST_MIN) return null;
+  return hex;
 }
+
+const DEFAULT_BG_HEX = '#080a12'; // the stock box color (8, 10, 18)
 
 /**
  * Map an (untrusted) palette onto the CSS variables the stylesheet consumes.
  * Every color is validated against #rrggbb — IPC payloads never reach CSS
- * unchecked (R-7) — and text-carrying colors get the luminance floor. The
+ * unchecked (R-7). The background is clamped dark, text-carrying colors must
+ * clear the readability rules, and `scope` decides how much of the palette
+ * applies at all (field feedback: colors can be pinned per group). The
  * background becomes an "r, g, b" triplet so the stylesheet can compose it
  * with the user's box alpha (which stays untouched by theming).
  */
-export function paletteToCssVars(palette: PaletteLike | undefined): Record<string, string> {
+export function paletteToCssVars(
+  palette: PaletteLike | undefined,
+  scope: ThemeScope = 'full',
+): Record<string, string> {
   const vars = { ...DEFAULT_PALETTE_VARS };
-  if (!palette) return vars;
-  const primary = textSafeHex(palette.primary);
+  if (!palette || scope === 'none') return vars;
+
+  let bgHex = DEFAULT_BG_HEX;
+  const background = validHex(palette.background);
+  if (background && scope === 'full') {
+    bgHex = clampBackground(background);
+    vars['--kashi-bg-rgb'] = `${channel(bgHex, 0)}, ${channel(bgHex, 1)}, ${channel(bgHex, 2)}`;
+  }
+
+  if (scope === 'full' || scope === 'fixed-bg') {
+    const text = textSafeHex(palette.text, bgHex);
+    if (text) vars['--kashi-text'] = text;
+  }
+
+  // Effect colors (active word / glow) theme in every non-none scope.
+  const primary = textSafeHex(palette.primary, bgHex);
   if (primary) vars['--kashi-primary'] = primary;
   const secondary = validHex(palette.secondary);
   if (secondary) vars['--kashi-secondary'] = secondary;
-  const background = validHex(palette.background);
-  if (background) {
-    vars['--kashi-bg-rgb'] =
-      `${channel(background, 0)}, ${channel(background, 1)}, ${channel(background, 2)}`;
-  }
-  const text = textSafeHex(palette.text);
-  if (text) vars['--kashi-text'] = text;
   const accent = validHex(palette.accent);
   if (accent) vars['--kashi-accent'] = accent;
   return vars;
@@ -99,18 +163,48 @@ export function paletteToCssVars(palette: PaletteLike | undefined): Record<strin
 
 /**
  * Sustained-fill (Faz 4 "ooh-ooh" aesthetics): long-held words sweep left to
- * right continuously instead of the discrete word jump. Eligible when the
- * line is flagged ad-lib by the server OR the word alone is held this long.
+ * right continuously instead of the discrete word jump. Held this long =
+ * "sustained".
  */
 export const FILL_MIN_WORD_DURATION_MS = 800;
+/** Mid-line sustained words only sweep in runs at least this long. */
+export const FILL_MIN_RUN = 2;
 
-export function isFillWord(
-  word: { start_ms: number; end_ms: number },
+/**
+ * Which words of the ACTIVE line sweep (field feedback 2026-07-12: per-word
+ * alternation between sweep and pop reads as random). Line-level plan:
+ *   - ad-lib line → every word sweeps (one coherent gesture);
+ *   - otherwise a sustained LAST word sweeps (line-end hold), and mid-line
+ *     sustained words sweep only as a consecutive run of >= FILL_MIN_RUN —
+ *     an isolated long word mid-line pops like its neighbours.
+ * Computed once per line (span build time), not per frame.
+ */
+export function planWordFills(
+  words: readonly { start_ms: number; end_ms: number }[],
   lineAdlib: boolean,
   level: EffectLevel,
-): boolean {
-  if (level === 'off') return false;
-  return lineAdlib || word.end_ms - word.start_ms >= FILL_MIN_WORD_DURATION_MS;
+): boolean[] {
+  if (level === 'off' || words.length === 0) return words.map(() => false);
+  if (lineAdlib) return words.map(() => true);
+  const sustained = words.map((w) => w.end_ms - w.start_ms >= FILL_MIN_WORD_DURATION_MS);
+  const plan = words.map(() => false);
+  let runStart = -1;
+  for (let i = 0; i <= sustained.length; i += 1) {
+    if (i < sustained.length && sustained[i]) {
+      if (runStart < 0) runStart = i;
+      continue;
+    }
+    if (runStart >= 0) {
+      const runEnd = i - 1; // inclusive
+      const runLength = i - runStart;
+      // A run counts when it is long enough, or when it reaches the line end.
+      if (runLength >= FILL_MIN_RUN || runEnd === sustained.length - 1) {
+        for (let j = runStart; j <= runEnd; j += 1) plan[j] = true;
+      }
+      runStart = -1;
+    }
+  }
+  return plan;
 }
 
 /** 0..1 progress of the sweep across the word at clock position `pos`. */

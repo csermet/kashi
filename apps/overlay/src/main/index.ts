@@ -18,7 +18,12 @@
 import { app, BrowserWindow, ipcMain, net, screen } from 'electron';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
-import { DEFAULT_EFFECT_LEVEL, parseEffectLevel } from '../shared/effect-level.js';
+import {
+  DEFAULT_EFFECT_LEVEL,
+  DEFAULT_THEME_SCOPE,
+  parseEffectLevel,
+  parseThemeScope,
+} from '../shared/effect-level.js';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';
 import { KashiServerClient } from './kashi-server.js';
@@ -228,6 +233,7 @@ function broadcastSettings(): void {
     box_alpha: current.box_alpha,
     timing_offset_ms: current.timing_offset_ms,
     effect_level: current.effect_level,
+    theme_scope: current.theme_scope,
   });
 }
 
@@ -241,6 +247,12 @@ function applyTimingOffset(offsetMs: number): void {
 
 function applyEffectLevel(level: unknown): void {
   settings?.update({ effect_level: parseEffectLevel(level) });
+  broadcastSettings();
+  tray?.refresh();
+}
+
+function applyThemeScope(scope: unknown): void {
+  settings?.update({ theme_scope: parseThemeScope(scope) });
   broadcastSettings();
   tray?.refresh();
 }
@@ -457,6 +469,8 @@ app.whenReady().then(async () => {
     onTimingOffsetCustom: openTimingOffsetPrompt,
     getEffectLevel: () => settings?.get().effect_level ?? DEFAULT_EFFECT_LEVEL,
     onEffectLevelSelect: applyEffectLevel,
+    getThemeScope: () => settings?.get().theme_scope ?? DEFAULT_THEME_SCOPE,
+    onThemeScopeSelect: applyThemeScope,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
   };

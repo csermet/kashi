@@ -10,14 +10,19 @@ import type {
   PositionMessage,
   SeekMessage,
 } from '@kashi/protocol';
-import { parseEffectLevel, type EffectLevel } from '../../shared/effect-level.js';
+import {
+  parseEffectLevel,
+  parseThemeScope,
+  type EffectLevel,
+  type ThemeScope,
+} from '../../shared/effect-level.js';
 import {
   BEAT_IDLE,
   BeatCursor,
   beatsUsable,
   fillProgress,
-  isFillWord,
   paletteToCssVars,
+  planWordFills,
   type BeatFrame,
   type BeatsLike,
   type PaletteLike,
@@ -88,6 +93,7 @@ let appliedView: ViewOutput | null = null;
 // Effect engine (Faz 4). Palette/beats arrive with server lyrics; the level
 // comes from settings. All per-frame beat work is class toggles on edges.
 let effectLevel: EffectLevel = 'simple';
+let themeScope: ThemeScope = 'full';
 let currentPalette: PaletteLike | undefined;
 let currentBeats: BeatsLike | undefined;
 let beatCursor: BeatCursor | null = null;
@@ -95,7 +101,7 @@ let appliedBeat: BeatFrame = BEAT_IDLE;
 
 /** Write the palette CSS vars (defaults when off / no palette — the v0.1.x look). */
 function applyPaletteVars(): void {
-  const vars = paletteToCssVars(effectLevel === 'off' ? undefined : currentPalette);
+  const vars = paletteToCssVars(effectLevel === 'off' ? undefined : currentPalette, themeScope);
   for (const [name, value] of Object.entries(vars)) {
     document.documentElement.style.setProperty(name, value);
   }
@@ -137,37 +143,59 @@ function clearWordSpans(): void {
   wordLineIndex = -1;
   wordSpans = [];
   activeWordIndex = -1;
-  fillSpanIndex = -1; // spans are gone — nothing carries .word-fill anymore
+  fillRunStart = -1; // spans are gone — nothing carries .word-fill anymore
+  fillActiveIndex = -1;
 }
 
-// Sustained-fill (Faz 4): the active long-held/ad-lib word sweeps via a CSS
-// gradient driven by --kashi-fill. One style write per frame, on ONE span.
-let fillSpanIndex = -1;
+// Sustained-fill (Faz 4): a consecutive RUN of planned words sweeps as ONE
+// gesture — completed words in the run hold full fill instead of snapping
+// back (field feedback: the first word reverting mid-run looked broken).
+// Per-frame cost stays one style write, on the ACTIVE span.
+let fillRunStart = -1;
+let fillActiveIndex = -1;
+let fillPlan: boolean[] = [];
 
-function clearWordFill(): void {
-  if (fillSpanIndex < 0) return;
-  const span = wordSpans[fillSpanIndex];
-  span?.classList.remove('word-fill');
-  span?.style.removeProperty('--kashi-fill');
-  fillSpanIndex = -1;
+function clearRunFill(): void {
+  if (fillRunStart < 0) return;
+  for (let j = fillRunStart; j <= fillActiveIndex; j += 1) {
+    const span = wordSpans[j];
+    span?.classList.remove('word-fill');
+    span?.style.removeProperty('--kashi-fill');
+  }
+  fillRunStart = -1;
+  fillActiveIndex = -1;
 }
 
-function updateWordFill(
-  words: readonly WordTiming[],
-  index: number,
-  lineAdlib: boolean,
-  pos: number,
-): void {
+function updateWordFill(words: readonly WordTiming[], index: number, pos: number): void {
   const word = index >= 0 ? words[index] : undefined;
-  if (!word || !isFillWord(word, lineAdlib, effectLevel)) {
-    clearWordFill();
+  if (!word || fillPlan[index] !== true) {
+    clearRunFill();
     return;
   }
-  if (fillSpanIndex !== index) {
-    clearWordFill();
-    if (!wordSpans[index]) return;
-    wordSpans[index].classList.add('word-fill');
-    fillSpanIndex = index;
+  let runStart = index;
+  while (runStart > 0 && fillPlan[runStart - 1] === true) runStart -= 1;
+  if (fillRunStart !== runStart) {
+    clearRunFill();
+    fillRunStart = runStart;
+    fillActiveIndex = runStart - 1; // nothing armed yet
+  }
+  if (index < fillActiveIndex) {
+    // Seek back inside the run: words ahead of the cursor un-fill again.
+    for (let j = index + 1; j <= fillActiveIndex; j += 1) {
+      const span = wordSpans[j];
+      span?.classList.remove('word-fill');
+      span?.style.removeProperty('--kashi-fill');
+    }
+    fillActiveIndex = index;
+  }
+  while (fillActiveIndex < index) {
+    // Advancing through the run: the word just completed pins at FULL fill
+    // (it must not revert until the whole run ends — user rule 2026-07-12).
+    if (fillActiveIndex >= fillRunStart) {
+      wordSpans[fillActiveIndex]?.style.setProperty('--kashi-fill', '1');
+    }
+    fillActiveIndex += 1;
+    wordSpans[fillActiveIndex]?.classList.add('word-fill');
   }
   wordSpans[index]?.style.setProperty('--kashi-fill', fillProgress(word, pos).toFixed(3));
 }
@@ -185,9 +213,13 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   });
   wordLineIndex = lineIndex;
   activeWordIndex = -1;
-  // The old fill span is gone with the rebuild; without this reset a repeated
-  // identical ad-lib line ("Ooh" x4) never re-arms the sweep (retro finding).
-  fillSpanIndex = -1;
+  // The old fill spans are gone with the rebuild; without this reset a
+  // repeated identical ad-lib line ("Ooh" x4) never re-arms (retro finding).
+  fillRunStart = -1;
+  fillActiveIndex = -1;
+  // Line-level sweep plan (field feedback: per-word sweep/pop alternation
+  // reads as random — plan once per line, not per frame).
+  fillPlan = planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
 }
 
 function highlightWord(index: number): void {
@@ -344,10 +376,11 @@ window.kashi.onConnection((payload) => {
 });
 
 window.kashi.onSettings((payload) => {
-  const { box_alpha, timing_offset_ms, effect_level } = payload as {
+  const { box_alpha, timing_offset_ms, effect_level, theme_scope } = payload as {
     box_alpha?: unknown;
     timing_offset_ms?: unknown;
     effect_level?: unknown;
+    theme_scope?: unknown;
   };
   if (typeof box_alpha === 'number' && Number.isFinite(box_alpha)) {
     document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
@@ -357,11 +390,18 @@ window.kashi.onSettings((payload) => {
     timingOffsetMs = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
   }
   if (effect_level !== undefined && parseEffectLevel(effect_level) !== effectLevel) {
-    // Instant switch: a body class + variable/cursor reset — nothing rebuilt.
+    // Instant switch: a body class + variable/cursor reset — nothing rebuilt
+    // except the word spans (their fill plan depends on the level).
     effectLevel = parseEffectLevel(effect_level);
     applyEffectLevelClass();
     applyPaletteVars();
     rebuildBeatCursor();
+    clearRunFill();
+    clearWordSpans(); // next frame rebuilds spans + fill plan for the new level
+  }
+  if (theme_scope !== undefined && parseThemeScope(theme_scope) !== themeScope) {
+    themeScope = parseThemeScope(theme_scope);
+    applyPaletteVars();
   }
   // Paused screens must repaint NOW, not on the 1 Hz self-heal — the user is
   // looking at the box exactly when they change a setting (retro finding).
@@ -479,7 +519,7 @@ function frame(): void {
     if (wordLineIndex !== lineIndex) buildWordSpans(lineIndex, words);
     const wordIndex = findActiveWord(words, pos);
     highlightWord(wordIndex);
-    updateWordFill(words, wordIndex, activeAdlib, pos);
+    updateWordFill(words, wordIndex, pos);
   }
 
   // Beat pulse (effect level "full"): per-frame cost is a couple of integer
