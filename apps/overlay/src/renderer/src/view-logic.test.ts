@@ -27,7 +27,7 @@ describe('deriveView', () => {
       activeText: 'la la',
       searching: true,
     });
-    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false });
+    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false, lineAdlib: false });
   });
 
   it('shows the active lyric line bright', () => {
@@ -38,6 +38,7 @@ describe('deriveView', () => {
       lineDim: false,
       searchVisible: false,
       interlude: false,
+      lineAdlib: false,
     });
   });
 
@@ -50,6 +51,16 @@ describe('deriveView', () => {
 
   it('a held/active line is never marked as interlude', () => {
     expect(deriveView({ ...base, hasLines: true, activeText: 'text' }).interlude).toBe(false);
+  });
+
+  it('marks the line as ad-lib only for an ACTIVE line with the flag', () => {
+    const active = deriveView({ ...base, hasLines: true, activeText: 'Oh-ooh', activeAdlib: true });
+    expect(active.lineAdlib).toBe(true);
+    // Interlude (no active line) never styles as ad-lib, whatever the flag.
+    const interlude = deriveView({ ...base, hasLines: true, activeText: null, activeAdlib: true });
+    expect(interlude.lineAdlib).toBe(false);
+    // Old docs / lrclib: flag absent -> false.
+    expect(deriveView({ ...base, hasLines: true, activeText: 'x' }).lineAdlib).toBe(false);
   });
 
   it('lyrics win over a stale searching flag', () => {
@@ -65,6 +76,7 @@ describe('deriveView', () => {
       lineDim: true,
       searchVisible: false,
       interlude: false,
+      lineAdlib: false,
     });
   });
 
@@ -81,6 +93,7 @@ describe('deriveView', () => {
       lineDim: false,
       searchVisible: true,
       interlude: false,
+      lineAdlib: false,
     });
   });
 });

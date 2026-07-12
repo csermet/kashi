@@ -14,6 +14,8 @@ export interface ServerLine {
   start_ms: number;
   end_ms: number;
   text: string;
+  /** Nonlexical ad-lib line (server 2.1.0+; older docs lack it — tolerant). */
+  adlib?: true;
   words?: ServerWord[];
 }
 
@@ -96,6 +98,7 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
       end_ms: line['end_ms'],
       text: line['text'],
     };
+    if (line['adlib'] === true) mapped.adlib = true;
     if (Array.isArray(line['words']) && line['words'].length > 0) {
       const words: ServerWord[] = [];
       for (const rawWord of line['words'] as unknown[]) {

@@ -66,6 +66,32 @@ describe('mapDocument', () => {
     expect(payload!.sync).toBe('word');
   });
 
+  it('passes the adlib line flag through, tolerating docs without it', () => {
+    const flagged = mapDocument(
+      doc({
+        lines: [
+          {
+            start_ms: 1000,
+            end_ms: 2000,
+            text: 'Oh-ooh, whoa-oh',
+            adlib: true,
+            words: [{ start_ms: 1000, end_ms: 2000, text: 'Oh-ooh' }],
+          },
+        ],
+      }),
+    );
+    expect(flagged!.lines[0]!.adlib).toBe(true);
+    // Pre-2.1.0 documents lack the field entirely — tolerant parse.
+    expect(mapDocument(doc())!.lines[0]!.adlib).toBeUndefined();
+    // Garbage values never map to true (untrusted document).
+    const garbage = mapDocument(
+      doc({
+        lines: [{ start_ms: 0, end_ms: 1, text: 'x', adlib: 'yes' }],
+      }),
+    );
+    expect(garbage!.lines[0]!.adlib).toBeUndefined();
+  });
+
   it('passes palette and beats through for Faz 4', () => {
     const payload = mapDocument(
       doc({

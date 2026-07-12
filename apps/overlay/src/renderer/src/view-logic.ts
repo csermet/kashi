@@ -16,6 +16,8 @@ export interface ViewState {
   statusDim: boolean;
   /** A lyrics lookup is in flight (animated dots on their own row). */
   searching: boolean;
+  /** The active line is a nonlexical ad-lib (server flag, Faz 4 styling). */
+  activeAdlib?: boolean;
 }
 
 export interface ViewOutput {
@@ -25,11 +27,20 @@ export interface ViewOutput {
   searchVisible: boolean;
   /** Animated ♪ (intro / long instrumental break) instead of a static glyph. */
   interlude: boolean;
+  /** Style the line as an ad-lib (italic/faded — Faz 4). */
+  lineAdlib: boolean;
 }
 
 export function deriveView(state: ViewState): ViewOutput {
   if (state.adActive) {
-    return { boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false };
+    return {
+      boxVisible: false,
+      lineText: '',
+      lineDim: false,
+      searchVisible: false,
+      interlude: false,
+      lineAdlib: false,
+    };
   }
   if (state.hasLines) {
     // activeText null = interlude territory (short gaps HOLD the previous
@@ -40,6 +51,7 @@ export function deriveView(state: ViewState): ViewOutput {
       lineDim: false,
       searchVisible: false,
       interlude: state.activeText === null,
+      lineAdlib: state.activeText !== null && state.activeAdlib === true,
     };
   }
   return {
@@ -48,6 +60,7 @@ export function deriveView(state: ViewState): ViewOutput {
     lineDim: state.statusDim,
     searchVisible: state.searching,
     interlude: false,
+    lineAdlib: false,
   };
 }
 

@@ -15,6 +15,8 @@ import {
   BEAT_IDLE,
   BeatCursor,
   beatsUsable,
+  fillProgress,
+  isFillWord,
   paletteToCssVars,
   type BeatFrame,
   type BeatsLike,
@@ -35,6 +37,8 @@ interface LyricLine {
   start_ms: number;
   end_ms: number;
   text: string;
+  /** Nonlexical ad-lib line (server 2.1.0+, Faz 4 styling). */
+  adlib?: boolean;
   /** Present on kashi-server word-sync documents (Faz 3B). */
   words?: WordTiming[];
 }
@@ -133,6 +137,39 @@ function clearWordSpans(): void {
   wordLineIndex = -1;
   wordSpans = [];
   activeWordIndex = -1;
+  fillSpanIndex = -1; // spans are gone — nothing carries .word-fill anymore
+}
+
+// Sustained-fill (Faz 4): the active long-held/ad-lib word sweeps via a CSS
+// gradient driven by --kashi-fill. One style write per frame, on ONE span.
+let fillSpanIndex = -1;
+
+function clearWordFill(): void {
+  if (fillSpanIndex < 0) return;
+  const span = wordSpans[fillSpanIndex];
+  span?.classList.remove('word-fill');
+  span?.style.removeProperty('--kashi-fill');
+  fillSpanIndex = -1;
+}
+
+function updateWordFill(
+  words: readonly WordTiming[],
+  index: number,
+  lineAdlib: boolean,
+  pos: number,
+): void {
+  const word = index >= 0 ? words[index] : undefined;
+  if (!word || !isFillWord(word, lineAdlib, effectLevel)) {
+    clearWordFill();
+    return;
+  }
+  if (fillSpanIndex !== index) {
+    clearWordFill();
+    if (!wordSpans[index]) return;
+    wordSpans[index].classList.add('word-fill');
+    fillSpanIndex = index;
+  }
+  wordSpans[index]?.style.setProperty('--kashi-fill', fillProgress(word, pos).toFixed(3));
 }
 
 function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
@@ -164,7 +201,8 @@ function applyView(view: ViewOutput): void {
     appliedView.lineText === view.lineText &&
     appliedView.lineDim === view.lineDim &&
     appliedView.searchVisible === view.searchVisible &&
-    appliedView.interlude === view.interlude
+    appliedView.interlude === view.interlude &&
+    appliedView.lineAdlib === view.lineAdlib
   ) {
     return;
   }
@@ -175,6 +213,7 @@ function applyView(view: ViewOutput): void {
     if (lineEl.textContent !== view.lineText) lineEl.textContent = view.lineText;
     lineEl.classList.toggle('dim', view.lineDim);
     lineEl.classList.toggle('interlude', view.interlude);
+    lineEl.classList.toggle('adlib', view.lineAdlib);
   }
   clearWordSpans(); // any full repaint invalidates the span cache
   if (searchEl) searchEl.hidden = !view.searchVisible;
@@ -409,8 +448,17 @@ function frame(): void {
     lineIndex = findDisplayLine(lines, pos);
     activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   }
+  const activeAdlib = lineIndex >= 0 && lines[lineIndex]?.adlib === true;
   applyView(
-    deriveView({ adActive, hasLines: lines.length > 0, activeText, statusText, statusDim, searching }),
+    deriveView({
+      adActive,
+      hasLines: lines.length > 0,
+      activeText,
+      statusText,
+      statusDim,
+      searching,
+      activeAdlib,
+    }),
   );
 
   // Word karaoke (kashi-server word-sync documents): applyView's change
@@ -419,7 +467,9 @@ function frame(): void {
   const words = lineIndex >= 0 ? lines[lineIndex]?.words : undefined;
   if (words && words.length > 0 && activeText !== null && !adActive) {
     if (wordLineIndex !== lineIndex) buildWordSpans(lineIndex, words);
-    highlightWord(findActiveWord(words, pos));
+    const wordIndex = findActiveWord(words, pos);
+    highlightWord(wordIndex);
+    updateWordFill(words, wordIndex, activeAdlib, pos);
   }
 
   // Beat pulse (effect level "full"): per-frame cost is a couple of integer

@@ -97,6 +97,29 @@ export function paletteToCssVars(palette: PaletteLike | undefined): Record<strin
   return vars;
 }
 
+/**
+ * Sustained-fill (Faz 4 "ooh-ooh" aesthetics): long-held words sweep left to
+ * right continuously instead of the discrete word jump. Eligible when the
+ * line is flagged ad-lib by the server OR the word alone is held this long.
+ */
+export const FILL_MIN_WORD_DURATION_MS = 800;
+
+export function isFillWord(
+  word: { start_ms: number; end_ms: number },
+  lineAdlib: boolean,
+  level: EffectLevel,
+): boolean {
+  if (level === 'off') return false;
+  return lineAdlib || word.end_ms - word.start_ms >= FILL_MIN_WORD_DURATION_MS;
+}
+
+/** 0..1 progress of the sweep across the word at clock position `pos`. */
+export function fillProgress(word: { start_ms: number; end_ms: number }, pos: number): number {
+  const span = word.end_ms - word.start_ms;
+  if (span <= 0) return 1;
+  return Math.min(1, Math.max(0, (pos - word.start_ms) / span));
+}
+
 export const BEAT_CONFIDENCE_GATE = 0.5;
 /** A beat is "active" inside [t-30, t+60] ms — a ~90 ms pulse per beat. */
 export const BEAT_WINDOW_BEFORE_MS = 30;

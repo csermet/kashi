@@ -13,6 +13,8 @@ import {
   DEFAULT_PALETTE_VARS,
   TEXT_LUMINANCE_FLOOR,
   beatsUsable,
+  fillProgress,
+  isFillWord,
   paletteToCssVars,
   relativeLuminance,
 } from './effects-logic.js';
@@ -79,6 +81,28 @@ describe('paletteToCssVars', () => {
     expect(vars['--kashi-text']).toBe('#ffffff');
     // The floor applies to text-carrying colors only — bg keeps dark values.
     expect(paletteToCssVars({ background: '#0a0a0a' })['--kashi-bg-rgb']).toBe('10, 10, 10');
+  });
+});
+
+describe('sustained fill', () => {
+  const SHORT = { start_ms: 1000, end_ms: 1400 };
+  const LONG = { start_ms: 1000, end_ms: 2200 }; // ≥ 800 ms hold
+
+  it('eligible for long-held words and any ad-lib line word, never at off', () => {
+    expect(isFillWord(LONG, false, 'simple')).toBe(true);
+    expect(isFillWord(LONG, false, 'full')).toBe(true);
+    expect(isFillWord(SHORT, false, 'simple')).toBe(false);
+    expect(isFillWord(SHORT, true, 'simple')).toBe(true); // ad-lib line
+    expect(isFillWord(LONG, true, 'off')).toBe(false);
+  });
+
+  it('progress is clamped 0..1 across the word span', () => {
+    expect(fillProgress(LONG, 500)).toBe(0); // before
+    expect(fillProgress(LONG, 1000)).toBe(0);
+    expect(fillProgress(LONG, 1600)).toBeCloseTo(0.5);
+    expect(fillProgress(LONG, 2200)).toBe(1);
+    expect(fillProgress(LONG, 9000)).toBe(1); // after
+    expect(fillProgress({ start_ms: 1000, end_ms: 1000 }, 1000)).toBe(1); // zero span
   });
 });
 
