@@ -136,8 +136,12 @@ quality hit; A/B first).
   even with PERFECT anchors). Fix: `star_frequency="edges"` inside windows —
   absorbing stars at both slice ends. After the fix: subset-8 PCO 0.89 with
   **MAE halved vs plain** (367 → 176 ms), robust to ±400 ms anchor jitter.
-- Next measurement: kim-melband + windowed, full 79 (the production target
-  config) on the GPU box.
+- **ACCEPTANCE MET (2026-07-12, pc-kim-win-j400, full 79 with ±400 ms anchor
+  noise): word MAE 191 ms (< 200 target), PCO@0.3 91.5 % (> 90 target),
+  PCO@0.5 95.5 %, MedAE 89 ms.** vs plain kim: PCO@0.3 dips 0.931 → 0.915 on
+  easy songs (window-edge cost) while MAE mean collapses 526 → 191 ms — the
+  catastrophic tail (the field complaint) is gone. Production-config field
+  cases: TiK ToK 0 lines over, Rick 1 (raw full-mix: 8 and 6).
 - Known trade-off (reviewer, 2026-07-12): on the windowed path line_qa loses
   most of its power BY CONSTRUCTION — aligner starts are confined to windows
   derived from the same lrclib stamps it audits against, so deviations ≈ 0.
