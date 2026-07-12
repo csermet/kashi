@@ -26,13 +26,17 @@ PCO lands ≳ 0.96.
 
 ## 2. Separation effect (measured)
 
-| config | PCO@0.3 all | eng | deu | fra | spa | MAE mean |
-|---|---|---|---|---|---|---|
-| full-mix (baseline) | 0.863 | 0.729 | 0.926 | 0.897 | 0.900 | 1999 ms |
-| bs-roformer + mb0.15 | 0.919 | 0.834 | 0.971 | 0.943 | 0.929 | 1247 ms |
-| bs-roformer + mb0 | **0.923** | **0.851** | 0.957 | 0.937 | 0.948 | **786 ms** |
-| voc_ft + mb0.15 (full 79) | *(pending)* | | | | | |
-| htdemucs_ft + mb0.15 | *(pending)* | | | | | |
+| config | PCO@0.3 all | eng | MAE mean | MedAE | note |
+|---|---|---|---|---|---|
+| **kim-melband + mb0** | **0.9313** | 0.8713 | 526 ms | **41 ms** | winner; ~2.1× RT on worker |
+| kim-bleedless + mb0 | 0.9311 | **0.8721** | 508 ms | 41 ms | statistical tie with kim |
+| bsr-revive-v2 + mb0 | 0.9242 | 0.8581 | 796 ms | 44 ms | |
+| bs-roformer + mb0 | 0.9230 | 0.8511 | 786 ms | 45 ms | ~5.2× RT on worker |
+| kim-melband + mb0.15 | 0.9206 | 0.8344 | 1292 ms | 508 ms | mixback pattern repeats |
+| bs-roformer + mb0.15 | 0.9189 | 0.8339 | 1247 ms | 493 ms | |
+| voc_ft + mb0.15 | 0.9163 | 0.8362 | 1055 ms | 310 ms | fails the TiK ToK case |
+| bsr-resurrection + mb0 | 0.9048 | 0.8130 | 649 ms | 47 ms | **higher SDR ≠ better alignment** |
+| full-mix (baseline) | 0.8626 | 0.7290 | 1998 ms | 496 ms | |
 
 - **Mixback hurts.** Folding 15 % of the original mix back into the stem was
   meant as artefact insurance; on the full set it *worsens* every headline
@@ -107,18 +111,33 @@ quality hit; A/B first).
    pytorch/audio#3902) but offers ~zero speed gain (Viterbi is 1–2 % of
    runtime) — staying on ctc-forced-aligner.
 
-## 4. Decision status (P2)
+## 4. Decisions (P2 — settled 2026-07-12 on the full night matrix)
 
-- `separation_mixback` default → **0** (measured).
-- Model default: **kim-melband is the leading candidate** — roformer-class
-  quality at ~2–4 min/song CPU — pending two checks: the TiK ToK/Rick case
-  run (ryzen job `cases-kim`) and, if promising, a subset/full sweep. If Kim
-  disappoints, default = bs-roformer (quality-first per Caner) with
-  resurrection/revive_v2 as same-cost A/Bs; voc_ft stays as the budget knob.
-- `separation_mode` default flip (off → always) still lands with P3 in 2.0.0
+- **Model default: `kim-melband` (mel_band_roformer_kim_ft_unwa.ckpt).**
+  Best PCO/MAE/MedAE of all nine configs, fixes the TiK ToK field case
+  (0 lines over; voc_ft leaves 7), ~2.1× realtime on the worker profile
+  (BS-RoFormer: ~5.2×). kim-bleedless is a statistical tie — sticking with
+  the variant the case run validated. resurrection's higher SDR did NOT
+  translate to alignment quality (0.9048) — rankings must be measured on the
+  actual downstream task.
+- **`separation_mixback` default → 0** (measured on bsr AND kim pairs; the
+  0.15 "insurance" costs ~0.01 PCO and 10× MedAE).
+- `separation_mode` default flip (off → always) lands with P3 in 2.0.0
   (one archive-reprocess wave), together with the worker `OMP_NUM_THREADS`
-  env and a PVC bump sized to the chosen model (Kim ≈ 1.1 GB lighter than
-  BS-RoFormer's 639 MB ckpt? — verify at download).
+  env and a PVC bump sized at download-time verification.
+
+## 4b. P3 first measurements (windowed alignment, night of 2026-07-11/12)
+
+- Core shipped dark (windows.py + anchor path in align(), flag off).
+- **Windowing alone (full-mix!) fixes TiK ToK** (8 → 0 lines over) and takes
+  Rick to its best (6 → 1–2). The lock-loss killer works as designed.
+- First subset run exposed a real mechanism bug: with per-window forced
+  alignment, real words stretched over pad/inter-line gaps (PCO 0.93 → 0.79
+  even with PERFECT anchors). Fix: `star_frequency="edges"` inside windows —
+  absorbing stars at both slice ends. After the fix: subset-8 PCO 0.89 with
+  **MAE halved vs plain** (367 → 176 ms), robust to ±400 ms anchor jitter.
+- Next measurement: kim-melband + windowed, full 79 (the production target
+  config) on the GPU box.
 
 ## 5. Eval hardening backlog
 
