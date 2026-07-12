@@ -106,8 +106,10 @@ def build_document(
             "method": "ctc-forced-aligner/mms-300m+line-windowed"
             if align_result.windowed
             else "ctc-forced-aligner/mms-300m",
-            "lyrics_source": "lrclib",
-            "lyrics_source_id": lyrics.source_id,
+            # Provenance must be honest: caller-supplied lyrics_text is NOT an
+            # lrclib record, and a fake id 0 would poison R-8's "source
+            # changed → offer reprocess" future (reviewer, Faz 4).
+            "lyrics_source": lyrics.source,
             "vocals_separated": vocals_separated,
             "quality_score": round(align_result.quality_score, 4),
             "speed_factor": speed_factor,
@@ -115,6 +117,8 @@ def build_document(
         "lines": lines,
         "palette": palette,
     }
+    if lyrics.source_id:
+        doc["alignment"]["lyrics_source_id"] = lyrics.source_id
     if beats is not None:
         doc["beats"] = {
             "bpm": beats.bpm,

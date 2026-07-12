@@ -32,6 +32,7 @@ from kashi_server.pipeline.lrclib import (
     lyrics_from_record,
     lyrics_from_text,
     normalize_artist,
+    plausible_match,
     search_candidates,
 )
 from kashi_server.pipeline.nightcore import (
@@ -228,9 +229,16 @@ def _detect_nightcore(job: Job, download: DownloadResult) -> tuple[float, dict |
     if not query_title:
         return 1.0, None, None
     artist = normalize_artist(hints.get("artist") or "")
-    candidates = search_candidates(
-        f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
-    )
+    candidates = [
+        rec
+        for rec in search_candidates(
+            f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
+        )
+        # q= is loose and a coincidental-duration stranger would both CONFIRM
+        # nightcore and become the lyrics source — same guard as the fallback
+        # rung (reviewer, Faz 4).
+        if plausible_match(rec, query_title, artist)
+    ]
     detected = detect_speed_factor(candidates, download.duration_s)
     if detected is None:
         return 1.0, None, None
@@ -259,9 +267,13 @@ def _nightcore_lyrics(
         or ""
     )
     artist = normalize_artist(hints.get("artist") or "")
-    candidates = search_candidates(
-        f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
-    )
+    candidates = [
+        rec
+        for rec in search_candidates(
+            f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
+        )
+        if plausible_match(rec, query_title, artist)
+    ]
     picked = pick_record_for_factor(candidates, download.duration_s, r)
     if picked is None:
         raise PipelineError(

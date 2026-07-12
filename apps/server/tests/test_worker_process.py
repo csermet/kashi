@@ -437,6 +437,8 @@ def _nightcore_stages(monkeypatch, scratch, *, slow_duration_s):
     # The detection/lyrics record: the ORIGINAL song, 240 s (r = 1.2 vs 200 s).
     record = {
         "id": 99,
+        "trackName": "Song",  # plausibility guard needs title+artist overlap
+        "artistName": "Chan",
         "duration": 240.0,
         "syncedLyrics": "[00:01.00] hello world",
         "plainLyrics": "hello world",
@@ -544,7 +546,9 @@ def test_explicit_speed_factor_with_lyrics_text_skips_detection(
 
     doc = db_session.scalars(select(ProcessedTrack)).one().document
     assert doc["alignment"]["speed_factor"] == 1.25
-    assert doc["alignment"]["lyrics_source_id"] == 0  # caller-supplied text
+    # Honest provenance: caller text is NOT an lrclib record (reviewer, Faz 4).
+    assert doc["alignment"]["lyrics_source"] == "caller"
+    assert "lyrics_source_id" not in doc["alignment"]
     # _happy_stages align times (0..1000) rescaled by 1/1.25 → 0..800.
     assert doc["lines"][0]["end_ms"] == 800
 

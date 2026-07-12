@@ -40,6 +40,10 @@ class LyricsText:
     # start of each line (None for a rare stampless line). None entirely for plain
     # lyrics. QA reference only — never copied into the output document.
     synced_starts_ms: list[int | None] | None = None
+    # Document provenance: "lrclib" (an lrclib record) or "caller"
+    # (ingest options.lyrics_text) — the document must never claim lrclib
+    # served text it did not (reviewer, Faz 4).
+    source: str = "lrclib"
 
 
 def normalize_artist(artist: str) -> str:
@@ -104,11 +108,12 @@ def _tokens(text: str) -> set[str]:
     return set(_WORD_TOKEN.findall(text.lower()))
 
 
-def _plausible(record: dict, title: str, artist: str) -> bool:
-    """Free-text `q=` is loose, and a wrong record with a matching duration is
-    invisible to line QA on the windowed path — so this rung alone requires the
-    candidate to still look like the requested track: at least one shared token
-    on the title axis AND one on the artist axis."""
+def plausible_match(record: dict, title: str, artist: str) -> bool:
+    """Free-text `q=` results are loose, and a wrong record with a matching
+    duration is invisible to line QA on the windowed path — so every q=-fed
+    consumer (the fallback rung AND nightcore detection) requires the candidate
+    to still look like the requested track: at least one shared token on the
+    title axis AND one on the artist axis."""
     return bool(
         _tokens(record.get("trackName") or "") & _tokens(title)
         and _tokens(record.get("artistName") or "") & _tokens(artist)
@@ -267,6 +272,7 @@ def lyrics_from_text(text: str) -> LyricsText:
         full_text=" ".join(lines),
         source_id=0,
         had_synced=False,
+        source="caller",
     )
 
 
@@ -279,5 +285,5 @@ def _search_freetext(
     pass catches those; `_plausible` keeps the loose query honest."""
     response = http.get("/api/search", params={"q": f"{artist} {title}"})
     response.raise_for_status()
-    candidates = [r for r in response.json() if _plausible(r, title, artist)]
+    candidates = [r for r in response.json() if plausible_match(r, title, artist)]
     return _pick_candidate(candidates, duration_s)

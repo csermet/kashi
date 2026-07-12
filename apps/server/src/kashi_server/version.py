@@ -12,5 +12,8 @@
 # 2.2.0: nightcore — title/duration-ratio detection (+ explicit ingest
 # options), rubberband slow-down for alignment, post-QA rescale onto the
 # played clock; alignment.speed_factor finally carries r.
-PIPELINE_VERSION = "2.2.0"
+# 2.2.1: reviewer hardening — nightcore detection candidates pass the same
+# plausibility guard as the q= rung; honest provenance for caller lyrics
+# (lyrics_source="caller", no fake lrclib id).
+PIPELINE_VERSION = "2.2.1"
 PIPELINE_MAJOR = 2
