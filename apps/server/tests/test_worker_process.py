@@ -47,7 +47,7 @@ def _happy_stages(monkeypatch, scratch):
         path.write_bytes(b"x" * 1024)
         return DownloadResult(path=path, abr=128.0, acodec="opus", duration_s=200.0, info={})
 
-    def fake_align_stage(s, j, tmp, audio, lyrics):
+    def fake_align_stage(s, j, tmp, audio, lyrics, **kw):
         result = AlignResult(
             sync="word",
             lines=[LineTiming(0, 1000, "hello world", 0.8)],
@@ -186,7 +186,7 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
     monkeypatch.setattr(
         wp,
         "_align_stage",
-        lambda s, j, tmp, audio, lyrics: (
+        lambda s, j, tmp, audio, lyrics, **kw: (
             AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.8),
             False,
         ),
@@ -246,7 +246,7 @@ def test_second_pass_runs_on_low_quality_and_keeps_the_better_result(
         real_set_status(s, j, status)
 
     monkeypatch.setattr(wp.queue, "set_status", spy_set_status)
-    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
     monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
     separated = []
     monkeypatch.setattr(
@@ -277,7 +277,7 @@ def test_second_pass_worse_result_is_discarded(db_session, job, scratch, monkeyp
 
     monkeypatch.setattr(settings, "separation_mode", "second_pass")
     monkeypatch.setattr(wp, "_align_stage", real_align_stage)
-    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
     monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
     monkeypatch.setattr(wp, "_separate_vocals", lambda audio, tmp: tmp / "vocals.wav")
     aligns = iter([_align_result(0.2), _align_result(0.1)])  # second pass is WORSE
@@ -303,7 +303,7 @@ def test_good_first_pass_skips_separation(db_session, job, scratch, monkeypatch)
 
     monkeypatch.setattr(settings, "separation_mode", "second_pass")
     monkeypatch.setattr(wp, "_align_stage", real_align_stage)
-    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
     monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
 
     def never(*a, **k):  # pragma: no cover - must not run
@@ -380,7 +380,7 @@ def test_windowed_flag_forwards_the_lrclib_anchors(db_session, job, scratch, mon
 
     monkeypatch.setattr(settings, "windowed_alignment", True)
     monkeypatch.setattr(wp, "_align_stage", real_align_stage)
-    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
     monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
     monkeypatch.setattr(
         wp,
@@ -401,3 +401,173 @@ def test_windowed_flag_forwards_the_lrclib_anchors(db_session, job, scratch, mon
     db_session.refresh(job)
     assert job.status == "completed"
     assert seen["anchors"] == [12_000]
+
+
+# --- nightcore branch (Faz 4, pipeline 2.2.0) ---
+
+
+def _nightcore_job(db_session, *, title="Nightcore - Song", options=None, source_id="ncVid0001"):
+    queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id=source_id,
+        pipeline_major=1,
+        hints={"title": title, "artist": "Chan", "duration_ms": 200_000},
+        options=options or {},
+        requested_by=None,
+    )
+    db_session.commit()
+    claimed = queue.claim_next(db_session)
+    db_session.commit()
+    assert claimed is not None
+    return claimed
+
+
+def _nightcore_stages(monkeypatch, scratch, *, slow_duration_s):
+    """Happy stages + the nightcore seams: a fake slow decode and a fixed
+    measured duration for the sanity gate."""
+    _happy_stages(monkeypatch, scratch)
+
+    def fake_decode(src, dest, rate, **kw):
+        Path(dest).write_bytes(b"wav")
+        return Path(dest)
+
+    monkeypatch.setattr(wp, "_decode", fake_decode)
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: slow_duration_s)
+    # The detection/lyrics record: the ORIGINAL song, 240 s (r = 1.2 vs 200 s).
+    record = {
+        "id": 99,
+        "duration": 240.0,
+        "syncedLyrics": "[00:01.00] hello world",
+        "plainLyrics": "hello world",
+    }
+    calls: list[str] = []
+    monkeypatch.setattr(
+        wp, "search_candidates", lambda query, *, base_url: calls.append(query) or [record]
+    )
+    return calls
+
+
+def test_nightcore_detected_job_rescales_onto_the_played_clock(
+    db_session, scratch, monkeypatch
+):
+    job = _nightcore_job(db_session)
+    calls = _nightcore_stages(monkeypatch, scratch, slow_duration_s=240.0)
+
+    # fetch_lyrics must NOT run — the detection record supplies the lyrics
+    # without a second lrclib request (etiquette).
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: (_ for _ in ()).throw(AssertionError("fetch_lyrics called")),
+    )
+
+    def slowed_align(s, j, tmp, audio, lyrics, **kw):
+        assert kw.get("tempo") == 1.0 / 1.2  # slow-down reached the align stage
+        result = AlignResult(
+            sync="word",
+            # Slowed (≈ original) clock: 1.2 s — must persist as 1.0 s.
+            lines=[LineTiming(1200, 2400, "hello world", 0.8)],
+            words_per_line=[
+                [AlignedWord(1200, 1800, "hello", 0.8), AlignedWord(1800, 2400, "world", 0.8)]
+            ],
+            quality_score=0.8,
+        )
+        return result, False
+
+    monkeypatch.setattr(wp, "_align_stage", slowed_align)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert calls == ["Chan Song"]  # cleaned title, normalized artist
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["speed_factor"] == 1.2
+    assert doc["alignment"]["lyrics_source_id"] == 99
+    assert doc["lines"][0]["start_ms"] == 1000 and doc["lines"][0]["end_ms"] == 2000
+    assert doc["lines"][0]["words"][0]["end_ms"] == 1500
+
+
+def test_nightcore_sanity_failure_reverts_to_the_normal_flow(db_session, scratch, monkeypatch):
+    job = _nightcore_job(db_session, source_id="ncVid0002")
+    # Slowed copy measures 200 s where 240 s was expected → r was wrong.
+    _nightcore_stages(monkeypatch, scratch, slow_duration_s=200.0)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"  # normal flow (fetch_lyrics fake) took over
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["speed_factor"] == 1.0
+    assert doc["lines"][0]["start_ms"] == 0  # _happy_stages times, unscaled
+
+
+def test_explicit_speed_factor_with_lyrics_text_skips_detection(
+    db_session, scratch, monkeypatch
+):
+    job = _nightcore_job(
+        db_session,
+        title="Song",  # no nightcore marker — explicit option drives the branch
+        options={"speed_factor": 1.25, "lyrics_text": "hello world"},
+        source_id="ncVid0003",
+    )
+    _happy_stages(monkeypatch, scratch)
+
+    def fake_decode(src, dest, rate, **kw):
+        Path(dest).write_bytes(b"wav")
+        return Path(dest)
+
+    monkeypatch.setattr(wp, "_decode", fake_decode)
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: 250.0)  # 200 × 1.25
+    monkeypatch.setattr(
+        wp,
+        "search_candidates",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("search_candidates called")),
+    )
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["speed_factor"] == 1.25
+    assert doc["alignment"]["lyrics_source_id"] == 0  # caller-supplied text
+    # _happy_stages align times (0..1000) rescaled by 1/1.25 → 0..800.
+    assert doc["lines"][0]["end_ms"] == 800
+
+
+def test_nightcore_detection_off_keeps_the_plain_flow(db_session, scratch, monkeypatch):
+    from kashi_server.config import settings
+
+    job = _nightcore_job(db_session, source_id="ncVid0004")
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(settings, "nightcore_detection", False)
+    monkeypatch.setattr(
+        wp,
+        "search_candidates",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("search_candidates called")),
+    )
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["speed_factor"] == 1.0

@@ -24,6 +24,30 @@ def test_ingest_validation(client, user_key):
     assert client.post("/v1/ingest", json=no_artist, headers=_auth(user_key)).status_code == 422
 
 
+def test_ingest_nightcore_options_validate_and_persist_without_nulls(
+    client, user_key, db_session
+):
+    from sqlalchemy import select
+
+    from kashi_server.db.models import Job
+
+    # speed_factor must be a real speed-UP: 1.0 and out-of-band values reject.
+    for bad_factor in (1.0, 0.8, 2.5):
+        body = {**_BODY, "options": {"speed_factor": bad_factor}}
+        assert client.post("/v1/ingest", json=body, headers=_auth(user_key)).status_code == 422
+
+    body = {
+        "source": {"type": "youtube", "id": "nightcoreAA"},
+        "hints": {"title": "Nightcore - Song", "artist": "Chan", "duration_ms": 200_000},
+        "options": {"speed_factor": 1.2, "original_title": "Song"},
+    }
+    resp = client.post("/v1/ingest", json=body, headers=_auth(user_key))
+    assert resp.status_code == 202, resp.text
+    job = db_session.scalars(select(Job).where(Job.source_id == "nightcoreAA")).one()
+    # exclude_none: absent options (lyrics_text) never persist as nulls.
+    assert job.options == {"separate": False, "speed_factor": 1.2, "original_title": "Song"}
+
+
 def test_ingest_queue_full(client, user_key, monkeypatch):
     from kashi_server.config import settings
 

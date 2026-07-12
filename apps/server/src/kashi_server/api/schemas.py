@@ -26,7 +26,12 @@ class IngestHints(BaseModel):
 
 class IngestOptions(BaseModel):
     separate: bool = False
-    # Faz 4 additive fields land here: speed_factor, lyrics_text, original_title.
+    # Nightcore (Faz 4): an explicit factor beats title auto-detection; the
+    # original song's title/lyrics are the escape hatch when the reupload's
+    # metadata is mangled (channel-name "artists" etc.).
+    speed_factor: float | None = Field(default=None, gt=1.0, le=2.0)
+    lyrics_text: str | None = Field(default=None, min_length=1, max_length=20_000)
+    original_title: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 class IngestRequest(BaseModel):

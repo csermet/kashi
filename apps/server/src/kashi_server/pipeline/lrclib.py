@@ -211,6 +211,65 @@ def _search(http: httpx.Client, title: str, artist: str, duration_s: float | Non
     return _pick_candidate(response.json(), duration_s)
 
 
+def search_candidates(
+    query: str,
+    *,
+    base_url: str,
+    timeout_s: float = 15.0,
+    client: httpx.Client | None = None,
+) -> list[dict]:
+    """Raw free-text /api/search results — the nightcore-detection seam.
+
+    The caller picks a record and turns it into lyrics with
+    `lyrics_from_record`, so the chosen record never costs a second request
+    (etiquette). Network errors surface as transient PipelineErrors like the
+    main fetch path.
+    """
+    owns_client = client is None
+    http = client or httpx.Client(
+        base_url=base_url, timeout=timeout_s, headers={"User-Agent": USER_AGENT}
+    )
+    try:
+        response = http.get("/api/search", params={"q": query})
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPError as exc:
+        raise PipelineError("network", f"lrclib unreachable: {exc}") from exc
+    finally:
+        if owns_client:
+            http.close()
+    return data if isinstance(data, list) else []
+
+
+def lyrics_from_record(record: dict) -> LyricsText:
+    """LyricsText from an already-fetched lrclib record (no extra request)."""
+    extracted = _extract(record)
+    if extracted is None:
+        raise PipelineError("lyrics_not_found", "lrclib record carries no usable lyrics")
+    line_texts, synced_starts_ms, had_synced = extracted
+    return LyricsText(
+        line_texts=line_texts,
+        full_text=" ".join(line_texts),
+        source_id=int(record.get("id") or 0),
+        had_synced=had_synced,
+        synced_starts_ms=synced_starts_ms,
+    )
+
+
+def lyrics_from_text(text: str) -> LyricsText:
+    """Caller-supplied plain lyrics (ingest options.lyrics_text). No stamps →
+    whole-audio alignment path; line QA has no references and skips."""
+    lines = _lines_from_plain(text)
+    if not lines:
+        raise PipelineError("lyrics_not_found", "lyrics_text is empty")
+    return LyricsText(
+        line_texts=lines,
+        full_text=" ".join(lines),
+        source_id=0,
+        had_synced=False,
+    )
+
+
 def _search_freetext(
     http: httpx.Client, title: str, artist: str, duration_s: float | None
 ) -> dict | None:

@@ -20,6 +20,10 @@ def test_pipeline_2_defaults():
     assert _default("separation_mixback") == 0.0
 
 
+def test_nightcore_defaults():
+    assert _default("nightcore_detection") is True
+
+
 def test_pipeline_major_matches_the_archive_invalidation():
     assert PIPELINE_VERSION.startswith("2.")
     assert PIPELINE_MAJOR == 2

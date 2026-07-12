@@ -26,7 +26,9 @@ def ingest(
             source_id=body.source.id,
             pipeline_major=PIPELINE_MAJOR,
             hints=body.hints.model_dump(exclude_none=True),
-            options=body.options.model_dump(),
+            # exclude_none: absent nightcore options must not persist as nulls
+            # in the job row (the worker checks key presence).
+            options=body.options.model_dump(exclude_none=True),
             requested_by=key.id,
         )
     except queue.QueueFull:

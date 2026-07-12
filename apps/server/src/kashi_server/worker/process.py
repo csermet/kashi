@@ -11,6 +11,7 @@ import logging
 import shutil
 import subprocess
 import threading
+import wave
 from pathlib import Path
 
 from prometheus_client import Counter
@@ -25,7 +26,22 @@ from kashi_server.pipeline.document import build_document, persist_processed_tra
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.langid import detect_language
 from kashi_server.pipeline.line_qa import apply_line_qa
-from kashi_server.pipeline.lrclib import LyricsText, fetch_lyrics
+from kashi_server.pipeline.lrclib import (
+    LyricsText,
+    fetch_lyrics,
+    lyrics_from_record,
+    lyrics_from_text,
+    normalize_artist,
+    search_candidates,
+)
+from kashi_server.pipeline.nightcore import (
+    clean_title,
+    detect_speed_factor,
+    pick_record_for_factor,
+    rescale_result,
+    rubberband_filter,
+    slow_duration_ok,
+)
 from kashi_server.pipeline.palette import extract_palette
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
@@ -54,6 +70,11 @@ LINE_QA_ADLIB_REDERIVED_LINES = Counter(
     "kashi_line_qa_adlib_rederived_lines_total",
     "Ad-lib lines whose word spans were redistributed across the line (Faz 4)",
 )
+NIGHTCORE_JOBS = Counter(
+    "kashi_nightcore_jobs_total",
+    "Jobs that entered the nightcore branch, by how the factor was resolved",
+    ["outcome"],  # explicit | detected | reverted
+)
 
 
 def checkpoint(s: Session, job: Job) -> None:
@@ -66,15 +87,29 @@ def checkpoint(s: Session, job: Job) -> None:
     s.commit()
 
 
-def _decode(src: Path, dest: Path, rate: int) -> Path:
+def _decode(src: Path, dest: Path, rate: int, *, tempo: float = 1.0) -> Path:
+    """Decode to mono wav; tempo != 1 additionally rubberband-stretches BOTH
+    tempo and pitch (nightcore slow-down; librubberband is in the image).
+    Rubberband runs near realtime, hence its own timeout (20-min cap tracks
+    would blow the plain 300 s budget)."""
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(src)]
+    if tempo != 1.0:
+        cmd += ["-af", rubberband_filter(tempo)]
+    cmd += ["-ar", str(rate), "-ac", "1", str(dest)]
     result = subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", str(src), "-ar", str(rate), "-ac", "1", str(dest)],
+        cmd,
         capture_output=True,
-        timeout=300,
+        timeout=300 if tempo == 1.0 else 1800,
     )
     if result.returncode != 0:
         raise PipelineError("other", f"ffmpeg decode failed: {result.stderr.decode()[:500]}")
     return dest
+
+
+def _wav_duration_s(path: Path) -> float:
+    with wave.open(str(path), "rb") as f:
+        rate = f.getframerate()
+        return f.getnframes() / rate if rate else 0.0
 
 
 def _separate_vocals(
@@ -131,13 +166,25 @@ def _mix_back(vocals: Path, mix: Path, dest: Path, weight: float) -> Path:
 
 
 def _align_stage(
-    s: Session, job: Job, tmp: Path, source_audio: Path, lyrics: LyricsText
+    s: Session,
+    job: Job,
+    tmp: Path,
+    source_audio: Path,
+    lyrics: LyricsText,
+    *,
+    align_wav: Path | None = None,
+    tempo: float = 1.0,
 ) -> tuple[AlignResult, bool]:
-    """Align; optionally re-align on separated vocals when the score is low."""
+    """Align; optionally re-align on separated vocals when the score is low.
+
+    `align_wav` skips the first decode when the caller already produced it
+    (the nightcore branch decodes early for the duration sanity check);
+    `tempo` carries the same slow-down into the second-pass vocal decode so
+    both passes align the same clock."""
     language = detect_language(lyrics.full_text)
     # Windowing needs the lrclib stamps; the flag is the single rollout switch.
     anchors = lyrics.synced_starts_ms if settings.windowed_alignment else None
-    wav = _decode(source_audio, tmp / "align.wav", rate=16000)
+    wav = align_wav or _decode(source_audio, tmp / "align.wav", rate=16000, tempo=tempo)
     result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors)
 
     if (
@@ -155,11 +202,73 @@ def _align_stage(
         checkpoint(s, job)
         queue.set_status(s, job, "aligning")
         s.commit()
-        vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000)
+        vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000, tempo=tempo)
         second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors)
         if second.quality_score > result.quality_score:
             return second, True
     return result, False
+
+
+def _detect_nightcore(job: Job, download: DownloadResult) -> tuple[float, dict | None, str | None]:
+    """(speed_factor, detection_record, outcome) for this job.
+
+    Explicit `options.speed_factor` wins (no record — lyrics resolve later);
+    otherwise, when detection is on and the title (or `original_title`)
+    points at an original song, the lrclib duration-ratio probe runs. Any
+    miss → (1.0, None, None) = today's flow, byte for byte.
+    """
+    options = job.options or {}
+    hints = job.hints or {}
+    explicit = options.get("speed_factor")
+    if isinstance(explicit, int | float) and float(explicit) > 1.0:
+        return float(explicit), None, "explicit"
+    if not settings.nightcore_detection:
+        return 1.0, None, None
+    query_title = options.get("original_title") or clean_title(hints.get("title") or "")
+    if not query_title:
+        return 1.0, None, None
+    artist = normalize_artist(hints.get("artist") or "")
+    candidates = search_candidates(
+        f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
+    )
+    detected = detect_speed_factor(candidates, download.duration_s)
+    if detected is None:
+        return 1.0, None, None
+    r, record = detected
+    logger.info("job %s: nightcore detected r=%.3f via %r", job.id, r, query_title)
+    return r, record, "detected"
+
+
+def _nightcore_lyrics(
+    job: Job, download: DownloadResult, record: dict | None, r: float
+) -> LyricsText:
+    """Lyrics for a CONFIRMED nightcore job: caller-supplied text beats the
+    detection record; the explicit-factor path (no record yet) searches for
+    the original by duration ratio."""
+    options = job.options or {}
+    hints = job.hints or {}
+    text = options.get("lyrics_text")
+    if isinstance(text, str) and text.strip():
+        return lyrics_from_text(text)
+    if record is not None:
+        return lyrics_from_record(record)
+    query_title = (
+        options.get("original_title")
+        or clean_title(hints.get("title") or "")
+        or hints.get("title")
+        or ""
+    )
+    artist = normalize_artist(hints.get("artist") or "")
+    candidates = search_candidates(
+        f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url
+    )
+    picked = pick_record_for_factor(candidates, download.duration_s, r)
+    if picked is None:
+        raise PipelineError(
+            "lyrics_not_found",
+            f"no original-song lyrics for nightcore job ({artist} - {query_title})",
+        )
+    return lyrics_from_record(picked)
 
 
 def process_job(s: Session, job: Job) -> None:
@@ -188,10 +297,41 @@ def process_job(s: Session, job: Job) -> None:
         # --- aligning ---
         queue.set_status(s, job, "aligning")
         s.commit()
-        lyrics = fetch_lyrics(job.hints or {}, base_url=settings.lrclib_base_url)
-        result, vocals_separated = _align_stage(s, job, tmp, source_audio, lyrics)
+        # Nightcore branch (Faz 4): slow the (possibly separated) audio back
+        # down for alignment, then rescale the output onto the played clock.
+        # Every failure reverts to the plain r=1 flow.
+        speed_factor, detection_record, nc_outcome = _detect_nightcore(job, download)
+        align_wav: Path | None = None
+        if speed_factor != 1.0:
+            align_wav = _decode(
+                source_audio, tmp / "align.wav", rate=16000, tempo=1.0 / speed_factor
+            )
+            if slow_duration_ok(_wav_duration_s(align_wav), download.duration_s, speed_factor):
+                NIGHTCORE_JOBS.labels(nc_outcome or "detected").inc()
+            else:
+                logger.warning(
+                    "job %s: slowed copy fails the duration sanity check — "
+                    "nightcore r=%.3f reverted to the normal flow",
+                    job.id,
+                    speed_factor,
+                )
+                NIGHTCORE_JOBS.labels("reverted").inc()
+                speed_factor, detection_record = 1.0, None
+                align_wav = _decode(source_audio, tmp / "align.wav", rate=16000)
+            checkpoint(s, job)
+        if speed_factor != 1.0:
+            lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
+        else:
+            lyrics = fetch_lyrics(job.hints or {}, base_url=settings.lrclib_base_url)
+        result, vocals_separated = _align_stage(
+            s, job, tmp, source_audio, lyrics, align_wav=align_wav, tempo=1.0 / speed_factor
+        )
         qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
         result = qa.result
+        if speed_factor != 1.0:
+            # QA ran on the slowed (≈ original) clock where the lrclib stamps
+            # live; ONE rescale lands everything on the nightcore clock.
+            result = rescale_result(result, speed_factor)
         if qa.degraded_to_line or qa.flagged:
             logger.warning(
                 "job %s: line QA %s %d line(s), offset %+dms",
@@ -213,7 +353,7 @@ def process_job(s: Session, job: Job) -> None:
         # --- postprocessing ---
         queue.set_status(s, job, "postprocessing")
         s.commit()
-        beats = extract_beats(download.path)  # full mix, not vocals
+        beats = extract_beats(download.path)  # full mix — the PLAYED audio, never rescaled
         palette = extract_palette((job.hints or {}).get("artwork_url"))
         doc = build_document(
             job,
@@ -222,6 +362,7 @@ def process_job(s: Session, job: Job) -> None:
             beats,
             palette,
             vocals_separated=vocals_separated or separate_first,
+            speed_factor=speed_factor,
             fallback_duration_ms=round(download.duration_s * 1000),
         )
         persist_processed_track(s, job, doc)

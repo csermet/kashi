@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # HARMFUL on average (dilutes the clean-vocal advantage; ~10x MedAE) —
     # kept only as an escape hatch. 0 disables the pass.
     separation_mixback: float = 0.0
+    # Nightcore auto-detection (Faz 4): titles carrying nightcore/sped-up
+    # markers trigger a speed-factor probe against lrclib. Explicit ingest
+    # options bypass this switch.
+    nightcore_detection: bool = True
     lrclib_base_url: str = "https://lrclib.net"
     max_track_duration_s: int = 1200
     queue_depth_limit: int = 200
