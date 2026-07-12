@@ -121,7 +121,7 @@ function maybeAnnounceTrack(): void {
     announcedVideoId = id;
     lastAnnouncedTitle = meta.title;
     log(
-      `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'}, dur=${freshDurationMs() ?? 'yok'})`,
+      `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'}, duration=${freshDurationMs() ?? 'n/a'})`,
     );
     sendEvent({
       kind: 'track_changed',

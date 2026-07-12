@@ -26,6 +26,7 @@ import {
 } from '../shared/effect-level.js';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';
+import { enableUtf8Console, makeLogger, makeWarnLogger } from './log.js';
 import { KashiServerClient } from './kashi-server.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
@@ -40,6 +41,14 @@ import { adjustAlpha, clampAlpha, isPositionVisible, clampTimingOffset,
 import { SettingsStore } from './settings.js';
 import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
 import { OverlayWsServer } from './ws-server.js';
+
+// Fix the Windows console codepage BEFORE the first log line (mojibake fix).
+enableUtf8Console();
+
+const log = makeLogger('main');
+const warn = makeWarnLogger('main');
+const logExt = makeLogger('ext');
+const logRenderer = makeLogger('renderer');
 
 /** NOTE: the extension keeps its own announce debounce of the same length. */
 const TRACK_DEBOUNCE_MS = 500;
@@ -74,7 +83,7 @@ function send(channel: string, payload: unknown): void {
 
 /** Clear every trace of the current source (close/disconnect/source_gone). */
 function clearSource(reason: string): void {
-  console.debug(`[kashi] source cleared (${reason})`);
+  log(`source cleared (${reason})`);
   lookups?.cancel();
   if (debounceTimer) clearTimeout(debounceTimer);
   Object.assign(latch, emptyLatch());
@@ -84,7 +93,7 @@ function clearSource(reason: string): void {
 
 function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): void {
   if (msg.type === 'log') {
-    console.debug(`[ext:${msg.context}] ${msg.line}`);
+    logExt(`[${msg.context}] ${msg.line}`);
     return; // diagnostics only — never forwarded to the renderer
   }
   const wasKey = latch.currentTrackKey;
@@ -97,8 +106,8 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
     case 'new-track': {
       const dup = decision.action === 'duplicate-track';
       const track = (msg as Extract<ExtensionToOverlayMessage, { type: 'track_changed' }>).track;
-      console.debug(
-        `[kashi] track_changed: ${decision.key} "${track.artist} - ${track.title}"` +
+      log(
+        `track_changed: ${decision.key} "${track.artist} - ${track.title}"` +
           ` (tab ${(msg as { tab_id: number }).tab_id}, client ${clientId})` +
           `${dup && decision.key === wasKey ? ' [dup]' : ''}`,
       );
@@ -137,7 +146,7 @@ function armGateTimer(track: TrackInfo): void {
       gateTimer = null;
     }
     if (firedKey && serverClient) {
-      console.debug(`[kashi] 20s of listening on ${firedKey} — enqueueing for processing`);
+      log(`20s of listening on ${firedKey} -> enqueueing for processing`);
       void serverClient.enqueue(
         { type: track.source.type, id: track.source.id },
         {
@@ -240,19 +249,25 @@ function broadcastSettings(): void {
 /** Persist + broadcast a new box alpha (tray preset or Ctrl+scroll nudge). */
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 function applyTimingOffset(offsetMs: number): void {
-  settings?.update({ timing_offset_ms: clampTimingOffset(offsetMs) });
+  const clamped = clampTimingOffset(offsetMs);
+  settings?.update({ timing_offset_ms: clamped });
+  log(`setting: timing offset -> ${clamped}ms`);
   broadcastSettings();
   tray?.refresh();
 }
 
 function applyEffectLevel(level: unknown): void {
-  settings?.update({ effect_level: parseEffectLevel(level) });
+  const parsed = parseEffectLevel(level);
+  settings?.update({ effect_level: parsed });
+  log(`setting: effects -> ${parsed}`);
   broadcastSettings();
   tray?.refresh();
 }
 
 function applyThemeScope(scope: unknown): void {
-  settings?.update({ theme_scope: parseThemeScope(scope) });
+  const parsed = parseThemeScope(scope);
+  settings?.update({ theme_scope: parsed });
+  log(`setting: theme colors -> ${parsed}`);
   broadcastSettings();
   tray?.refresh();
 }
@@ -346,7 +361,7 @@ ipcMain.on('kashi:adjust-opacity', (_event, deltaSteps: unknown) => {
 });
 
 ipcMain.on('kashi:rlog', (_event, line: unknown) => {
-  console.debug(`[renderer] ${String(line).slice(0, 500)}`);
+  logRenderer(String(line).slice(0, 500));
 });
 
 // Right-click on the lyric box pops the same menu the tray serves — the tray
@@ -415,8 +430,9 @@ ipcMain.on('kashi:drag-start', () => {
 ipcMain.on('kashi:drag-end', stopDrag);
 
 app.whenReady().then(async () => {
-  settings = new SettingsStore(join(app.getPath('userData'), 'kashi-settings.json'), (line) =>
-    console.debug(`[kashi] ${line}`),
+  settings = new SettingsStore(
+    join(app.getPath('userData'), 'kashi-settings.json'),
+    makeLogger('settings'),
   );
 
   lrclib = new LrclibClient({
@@ -433,11 +449,11 @@ app.whenReady().then(async () => {
       apiKey: serverApiKey,
       cacheDir: join(app.getPath('userData'), 'cache', 'kashi-server'),
       fetchFn: net.fetch.bind(net) as typeof fetch,
-      log: (line) => console.debug(`[kashi] ${line}`),
+      log: makeLogger('server'),
     });
-    console.debug(`[kashi] server configured: ${serverUrl}`);
+    log(`kashi-server configured: ${serverUrl}`);
   } else if (serverUrl || serverApiKey) {
-    console.warn('[kashi] server_url and server_api_key must BOTH be set — server disabled');
+    warn('server_url and server_api_key must BOTH be set -> server disabled');
   }
 
   lookups = new LookupOrchestrator({
@@ -453,7 +469,7 @@ app.whenReady().then(async () => {
       armGateTimer(track);
     },
     isCurrent: (key) => key === latch.currentTrackKey,
-    log: (line) => console.debug(`[kashi] ${line}`),
+    log: makeLogger('lookup'),
   });
 
   window = createOverlayWindow();
@@ -490,10 +506,16 @@ app.whenReady().then(async () => {
       if (reason) clearSource(reason);
       send('kashi:connection', { connected: count > 0 });
     },
-    log: (line) => console.debug(`[kashi] ${line}`),
+    log: makeLogger('ws'),
   });
   const port = await server.start();
-  console.debug(`[kashi] overlay v${KASHI_VERSION} ready, ws on 127.0.0.1:${port}`);
+  log(`overlay v${KASHI_VERSION} ready, ws on 127.0.0.1:${port}`);
+  const boot = settings.get();
+  log(
+    `settings: effects=${boot.effect_level} theme=${boot.theme_scope} ` +
+      `offset=${boot.timing_offset_ms}ms alpha=${boot.box_alpha} ` +
+      `server=${boot.server_url ? 'on' : 'off'}`,
+  );
 
   app.on('before-quit', () => {
     settings?.flush();

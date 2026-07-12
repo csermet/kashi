@@ -106,6 +106,14 @@ function applyPaletteVars(): void {
   for (const [name, value] of Object.entries(vars)) {
     document.documentElement.style.setProperty(name, value);
   }
+  if (currentPalette && effectLevel !== 'off' && themeScope !== 'none') {
+    // One line per theme application — the color-iteration feedback loop
+    // (field turu 2) needs to SEE what the tone mapper produced.
+    window.kashi.log(
+      `theme: primary ${vars['--kashi-primary']} accent ${vars['--kashi-accent']} ` +
+        `bg(${vars['--kashi-bg-rgb']}) scope=${themeScope}`,
+    );
+  }
 }
 
 /** Rebuild the beat cursor whenever the level or the beat grid changes. */
@@ -301,7 +309,8 @@ window.kashi.onTrack((payload) => {
   trackLabel = `♪ ${track.artist} — ${track.title}`;
   statusText = trackLabel;
   statusDim = false;
-  window.kashi.log(`track set: ${key} ${trackLabel}`);
+  // Log line stays ASCII-decorated; the label keeps its glyphs for DISPLAY.
+  window.kashi.log(`track set: ${key} "${track.artist} - ${track.title}"`);
   ensureLoop();
 });
 
@@ -333,7 +342,11 @@ window.kashi.onLyrics((payload) => {
     currentBeats = data.beats;
     rebuildBeatCursor();
     applyPaletteVars();
-    window.kashi.log(`lyrics applied: ${lines.length} lines`);
+    window.kashi.log(
+      `lyrics applied: ${lines.length} lines` +
+        (data.beats ? ' +beats' : '') +
+        (data.palette ? ' +palette' : ''),
+    );
   } else {
     lines = [];
     clearEnrichment();
