@@ -27,6 +27,7 @@ USER_AGENT = f"kashi-server/{PIPELINE_VERSION} (+https://github.com/csermet/kash
 SEARCH_DURATION_TOLERANCE_S = 3
 _TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
 _TOPIC_SUFFIX = re.compile(r"\s*-\s*Topic$", re.IGNORECASE)
+_WORD_TOKEN = re.compile(r"\w+")
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,21 @@ def _duration_matches(record: dict, wanted_s: float | None) -> bool:
     return abs(float(duration) - wanted_s) <= SEARCH_DURATION_TOLERANCE_S
 
 
+def _tokens(text: str) -> set[str]:
+    return set(_WORD_TOKEN.findall(text.lower()))
+
+
+def _plausible(record: dict, title: str, artist: str) -> bool:
+    """Free-text `q=` is loose, and a wrong record with a matching duration is
+    invisible to line QA on the windowed path — so this rung alone requires the
+    candidate to still look like the requested track: at least one shared token
+    on the title axis AND one on the artist axis."""
+    return bool(
+        _tokens(record.get("trackName") or "") & _tokens(title)
+        and _tokens(record.get("artistName") or "") & _tokens(artist)
+    )
+
+
 def fetch_lyrics(
     hints: dict,
     *,
@@ -120,10 +136,16 @@ def fetch_lyrics(
         base_url=base_url, timeout=timeout_s, headers={"User-Agent": USER_AGENT}
     )
     try:
+        rung = "get"
         record = _get_exact(http, title, artist, hints.get("album"), duration_s)
         extracted = _extract(record) if record else None
         if extracted is None:
+            rung = "search"
             record = _search(http, title, artist, duration_s)
+            extracted = _extract(record) if record else None
+        if extracted is None:
+            rung = "search-q"
+            record = _search_freetext(http, title, artist, duration_s)
             extracted = _extract(record) if record else None
         if extracted is None:
             raise PipelineError("lyrics_not_found", f"no lyrics for {artist} - {title}")
@@ -136,11 +158,12 @@ def fetch_lyrics(
     assert record is not None  # extracted != None implies a record
     line_texts, synced_starts_ms, had_synced = extracted
     logger.info(
-        "lyrics for %s - %s: %d lines (%s)",
+        "lyrics for %s - %s: %d lines (%s, via %s)",
         artist,
         title,
         len(line_texts),
         "synced" if had_synced else "plain",
+        rung,
     )
     return LyricsText(
         line_texts=line_texts,
@@ -166,10 +189,8 @@ def _get_exact(
     return response.json()
 
 
-def _search(http: httpx.Client, title: str, artist: str, duration_s: float | None) -> dict | None:
-    response = http.get("/api/search", params={"track_name": title, "artist_name": artist})
-    response.raise_for_status()
-    candidates = [r for r in response.json() if _extract(r) is not None]
+def _pick_candidate(records: list[dict], duration_s: float | None) -> dict | None:
+    candidates = [r for r in records if _extract(r) is not None]
     if not candidates:
         return None
     if duration_s is None:
@@ -182,3 +203,22 @@ def _search(http: httpx.Client, title: str, artist: str, duration_s: float | Non
     if not scored:
         return None
     return min(scored, key=lambda pair: pair[0])[1]
+
+
+def _search(http: httpx.Client, title: str, artist: str, duration_s: float | None) -> dict | None:
+    response = http.get("/api/search", params={"track_name": title, "artist_name": artist})
+    response.raise_for_status()
+    return _pick_candidate(response.json(), duration_s)
+
+
+def _search_freetext(
+    http: httpx.Client, title: str, artist: str, duration_s: float | None
+) -> dict | None:
+    """Last rung (pipeline 2.0.3): structured search misses remixes and songs
+    with extra credits — the hint title/artist don't literally match the record
+    ("Wet" / "Snoop Dogg" vs "Wet (… vs. David Guetta) [Remix]"). One free-text
+    pass catches those; `_plausible` keeps the loose query honest."""
+    response = http.get("/api/search", params={"q": f"{artist} {title}"})
+    response.raise_for_status()
+    candidates = [r for r in response.json() if _plausible(r, title, artist)]
+    return _pick_candidate(candidates, duration_s)

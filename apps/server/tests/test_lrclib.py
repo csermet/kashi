@@ -118,14 +118,112 @@ def test_instrumental_is_not_lyrics():
 
 
 def test_no_candidate_within_tolerance_is_a_permanent_miss():
+    searches = []
+
     def handler(request):
         if request.url.path == "/api/get":
             return httpx.Response(404)
+        searches.append(dict(request.url.params))
         return httpx.Response(200, json=[{"id": 1, "plainLyrics": "x", "duration": 999}])
 
     with pytest.raises(PipelineError) as exc:
         _fetch(handler)
     assert exc.value.error_type == "lyrics_not_found"
+    # Both search rungs ran: structured first, then the free-text q= fallback
+    # (whose only candidate is rejected — no shared title/artist tokens AND
+    # out of duration tolerance).
+    assert [("q" in params) for params in searches] == [False, True]
+
+
+WET_HINTS = {"title": "Wet", "artist": "Snoop Dogg", "duration_ms": 195_000}
+WET_REMIX = {
+    "id": 1867697,
+    "trackName": "Wet (Snoop Dogg vs. David Guetta) [Remix]",
+    "artistName": "Snoop Dogg & David Guetta",
+    "plainLyrics": "remix lines",
+    "duration": 195,
+}
+
+
+def test_freetext_fallback_finds_remix_record():
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, dict(request.url.params)))
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if "q" in request.url.params:
+            return httpx.Response(200, json=[WET_REMIX])
+        return httpx.Response(200, json=[])  # structured search misses the remix
+
+    lyrics = _fetch(handler, hints=WET_HINTS)
+    assert lyrics.source_id == 1867697
+    assert calls[-1][1] == {"q": "Snoop Dogg Wet"}
+    assert [path for path, _ in calls] == ["/api/get", "/api/search", "/api/search"]
+
+
+def test_freetext_fires_when_structured_candidates_are_out_of_tolerance():
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if "q" in request.url.params:
+            return httpx.Response(200, json=[WET_REMIX])
+        # Structured search finds only a same-title record far off in duration.
+        return httpx.Response(200, json=[{"id": 3, "plainLyrics": "x", "duration": 400}])
+
+    assert _fetch(handler, hints=WET_HINTS).source_id == 1867697
+
+
+def test_structured_hit_never_reaches_freetext():
+    searches = []
+
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        searches.append(dict(request.url.params))
+        return httpx.Response(200, json=[{"id": 5, "plainLyrics": "ok", "duration": 234}])
+
+    assert _fetch(handler).source_id == 5
+    assert len(searches) == 1 and "q" not in searches[0]
+
+
+def test_freetext_plausibility_guard_rejects_unrelated_record():
+    stranger = {
+        "id": 66,
+        "trackName": "Completely Different Song",
+        "artistName": "Someone Else",
+        "plainLyrics": "wrong words",
+        "duration": 195,  # matching duration alone must not be enough
+    }
+
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if "q" in request.url.params:
+            return httpx.Response(200, json=[stranger])
+        return httpx.Response(200, json=[])
+
+    with pytest.raises(PipelineError) as exc:
+        _fetch(handler, hints=WET_HINTS)
+    assert exc.value.error_type == "lyrics_not_found"
+
+
+def test_freetext_without_duration_takes_first_plausible():
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if "q" in request.url.params:
+            return httpx.Response(
+                200,
+                json=[
+                    {"id": 9, "trackName": "Wet", "artistName": "Snoop Dogg", "plainLyrics": "a"},
+                    {"id": 10, "trackName": "Wet", "artistName": "Snoop Dogg", "plainLyrics": "b"},
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    hints = {"title": "Wet", "artist": "Snoop Dogg"}  # no duration hint
+    assert _fetch(handler, hints=hints).source_id == 9
 
 
 def test_network_failure_is_transient_not_a_miss():
