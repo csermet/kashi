@@ -356,3 +356,47 @@ def test_density_skips_implausibly_long_reference_windows():
     assert outcome.flagged == [3]
     assert outcome.density_dropped == []
     assert outcome.result.words_per_line[2]
+
+
+def _windowed_result(n_lines=4, quality=0.01):
+    lines = [LineTiming(i * 10_000, i * 10_000 + 3_000, f"line {i}", 0.5) for i in range(n_lines)]
+    words = [
+        [AlignedWord(i * 10_000, i * 10_000 + 3_000, f"w{i}", 0.01)] for i in range(n_lines)
+    ]
+    return AlignResult(
+        sync="word", lines=lines, words_per_line=words, quality_score=quality, windowed=True
+    )
+
+
+def test_windowed_quality_is_anchor_agreement_not_probs():
+    """Measured: per-window CTC probs don't track accuracy (r=0.36) — a clean
+    windowed doc must clear the client's 0.5 gate regardless of prob mass."""
+    result = _windowed_result(quality=0.01)  # prob ramp would say ~0
+    texts = [line.text for line in result.lines]
+    outcome = apply_line_qa(result, texts, [0, 10_000, 20_000, 30_000])
+    assert outcome.flagged == []
+    assert outcome.result.quality_score == 1.0
+
+
+def test_windowed_quality_counts_damaged_lines():
+    result = _windowed_result(n_lines=8, quality=0.01)
+    # push one line far off its anchor -> flagged -> quality = 1 - 1/8
+    lines = list(result.lines)
+    from dataclasses import replace as dc_replace
+
+    lines[3] = dc_replace(lines[3], start_ms=lines[3].start_ms + 9_000)
+    result = dc_replace(result, lines=lines)
+    texts = [line.text for line in result.lines]
+    outcome = apply_line_qa(result, texts, [i * 10_000 for i in range(8)])
+    assert outcome.flagged == [3]
+    assert abs(outcome.result.quality_score - (1 - 1 / 8)) < 1e-3
+
+
+def test_whole_audio_quality_still_prob_based():
+    result = _windowed_result(quality=0.01)
+    from dataclasses import replace as dc_replace
+
+    result = dc_replace(result, windowed=False)
+    texts = [line.text for line in result.lines]
+    outcome = apply_line_qa(result, texts, [0, 10_000, 20_000, 30_000])
+    assert outcome.result.quality_score < 0.5  # prob ramp, tiny probs

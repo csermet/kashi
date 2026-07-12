@@ -195,8 +195,12 @@ def apply_line_qa(
         return _degrade_to_line(result, refs, flagged, offset_ms)
 
     if not flagged:
+        clean = replace(result, lines=_clamp_monotonic(result.lines))
+        if result.windowed:  # prob quality is invalid on the windowed path
+            all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
+            clean = replace(clean, quality_score=_quality(result, refs, set(), all_probs))
         return LineQAOutcome(
-            result=replace(result, lines=_clamp_monotonic(result.lines)),
+            result=clean,
             flagged=[],
             offset_ms=offset_ms,
             degraded_to_line=False,
@@ -244,7 +248,7 @@ def apply_line_qa(
             sync="word",
             lines=lines,
             words_per_line=words_per_line,
-            quality_score=quality_from_probs(surviving_probs),
+            quality_score=_quality(result, refs, flagged_set | density_dropped, surviving_probs),
             windowed=result.windowed,
         ),
         flagged=flagged,
@@ -252,6 +256,26 @@ def apply_line_qa(
         degraded_to_line=False,
         density_dropped=sorted(density_dropped),
     )
+
+
+def _quality(
+    result: AlignResult,
+    refs: list[int | None],
+    damaged: set[int],
+    surviving_probs: list[float],
+) -> float:
+    """Whole-audio path: the calibrated CTC-prob ramp. Windowed path: anchor
+    agreement — measured (79 songs, 2026-07-12) the per-window probs do NOT
+    track true accuracy (r=0.36; 10 of 13 sub-gate scores had PCO>=0.88),
+    which would wrongly push good documents under the client's 0.5 word-mode
+    gate. Lines that stayed within the drift threshold of their lrclib anchor
+    ARE the windowed path's accuracy evidence."""
+    if not result.windowed:
+        return quality_from_probs(surviving_probs)
+    referenced = [i for i, ref in enumerate(refs) if ref is not None]
+    if not referenced:  # windowed implies anchors; defensive
+        return quality_from_probs(surviving_probs)
+    return round(1 - len(damaged & set(referenced)) / len(referenced), 4)
 
 
 def _border_case_drops(
