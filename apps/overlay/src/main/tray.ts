@@ -12,6 +12,11 @@ import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electr
 // resources/ alongside (electron-builder extraResources), or the icon is blank.
 import trayIconPath from '../../resources/tray.png?asset';
 import {
+  EFFECT_LEVELS,
+  effectLevelLabel,
+  type EffectLevel,
+} from '../shared/effect-level.js';
+import {
   OPACITY_PRESETS,
   TIMING_OFFSET_PRESETS,
   nearestPresetIndex,
@@ -27,6 +32,8 @@ export interface KashiMenuOptions {
   onTimingOffsetSelect: (offsetMs: number) => void;
   /** "Other…" — open the small numeric-entry window for arbitrary values. */
   onTimingOffsetCustom: () => void;
+  getEffectLevel: () => EffectLevel;
+  onEffectLevelSelect: (level: EffectLevel) => void;
   onResetPosition: () => void;
   onQuit: () => void;
 }
@@ -74,9 +81,17 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     // text input); main clamps to ±TIMING_OFFSET_MAX_ABS like every other path.
     { label: 'Other…', click: () => opts.onTimingOffsetCustom() },
   );
+  const effectLevel = opts.getEffectLevel();
+  const effectItems: MenuItemConstructorOptions[] = EFFECT_LEVELS.map((level) => ({
+    label: effectLevelLabel(level),
+    type: 'radio',
+    checked: level === effectLevel,
+    click: () => opts.onEffectLevelSelect(level),
+  }));
   return Menu.buildFromTemplate([
     { label: `Kashi v${opts.version}`, enabled: false },
     { type: 'separator' },
+    { label: 'Effects', submenu: effectItems },
     { label: 'Box opacity', submenu: opacityItems },
     { label: 'Timing offset', submenu: timingItems },
     { label: 'Reset position', click: opts.onResetPosition },

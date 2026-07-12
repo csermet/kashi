@@ -10,6 +10,16 @@ import type {
   PositionMessage,
   SeekMessage,
 } from '@kashi/protocol';
+import { parseEffectLevel, type EffectLevel } from '../../shared/effect-level.js';
+import {
+  BEAT_IDLE,
+  BeatCursor,
+  beatsUsable,
+  paletteToCssVars,
+  type BeatFrame,
+  type BeatsLike,
+  type PaletteLike,
+} from './effects-logic.js';
 import { PositionClock } from './position-clock.js';
 import {
   accumulateWheel,
@@ -70,6 +80,47 @@ let lastPlaybackMono = performance.now();
 
 /** Last applied view — repaint only on change (keeps idle frames free). */
 let appliedView: ViewOutput | null = null;
+
+// Effect engine (Faz 4). Palette/beats arrive with server lyrics; the level
+// comes from settings. All per-frame beat work is class toggles on edges.
+let effectLevel: EffectLevel = 'simple';
+let currentPalette: PaletteLike | undefined;
+let currentBeats: BeatsLike | undefined;
+let beatCursor: BeatCursor | null = null;
+let appliedBeat: BeatFrame = BEAT_IDLE;
+
+/** Write the palette CSS vars (defaults when off / no palette — the v0.1.x look). */
+function applyPaletteVars(): void {
+  const vars = paletteToCssVars(effectLevel === 'off' ? undefined : currentPalette);
+  for (const [name, value] of Object.entries(vars)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+}
+
+/** Rebuild the beat cursor whenever the level or the beat grid changes. */
+function rebuildBeatCursor(): void {
+  beatCursor = beatsUsable(effectLevel, currentBeats)
+    ? new BeatCursor(
+        (currentBeats?.times_ms as number[]) ?? [],
+        Array.isArray(currentBeats?.downbeat_indices)
+          ? (currentBeats.downbeat_indices as number[]).filter((i) => Number.isInteger(i))
+          : [],
+      )
+    : null;
+  if (!beatCursor) setBeatClasses(BEAT_IDLE);
+}
+
+function setBeatClasses(frame: BeatFrame): void {
+  if (frame.active === appliedBeat.active && frame.down === appliedBeat.down) return;
+  appliedBeat = frame;
+  boxEl?.classList.toggle('beat', frame.active);
+  boxEl?.classList.toggle('beat-down', frame.down);
+}
+
+function applyEffectLevelClass(): void {
+  document.body.classList.remove('fx-off', 'fx-simple', 'fx-full');
+  document.body.classList.add(`fx-${effectLevel}`);
+}
 
 // Word mode: spans are (re)built ONLY when the active line changes; the
 // per-frame work is toggling one class. Built with createElement/textContent
@@ -136,6 +187,13 @@ function applyView(view: ViewOutput): void {
   }
 }
 
+function clearEnrichment(): void {
+  currentPalette = undefined;
+  currentBeats = undefined;
+  rebuildBeatCursor();
+  applyPaletteVars();
+}
+
 function resetToIdle(): void {
   currentKey = null;
   lines = [];
@@ -144,6 +202,7 @@ function resetToIdle(): void {
   clock.reset();
   statusText = 'Kashi';
   statusDim = true;
+  clearEnrichment();
 }
 
 window.kashi.onTrack((payload) => {
@@ -154,6 +213,7 @@ window.kashi.onTrack((payload) => {
   adActive = false; // a track announce proves no ad is playing (audit: a lost
   // ad_state=false otherwise blanks every following song forever)
   clock.reset();
+  clearEnrichment(); // last track's palette/beats must not theme this one
   trackLabel = `♪ ${track.artist} — ${track.title}`;
   statusText = trackLabel;
   statusDim = false;
@@ -168,6 +228,8 @@ window.kashi.onLyrics((payload) => {
     searching?: boolean;
     error?: boolean;
     lines?: LyricLine[];
+    palette?: PaletteLike;
+    beats?: BeatsLike;
   };
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
@@ -181,9 +243,16 @@ window.kashi.onLyrics((payload) => {
   searching = false;
   if (data.found && data.lines) {
     lines = data.lines;
+    // Server enrichment (Faz 4): palette themes the box, beats drive the
+    // pulse. lrclib results carry neither — defaults keep the plain look.
+    currentPalette = data.palette;
+    currentBeats = data.beats;
+    rebuildBeatCursor();
+    applyPaletteVars();
     window.kashi.log(`lyrics applied: ${lines.length} lines`);
   } else {
     lines = [];
+    clearEnrichment();
     statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
     statusDim = true;
     window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
@@ -233,9 +302,10 @@ window.kashi.onConnection((payload) => {
 });
 
 window.kashi.onSettings((payload) => {
-  const { box_alpha, timing_offset_ms } = payload as {
+  const { box_alpha, timing_offset_ms, effect_level } = payload as {
     box_alpha?: unknown;
     timing_offset_ms?: unknown;
+    effect_level?: unknown;
   };
   if (typeof box_alpha === 'number' && Number.isFinite(box_alpha)) {
     document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
@@ -243,6 +313,13 @@ window.kashi.onSettings((payload) => {
   if (typeof timing_offset_ms === 'number' && Number.isFinite(timing_offset_ms)) {
     // positive = lyrics fire earlier (clamped main-side; belt here)
     timingOffsetMs = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
+  }
+  if (effect_level !== undefined && parseEffectLevel(effect_level) !== effectLevel) {
+    // Instant switch: a body class + variable/cursor reset — nothing rebuilt.
+    effectLevel = parseEffectLevel(effect_level);
+    applyEffectLevelClass();
+    applyPaletteVars();
+    rebuildBeatCursor();
   }
 });
 
@@ -344,6 +421,16 @@ function frame(): void {
     if (wordLineIndex !== lineIndex) buildWordSpans(lineIndex, words);
     highlightWord(findActiveWord(words, pos));
   }
+
+  // Beat pulse (effect level "full"): per-frame cost is a couple of integer
+  // comparisons; DOM classes change only on window edges. No work while
+  // paused/hidden/ad — and never a stuck .beat class after a stop.
+  if (beatCursor && clock.isPlaying && !adActive && lines.length > 0) {
+    setBeatClasses(beatCursor.frame(pos));
+  } else {
+    setBeatClasses(BEAT_IDLE);
+  }
+
   if (clock.isPlaying && !adActive) {
     requestAnimationFrame(frame);
   } else {
@@ -356,6 +443,10 @@ function ensureLoop(): void {
   loopActive = true;
   requestAnimationFrame(frame);
 }
+// First paint uses the default level; the settings replay (first channel in
+// replay order) corrects it before any lyrics arrive.
+applyEffectLevelClass();
+applyPaletteVars();
 ensureLoop();
 
 // Self-healing repaint: several halt states (stopped loop + stale screen) had

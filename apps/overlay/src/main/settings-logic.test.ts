@@ -121,6 +121,7 @@ describe('parseSettings', () => {
       server_url: 'http://cnr-intel:8080',
       server_api_key: 'ksh_' + 'a'.repeat(32),
       timing_offset_ms: 100,
+      effect_level: 'full',
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -185,6 +186,17 @@ describe('timingOffsetLabel', () => {
     expect(timingOffsetLabel(0)).toBe('Off');
     expect(timingOffsetLabel(100)).toBe('+100 ms (earlier)');
     expect(timingOffsetLabel(-50)).toBe('-50 ms (later)');
+  });
+});
+
+describe('effect_level setting', () => {
+  it('defaults to simple and round-trips through parseSettings', () => {
+    expect(DEFAULT_SETTINGS.effect_level).toBe('simple');
+    expect(parseSettings(JSON.stringify({ effect_level: 'full' })).effect_level).toBe('full');
+    expect(parseSettings(JSON.stringify({ effect_level: 'off' })).effect_level).toBe('off');
+    // Garbage/missing → default (tolerant parse, hand-edited files).
+    expect(parseSettings(JSON.stringify({ effect_level: 'ULTRA' })).effect_level).toBe('simple');
+    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).effect_level).toBe('simple');
   });
 });
 

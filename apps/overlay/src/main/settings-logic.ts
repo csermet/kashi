@@ -2,6 +2,11 @@
  * Pure settings logic — no Electron/fs imports so every rule is unit-testable.
  * Persistence lives in settings.ts; this file owns validation and math.
  */
+import {
+  DEFAULT_EFFECT_LEVEL,
+  parseEffectLevel,
+  type EffectLevel,
+} from '../shared/effect-level.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
 
 export const OPACITY_PRESETS = [0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8] as const;
@@ -45,6 +50,8 @@ export interface StoredSettings {
   server_api_key: string | null;
   /** Lyric timing offset in ms (positive = earlier). */
   timing_offset_ms: number;
+  /** Effect engine level (Faz 4): off | simple | full. */
+  effect_level: EffectLevel;
 }
 
 export const DEFAULT_SETTINGS: StoredSettings = {
@@ -54,6 +61,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   server_url: null,
   server_api_key: null,
   timing_offset_ms: DEFAULT_TIMING_OFFSET_MS,
+  effect_level: DEFAULT_EFFECT_LEVEL,
 };
 
 /** Integer ms in [-500, 500]; garbage → 0 (Off). */
@@ -178,5 +186,6 @@ export function parseSettings(raw: string): StoredSettings {
     server_url: serverUrl,
     server_api_key: apiKey,
     timing_offset_ms: clampTimingOffset(record['timing_offset_ms']),
+    effect_level: parseEffectLevel(record['effect_level']),
   };
 }

@@ -18,6 +18,7 @@
 import { app, BrowserWindow, ipcMain, net, screen } from 'electron';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
+import { DEFAULT_EFFECT_LEVEL, parseEffectLevel } from '../shared/effect-level.js';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';
 import { KashiServerClient } from './kashi-server.js';
@@ -226,6 +227,7 @@ function broadcastSettings(): void {
   send('kashi:settings', {
     box_alpha: current.box_alpha,
     timing_offset_ms: current.timing_offset_ms,
+    effect_level: current.effect_level,
   });
 }
 
@@ -233,6 +235,12 @@ function broadcastSettings(): void {
 let trayRefreshTimer: NodeJS.Timeout | null = null;
 function applyTimingOffset(offsetMs: number): void {
   settings?.update({ timing_offset_ms: clampTimingOffset(offsetMs) });
+  broadcastSettings();
+  tray?.refresh();
+}
+
+function applyEffectLevel(level: unknown): void {
+  settings?.update({ effect_level: parseEffectLevel(level) });
   broadcastSettings();
   tray?.refresh();
 }
@@ -447,6 +455,8 @@ app.whenReady().then(async () => {
     getTimingOffset: () => settings?.get().timing_offset_ms ?? 0,
     onTimingOffsetSelect: applyTimingOffset,
     onTimingOffsetCustom: openTimingOffsetPrompt,
+    getEffectLevel: () => settings?.get().effect_level ?? DEFAULT_EFFECT_LEVEL,
+    onEffectLevelSelect: applyEffectLevel,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
   };
