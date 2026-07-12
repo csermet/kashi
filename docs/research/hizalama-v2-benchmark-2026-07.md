@@ -142,6 +142,13 @@ quality hit; A/B first).
   easy songs (window-edge cost) while MAE mean collapses 526 → 191 ms — the
   catastrophic tail (the field complaint) is gone. Production-config field
   cases: TiK ToK 0 lines over, Rick 1 (raw full-mix: 8 and 6).
+- **Acceptance-tour catch → pipeline 2.0.1:** the calibrated CTC-prob quality
+  ramp is INVALID on the windowed path — r=0.36 vs true accuracy across 79
+  songs; 10 of the 13 sub-0.5 scores had PCO@0.3 ≥ 0.88 (cluster Rick: clean
+  timings, score 0.0137) — which would wrongly push good documents under the
+  client's 0.5 word-mode gate. Windowed documents now score by lrclib-anchor
+  agreement (share of referenced lines line_qa did not flag/drop); the
+  whole-audio path keeps the prob ramp. The 0.5 client contract is unchanged.
 - Known trade-off (reviewer, 2026-07-12): on the windowed path line_qa loses
   most of its power BY CONSTRUCTION — aligner starts are confined to windows
   derived from the same lrclib stamps it audits against, so deviations ≈ 0.
