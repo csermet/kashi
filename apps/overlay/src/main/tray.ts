@@ -13,6 +13,7 @@ import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electr
 import trayIconPath from '../../resources/tray.png?asset';
 import {
   OPACITY_PRESETS,
+  TIMING_OFFSET_NUDGE_MS,
   TIMING_OFFSET_PRESETS,
   nearestPresetIndex,
   presetLabel,
@@ -66,6 +67,18 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
       enabled: false,
     });
   }
+  timingItems.push(
+    { type: 'separator' },
+    // True custom without a dialog: click repeatedly to dial any value in.
+    {
+      label: `Nudge +${TIMING_OFFSET_NUDGE_MS} ms (earlier)`,
+      click: () => opts.onTimingOffsetSelect(opts.getTimingOffset() + TIMING_OFFSET_NUDGE_MS),
+    },
+    {
+      label: `Nudge -${TIMING_OFFSET_NUDGE_MS} ms (later)`,
+      click: () => opts.onTimingOffsetSelect(opts.getTimingOffset() - TIMING_OFFSET_NUDGE_MS),
+    },
+  );
   return Menu.buildFromTemplate([
     { label: `Kashi v${opts.version}`, enabled: false },
     { type: 'separator' },
