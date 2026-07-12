@@ -186,7 +186,9 @@ def _line_only_fallback(line_texts: list[str], results: list[dict]) -> AlignResu
     )
 
 
-def _align_texts(model, tokenizer, audio, texts: list[str], language: str) -> list[dict]:
+def _align_texts(
+    model, tokenizer, audio, texts: list[str], language: str, star_frequency: str = "segment"
+) -> list[dict]:
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
     [{start, end, text, score}] in SECONDS relative to the given audio."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
@@ -203,7 +205,7 @@ def _align_texts(model, tokenizer, audio, texts: list[str], language: str) -> li
         romanize=True,  # uroman: required by the multilingual MMS model
         language=language,
         split_size="word",
-        star_frequency="segment",
+        star_frequency=star_frequency,
     )
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     spans = get_spans(tokens_starred, segments, blank)
@@ -245,7 +247,10 @@ def align(
             ]
             texts = [line_texts[i] for i in window.line_indices]
             offset_s = window.slice_start_ms / 1000
-            for r in _align_texts(model, tokenizer, piece, texts, language):
+            # "edges": star tokens at BOTH slice edges absorb the pad and the
+            # inter-line gap, so forced alignment doesn't stretch real words
+            # over non-vocal audio (measured: "segment" cost ~0.13 PCO here).
+            for r in _align_texts(model, tokenizer, piece, texts, language, "edges"):
                 if r.get("text") == STAR_TOKEN:
                     continue  # regroup drops them anyway; keep offsets word-only
                 merged.append(

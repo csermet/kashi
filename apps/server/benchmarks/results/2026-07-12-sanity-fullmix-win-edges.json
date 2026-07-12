@@ -1,0 +1,71 @@
+{
+ "meta": {
+  "generated_at": "2026-07-12T00:31:05+00:00",
+  "label": "sanity-fullmix-win-edges",
+  "pipeline_version": "1.2.0",
+  "alignment_model": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+  "separation": "full-mix",
+  "mixback": null,
+  "windowed": true,
+  "anchor_jitter_ms": 400,
+  "host": "122100deafb6",
+  "cpus": 4,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 107.3
+ },
+ "cases": {
+  "aggregate": {
+   "cases": 2,
+   "passed": 1
+  },
+  "results": [
+   {
+    "id": "tiktok",
+    "title": "TiK ToK",
+    "artist": "Kesha",
+    "separate_s": 0.0,
+    "align_s": 58.4,
+    "sync": "word",
+    "quality_score": 0.4992,
+    "offset_ms": 217,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 59,
+     "mae_ms": 449.93220338983053,
+     "medae_ms": 290.0,
+     "p95_ms": 2140.0,
+     "pcs": {
+      "0.3": 0.5254237288135594
+     }
+    }
+   },
+   {
+    "id": "never-gonna-give-you-up",
+    "title": "Never Gonna Give You Up",
+    "artist": "Rick Astley",
+    "separate_s": 0.0,
+    "align_s": 47.2,
+    "sync": "word",
+    "quality_score": 0.0,
+    "offset_ms": -130,
+    "lines_over_threshold": 2,
+    "passed": false,
+    "lines": {
+     "count": 58,
+     "mae_ms": 399.0344827586207,
+     "medae_ms": 198.5,
+     "p95_ms": 1681.5,
+     "pcs": {
+      "0.3": 0.6379310344827587
+     }
+    }
+   }
+  ]
+ }
+}
