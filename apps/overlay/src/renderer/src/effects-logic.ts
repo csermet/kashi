@@ -4,6 +4,17 @@
  * class/variable writes live in main.ts.
  */
 import type { EffectLevel, ThemeScope } from '../../shared/effect-level.js';
+import {
+  NEUTRAL_BG_TRIPLET,
+  bestHueDonor,
+  hasUsableHue,
+  hexToOklch,
+  toneAccent,
+  toneBackground,
+  tonePrimary,
+  toneSecondary,
+  type Oklch,
+} from './color-tone.js';
 
 /** Shapes as they arrive over IPC — untrusted, everything optional. */
 export interface PaletteLike {
@@ -36,13 +47,6 @@ export const DEFAULT_PALETTE_VARS: Readonly<Record<string, string>> = {
   '--kashi-accent': '#ffffff',
 };
 
-/**
- * Lyric text sits on a mostly-dark translucent box over arbitrary desktop
- * content — a near-black primary/text color would be unreadable. Colors used
- * for TEXT need at least this relative luminance or they fall back to white.
- * (0.15 keeps saturated mid-tones like #e84545 while rejecting #1a1a2e.)
- */
-export const TEXT_LUMINANCE_FLOOR = 0.15;
 /**
  * Field feedback (2026-07-12): light album backgrounds made lyrics unreadable
  * and even the valid ones read too bright. The box background is CLAMPED
@@ -108,29 +112,22 @@ function validHex(value: unknown): string | null {
   return typeof value === 'string' && HEX_COLOR.test(value) ? value : null;
 }
 
-/**
- * Text-carrying colors pass BOTH readability rules or fall back to white:
- * the absolute luminance floor (the box is translucent — the desktop behind
- * it is arbitrary) and the contrast ratio against the box's own color.
- */
-function textSafeHex(value: unknown, bgHex: string): string | null {
+function parseSlot(value: unknown): Oklch | null {
   const hex = validHex(value);
-  if (hex === null) return null;
-  if (relativeLuminance(hex) < TEXT_LUMINANCE_FLOOR) return null;
-  if (contrastRatio(hex, bgHex) < TEXT_CONTRAST_MIN) return null;
-  return hex;
+  return hex === null ? null : hexToOklch(hex);
 }
 
-const DEFAULT_BG_HEX = '#080a12'; // the stock box color (8, 10, 18)
-
 /**
- * Map an (untrusted) palette onto the CSS variables the stylesheet consumes.
- * Every color is validated against #rrggbb — IPC payloads never reach CSS
- * unchecked (R-7). The background is clamped dark, text-carrying colors must
- * clear the readability rules, and `scope` decides how much of the palette
- * applies at all (field feedback: colors can be pinned per group). The
- * background becomes an "r, g, b" triplet so the stylesheet can compose it
- * with the user's box alpha (which stays untouched by theming).
+ * Map an (untrusted) palette onto the CSS variables the stylesheet consumes,
+ * through the TONE-MAPPING pipeline (color-tone.ts): only the HUE of each
+ * extracted color survives; brightness/saturation render at fixed bands, so
+ * a theme can never be muddy, washed-out, or unreadable (field turu 2).
+ *
+ * Rules preserved from 0.2.3: every input validated against #rrggbb (R-7);
+ * background emitted as an "r, g, b" triplet composed with the user's box
+ * alpha; `scope` pins color groups; base text stays white (differentiation
+ * from the primary is guaranteed by construction: ΔE_OK ≥ ~0.19). The WCAG
+ * check remains as a backstop that provably never fires with today's bands.
  */
 export function paletteToCssVars(
   palette: PaletteLike | undefined,
@@ -139,25 +136,47 @@ export function paletteToCssVars(
   const vars = { ...DEFAULT_PALETTE_VARS };
   if (!palette || scope === 'none') return vars;
 
-  let bgHex = DEFAULT_BG_HEX;
-  const background = validHex(palette.background);
-  if (background && scope === 'full') {
-    bgHex = clampBackground(background);
-    vars['--kashi-bg-rgb'] = `${channel(bgHex, 0)}, ${channel(bgHex, 1)}, ${channel(bgHex, 2)}`;
+  // Donor pass: the most chromatic slot lends its hue to neutral slots so
+  // B&W-with-one-accent covers theme coherently. `text` is excluded — the
+  // server only ever emits synthetic #ffffff/#111111 there.
+  const slots = {
+    primary: parseSlot(palette.primary),
+    accent: parseSlot(palette.accent),
+    secondary: parseSlot(palette.secondary),
+    background: parseSlot(palette.background),
+  };
+  const donor = bestHueDonor([slots.primary, slots.accent, slots.secondary, slots.background]);
+  const resolve = (slot: Oklch | null): Oklch | null =>
+    slot && hasUsableHue(slot) ? slot : donor;
+
+  let bgHex: string | null = null;
+  if (scope === 'full') {
+    const bg = resolve(slots.background);
+    bgHex = bg ? toneBackground(bg) : null;
+    vars['--kashi-bg-rgb'] = bgHex
+      ? `${channel(bgHex, 0)}, ${channel(bgHex, 1)}, ${channel(bgHex, 2)}`
+      : NEUTRAL_BG_TRIPLET;
   }
 
-  if (scope === 'full' || scope === 'fixed-bg') {
-    const text = textSafeHex(palette.text, bgHex);
-    if (text) vars['--kashi-text'] = text;
-  }
+  // Base text is pinned white (see module note) — DEFAULT_PALETTE_VARS value.
 
-  // Effect colors (active word / glow) theme in every non-none scope.
-  const primary = textSafeHex(palette.primary, bgHex);
-  if (primary) vars['--kashi-primary'] = primary;
-  const secondary = validHex(palette.secondary);
-  if (secondary) vars['--kashi-secondary'] = secondary;
-  const accent = validHex(palette.accent);
-  if (accent) vars['--kashi-accent'] = accent;
+  // Effect colors (active word / sweep tail / glow) theme in every non-none
+  // scope; a neutral palette with no donor keeps them stock white.
+  const primarySource = resolve(slots.primary);
+  if (primarySource) {
+    const primary = tonePrimary(primarySource);
+    vars['--kashi-primary'] = primary.hex;
+    vars['--kashi-secondary'] = toneSecondary(primary.c, primary.h);
+  }
+  const accentSource = resolve(slots.accent);
+  if (accentSource) vars['--kashi-accent'] = toneAccent(accentSource);
+
+  // Backstop (belt): measured floor across the bands is ~8:1 — this cannot
+  // fire today, but a future band retune must not silently ship unreadable.
+  if (bgHex && contrastRatio(vars['--kashi-primary']!, bgHex) < TEXT_CONTRAST_MIN) {
+    vars['--kashi-primary'] = DEFAULT_PALETTE_VARS['--kashi-primary']!;
+    vars['--kashi-secondary'] = DEFAULT_PALETTE_VARS['--kashi-secondary']!;
+  }
   return vars;
 }
 

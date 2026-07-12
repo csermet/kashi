@@ -148,6 +148,23 @@ body.fx-full #lyric-box.beat-down {
   box-shadow: 0 0 16px var(--kashi-accent, transparent);
 }
 
+/* Line-change micro-transition (Faz 4 saha turu 2): a one-shot 160 ms
+   fade + 2 px rise re-armed per line change (main.ts removes the class,
+   forces a reflow, re-adds). Never on interlude views — that state owns
+   the `animation` property (kashi-interlude) and the predicate keeps this
+   class away from it. fx-off gets neither rule nor class. */
+body.fx-simple #lyric-line.line-in,
+body.fx-full #lyric-line.line-in {
+  animation: kashi-line-in 160ms ease-out;
+}
+
+@keyframes kashi-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
 /* Ad-lib lines (server lines[].adlib): backing-vocal feel — slightly faded,
    italic. Only when the document says so; lrclib songs never get this. */
 body.fx-simple .lyric.adlib,
@@ -163,10 +180,14 @@ body.fx-full .lyric.adlib {
    Placed AFTER .word-active so `color: transparent` wins while filling. */
 body.fx-simple .word-fill,
 body.fx-full .word-fill {
+  /* Tail = a dim of the THEME hue (secondary derives from the primary) at
+     55% alpha; the #fff default computes to exactly the old
+     rgba(255,255,255,0.55), so unthemed tracks are pixel-identical. */
   background-image: linear-gradient(
     90deg,
     var(--kashi-primary, #fff) calc(var(--kashi-fill, 0) * 100%),
-    rgba(255, 255, 255, 0.55) calc(var(--kashi-fill, 0) * 100%)
+    color-mix(in srgb, var(--kashi-secondary, #fff) 55%, transparent)
+      calc(var(--kashi-fill, 0) * 100%)
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -184,7 +205,7 @@ body.fx-full .word-fill {
   justify-content: center;
   align-items: center;
   gap: 5px;
-  color: #fff;
+  color: var(--kashi-text, #fff);
   opacity: 0.7;
   font-size: 12px;
 }
@@ -203,7 +224,7 @@ body.fx-full .word-fill {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--kashi-text, #fff);
   animation: kashi-dot 1.2s infinite;
 }
 

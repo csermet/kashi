@@ -3,6 +3,7 @@
  * the "what should be on screen right now" rules unit-testable — several Faz 2
  * bugs were exactly these rules interacting badly (render-gap audit).
  */
+import type { EffectLevel } from '../../shared/effect-level.js';
 
 export interface ViewState {
   /** An ad is playing — the overlay must show nothing at all. */
@@ -62,6 +63,28 @@ export function deriveView(state: ViewState): ViewOutput {
     interlude: false,
     lineAdlib: false,
   };
+}
+
+/**
+ * Whether a repaint should re-arm the one-shot line-entrance animation
+ * (Faz 4 saha turu 2). Never on the first paint (no startup flicker), at
+ * effect level off (pixel identity), on interlude views (that state owns the
+ * `animation` property), or when the text did not actually change. Keyed off
+ * the previous ViewOutput's lineText — word spans may have rewritten the
+ * DOM's textContent with normalized spacing.
+ */
+export function shouldAnimateLineChange(
+  prev: ViewOutput | null,
+  next: ViewOutput,
+  level: EffectLevel,
+): boolean {
+  return (
+    level !== 'off' &&
+    prev !== null &&
+    next.boxVisible &&
+    !next.interlude &&
+    prev.lineText !== next.lineText
+  );
 }
 
 export interface WordTiming {

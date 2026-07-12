@@ -6,6 +6,7 @@ import {
   deriveView,
   findActiveWord,
   findDisplayLine,
+  shouldAnimateLineChange,
   watchdogShouldReset,
 } from './view-logic.js';
 
@@ -95,6 +96,33 @@ describe('deriveView', () => {
       interlude: false,
       lineAdlib: false,
     });
+  });
+});
+
+describe('shouldAnimateLineChange', () => {
+  const view = (lineText: string, over: Record<string, unknown> = {}) => ({
+    boxVisible: true,
+    lineText,
+    lineDim: false,
+    searchVisible: false,
+    interlude: false,
+    lineAdlib: false,
+    ...over,
+  });
+
+  it('arms only on a REAL line change at simple/full', () => {
+    expect(shouldAnimateLineChange(view('a'), view('b'), 'simple')).toBe(true);
+    expect(shouldAnimateLineChange(view('a'), view('b'), 'full')).toBe(true);
+  });
+
+  it('never on first paint, off level, interlude, hidden box or same text', () => {
+    expect(shouldAnimateLineChange(null, view('b'), 'full')).toBe(false);
+    expect(shouldAnimateLineChange(view('a'), view('b'), 'off')).toBe(false);
+    expect(shouldAnimateLineChange(view('a'), view('♪', { interlude: true }), 'full')).toBe(false);
+    expect(shouldAnimateLineChange(view('a'), view('b', { boxVisible: false }), 'full')).toBe(
+      false,
+    );
+    expect(shouldAnimateLineChange(view('a'), view('a'), 'full')).toBe(false);
   });
 });
 

@@ -13,7 +13,7 @@ import {
   BG_MAX_LUMINANCE,
   BeatCursor,
   DEFAULT_PALETTE_VARS,
-  TEXT_LUMINANCE_FLOOR,
+  TEXT_CONTRAST_MIN,
   beatsUsable,
   clampBackground,
   contrastRatio,
@@ -22,6 +22,7 @@ import {
   planWordFills,
   relativeLuminance,
 } from './effects-logic.js';
+import { NEUTRAL_BG_TRIPLET } from './color-tone.js';
 
 describe('parseEffectLevel', () => {
   it('accepts the three levels and defaults everything else', () => {
@@ -57,20 +58,20 @@ describe('paletteToCssVars', () => {
     accent: '#903749',
   };
 
-  it('maps a valid palette onto the variables', () => {
+  it('maps a valid palette onto TONE-MAPPED variables (0.2.4)', () => {
     const vars = paletteToCssVars(RICK);
-    expect(vars['--kashi-primary']).toBe('#e84545');
-    expect(vars['--kashi-secondary']).toBe('#f5d76e');
-    expect(vars['--kashi-bg-rgb']).toBe('26, 26, 46'); // hex → decimal triplet
-    expect(vars['--kashi-text']).toBe('#ffffff');
-    expect(vars['--kashi-accent']).toBe('#903749');
+    expect(vars['--kashi-primary']).toBe('#ffaba3'); // harsh red → soft coral
+    expect(vars['--kashi-secondary']).toBe('#dc968f'); // dim of the PRIMARY hue
+    expect(vars['--kashi-bg-rgb']).toBe('20, 19, 39'); // bg band dark tint
+    expect(vars['--kashi-text']).toBe('#ffffff'); // base text pinned white
+    expect(vars['--kashi-accent']).toBe('#d47483'); // accent band
   });
 
   it('no palette → the defaults (= the pre-Faz-4 look)', () => {
     expect(paletteToCssVars(undefined)).toEqual(DEFAULT_PALETTE_VARS);
   });
 
-  it('falls back per field on invalid colors (untrusted IPC never reaches CSS)', () => {
+  it('invalid colors never reach CSS; the valid hue themes the theme (donor)', () => {
     const vars = paletteToCssVars({
       primary: 'red',
       secondary: '#12345',
@@ -78,21 +79,27 @@ describe('paletteToCssVars', () => {
       text: 42,
       accent: '#903749',
     });
-    expect(vars['--kashi-primary']).toBe(DEFAULT_PALETTE_VARS['--kashi-primary']);
-    expect(vars['--kashi-secondary']).toBe(DEFAULT_PALETTE_VARS['--kashi-secondary']);
-    expect(vars['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
-    expect(vars['--kashi-text']).toBe(DEFAULT_PALETTE_VARS['--kashi-text']);
-    expect(vars['--kashi-accent']).toBe('#903749'); // the one valid field survives
+    // The one valid slot (accent) becomes the hue donor: primary/secondary/bg
+    // all render as tone-mapped versions of ITS hue — never raw, never CSS-
+    // injectable garbage.
+    expect(vars['--kashi-accent']).toBe('#d47483');
+    expect(vars['--kashi-primary']).toMatch(/^#[0-9a-f]{6}$/);
+    expect(vars['--kashi-primary']).not.toBe(DEFAULT_PALETTE_VARS['--kashi-primary']);
+    expect(vars['--kashi-bg-rgb']).toMatch(/^\d+, \d+, \d+$/);
+    expect(vars['--kashi-text']).toBe('#ffffff');
   });
 
-  it('floors near-black TEXT colors to stay readable, keeps mid-tones', () => {
-    expect(relativeLuminance('#1a1a2e')).toBeLessThan(TEXT_LUMINANCE_FLOOR);
-    expect(relativeLuminance('#e84545')).toBeGreaterThan(TEXT_LUMINANCE_FLOOR);
+  it('dark hued primaries are RESCUED, not whited out (0.2.4 feature)', () => {
+    // 0.2.3 dropped #1a1a2e to white via the luminance floor; the tone mapper
+    // now re-renders its hue at a readable band instead — that is the point.
     const vars = paletteToCssVars({ primary: '#1a1a2e', text: '#0a0a0a' });
-    expect(vars['--kashi-primary']).toBe('#ffffff');
-    expect(vars['--kashi-text']).toBe('#ffffff');
-    // The floor applies to text-carrying colors only — bg keeps dark values.
-    expect(paletteToCssVars({ background: '#0a0a0a' })['--kashi-bg-rgb']).toBe('10, 10, 10');
+    expect(vars['--kashi-primary']).not.toBe('#ffffff');
+    expect(relativeLuminance(vars['--kashi-primary']!)).toBeGreaterThan(0.4);
+    expect(vars['--kashi-text']).toBe('#ffffff'); // base text stays pinned
+    // A truly neutral background with no donor lands on the honest dark gray.
+    expect(paletteToCssVars({ background: '#0a0a0a' })['--kashi-bg-rgb']).toBe(
+      NEUTRAL_BG_TRIPLET,
+    );
   });
 });
 
@@ -166,12 +173,16 @@ describe('color rules (field feedback: readability is a RULE, not luck)', () => 
     expect(relativeLuminance(hex)).toBeLessThanOrEqual(BG_MAX_LUMINANCE);
   });
 
-  it('text colors that cannot clear the contrast rule fall back to white', () => {
-    // A dark red on a dark background: luminance floor passes nothing here —
-    // contrast is the failing rule.
-    expect(contrastRatio('#5a2020', '#1a1a2e')).toBeLessThan(3);
+  it('a dark muddy primary is rescued into a readable band (was: white fallback)', () => {
+    // 0.2.3 whited this out; the tone mapper keeps the hue and guarantees
+    // the contrast by construction.
     const vars = paletteToCssVars({ background: '#1a1a2e', primary: '#5a2020' });
-    expect(vars['--kashi-primary']).toBe('#ffffff');
+    expect(vars['--kashi-primary']).not.toBe('#ffffff');
+    const [r, g, b] = vars['--kashi-bg-rgb']!.split(',').map((v) => Number(v.trim()));
+    const bgHex = `#${[r, g, b].map((v) => v!.toString(16).padStart(2, '0')).join('')}`;
+    expect(contrastRatio(vars['--kashi-primary']!, bgHex)).toBeGreaterThanOrEqual(
+      TEXT_CONTRAST_MIN,
+    );
   });
 
   it('theme scope pins color groups (field setting)', () => {
@@ -183,13 +194,13 @@ describe('color rules (field feedback: readability is a RULE, not luck)', () => 
     };
     const fixedBg = paletteToCssVars(palette, 'fixed-bg');
     expect(fixedBg['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
-    expect(fixedBg['--kashi-text']).toBe('#f5d76e');
-    expect(fixedBg['--kashi-primary']).toBe('#e84545');
+    expect(fixedBg['--kashi-text']).toBe('#ffffff'); // base text pinned (0.2.4)
+    expect(fixedBg['--kashi-primary']).toBe('#ffaba3'); // effect colors themed
 
     const fixedText = paletteToCssVars(palette, 'fixed-text');
     expect(fixedText['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
     expect(fixedText['--kashi-text']).toBe(DEFAULT_PALETTE_VARS['--kashi-text']);
-    expect(fixedText['--kashi-primary']).toBe('#e84545'); // effect colors still theme
+    expect(fixedText['--kashi-primary']).toBe('#ffaba3'); // effect colors still theme
 
     expect(paletteToCssVars(palette, 'none')).toEqual(DEFAULT_PALETTE_VARS);
   });

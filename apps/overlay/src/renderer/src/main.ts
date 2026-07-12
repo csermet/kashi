@@ -33,6 +33,7 @@ import {
   deriveView,
   findActiveWord,
   findDisplayLine,
+  shouldAnimateLineChange,
   watchdogShouldReset,
   type ViewOutput,
   type WordTiming,
@@ -241,6 +242,7 @@ function applyView(view: ViewOutput): void {
   ) {
     return;
   }
+  const prev = appliedView;
   appliedView = view;
   boxEl?.classList.toggle('hidden', !view.boxVisible);
   if (lineEl) {
@@ -249,6 +251,14 @@ function applyView(view: ViewOutput): void {
     lineEl.classList.toggle('dim', view.lineDim);
     lineEl.classList.toggle('interlude', view.interlude);
     lineEl.classList.toggle('adlib', view.lineAdlib);
+    // One-shot entrance: unconditional removal first — a stale class must
+    // never linger into interlude/status views (its ID selector would
+    // out-specificity the ♪ animation).
+    lineEl.classList.remove('line-in');
+    if (shouldAnimateLineChange(prev, view, effectLevel)) {
+      void lineEl.offsetWidth; // forced reflow re-arms the one-shot animation
+      lineEl.classList.add('line-in');
+    }
   }
   clearWordSpans(); // any full repaint invalidates the span cache
   if (searchEl) searchEl.hidden = !view.searchVisible;
