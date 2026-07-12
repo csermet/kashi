@@ -208,7 +208,9 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
 
     row = db_session.scalars(select(ProcessedTrack)).one()
     doc = row.document
-    assert doc["pipeline_version"] == "1.2.0"
+    from kashi_server.version import PIPELINE_VERSION
+
+    assert doc["pipeline_version"] == PIPELINE_VERSION
     assert doc["sync"] == "word"
     assert doc["lines"][3]["start_ms"] == 46_000
     assert "words" not in doc["lines"][3]  # dropped by QA
@@ -327,3 +329,75 @@ def test_sweep_orphans_removes_stale_dirs_only(tmp_path):
 
     assert sweep_orphans(tmp_path) == 1
     assert not old.exists() and fresh.exists()
+
+
+def test_always_mode_separates_first_and_keeps_beats_on_the_full_mix(
+    db_session, job, scratch, monkeypatch
+):
+    """The shipped 2.0.0 path: separation runs BEFORE alignment, the doc says
+    vocals_separated, and beats still read the ORIGINAL mix (not the stem)."""
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "separation_mode", "always")
+
+    statuses: list[str] = []
+    real_set_status = queue.set_status
+
+    def spy_set_status(s, j, status):
+        statuses.append(status)
+        real_set_status(s, j, status)
+
+    monkeypatch.setattr(wp.queue, "set_status", spy_set_status)
+    separated: list[Path] = []
+    monkeypatch.setattr(
+        wp, "_separate_vocals", lambda audio, tmp: separated.append(audio) or (tmp / "vocals.wav")
+    )
+    beats_inputs: list[Path] = []
+    monkeypatch.setattr(wp, "extract_beats", lambda p: beats_inputs.append(p) or None)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert len(separated) == 1
+    assert "separating" in statuses
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["vocals_separated"] is True
+    assert beats_inputs == [separated[0]]  # the download path, not vocals.wav
+
+
+def test_windowed_flag_forwards_the_lrclib_anchors(db_session, job, scratch, monkeypatch):
+    """Reverting the anchors= wiring in process.py must fail a test: windowed
+    alignment silently degrades to whole-audio otherwise (reviewer)."""
+    real_align_stage = wp._align_stage
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "windowed_alignment", True)
+    monkeypatch.setattr(wp, "_align_stage", real_align_stage)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: LyricsText(
+            ["hello world"], "hello world", 5, True, synced_starts_ms=[12_000]
+        ),
+    )
+    seen: dict = {}
+
+    def spy_align(wav, texts, lang, synced_starts_ms=None):
+        seen["anchors"] = synced_starts_ms
+        return _align_result(0.8)
+
+    monkeypatch.setattr(wp, "align", spy_align)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert seen["anchors"] == [12_000]

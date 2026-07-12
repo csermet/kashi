@@ -138,6 +138,14 @@ quality hit; A/B first).
   **MAE halved vs plain** (367 → 176 ms), robust to ±400 ms anchor jitter.
 - Next measurement: kim-melband + windowed, full 79 (the production target
   config) on the GPU box.
+- Known trade-off (reviewer, 2026-07-12): on the windowed path line_qa loses
+  most of its power BY CONSTRUCTION — aligner starts are confined to windows
+  derived from the same lrclib stamps it audits against, so deviations ≈ 0.
+  A genuinely wrong lrclib record (matching duration, or no duration field)
+  is no longer visible to QA; residual guards are the monotonic-stamp check,
+  the ±3 s duration match, and plan_windows' stamp-viability gates. line_qa
+  fully covers the whole-audio fallback path. Accepted: the benchmark shows
+  the windowed path removes the failure class line_qa existed to patch.
 
 ## 5. Eval hardening backlog
 

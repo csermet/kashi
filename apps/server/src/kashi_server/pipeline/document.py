@@ -97,7 +97,9 @@ def build_document(
         "track": track,
         "sync": align_result.sync,
         "alignment": {
-            "method": "ctc-forced-aligner/mms-300m",
+            "method": "ctc-forced-aligner/mms-300m+line-windowed"
+            if align_result.windowed
+            else "ctc-forced-aligner/mms-300m",
             "lyrics_source": "lrclib",
             "lyrics_source_id": lyrics.source_id,
             "vocals_separated": vocals_separated,

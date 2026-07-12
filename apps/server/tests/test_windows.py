@@ -121,3 +121,10 @@ def test_reconcile_seams_clamps_backwards_starts():
     assert fixed[2]["end"] >= fixed[2]["start"]
     # untouched entries keep their identity (no needless copies)
     assert fixed[0] is results[0]
+
+
+def test_stamp_beyond_audio_end_returns_none():
+    # A bad lrclib record can stamp past the real audio; a degenerate slice
+    # must fall back to whole-audio alignment, not crash the job (reviewer).
+    starts: list[int | None] = [60_000, 61_000, 62_000, 63_000]
+    assert plan_windows(TEXTS, starts, 50_000) is None

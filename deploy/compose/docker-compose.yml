@@ -57,7 +57,7 @@ services:
     command: ["python", "-m", "kashi_server.worker"]
     environment:
       DATABASE_URL: postgresql+psycopg://kashi:${POSTGRES_PASSWORD}@postgres:5432/kashi
-      SEPARATION_MODE: ${SEPARATION_MODE:-off}
+      SEPARATION_MODE: ${SEPARATION_MODE:-always}
       BGUTIL_POT_PROVIDER_URL: ${BGUTIL_POT_PROVIDER_URL:-}
     volumes:
       - kashi-models:/models    # MMS weights (~1.2 GB) survive restarts

@@ -50,6 +50,9 @@ class AlignResult:
     lines: list[LineTiming]
     words_per_line: list[list[AlignedWord]]
     quality_score: float
+    # True only when window-anchored alignment ACTUALLY ran (plan_windows can
+    # decline and fall back to whole-audio) — document provenance keys off it.
+    windowed: bool = False
 
 
 def _load_model():
@@ -159,7 +162,9 @@ def regroup_words_into_lines(
     return lines, words_per_line
 
 
-def _line_only_fallback(line_texts: list[str], results: list[dict]) -> AlignResult:
+def _line_only_fallback(
+    line_texts: list[str], results: list[dict], windowed: bool
+) -> AlignResult:
     """Spread whatever segments we got across the lines, proportionally."""
     words = [r for r in results if r.get("text") != STAR_TOKEN]
     if not words:
@@ -182,7 +187,11 @@ def _line_only_fallback(line_texts: list[str], results: list[dict]) -> AlignResu
         )
     all_probs = [_word_prob(float(w.get("score", 0.0))) for w in words]
     return AlignResult(
-        sync="line", lines=lines, words_per_line=[], quality_score=quality_from_probs(all_probs)
+        sync="line",
+        lines=lines,
+        words_per_line=[],
+        quality_score=quality_from_probs(all_probs),
+        windowed=windowed,
     )
 
 
@@ -260,7 +269,7 @@ def align(
 
     regrouped = regroup_words_into_lines(line_texts, results)
     if regrouped is None:
-        return _line_only_fallback(line_texts, results)
+        return _line_only_fallback(line_texts, results, windowed=plan is not None)
 
     lines, words_per_line = regrouped
     all_words = [word for chunk in words_per_line for word in chunk]
@@ -268,5 +277,9 @@ def align(
         raise PipelineError("alignment_failed", "no words survived regrouping")
     quality = quality_from_probs([word.prob for word in all_words])
     return AlignResult(
-        sync="word", lines=lines, words_per_line=words_per_line, quality_score=quality
+        sync="word",
+        lines=lines,
+        words_per_line=words_per_line,
+        quality_score=quality,
+        windowed=plan is not None,
     )

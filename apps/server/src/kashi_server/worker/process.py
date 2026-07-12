@@ -166,7 +166,10 @@ def process_job(s: Session, job: Job) -> None:
         )
         checkpoint(s, job)
 
-        if settings.separation_mode == "always" or (job.options or {}).get("separate"):
+        separate_first = settings.separation_mode == "always" or bool(
+            (job.options or {}).get("separate")
+        )
+        if separate_first:
             queue.set_status(s, job, "separating")
             s.commit()
             source_audio = _separate_vocals(download.path, tmp)
@@ -208,7 +211,7 @@ def process_job(s: Session, job: Job) -> None:
             result,
             beats,
             palette,
-            vocals_separated=vocals_separated or settings.separation_mode == "always",
+            vocals_separated=vocals_separated or separate_first,
             fallback_duration_ms=round(download.duration_s * 1000),
         )
         persist_processed_track(s, job, doc)

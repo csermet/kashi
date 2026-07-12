@@ -28,18 +28,21 @@ class Settings(BaseSettings):
     admin_api_key: str | None = None
     data_dir: Path = Path("/scratch")
     model_cache_dir: Path = Path("/models")  # exported as HF_HOME by the worker
-    separation_mode: Literal["off", "second_pass", "always"] = "off"
-    # lrclib-anchored windowed alignment (P3). Ships dark: flips to True in
-    # the 2.0.0 rollout together with the separation default.
-    windowed_alignment: bool = False
-    # audio-separator registry filename. BS-RoFormer: best measured vocal SDR of
-    # the CPU-viable models (hizalama-v2 research); Voc_FT is the fallback if
-    # its wall-clock blows up on the worker (see benchmarks/).
-    separation_model_filename: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
-    # Fraction of the ORIGINAL mix folded back into the vocal stem before
-    # alignment — insurance against separation artefacts eating quiet words.
-    # 0 disables the mixback pass.
-    separation_mixback: float = 0.15
+    # Pipeline 2.0.0 defaults — every one of these is MEASURED, not assumed
+    # (9-config / 79-song matrix + field cases, 2026-07-11/12; see
+    # docs/research/hizalama-v2-benchmark-2026-07.md).
+    separation_mode: Literal["off", "second_pass", "always"] = "always"
+    # lrclib-anchored windowed alignment (P3): a CTC lock loss cannot
+    # propagate past a window edge (the dominant field failure mode).
+    windowed_alignment: bool = True
+    # audio-separator registry filename. Kim MelBand: best measured PCO/MAE of
+    # all candidates at ~2.1x realtime on the worker (BS-RoFormer quality at a
+    # third of its cost); higher-SDR models measured WORSE for alignment.
+    separation_model_filename: str = "mel_band_roformer_kim_ft_unwa.ckpt"
+    # Fraction of the ORIGINAL mix folded back into the vocal stem. Measured
+    # HARMFUL on average (dilutes the clean-vocal advantage; ~10x MedAE) —
+    # kept only as an escape hatch. 0 disables the pass.
+    separation_mixback: float = 0.0
     lrclib_base_url: str = "https://lrclib.net"
     max_track_duration_s: int = 1200
     queue_depth_limit: int = 200

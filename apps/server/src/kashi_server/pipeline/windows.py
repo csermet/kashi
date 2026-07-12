@@ -122,14 +122,19 @@ def plan_windows(
         else:
             windows.append((current_start or 0, current_end, current_lines))
 
-    out = [
-        Window(
-            slice_start_ms=max(0, start - pad_ms),
-            slice_end_ms=min(total_ms, end + pad_ms),
-            line_indices=lines,
-        )
-        for start, end, lines in windows
-    ]
+    try:
+        out = [
+            Window(
+                slice_start_ms=max(0, start - pad_ms),
+                slice_end_ms=min(total_ms, end + pad_ms),
+                line_indices=lines,
+            )
+            for start, end, lines in windows
+        ]
+    except ValueError:
+        # e.g. a stamp beyond the audio end (bad lrclib record) makes an empty
+        # slice — anchors are untrustworthy, use the whole-audio path.
+        return None
     # Ownership must partition the lines exactly (defensive: regroup depends
     # on it downstream).
     owned = [i for w in out for i in w.line_indices]

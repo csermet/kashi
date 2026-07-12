@@ -26,6 +26,19 @@ def db_session():
         session.close()
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_pipeline_defaults(monkeypatch):
+    """Unit tests exercise MECHANICS, not the shipped defaults: 2.0.0 turned
+    separation + windowing on by default, which would drag audio-separator
+    imports and window planning into every worker test. Tests that target
+    those paths opt in explicitly; the defaults themselves are pinned by
+    test_config_defaults."""
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "separation_mode", "off")
+    monkeypatch.setattr(settings, "windowed_alignment", False)
+
+
 @pytest.fixture()
 def client(db_session, monkeypatch):
     """TestClient with a fresh app; lifespan bootstraps TEST_ADMIN_KEY."""
