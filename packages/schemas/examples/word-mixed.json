@@ -41,6 +41,17 @@
       "score": 0.0
     },
     {
+      "start_ms": 50000,
+      "end_ms": 53000,
+      "text": "Oh-ooh, whoa-oh",
+      "score": 0.4,
+      "adlib": true,
+      "words": [
+        { "start_ms": 50000, "end_ms": 51200, "text": "Oh-ooh," },
+        { "start_ms": 51200, "end_ms": 53000, "text": "whoa-oh" }
+      ]
+    },
+    {
       "start_ms": 64160,
       "end_ms": 67420,
       "text": "Ain't got a care in the world, but got plenty of beer",

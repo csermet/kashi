@@ -19,6 +19,7 @@ from kashi_server.config import settings
 from kashi_server.db.models import Job
 from kashi_server.pipeline.alignment import AlignResult
 from kashi_server.pipeline.beats import Beats
+from kashi_server.pipeline.line_qa import is_adlib
 from kashi_server.pipeline.lrclib import LyricsText, normalize_artist
 from kashi_server.vdl_kit.errors import PipelineError
 from kashi_server.version import PIPELINE_MAJOR, PIPELINE_VERSION
@@ -67,6 +68,11 @@ def build_document(
             "text": line.text,
             "score": round(line.score, 4),
         }
+        # Faz 4 aesthetics: clients style nonlexical hooks differently. Derived
+        # from the TEXT at build time (same predicate line QA uses), so line-
+        # mode and degraded documents carry it too. Omitted when false.
+        if is_adlib(line.text):
+            entry["adlib"] = True
         # Per-line: a word-sync document may carry wordless lines (line QA drops
         # the words of a snapped line); an empty array is never written (schema
         # minItems). The overlay renders such lines as plain text.

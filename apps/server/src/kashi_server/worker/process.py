@@ -50,6 +50,10 @@ LINE_QA_ADLIB_SHIFTED_LINES = Counter(
     "kashi_line_qa_adlib_shifted_lines_total",
     "Nonlexical lines block-shifted onto their lrclib anchor",
 )
+LINE_QA_ADLIB_REDERIVED_LINES = Counter(
+    "kashi_line_qa_adlib_rederived_lines_total",
+    "Ad-lib lines whose word spans were redistributed across the line (Faz 4)",
+)
 
 
 def checkpoint(s: Session, job: Job) -> None:
@@ -203,6 +207,7 @@ def process_job(s: Session, job: Job) -> None:
             LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
             LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
         LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
+        LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
         checkpoint(s, job)
 
         # --- postprocessing ---

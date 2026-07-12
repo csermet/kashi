@@ -65,6 +65,44 @@ def test_word_document_validates():
     assert doc["track"]["album"] == "LP"
     assert doc["alignment"]["speed_factor"] == 1.0
     assert doc["track"]["canonical_group"] == "artist|song|200"
+    # Lexical lines never carry the adlib flag (omitted, not false).
+    assert all("adlib" not in line for line in doc["lines"])
+
+
+def test_adlib_line_carries_the_flag_in_word_and_line_docs():
+    """Faz 4: the client styles nonlexical hooks differently; the flag comes
+    from the text (single predicate with line QA), so line-mode docs get it
+    too."""
+    lines = [
+        LineTiming(1000, 2000, "hello world", 0.8),
+        LineTiming(3000, 5000, "Oh-ooh, whoa-oh", 0.6),
+    ]
+    words = [
+        [AlignedWord(1000, 1400, "hello", 0.7), AlignedWord(1500, 2000, "world", 0.9)],
+        [AlignedWord(3000, 4000, "Oh-ooh,", 0.6), AlignedWord(4000, 5000, "whoa-oh", 0.6)],
+    ]
+    word_doc = build_document(
+        _job(),
+        _lyrics(),
+        AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.72),
+        None,
+        dict(DEFAULT_PALETTE),
+        vocals_separated=False,
+    )
+    validate_document(word_doc)
+    assert "adlib" not in word_doc["lines"][0]
+    assert word_doc["lines"][1]["adlib"] is True
+
+    line_doc = build_document(
+        _job(),
+        _lyrics(),
+        AlignResult(sync="line", lines=lines, words_per_line=[], quality_score=0.4),
+        None,
+        dict(DEFAULT_PALETTE),
+        vocals_separated=False,
+    )
+    validate_document(line_doc)
+    assert line_doc["lines"][1]["adlib"] is True
 
 
 def test_line_document_has_no_words_keys():

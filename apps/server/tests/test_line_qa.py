@@ -427,8 +427,12 @@ def test_adlib_line_block_shifts_onto_its_anchor():
     assert outcome.flagged == []  # shifted BEFORE flagging -> no snap/word-drop
     shifted = outcome.result.lines[1]
     assert shifted.start_ms == 10_000  # offset 0 -> lands on the anchor
+    # After the block shift the word spans are REDISTRIBUTED across the line
+    # (Faz 4 rederive): "oh" (2 chars) then "whoa" (4 chars) over 1600 ms.
+    assert outcome.adlib_rederived == [1]
     ws = outcome.result.words_per_line[1]
-    assert ws[0].start_ms == 10_000 and ws[1].start_ms == 10_700  # block shift
+    assert ws[0].start_ms == 10_000 and ws[0].end_ms == 10_533
+    assert ws[1].start_ms == 10_533 and ws[1].end_ms == 11_600  # covers the span
     assert outcome.result.quality_score == 1.0  # corrected, not damaged
 
 
@@ -461,3 +465,57 @@ def test_lexical_line_never_adlib_shifts():
     )
     outcome = apply_line_qa(result, [line.text for line in lines], [0, 10_000, 20_000, 30_000])
     assert outcome.adlib_shifted == []
+
+
+def test_adlib_rederive_spreads_words_by_char_length_on_the_clean_path():
+    """Faz 4: even a well-anchored ad-lib line gets its INNER word spans
+    redistributed — CTC packs sustained hooks unreliably (NonLexical is the
+    worst measured class), the anchored line span is what we trust."""
+    lines = [
+        LineTiming(0, 3_000, "real lyric line here", 0.5),
+        # CTC packed both words into the first 400 ms of a 2 s hook.
+        LineTiming(10_000, 12_000, "Oh-ooh, whoa-oh", 0.5),
+        LineTiming(20_000, 23_000, "another real lyric line", 0.5),
+        LineTiming(30_000, 33_000, "closing real lyric line", 0.5),
+    ]
+    words = [
+        [AlignedWord(0, 3_000, "w", 0.5)],
+        [AlignedWord(10_000, 10_200, "Oh-ooh,", 0.9), AlignedWord(10_250, 10_400, "whoa-oh", 0.9)],
+        [AlignedWord(20_000, 23_000, "w", 0.5)],
+        [AlignedWord(30_000, 33_000, "w", 0.5)],
+    ]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=words, quality_score=0.8, windowed=True
+    )
+    outcome = apply_line_qa(result, [line.text for line in lines], [0, 10_000, 20_000, 30_000])
+    assert outcome.adlib_shifted == []  # already on its anchor
+    assert outcome.adlib_rederived == [1]
+    ws = outcome.result.words_per_line[1]
+    # "Oh-ooh," = 7 chars, "whoa-oh" = 7 chars -> even split of the 2 s span.
+    assert ws[0].start_ms == 10_000 and ws[0].end_ms == 11_000
+    assert ws[1].start_ms == 11_000 and ws[1].end_ms == 12_000
+    assert ws[0].prob == 0.9  # probs preserved — quality math untouched
+    # Lexical neighbours keep their CTC word timings.
+    assert outcome.result.words_per_line[0][0].end_ms == 3_000
+
+
+def test_adlib_rederive_skips_single_word_and_short_spans():
+    lines = [
+        LineTiming(0, 3_000, "real lyric line here", 0.5),
+        LineTiming(10_000, 10_400, "Oh-ooh, whoa-oh", 0.5),  # span 400 < 500 ms
+        LineTiming(20_000, 23_000, "Ooh", 0.5),  # single word
+        LineTiming(30_000, 33_000, "closing real lyric line", 0.5),
+    ]
+    words = [
+        [AlignedWord(0, 3_000, "w", 0.5)],
+        [AlignedWord(10_000, 10_100, "Oh-ooh,", 0.5), AlignedWord(10_150, 10_250, "whoa-oh", 0.5)],
+        [AlignedWord(20_000, 20_500, "Ooh", 0.5)],
+        [AlignedWord(30_000, 33_000, "w", 0.5)],
+    ]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=words, quality_score=0.8, windowed=True
+    )
+    outcome = apply_line_qa(result, [line.text for line in lines], [0, 10_000, 20_000, 30_000])
+    assert outcome.adlib_rederived == []
+    assert outcome.result.words_per_line[1][1].start_ms == 10_150  # untouched
+    assert outcome.result.words_per_line[2][0].end_ms == 20_500  # untouched

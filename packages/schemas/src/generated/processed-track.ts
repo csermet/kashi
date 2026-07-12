@@ -57,6 +57,10 @@ export interface KashiProcessedTrackV1 {
      */
     score?: number;
     /**
+     * Line is entirely nonlexical vocalization (ooh/whoa/la ad-lib); clients may style it differently (Faz 4 aesthetics). Omitted when false.
+     */
+    adlib?: boolean;
+    /**
      * @minItems 1
      */
     words?: [

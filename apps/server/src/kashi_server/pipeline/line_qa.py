@@ -65,6 +65,14 @@ NEIGHBOR_SCORE_FLOOR = 0.01
 # the ANCHOR wins: the line and its words shift as a block (karaoke animation
 # survives, placement snaps to the stamp). Ear-test finding, 2026-07-12.
 ADLIB_SNAP_THRESHOLD_MS = 600
+# Within-line rederivation (Faz 4 aesthetics): CTC word durations inside a
+# sustained hook are unreliable even after the block shift — the karaoke sweep
+# jerks. The (anchor-corrected) LINE span is trustworthy and sustained hooks
+# stretch quasi-uniformly, so word boundaries are redistributed across the
+# span proportionally to character length. Only for lines big enough to
+# matter; single words keep the whole span implicitly.
+ADLIB_REDERIVE_MIN_SPAN_MS = 500
+ADLIB_REDERIVE_MIN_WORDS = 2
 
 
 _NONLEXICAL_TOKEN = re.compile(
@@ -74,8 +82,10 @@ _NONLEXICAL_TOKEN = re.compile(
 )
 
 
-def _is_adlib(text: str) -> bool:
-    """Every alphabetic token is a nonlexical vocalization."""
+def is_adlib(text: str) -> bool:
+    """Every alphabetic token is a nonlexical vocalization. Public: document
+    assembly writes the per-line `adlib` schema flag with the same predicate
+    (single source of truth for what counts as an ad-lib)."""
     tokens = re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ']+", text)
     return bool(tokens) and all(_NONLEXICAL_TOKEN.match(t) for t in tokens)
 
@@ -88,6 +98,51 @@ class LineQAOutcome:
     degraded_to_line: bool
     density_dropped: list[int] = field(default_factory=list)  # neighbours that lost words
     adlib_shifted: list[int] = field(default_factory=list)  # block-shifted onto their anchors
+    adlib_rederived: list[int] = field(default_factory=list)  # word spans redistributed
+
+
+def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
+    """Redistribute word boundaries of ad-lib lines across the line span,
+    weighted by character length (Faz 4 aesthetics — see the constants above).
+
+    Runs AFTER anchor corrections so the span it trusts is the final one.
+    Guarantees monotonic, gap-free, span-covering word timings; probs are
+    preserved (quality math is unaffected). Pure, unit-tested.
+    """
+    if result.sync != "word":
+        return result, []
+    words_out = [list(chunk) for chunk in result.words_per_line]
+    changed: list[int] = []
+    for i, line in enumerate(result.lines):
+        words = words_out[i] if i < len(words_out) else []
+        if len(words) < ADLIB_REDERIVE_MIN_WORDS or not is_adlib(line.text):
+            continue
+        span = line.end_ms - line.start_ms
+        if span < ADLIB_REDERIVE_MIN_SPAN_MS:
+            continue
+        total_chars = sum(len(w.text) for w in words)
+        if total_chars <= 0:
+            continue
+        bounds = [line.start_ms]
+        cum = 0
+        for w in words:
+            cum += len(w.text)
+            bounds.append(line.start_ms + round(span * cum / total_chars))
+        rederived = [
+            replace(w, start_ms=bounds[k], end_ms=bounds[k + 1]) for k, w in enumerate(words)
+        ]
+        if rederived != words:
+            words_out[i] = rederived
+            changed.append(i)
+            logger.info(
+                "line QA adlib rederive: line %d %r words respread over %dms",
+                i,
+                line.text[:40],
+                span,
+            )
+    if not changed:
+        return result, []
+    return replace(result, words_per_line=words_out), changed
 
 
 def _match_references(
@@ -223,12 +278,14 @@ def apply_line_qa(
         if result.windowed:  # prob quality is invalid on the windowed path
             all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
             clean = replace(clean, quality_score=_quality(result, refs, set(), all_probs))
+        clean, rederived = rederive_adlib_words(clean)
         return LineQAOutcome(
             result=clean,
             flagged=[],
             offset_ms=offset_ms,
             degraded_to_line=False,
             adlib_shifted=adlib_shifted,
+            adlib_rederived=rederived,
         )
 
     flagged_set = set(flagged)
@@ -268,19 +325,22 @@ def apply_line_qa(
     if not surviving_probs:  # flag + border drops emptied every word-bearing line
         return _degrade_to_line(result, refs, flagged, offset_ms)
 
+    snapped = AlignResult(
+        sync="word",
+        lines=lines,
+        words_per_line=words_per_line,
+        quality_score=_quality(result, refs, flagged_set | density_dropped, surviving_probs),
+        windowed=result.windowed,
+    )
+    snapped, rederived = rederive_adlib_words(snapped)
     return LineQAOutcome(
-        result=AlignResult(
-            sync="word",
-            lines=lines,
-            words_per_line=words_per_line,
-            quality_score=_quality(result, refs, flagged_set | density_dropped, surviving_probs),
-            windowed=result.windowed,
-        ),
+        result=snapped,
         flagged=flagged,
         offset_ms=offset_ms,
         degraded_to_line=False,
         density_dropped=sorted(density_dropped),
         adlib_shifted=adlib_shifted,
+        adlib_rederived=rederived,
     )
 
 
@@ -314,7 +374,7 @@ def _shift_adlibs(
     words = [list(chunk) for chunk in result.words_per_line]
     shifted: list[int] = []
     for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True)):
-        if ref is None or not _is_adlib(line.text):
+        if ref is None or not is_adlib(line.text):
             continue
         delta = (ref + offset_ms) - line.start_ms
         if abs(delta) <= ADLIB_SNAP_THRESHOLD_MS:

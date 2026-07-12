@@ -78,6 +78,10 @@
             "maximum": 1,
             "description": "Optional per-line alignment confidence (enables mixed word/line rendering)."
           },
+          "adlib": {
+            "type": "boolean",
+            "description": "Line is entirely nonlexical vocalization (ooh/whoa/la ad-lib); clients may style it differently (Faz 4 aesthetics). Omitted when false."
+          },
           "words": {
             "type": "array",
             "minItems": 1,
