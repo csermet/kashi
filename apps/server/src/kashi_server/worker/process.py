@@ -46,6 +46,10 @@ LINE_QA_DENSITY_DROPPED_LINES = Counter(
     "kashi_line_qa_density_dropped_lines_total",
     "Neighbour lines whose words were dropped by the border-case gate (QA v2)",
 )
+LINE_QA_ADLIB_SHIFTED_LINES = Counter(
+    "kashi_line_qa_adlib_shifted_lines_total",
+    "Nonlexical lines block-shifted onto their lrclib anchor",
+)
 
 
 def checkpoint(s: Session, job: Job) -> None:
@@ -198,6 +202,7 @@ def process_job(s: Session, job: Job) -> None:
         if not qa.degraded_to_line:
             LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
             LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
+        LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
         checkpoint(s, job)
 
         # --- postprocessing ---

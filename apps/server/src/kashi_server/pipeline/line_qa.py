@@ -18,6 +18,7 @@ unit-tested with synthetic data.
 """
 
 import logging
+import re
 from dataclasses import dataclass, field, replace
 from statistics import median
 
@@ -58,6 +59,25 @@ MIN_DENSITY_WORDS = 3
 # alone is deliberately NOT a signal (good lines can score 0.00); adjacency is
 # what makes it meaningful.
 NEIGHBOR_SCORE_FLOOR = 0.01
+# Ad-lib/nonlexical lines ("Oh-ooh, whoa-oh"): CTC is systematically late on
+# them (field: +1-2.5 s; NonLexical songs are the worst benchmark class) while
+# the lrclib stamp is human-timed on exactly that hook. Above this deviation
+# the ANCHOR wins: the line and its words shift as a block (karaoke animation
+# survives, placement snaps to the stamp). Ear-test finding, 2026-07-12.
+ADLIB_SNAP_THRESHOLD_MS = 600
+
+
+_NONLEXICAL_TOKEN = re.compile(
+    r"^(?:o+h*|o*o+h+|wh?o+a+h*|a+h+|ha+h*|la+|na+h*|y+e+a+h*|ye+|hey+|u+h+|hu+h*|m+h*m+|"
+    r"e+h+|a+y+|do+|du+|ba+|pa+|sha+)$",
+    re.IGNORECASE,
+)
+
+
+def _is_adlib(text: str) -> bool:
+    """Every alphabetic token is a nonlexical vocalization."""
+    tokens = re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ']+", text)
+    return bool(tokens) and all(_NONLEXICAL_TOKEN.match(t) for t in tokens)
 
 
 @dataclass(frozen=True)
@@ -67,6 +87,7 @@ class LineQAOutcome:
     offset_ms: int  # median (aligner - lrclib) offset that was compensated
     degraded_to_line: bool
     density_dropped: list[int] = field(default_factory=list)  # neighbours that lost words
+    adlib_shifted: list[int] = field(default_factory=list)  # block-shifted onto their anchors
 
 
 def _match_references(
@@ -184,6 +205,7 @@ def apply_line_qa(
         line.start_ms - ref for line, ref in zip(result.lines, refs, strict=True) if ref is not None
     ]
     offset_ms = round(median(deviations))
+    result, adlib_shifted = _shift_adlibs(result, refs, offset_ms)
     flagged = [
         i
         for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True))
@@ -192,7 +214,9 @@ def apply_line_qa(
 
     referenced = sum(ref is not None for ref in refs)
     if result.sync == "line" or len(flagged) > MAX_FLAGGED_FRACTION * referenced:
-        return _degrade_to_line(result, refs, flagged, offset_ms)
+        return replace(
+            _degrade_to_line(result, refs, flagged, offset_ms), adlib_shifted=adlib_shifted
+        )
 
     if not flagged:
         clean = replace(result, lines=_clamp_monotonic(result.lines))
@@ -204,6 +228,7 @@ def apply_line_qa(
             flagged=[],
             offset_ms=offset_ms,
             degraded_to_line=False,
+            adlib_shifted=adlib_shifted,
         )
 
     flagged_set = set(flagged)
@@ -255,6 +280,7 @@ def apply_line_qa(
         offset_ms=offset_ms,
         degraded_to_line=False,
         density_dropped=sorted(density_dropped),
+        adlib_shifted=adlib_shifted,
     )
 
 
@@ -276,6 +302,44 @@ def _quality(
     if not referenced:  # windowed implies anchors; defensive
         return quality_from_probs(surviving_probs)
     return round(1 - len(damaged & set(referenced)) / len(referenced), 4)
+
+
+def _shift_adlibs(
+    result: AlignResult, refs: list[int | None], offset_ms: int
+) -> tuple[AlignResult, list[int]]:
+    """Move nonlexical lines (and their words, as a block) onto their lrclib
+    anchor when the aligner strayed past ADLIB_SNAP_THRESHOLD_MS. The anchor
+    stays on the aligner's clock (ref + offset) like every other snap."""
+    lines = list(result.lines)
+    words = [list(chunk) for chunk in result.words_per_line]
+    shifted: list[int] = []
+    for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True)):
+        if ref is None or not _is_adlib(line.text):
+            continue
+        delta = (ref + offset_ms) - line.start_ms
+        if abs(delta) <= ADLIB_SNAP_THRESHOLD_MS:
+            continue
+        start = max(0, line.start_ms + delta)
+        lines[i] = replace(line, start_ms=start, end_ms=max(start, line.end_ms + delta))
+        if i < len(words) and words[i]:
+            words[i] = [
+                replace(
+                    w,
+                    start_ms=max(0, w.start_ms + delta),
+                    end_ms=max(0, w.start_ms + delta, w.end_ms + delta),
+                )
+                for w in words[i]
+            ]
+        shifted.append(i)
+        logger.info(
+            "line QA adlib shift: line %d %r %+dms onto its anchor",
+            i,
+            line.text[:40],
+            delta,
+        )
+    if not shifted:
+        return result, []
+    return replace(result, lines=lines, words_per_line=words), shifted
 
 
 def _border_case_drops(

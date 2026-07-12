@@ -17,3 +17,25 @@
   youtube_id: dQw4w9WgXcQ
   lrclib_id: 1009665
   language: eng
+
+# Caner'in saha listesi (2026-07-12) — P1-P3 kabul maddesi; pop agirlikli.
+- id: wet-snoop-remix
+  title: Wet
+  artist: Snoop Dogg
+  youtube_id: 8awf3XrRC7U
+  lrclib_id: 34951990
+  language: eng
+
+- id: geliyorum-yanina
+  title: Geliyorum Yanına
+  artist: Hadise
+  youtube_id: PJwHc2uW9JY
+  lrclib_id: 13795820
+  language: tur
+
+- id: halsey-control
+  title: Control
+  artist: Halsey
+  youtube_id: ULDpeC8TKwA
+  lrclib_id: 241744
+  language: eng

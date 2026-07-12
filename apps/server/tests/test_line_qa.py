@@ -400,3 +400,64 @@ def test_whole_audio_quality_still_prob_based():
     texts = [line.text for line in result.lines]
     outcome = apply_line_qa(result, texts, [0, 10_000, 20_000, 30_000])
     assert outcome.result.quality_score < 0.5  # prob ramp, tiny probs
+
+
+def test_adlib_line_block_shifts_onto_its_anchor():
+    """Ear-test fix: 'Oh-ooh whoa-oh' lines come systematically late from CTC;
+    past the threshold the lrclib anchor wins and the words ride along."""
+    lines = [
+        LineTiming(0, 3_000, "real lyric line here", 0.5),
+        LineTiming(12_400, 14_000, "Oh-ooh, oh-ooh, whoa-oh", 0.5),  # anchor 10s -> +2.4s late
+        LineTiming(20_000, 23_000, "another real lyric line", 0.5),
+        LineTiming(30_000, 33_000, "closing real lyric line", 0.5),
+    ]
+    words = [
+        [AlignedWord(0, 3_000, "w", 0.5)],
+        [AlignedWord(12_400, 13_000, "oh", 0.5), AlignedWord(13_100, 14_000, "whoa", 0.5)],
+        [AlignedWord(20_000, 23_000, "w", 0.5)],
+        [AlignedWord(30_000, 33_000, "w", 0.5)],
+    ]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=words, quality_score=0.8, windowed=True
+    )
+    outcome = apply_line_qa(
+        result, [line.text for line in lines], [0, 10_000, 20_000, 30_000]
+    )
+    assert outcome.adlib_shifted == [1]
+    assert outcome.flagged == []  # shifted BEFORE flagging -> no snap/word-drop
+    shifted = outcome.result.lines[1]
+    assert shifted.start_ms == 10_000  # offset 0 -> lands on the anchor
+    ws = outcome.result.words_per_line[1]
+    assert ws[0].start_ms == 10_000 and ws[1].start_ms == 10_700  # block shift
+    assert outcome.result.quality_score == 1.0  # corrected, not damaged
+
+
+def test_adlib_within_threshold_is_untouched():
+    lines = [
+        LineTiming(0, 3_000, "real lyric line here", 0.5),
+        LineTiming(10_400, 11_500, "Oh-ooh, oh-ooh, whoa-oh", 0.5),  # +400ms — fine
+        LineTiming(20_000, 23_000, "another real lyric line", 0.5),
+        LineTiming(30_000, 33_000, "closing real lyric line", 0.5),
+    ]
+    words = [[AlignedWord(line.start_ms, line.end_ms, "w", 0.5)] for line in lines]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=words, quality_score=0.8, windowed=True
+    )
+    outcome = apply_line_qa(result, [line.text for line in lines], [0, 10_000, 20_000, 30_000])
+    assert outcome.adlib_shifted == []
+    assert outcome.result.lines[1].start_ms == 10_400
+
+
+def test_lexical_line_never_adlib_shifts():
+    lines = [
+        LineTiming(0, 3_000, "real lyric line here", 0.5),
+        LineTiming(12_400, 14_000, "wake up in the morning", 0.5),  # late but LEXICAL
+        LineTiming(20_000, 23_000, "another real lyric line", 0.5),
+        LineTiming(30_000, 33_000, "closing real lyric line", 0.5),
+    ]
+    words = [[AlignedWord(line.start_ms, line.end_ms, "w", 0.5)] for line in lines]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=words, quality_score=0.8, windowed=True
+    )
+    outcome = apply_line_qa(result, [line.text for line in lines], [0, 10_000, 20_000, 30_000])
+    assert outcome.adlib_shifted == []
