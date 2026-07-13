@@ -82,7 +82,7 @@ LINE_QA_ADLIB_REDERIVED_LINES = Counter(
 NIGHTCORE_JOBS = Counter(
     "kashi_nightcore_jobs_total",
     "Jobs that entered the nightcore branch, by how the factor was resolved",
-    ["outcome"],  # explicit | detected | reverted
+    ["outcome"],  # explicit | detected | reverted | explicit_failed
 )
 
 
@@ -368,6 +368,7 @@ def process_job(s: Session, job: Job) -> None:
             elif nc_outcome == "explicit":
                 # The caller STATED this factor; a document silently produced
                 # on the r=1 clock would be wrong in a way they cannot see.
+                NIGHTCORE_JOBS.labels("explicit_failed").inc()
                 raise PipelineError(
                     "alignment_failed",
                     f"explicit speed_factor {speed_factor:g} fails the slowed-copy "

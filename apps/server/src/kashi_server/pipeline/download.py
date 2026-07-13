@@ -116,6 +116,12 @@ def download_audio(
     probed_s = _probe_duration_s(path)
     if probed_s > 0:
         duration_s = probed_s
+        if duration_s > max_duration_s:
+            # Re-check with the honest number: a missing/zero yt-dlp duration
+            # slides past the early gate (reviewer catch).
+            raise PipelineError(
+                "other", f"track too long ({duration_s:.0f}s > {max_duration_s}s)"
+            )
 
     logger.info(
         "downloaded %s: %s %.0f kbps, %.0fs, %d bytes",

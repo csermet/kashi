@@ -507,17 +507,18 @@ boxEl?.addEventListener(
   (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    // Chromium reroutes the wheel to deltaX while Shift is held — the offset
-    // gesture would read an eternal deltaY=0 without this fallback.
-    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
     if (event.shiftKey) {
+      // Chromium reroutes the wheel to deltaX while Shift is held — this
+      // gesture would read an eternal deltaY=0 without the fallback. The
+      // opacity branch keeps ignoring horizontal deltas on purpose.
+      const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
       const { accumulatedPx, steps } = accumulateWheel(offsetWheelAccPx, delta, event.deltaMode);
       offsetWheelAccPx = accumulatedPx;
       // Scroll up = lyrics earlier (positive offset), mirroring "up = more".
       if (steps !== 0) window.kashi.adjustTimingOffset(-steps);
       return;
     }
-    const { accumulatedPx, steps } = accumulateWheel(wheelAccPx, delta, event.deltaMode);
+    const { accumulatedPx, steps } = accumulateWheel(wheelAccPx, event.deltaY, event.deltaMode);
     wheelAccPx = accumulatedPx;
     // Scroll up (negative deltaY) increases opacity.
     if (steps !== 0) window.kashi.adjustOpacity(-steps);

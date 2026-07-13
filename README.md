@@ -113,12 +113,12 @@ hatch for tracks the automatic flow gets wrong (mangled upload titles,
 nightcore reuploads, lyrics LRCLIB doesn't have):
 
 ```bash
-curl -X POST "$SERVER/v1/ingest" -H "X-API-Key: $KEY" -H 'Content-Type: application/json' -d '{
+curl -X POST "$SERVER/v1/ingest" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{
   "source": {"type": "youtube", "id": "o_j0tc0njUY"},
   "hints": {"title": "Nightcore - Song (Lyrics)", "artist": "SomeChannel"},
   "options": {"original_title": "Song"}
 }'
-curl "$SERVER/v1/jobs/$JOB_ID" -H "X-API-Key: $KEY"   # queued → ... → completed
+curl "$SERVER/v1/jobs/$JOB_ID" -H "Authorization: Bearer $KEY"   # queued → ... → completed
 ```
 
 - `original_title` — search LRCLIB for this title instead of the upload's.
