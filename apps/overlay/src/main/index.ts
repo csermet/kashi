@@ -57,6 +57,16 @@ const WINDOW_HEIGHT = 180;
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
+// Constructed at module scope: software_render must be applied BEFORE the app
+// is ready (the GPU process can only be disabled before it spawns).
+const settingsStore = new SettingsStore(
+  join(app.getPath('userData'), 'kashi-settings.json'),
+  makeLogger('settings'),
+);
+if (settingsStore.get().software_render) {
+  app.disableHardwareAcceleration();
+  log('software render ON (video-flicker fix) — GPU compositing disabled');
+}
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;
 let menuOptions: KashiMenuOptions | null = null;
@@ -272,6 +282,15 @@ function applyThemeScope(scope: unknown): void {
   tray?.refresh();
 }
 
+function toggleSoftwareRender(): void {
+  const next = !(settings?.get().software_render ?? false);
+  settings?.update({ software_render: next });
+  settings?.flush(); // the relaunch must not race the debounced save
+  log(`setting: software render -> ${next} (relaunching)`);
+  app.relaunch();
+  app.quit();
+}
+
 function applyBoxAlpha(alpha: number): void {
   settings?.update({ box_alpha: clampAlpha(alpha) });
   broadcastSettings();
@@ -430,10 +449,7 @@ ipcMain.on('kashi:drag-start', () => {
 ipcMain.on('kashi:drag-end', stopDrag);
 
 app.whenReady().then(async () => {
-  settings = new SettingsStore(
-    join(app.getPath('userData'), 'kashi-settings.json'),
-    makeLogger('settings'),
-  );
+  settings = settingsStore;
 
   lrclib = new LrclibClient({
     cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
@@ -487,6 +503,8 @@ app.whenReady().then(async () => {
     onEffectLevelSelect: applyEffectLevel,
     getThemeScope: () => settings?.get().theme_scope ?? DEFAULT_THEME_SCOPE,
     onThemeScopeSelect: applyThemeScope,
+    getSoftwareRender: () => settings?.get().software_render ?? false,
+    onToggleSoftwareRender: toggleSoftwareRender,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
   };

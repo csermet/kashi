@@ -123,6 +123,7 @@ describe('parseSettings', () => {
       timing_offset_ms: 100,
       effect_level: 'full',
       theme_scope: 'fixed-text',
+      software_render: true,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -195,6 +196,15 @@ describe('theme_scope setting', () => {
     expect(DEFAULT_SETTINGS.theme_scope).toBe('full');
     expect(parseSettings(JSON.stringify({ theme_scope: 'fixed-bg' })).theme_scope).toBe('fixed-bg');
     expect(parseSettings(JSON.stringify({ theme_scope: 'renkler' })).theme_scope).toBe('full');
+  });
+});
+
+describe('software_render setting', () => {
+  it('defaults to false and only literal true enables it', () => {
+    expect(DEFAULT_SETTINGS.software_render).toBe(false);
+    expect(parseSettings(JSON.stringify({ software_render: true })).software_render).toBe(true);
+    expect(parseSettings(JSON.stringify({ software_render: 'yes' })).software_render).toBe(false);
+    expect(parseSettings(JSON.stringify({})).software_render).toBe(false);
   });
 });
 
