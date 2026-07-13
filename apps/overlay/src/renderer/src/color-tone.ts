@@ -21,23 +21,24 @@ export interface Oklch {
 
 // --- Tonal bands (values measured/validated in the 0.2.4 plan) ---
 
-/** Active word: bright but visibly below white text — mid of 0.80..0.84. */
-export const PRIMARY_L = 0.82;
+/** Active word: bright but below white text. 0.80 (field turu 3: 0.82 read
+ * too pastel — a touch lower buys visibly richer chroma at every hue). */
+export const PRIMARY_L = 0.8;
 /**
  * Deterministic rescue for hues whose sRGB gamut is too narrow at 0.82
- * (blue, h≈267°, reaches only C≈0.089): at L=0.75 EVERY hue reaches
- * C ≥ 0.1275 (measured), so one fallback step always succeeds.
+ * (blue, h≈267°, reaches only C≈0.095): at L=0.75 EVERY hue reaches
+ * C ≥ 0.128 (measured) ≥ the 0.12 floor, so one fallback always succeeds.
  */
 export const PRIMARY_L_FALLBACK = 0.75;
 /** Differentiation floor vs white base text (also brightens muddy golds). */
-export const PRIMARY_C_MIN = 0.1;
-/** Tames neon/harsh saturation (field failure 1). */
-export const PRIMARY_C_MAX = 0.19;
+export const PRIMARY_C_MIN = 0.12;
+/** Tames neon/harsh saturation — raised from 0.19 (field turu 3: "çok safe"). */
+export const PRIMARY_C_MAX = 0.24;
 /** Beat glow: dimmer than the word so the pulse reads as light, not text. */
 export const ACCENT_L = 0.67;
-export const ACCENT_C_MIN = 0.1;
-/** Glow may run slightly richer; 0.67 fits ≥ 0.1139 at every hue (measured). */
-export const ACCENT_C_MAX = 0.2;
+export const ACCENT_C_MIN = 0.12;
+/** Glow may run richer than text (field turu 3 richer bands). */
+export const ACCENT_C_MAX = 0.24;
 /** Dim sibling of the primary — the sustain-sweep gradient tail band. */
 export const SECONDARY_L = 0.74;
 /** The tail keeps the hue but recedes (× the primary's achieved chroma). */

@@ -38,6 +38,7 @@ body {
  * everything outside it stays click-through.
  */
 #lyric-box {
+  position: relative; /* anchors the ::after beat ring */
   max-width: 500px;
   padding: 10px 18px;
   border-radius: 14px;
@@ -134,18 +135,37 @@ body.fx-full #lyric-box {
   will-change: transform;
   transition:
     transform 80ms ease-out,
-    box-shadow 80ms ease-out,
     background-color 0.15s;
+}
+
+/* Beat glow lives on a ::after ring animated by OPACITY only: eased in/out
+   it reads as breathing light instead of a popping shadow, and opacity is
+   compositor-friendly (closes the retro paint-cost note). */
+body.fx-full #lyric-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 14px var(--kashi-accent, transparent);
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+  pointer-events: none;
 }
 
 body.fx-full #lyric-box.beat {
   transform: scale(1.015);
-  box-shadow: 0 0 12px var(--kashi-accent, transparent);
+}
+
+body.fx-full #lyric-box.beat::after {
+  opacity: 0.5;
 }
 
 body.fx-full #lyric-box.beat-down {
   transform: scale(1.02);
-  box-shadow: 0 0 16px var(--kashi-accent, transparent);
+}
+
+body.fx-full #lyric-box.beat-down::after {
+  opacity: 0.75;
 }
 
 /* Line-change micro-transition (Faz 4 saha turu 2): a one-shot 160 ms

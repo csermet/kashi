@@ -36,17 +36,17 @@ function deltaE(hexA: string, hexB: string): number {
 
 describe('field-failure vectors (plan-verified expected values)', () => {
   it('harsh red #e84545 → soft coral (C tamed, L lifted)', () => {
-    expect(tonePrimary(hexToOklch('#e84545')).hex).toBe('#ffaba3');
+    expect(tonePrimary(hexToOklch('#e84545')).hex).toBe('#ff847c');
   });
 
   it('muddy gold #8a7a4a → luminous gold (C boosted to the floor)', () => {
-    expect(tonePrimary(hexToOklch('#8a7a4a')).hex).toBe('#dcc276');
+    expect(tonePrimary(hexToOklch('#8a7a4a')).hex).toBe('#dabb5c');
   });
 
   it('washed pink #f2dee3 keeps its OWN hue (C 0.023 ≥ 0.02) → clear pink', () => {
     const input = hexToOklch('#f2dee3');
     expect(input.C).toBeGreaterThanOrEqual(NEUTRAL_C_THRESHOLD);
-    expect(tonePrimary(input).hex).toBe('#fba9c1');
+    expect(tonePrimary(input).hex).toBe('#fd9cba');
   });
 
   it('pure gray is NEUTRAL — its hue angle is quantization noise', () => {
@@ -56,7 +56,7 @@ describe('field-failure vectors (plan-verified expected values)', () => {
   });
 
   it('neon green #39ff14 is tamed into the band', () => {
-    expect(tonePrimary(hexToOklch('#39ff14')).hex).toBe('#75e267');
+    expect(tonePrimary(hexToOklch('#39ff14')).hex).toBe('#4be137');
   });
 
   it('saturated blue #3b3bee takes the L-fallback path (narrow gamut at 0.82)', () => {
@@ -69,7 +69,7 @@ describe('field-failure vectors (plan-verified expected values)', () => {
 
   it('secondary derives a dim same-hue tail from the primary', () => {
     const primary = tonePrimary(hexToOklch('#e84545'));
-    expect(toneSecondary(primary.c, primary.h)).toBe('#dc968f');
+    expect(toneSecondary(primary.c, primary.h)).toBe('#f18981');
   });
 
   it('background band keeps the hue as a dark tint', () => {
@@ -104,7 +104,7 @@ describe('donor pass (B&W-with-one-accent covers)', () => {
 
   it('a donated hue themes the neutral primary coherently gold', () => {
     const donor = bestHueDonor(KESHA)!;
-    expect(tonePrimary(donor).hex).toBe('#e6bf68');
+    expect(tonePrimary(donor).hex).toBe('#e0b85c');
     expect(toneBackground(donor)).toBe('#1e1400');
   });
 

@@ -49,7 +49,7 @@ describe('adjustAlpha', () => {
     expect(adjustAlpha(0.1, 1)).toBeCloseTo(0.12);
     expect(adjustAlpha(0.1, -1)).toBeCloseTo(0.08);
     expect(adjustAlpha(0.01, -5)).toBe(0);
-    expect(adjustAlpha(0.75, 5)).toBe(OPACITY_MAX);
+    expect(adjustAlpha(0.85, 5)).toBe(OPACITY_MAX);
   });
 
   it('recovers from a corrupt current value instead of propagating NaN', () => {

@@ -60,8 +60,8 @@ describe('paletteToCssVars', () => {
 
   it('maps a valid palette onto TONE-MAPPED variables (0.2.4)', () => {
     const vars = paletteToCssVars(RICK);
-    expect(vars['--kashi-primary']).toBe('#ffaba3'); // harsh red → soft coral
-    expect(vars['--kashi-secondary']).toBe('#dc968f'); // dim of the PRIMARY hue
+    expect(vars['--kashi-primary']).toBe('#ff847c'); // harsh red → soft coral
+    expect(vars['--kashi-secondary']).toBe('#f18981'); // dim of the PRIMARY hue
     expect(vars['--kashi-bg-rgb']).toBe('20, 19, 39'); // bg band dark tint
     expect(vars['--kashi-text']).toBe('#ffffff'); // base text pinned white
     expect(vars['--kashi-accent']).toBe('#d47483'); // accent band
@@ -195,12 +195,12 @@ describe('color rules (field feedback: readability is a RULE, not luck)', () => 
     const fixedBg = paletteToCssVars(palette, 'fixed-bg');
     expect(fixedBg['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
     expect(fixedBg['--kashi-text']).toBe('#ffffff'); // base text pinned (0.2.4)
-    expect(fixedBg['--kashi-primary']).toBe('#ffaba3'); // effect colors themed
+    expect(fixedBg['--kashi-primary']).toBe('#ff847c'); // effect colors themed
 
     const fixedText = paletteToCssVars(palette, 'fixed-text');
     expect(fixedText['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
     expect(fixedText['--kashi-text']).toBe(DEFAULT_PALETTE_VARS['--kashi-text']);
-    expect(fixedText['--kashi-primary']).toBe('#ffaba3'); // effect colors still theme
+    expect(fixedText['--kashi-primary']).toBe('#ff847c'); // effect colors still theme
 
     expect(paletteToCssVars(palette, 'none')).toEqual(DEFAULT_PALETTE_VARS);
   });
