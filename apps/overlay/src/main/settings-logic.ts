@@ -32,6 +32,8 @@ export const TIMING_OFFSET_PRESETS = [
 ] as const;
 export const TIMING_OFFSET_MAX_ABS = 500;
 export const DEFAULT_TIMING_OFFSET_MS = 0;
+/** One Ctrl+Shift+scroll notch (matches the prompt's spinner step). */
+export const TIMING_OFFSET_STEP_MS = 10;
 
 /** Minimum part of the window that must stay on a screen to trust saved bounds. */
 const MIN_VISIBLE_WIDTH = 120;
@@ -100,6 +102,13 @@ export function sanitizeDeltaSteps(value: unknown): number {
 
 export function adjustAlpha(current: number, deltaSteps: number): number {
   return clampAlpha(clampAlpha(current) + sanitizeDeltaSteps(deltaSteps) * OPACITY_STEP);
+}
+
+/** The offset twin of adjustAlpha: Ctrl+Shift+scroll live tuning (Faz 4.5). */
+export function adjustTimingOffset(current: number, deltaSteps: number): number {
+  return clampTimingOffset(
+    clampTimingOffset(current) + sanitizeDeltaSteps(deltaSteps) * TIMING_OFFSET_STEP_MS,
+  );
 }
 
 export function presetLabel(alpha: number): string {

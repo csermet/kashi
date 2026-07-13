@@ -17,8 +17,20 @@ input.value = String(Number.isFinite(initial) ? initial : 0);
 
 function submit(): void {
   const value = input.valueAsNumber;
-  if (Number.isFinite(value)) kashi.submitTimingOffset(value);
-  else kashi.cancelPrompt();
+  if (!Number.isFinite(value)) {
+    kashi.cancelPrompt();
+    return;
+  }
+  // Same clamp main applies — but VISIBLE: a typed 900 becomes 500 in the
+  // field before it is submitted, instead of silently persisting as 500
+  // while the prompt claimed 900 (retro finding: the clamp was mute).
+  const clamped = Math.max(-500, Math.min(500, Math.round(value)));
+  if (clamped !== value) {
+    input.value = String(clamped);
+    input.select();
+    return; // second Enter/OK submits the now-honest value
+  }
+  kashi.submitTimingOffset(clamped);
 }
 
 document.getElementById('ok')?.addEventListener('click', submit);

@@ -36,7 +36,7 @@ import {
   clearReasonOnDisconnect,
   emptyLatch,
 } from './source-latch-logic.js';
-import { adjustAlpha, clampAlpha, isPositionVisible, clampTimingOffset,
+import { adjustAlpha, adjustTimingOffset, clampAlpha, isPositionVisible, clampTimingOffset,
 } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
 import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
@@ -279,8 +279,13 @@ function broadcastSettings(): void {
   });
 }
 
-/** Persist + broadcast a new box alpha (tray preset or Ctrl+scroll nudge). */
+/** Debounced tray rebuild: a scroll burst must not rebuild the menu per event. */
 let trayRefreshTimer: NodeJS.Timeout | null = null;
+function scheduleTrayRefresh(): void {
+  if (trayRefreshTimer) clearTimeout(trayRefreshTimer);
+  trayRefreshTimer = setTimeout(() => tray?.refresh(), 200);
+}
+
 function applyTimingOffset(offsetMs: number): void {
   const clamped = clampTimingOffset(offsetMs);
   settings?.update({ timing_offset_ms: clamped });
@@ -308,9 +313,7 @@ function applyThemeScope(scope: unknown): void {
 function applyBoxAlpha(alpha: number): void {
   settings?.update({ box_alpha: clampAlpha(alpha) });
   broadcastSettings();
-  // Debounced: a scroll burst must not rebuild the tray menu per event.
-  if (trayRefreshTimer) clearTimeout(trayRefreshTimer);
-  trayRefreshTimer = setTimeout(() => tray?.refresh(), 200);
+  scheduleTrayRefresh();
 }
 
 function resetWindowPosition(): void {
@@ -358,7 +361,24 @@ function openTimingOffsetPrompt(): void {
   // fullscreen apps, or "Other…" silently opens underneath them.
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  win.on('blur', () => win.close());
+  // No blur-close: offset tuning means alt-tabbing to pause/seek the music,
+  // and losing the typed value on every focus change made the prompt useless
+  // (retro finding). Escape/Cancel/OK are the exits.
+  // Open centered OVER the lyric box — that is where the user's eyes are —
+  // clamped onto its display's work area (a box parked at a screen edge must
+  // not push the prompt off-screen).
+  if (window && !window.isDestroyed()) {
+    const box = window.getBounds();
+    const area = screen.getDisplayMatching(box).workArea;
+    const x = Math.round(box.x + (box.width - PROMPT_WIDTH) / 2);
+    const y = Math.round(box.y + (box.height - PROMPT_HEIGHT) / 2);
+    win.setBounds({
+      x: Math.max(area.x, Math.min(x, area.x + area.width - PROMPT_WIDTH)),
+      y: Math.max(area.y, Math.min(y, area.y + area.height - PROMPT_HEIGHT)),
+      width: PROMPT_WIDTH,
+      height: PROMPT_HEIGHT,
+    });
+  }
   win.on('closed', () => {
     if (promptWindow === win) promptWindow = null;
   });
@@ -391,6 +411,16 @@ ipcMain.on('kashi:adjust-opacity', (_event, deltaSteps: unknown) => {
   if (!settings) return;
   // adjustAlpha sanitizes the untrusted IPC delta (R-7) and clamps the result.
   applyBoxAlpha(adjustAlpha(settings.get().box_alpha, deltaSteps as number));
+});
+
+ipcMain.on('kashi:adjust-timing-offset', (_event, deltaSteps: unknown) => {
+  if (!settings) return;
+  const next = adjustTimingOffset(settings.get().timing_offset_ms, deltaSteps as number);
+  if (next === settings.get().timing_offset_ms) return; // pinned at a clamp edge
+  settings.update({ timing_offset_ms: next });
+  log(`setting: timing offset -> ${next}ms (scroll)`);
+  broadcastSettings();
+  scheduleTrayRefresh();
 });
 
 ipcMain.on('kashi:rlog', (_event, line: unknown) => {

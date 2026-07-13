@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('kashi', {
   dragEnd: () => ipcRenderer.send('kashi:drag-end'),
   /** Ctrl+scroll opacity nudge; main clamps, persists and broadcasts back. */
   adjustOpacity: (deltaSteps: number) => ipcRenderer.send('kashi:adjust-opacity', deltaSteps),
+  /** Ctrl+Shift+scroll timing-offset nudge (the opacity gesture's twin). */
+  adjustTimingOffset: (deltaSteps: number) =>
+    ipcRenderer.send('kashi:adjust-timing-offset', deltaSteps),
   /** Right-click on the box: pop the Kashi menu (same one the tray serves). */
   openMenu: () => ipcRenderer.send('kashi:open-menu'),
   /** Timing-offset prompt window: submit a typed value (main clamps) / close. */

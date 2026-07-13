@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   clampTimingOffset,
   timingOffsetLabel,
+  TIMING_OFFSET_MAX_ABS,
   TIMING_OFFSET_PRESETS,
   DEFAULT_BOX_ALPHA,
   DEFAULT_SETTINGS,
+  DEFAULT_TIMING_OFFSET_MS,
   OPACITY_MAX,
   OPACITY_PRESETS,
   adjustAlpha,
+  adjustTimingOffset,
   clampAlpha,
   isPositionVisible,
   nearestPresetIndex,
@@ -54,6 +57,20 @@ describe('adjustAlpha', () => {
 
   it('recovers from a corrupt current value instead of propagating NaN', () => {
     expect(adjustAlpha(Number.NaN, 1)).toBeCloseTo(DEFAULT_BOX_ALPHA + 0.02);
+  });
+});
+
+describe('adjustTimingOffset', () => {
+  it('moves in 10 ms steps and clamps at ±max', () => {
+    expect(adjustTimingOffset(0, 1)).toBe(10);
+    expect(adjustTimingOffset(120, -3)).toBe(90);
+    expect(adjustTimingOffset(TIMING_OFFSET_MAX_ABS - 10, 5)).toBe(TIMING_OFFSET_MAX_ABS);
+    expect(adjustTimingOffset(-TIMING_OFFSET_MAX_ABS, -1)).toBe(-TIMING_OFFSET_MAX_ABS);
+  });
+
+  it('sanitizes IPC garbage on both axes', () => {
+    expect(adjustTimingOffset(Number.NaN, 2)).toBe(DEFAULT_TIMING_OFFSET_MS + 20);
+    expect(adjustTimingOffset(100, Number.NaN)).toBe(100);
   });
 });
 

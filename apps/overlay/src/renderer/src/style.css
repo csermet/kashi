@@ -267,3 +267,58 @@ body.fx-full .word-fill {
     opacity: 1;
   }
 }
+
+/* Live timing-offset readout ("+120 ms"): flashed in the box corner while the
+   Ctrl+Shift+scroll gesture runs (the tray menu is closed at that moment).
+   Opacity-only, pointer-transparent — invisible unless .show is armed. */
+#offset-flash {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--kashi-text, #fff);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+
+#offset-flash.show {
+  opacity: 0.85;
+}
+
+/* Reduced motion (public-project etiquette): drop every scale/translate and
+   looping animation; gentle opacity fades and the karaoke fill (the core
+   semantic, not decoration) stay. */
+@media (prefers-reduced-motion: reduce) {
+  .lyric.interlude,
+  body.fx-simple #lyric-line.line-in,
+  body.fx-full #lyric-line.line-in,
+  .dot {
+    animation: none;
+  }
+
+  .dot {
+    opacity: 0.6; /* frozen mid-blink otherwise */
+  }
+
+  body.fx-simple .word,
+  body.fx-full .word {
+    transition:
+      opacity 120ms ease-out,
+      color 120ms ease-out;
+  }
+
+  body.fx-simple .word-active,
+  body.fx-full .word-active,
+  body.fx-full #lyric-box.beat,
+  body.fx-full #lyric-box.beat-down {
+    transform: none;
+  }
+
+  /* The glow ring pulses to the music — that IS motion, opacity or not. */
+  body.fx-full #lyric-box.beat::after,
+  body.fx-full #lyric-box.beat-down::after {
+    opacity: 0;
+  }
+}

@@ -100,17 +100,27 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     checked: scope === themeScope,
     click: () => opts.onThemeScopeSelect(scope),
   }));
+  // Parent labels carry the live value (retro 4.5): the menu is rebuilt on
+  // every settings change anyway, so "— Full" / "— +100 ms" is free and saves
+  // a submenu dive just to check the current state.
   return Menu.buildFromTemplate([
     { label: `Kashi v${opts.version}`, enabled: false },
     { type: 'separator' },
-    { label: 'Effects', submenu: effectItems },
-    { label: 'Theme colors', submenu: themeItems },
-    { label: 'Box opacity', submenu: opacityItems },
-    { label: 'Timing offset', submenu: timingItems },
+    { label: `Effects — ${effectLevelLabel(effectLevel)}`, submenu: effectItems },
+    { label: `Theme colors — ${themeScopeLabel(themeScope)}`, submenu: themeItems },
+    { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },
+    { label: `Timing offset — ${shortOffsetLabel(offset)}`, submenu: timingItems },
     { label: 'Reset position', click: opts.onResetPosition },
     { type: 'separator' },
     { label: 'Quit Kashi', click: opts.onQuit },
   ]);
+}
+
+/** "+100 ms" / "Off" — the parent label / tooltip variant without the
+ * (earlier)/(later) coaching the preset rows carry. */
+function shortOffsetLabel(offsetMs: number): string {
+  if (offsetMs === 0) return 'Off';
+  return `${offsetMs > 0 ? '+' : ''}${offsetMs} ms`;
 }
 
 /**
@@ -130,9 +140,14 @@ function trayIcon() {
 
 export function createTray(opts: KashiMenuOptions): TrayHandle {
   const tray = new Tray(trayIcon());
-  tray.setToolTip('Kashi');
   const refresh = (): void => {
     tray.setContextMenu(buildKashiMenu(opts));
+    // The tooltip answers "what is Kashi set to right now" without a click.
+    tray.setToolTip(
+      `Kashi v${opts.version} — ${effectLevelLabel(opts.getEffectLevel())}, ` +
+        `opacity ${presetLabel(opts.getAlpha())}, ` +
+        `offset ${shortOffsetLabel(opts.getTimingOffset())}`,
+    );
   };
   refresh();
   return { refresh };

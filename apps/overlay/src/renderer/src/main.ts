@@ -63,6 +63,7 @@ interface KashiBridge {
   dragStart: () => void;
   dragEnd: () => void;
   adjustOpacity: (deltaSteps: number) => void;
+  adjustTimingOffset: (deltaSteps: number) => void;
   openMenu: () => void;
   log: (line: string) => void;
 }
@@ -76,6 +77,7 @@ declare global {
 const boxEl = document.getElementById('lyric-box');
 const lineEl = document.getElementById('lyric-line');
 const searchEl = document.getElementById('search-line');
+const offsetFlashEl = document.getElementById('offset-flash');
 
 const clock = new PositionClock();
 let currentKey: string | null = null;
@@ -398,6 +400,18 @@ window.kashi.onConnection((payload) => {
   ensureLoop();
 });
 
+// Brief "+120 ms" readout in the box corner: the live scroll gesture needs
+// feedback the tray can't give (the menu is closed while scrolling).
+let settingsSeen = false;
+let offsetFlashTimer: ReturnType<typeof setTimeout> | null = null;
+function flashTimingOffset(offsetMs: number): void {
+  if (!offsetFlashEl) return;
+  offsetFlashEl.textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs} ms`;
+  offsetFlashEl.classList.add('show');
+  if (offsetFlashTimer !== null) clearTimeout(offsetFlashTimer);
+  offsetFlashTimer = setTimeout(() => offsetFlashEl.classList.remove('show'), 900);
+}
+
 window.kashi.onSettings((payload) => {
   const { box_alpha, timing_offset_ms, effect_level, theme_scope } = payload as {
     box_alpha?: unknown;
@@ -410,8 +424,12 @@ window.kashi.onSettings((payload) => {
   }
   if (typeof timing_offset_ms === 'number' && Number.isFinite(timing_offset_ms)) {
     // positive = lyrics fire earlier (clamped main-side; belt here)
-    timingOffsetMs = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
+    const next = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
+    // Flash only on live CHANGES — the startup replay must stay silent.
+    if (settingsSeen && next !== timingOffsetMs) flashTimingOffset(next);
+    timingOffsetMs = next;
   }
+  settingsSeen = true;
   if (effect_level !== undefined && parseEffectLevel(effect_level) !== effectLevel) {
     // Instant switch: a body class + variable/cursor reset — nothing rebuilt
     // except the word spans (their fill plan depends on the level).
@@ -476,16 +494,30 @@ window.addEventListener('blur', () => {
     window.kashi.dragEnd();
   }
 });
-// Ctrl+scroll over the box tunes its background opacity (persisted in main).
-// Deltas go through an accumulator (view-logic) so touchpads and classic
-// wheels both land on ~1 step per comfortable gesture unit.
+// Ctrl+scroll over the box tunes its background opacity; Ctrl+Shift+scroll
+// tunes the lyric timing offset live (Faz 4.5 — the setting is inherently
+// iterative, the menu path was bureaucratic). Deltas go through an
+// accumulator (view-logic) so touchpads and classic wheels both land on
+// ~1 step per comfortable gesture unit. Separate accumulators: releasing
+// Shift mid-gesture must not spill leftover pixels into the other control.
 let wheelAccPx = 0;
+let offsetWheelAccPx = 0;
 boxEl?.addEventListener(
   'wheel',
   (event) => {
     if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
-    const { accumulatedPx, steps } = accumulateWheel(wheelAccPx, event.deltaY, event.deltaMode);
+    // Chromium reroutes the wheel to deltaX while Shift is held — the offset
+    // gesture would read an eternal deltaY=0 without this fallback.
+    const delta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
+    if (event.shiftKey) {
+      const { accumulatedPx, steps } = accumulateWheel(offsetWheelAccPx, delta, event.deltaMode);
+      offsetWheelAccPx = accumulatedPx;
+      // Scroll up = lyrics earlier (positive offset), mirroring "up = more".
+      if (steps !== 0) window.kashi.adjustTimingOffset(-steps);
+      return;
+    }
+    const { accumulatedPx, steps } = accumulateWheel(wheelAccPx, delta, event.deltaMode);
     wheelAccPx = accumulatedPx;
     // Scroll up (negative deltaY) increases opacity.
     if (steps !== 0) window.kashi.adjustOpacity(-steps);
