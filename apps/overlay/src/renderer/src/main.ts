@@ -39,6 +39,7 @@ import {
   type WordTiming,
 } from './view-logic.js';
 import type { LyricLine } from '../../shared/lyrics.js';
+import { loadArtworkPalette } from './artwork-palette.js';
 
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
@@ -89,7 +90,16 @@ let appliedView: ViewOutput | null = null;
 // comes from settings. All per-frame beat work is class toggles on edges.
 let effectLevel: EffectLevel = 'simple';
 let themeScope: ThemeScope = 'full';
-let currentPalette: PaletteLike | undefined;
+let currentPalette: PaletteLike | undefined; // what applyPaletteVars renders
+let serverPalette: PaletteLike | undefined; // from a kashi-server document
+let artworkPalette: PaletteLike | undefined; // local extraction (lrclib mode)
+let artworkRequest = 0; // stale-load guard (Faz 5 P5)
+
+// Server palettes always win; artwork only fills the serverless gap.
+function refreshPalette(): void {
+  currentPalette = serverPalette ?? artworkPalette;
+  applyPaletteVars();
+}
 let currentBeats: BeatsLike | undefined;
 let beatCursor: BeatCursor | null = null;
 let appliedBeat: BeatFrame = BEAT_IDLE;
@@ -275,6 +285,9 @@ function applyView(view: ViewOutput): void {
 
 function clearEnrichment(): void {
   currentPalette = undefined;
+  serverPalette = undefined;
+  artworkPalette = undefined;
+  artworkRequest += 1; // in-flight artwork loads for the OLD track go stale
   currentBeats = undefined;
   rebuildBeatCursor();
   applyPaletteVars();
@@ -292,7 +305,10 @@ function resetToIdle(): void {
 }
 
 window.kashi.onTrack((payload) => {
-  const { key, track } = payload as { key: string; track: { title: string; artist: string } };
+  const { key, track } = payload as {
+    key: string;
+    track: { title: string; artist: string; artwork_url?: string };
+  };
   currentKey = key;
   lines = [];
   searching = false;
@@ -300,6 +316,17 @@ window.kashi.onTrack((payload) => {
   // ad_state=false otherwise blanks every following song forever)
   clock.reset();
   clearEnrichment(); // last track's palette/beats must not theme this one
+  if (typeof track.artwork_url === 'string' && track.artwork_url) {
+    // Serverless palette (Faz 5 P5): theme from the artwork while (or in
+    // place of) a server document. A later server palette overrides.
+    const request = artworkRequest;
+    void loadArtworkPalette(track.artwork_url).then((palette) => {
+      if (palette === null || request !== artworkRequest || key !== currentKey) return;
+      artworkPalette = palette;
+      refreshPalette();
+      window.kashi.log('artwork palette applied (serverless theme)');
+    });
+  }
   trackLabel = `♪ ${track.artist} — ${track.title}`;
   statusText = trackLabel;
   statusDim = false;
@@ -332,10 +359,10 @@ window.kashi.onLyrics((payload) => {
     lines = data.lines;
     // Server enrichment (Faz 4): palette themes the box, beats drive the
     // pulse. lrclib results carry neither — defaults keep the plain look.
-    currentPalette = data.palette;
+    serverPalette = data.palette;
     currentBeats = data.beats;
     rebuildBeatCursor();
-    applyPaletteVars();
+    refreshPalette();
     window.kashi.log(
       `lyrics applied: ${lines.length} lines` +
         (data.beats ? ' +beats' : '') +
@@ -343,7 +370,12 @@ window.kashi.onLyrics((payload) => {
     );
   } else {
     lines = [];
-    clearEnrichment();
+    // Keep the artwork theme: palette is about the PLAYING track, not about
+    // whether lyrics exist. Only server enrichment resets here.
+    serverPalette = undefined;
+    currentBeats = undefined;
+    rebuildBeatCursor();
+    refreshPalette();
     statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
     statusDim = true;
     window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);

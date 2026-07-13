@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <!-- Same CSP stance as index.html: 'unsafe-inline' only for vite dev-mode
-         style injection; revisit at packaging time (Faz 5). -->
+         style injection; the BUILD strips 'unsafe-inline' (tightenCsp plugin). -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data:"
