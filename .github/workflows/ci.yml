@@ -29,6 +29,7 @@ jobs:
       - name: Version lockstep guard
         run: node scripts/check-versions.mjs
       - run: pnpm typecheck
+      - run: pnpm lint
       # Unit tests: the kashi-server live suite self-skips without KASHI_LIVE_URL.
       - run: pnpm -r test
       - run: pnpm build

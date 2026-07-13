@@ -7,6 +7,9 @@ allowBuilds:
   # kashi-overlay's own postinstall (`install-electron`). pnpm still asks for
   # an explicit decision, so: false (nothing to run there).
   electron: false
+  # electron-builder transitive; only Squirrel.Windows targets need its
+  # postinstall — we ship nsis + portable, so nothing to run.
+  electron-winstaller: false
   esbuild: true
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.64.0'

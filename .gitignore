@@ -12,3 +12,4 @@ __pycache__/
 .DS_Store
 # Benchmark ground truth + audio (CC NC/ND — must never enter git or an image)
 apps/server/benchmarks/data/
+apps/overlay/release/

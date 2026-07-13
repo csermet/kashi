@@ -6,11 +6,16 @@
  * settings change so radios track the live value (Ctrl+scroll produces
  * in-between values — shown as a disabled Custom entry).
  */
-import { Menu, Tray, nativeImage, type MenuItemConstructorOptions } from 'electron';
-// NOTE(Faz 5): ?asset resolves to ../../resources/tray.png RELATIVE to
-// out/main — fine when running from the repo, but the packaged app must ship
-// resources/ alongside (electron-builder extraResources), or the icon is blank.
+import { join } from 'node:path';
+import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'electron';
+// ?asset resolves relative to out/main — correct when running from the repo.
+// The PACKAGED app ships the icon via electron-builder extraResources and
+// reads it from process.resourcesPath instead (Faz 5 P5).
 import trayIconPath from '../../resources/tray.png?asset';
+
+const resolvedTrayIcon = app.isPackaged
+  ? join(process.resourcesPath, 'tray.png')
+  : trayIconPath;
 import {
   EFFECT_LEVELS,
   THEME_SCOPES,
@@ -131,7 +136,7 @@ function shortOffsetLabel(offsetMs: number): string {
  * glyph black or white to match the current appearance.
  */
 function trayIcon() {
-  const image = nativeImage.createFromPath(trayIconPath);
+  const image = nativeImage.createFromPath(resolvedTrayIcon);
   if (process.platform !== 'darwin') return image;
   const scaled = image.resize({ width: 16, height: 16 });
   scaled.setTemplateImage(true);

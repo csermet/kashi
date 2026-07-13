@@ -1,6 +1,9 @@
 {
   "name": "kashi-overlay",
   "version": "0.2.12",
+  "description": "Word-synced lyrics overlay for the music you are playing",
+  "homepage": "https://github.com/csermet/kashi",
+  "author": "Caner Sermet <canersermet@gmail.com>",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -10,7 +13,9 @@
     "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "fake-extension": "node scripts/fake-extension.mjs"
+    "fake-extension": "node scripts/fake-extension.mjs",
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "dist:win": "electron-vite build && electron-builder --win"
   },
   "dependencies": {
     "@kashi/protocol": "workspace:*",
@@ -21,6 +26,7 @@
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.0",
     "electron": "42.6.0",
+    "electron-builder": "26.15.6",
     "electron-vite": "^5.0.0",
     "typescript": "^6.0.0",
     "vite": "^7.3.0",

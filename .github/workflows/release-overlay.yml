@@ -1,0 +1,86 @@
+# Packaged overlay releases (Faz 5 P5). Trigger: push an overlay-v* tag.
+# Linux builds AND smoke-tests the AppImage headless (the workspace-dep
+# bundle trap — @kashi/protocol resolving to TS source — only bites at
+# RUNTIME, so packaging alone proves nothing). Windows builds nsis+portable
+# natively (wine cross-builds are fragile). Artifacts land on a DRAFT
+# release; Caner reviews and publishes.
+name: overlay-release
+
+on:
+  push:
+    tags: ['overlay-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1' # electron-builder fetches its own dist
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/check-versions.mjs
+      - run: pnpm --filter kashi-overlay dist:linux
+      - name: Headless smoke (bundle trap + startup)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q xvfb
+          APPIMAGE=$(ls apps/overlay/release/*.AppImage)
+          chmod +x "$APPIMAGE"
+          # env scrub: with ELECTRON_RUN_AS_NODE=1 leaked in, packaged
+          # Electron runs as plain node and rejects its own flags.
+          env -u ELECTRON_RUN_AS_NODE xvfb-run -a "$APPIMAGE" --no-sandbox > smoke.log 2>&1 &
+          APP_PID=$!
+          sleep 12
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "::error::packaged app died within 12s"; cat smoke.log; exit 1
+          fi
+          kill "$APP_PID" || true
+          if grep -q "ERR_MODULE_NOT_FOUND" smoke.log; then
+            echo "::error::workspace dep resolved to source (bundle trap)"; cat smoke.log; exit 1
+          fi
+          tail -20 smoke.log
+      - name: Checksums
+        run: |
+          cd apps/overlay/release
+          sha256sum *.AppImage *.deb > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            apps/overlay/release/*.AppImage
+            apps/overlay/release/*.deb
+            apps/overlay/release/SHA256SUMS-linux.txt
+
+  windows:
+    runs-on: windows-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter kashi-overlay dist:win
+      - name: Checksums
+        shell: bash
+        run: |
+          cd apps/overlay/release
+          sha256sum *.exe > SHA256SUMS-windows.txt
+          cat SHA256SUMS-windows.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            apps/overlay/release/*.exe
+            apps/overlay/release/SHA256SUMS-windows.txt

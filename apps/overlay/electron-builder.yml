@@ -1,0 +1,34 @@
+# Packaging (Faz 5 P5). Builds run per-platform in CI (release-overlay.yml);
+# locally: pnpm dist:linux / dist:win. 26.x pinned — 27 is alpha (native ESM
+# breaking wave); electron-updater deliberately absent (backlog: releases are
+# manual downloads until the release rhythm settles).
+appId: com.railguncnr.kashi
+productName: Kashi
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+extraResources:
+  # tray.ts falls back to <resources>/tray.png when app.isPackaged — the
+  # ?asset import only resolves when running from the repo (see tray.ts NOTE).
+  - from: resources/tray.png
+    to: tray.png
+asar: true
+npmRebuild: false # no native deps (ws runs pure-JS; bufferutil not installed)
+publish: null # CI attaches artifacts to the GitHub release itself
+win:
+  target:
+    - nsis
+    - portable
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: true
+  deleteAppDataOnUninstall: false
+linux:
+  target:
+    - AppImage
+    - deb
+  category: AudioVideo
+  maintainer: Caner Sermet <canersermet@gmail.com>
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}

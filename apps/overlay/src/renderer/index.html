@@ -2,9 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- style-src keeps 'unsafe-inline' ONLY because vite dev mode injects
-         styles via JS; the production bundle uses the real stylesheet link.
-         Revisit at packaging time (Faz 5). -->
+    <!-- style-src keeps 'unsafe-inline' ONLY for vite dev-mode style
+         injection; the BUILD strips the token (tightenCsp plugin) — packaged
+         apps ship the strict CSP. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data:"
