@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import threading
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 
 from prometheus_client import Counter
@@ -36,7 +37,6 @@ from kashi_server.pipeline.lrclib import (
     title_covers,
 )
 from kashi_server.pipeline.nightcore import (
-    clean_title,
     detect_speed_factor,
     pick_record_for_factor,
     rescale_result,
@@ -44,6 +44,7 @@ from kashi_server.pipeline.nightcore import (
     slow_duration_ok,
 )
 from kashi_server.pipeline.palette import extract_palette
+from kashi_server.pipeline.titles import clean_title
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,58 @@ def _nightcore_lyrics(
     return lyrics_from_record(picked)
 
 
+@dataclass(frozen=True)
+class NightcorePlan:
+    """One job's resolved nightcore decision: the clock alignment runs on,
+    the lyrics to align, the pre-decoded wav (the branch decodes early for
+    the duration sanity gate) and how the branch resolved (metric label)."""
+
+    speed_factor: float
+    lyrics: LyricsText
+    align_wav: Path | None
+    outcome: str | None  # explicit | detected | reverted | None = plain r=1
+
+
+def resolve_nightcore(
+    job: Job, download: DownloadResult, source_audio: Path, tmp: Path
+) -> NightcorePlan:
+    """Resolve the whole nightcore branch up front: detection, lyrics, the
+    slowed decode and its duration sanity gate in one place. Every miss lands
+    on the plain r=1 plan; an explicit factor that fails the sanity gate
+    raises instead of silently reverting — the caller stated it and cannot
+    see a wrong clock."""
+    speed_factor, detection_record, nc_outcome = _detect_nightcore(job, download)
+    if speed_factor == 1.0 or nc_outcome is None:
+        return NightcorePlan(1.0, _plain_lyrics(job), None, None)
+    # Lyrics resolve BEFORE the near-realtime rubberband stretch: a doomed
+    # lyrics_not_found must not cost a 30-minute decode first (retro finding
+    # — the explicit-r path decoded, then searched).
+    lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
+    align_wav = _decode(source_audio, tmp / "align.wav", rate=16000, tempo=1.0 / speed_factor)
+    if slow_duration_ok(_wav_duration_s(align_wav), download.duration_s, speed_factor):
+        NIGHTCORE_JOBS.labels(nc_outcome).inc()
+        return NightcorePlan(speed_factor, lyrics, align_wav, nc_outcome)
+    if nc_outcome == "explicit":
+        # The caller STATED this factor; a document silently produced on the
+        # r=1 clock would be wrong in a way they cannot see.
+        NIGHTCORE_JOBS.labels("explicit_failed").inc()
+        raise PipelineError(
+            "alignment_failed",
+            f"explicit speed_factor {speed_factor:g} fails the slowed-copy "
+            f"duration sanity check (slowed {_wav_duration_s(align_wav):.1f}s "
+            f"vs expected {download.duration_s * speed_factor:.1f}s)",
+        )
+    logger.warning(
+        "job %s: slowed copy fails the duration sanity check — "
+        "nightcore r=%.3f reverted to the normal flow",
+        job.id,
+        speed_factor,
+    )
+    NIGHTCORE_JOBS.labels("reverted").inc()
+    align_wav = _decode(source_audio, tmp / "align.wav", rate=16000)
+    return NightcorePlan(1.0, _plain_lyrics(job), align_wav, "reverted")
+
+
 def process_job(s: Session, job: Job) -> None:
     tmp = settings.data_dir / f"job-{job.id}"
     tmp.mkdir(parents=True, exist_ok=True)
@@ -353,48 +406,22 @@ def process_job(s: Session, job: Job) -> None:
         # Nightcore branch (Faz 4): slow the (possibly separated) audio back
         # down for alignment, then rescale the output onto the played clock.
         # Every failure reverts to the plain r=1 flow.
-        speed_factor, detection_record, nc_outcome = _detect_nightcore(job, download)
-        align_wav: Path | None = None
-        if speed_factor != 1.0:
-            # Lyrics resolve BEFORE the near-realtime rubberband stretch: a
-            # doomed lyrics_not_found must not cost a 30-minute decode first
-            # (retro finding — the explicit-r path decoded, then searched).
-            lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
-            align_wav = _decode(
-                source_audio, tmp / "align.wav", rate=16000, tempo=1.0 / speed_factor
-            )
-            if slow_duration_ok(_wav_duration_s(align_wav), download.duration_s, speed_factor):
-                NIGHTCORE_JOBS.labels(nc_outcome or "detected").inc()
-            elif nc_outcome == "explicit":
-                # The caller STATED this factor; a document silently produced
-                # on the r=1 clock would be wrong in a way they cannot see.
-                NIGHTCORE_JOBS.labels("explicit_failed").inc()
-                raise PipelineError(
-                    "alignment_failed",
-                    f"explicit speed_factor {speed_factor:g} fails the slowed-copy "
-                    f"duration sanity check (slowed {_wav_duration_s(align_wav):.1f}s "
-                    f"vs expected {download.duration_s * speed_factor:.1f}s)",
-                )
-            else:
-                logger.warning(
-                    "job %s: slowed copy fails the duration sanity check — "
-                    "nightcore r=%.3f reverted to the normal flow",
-                    job.id,
-                    speed_factor,
-                )
-                NIGHTCORE_JOBS.labels("reverted").inc()
-                speed_factor, detection_record = 1.0, None
-                align_wav = _decode(source_audio, tmp / "align.wav", rate=16000)
-                lyrics = _plain_lyrics(job)
+        plan = resolve_nightcore(job, download, source_audio, tmp)
+        if plan.outcome is not None:  # the branch decoded — same cadence as before
             checkpoint(s, job)
-        else:
-            lyrics = _plain_lyrics(job)
+        lyrics = plan.lyrics
         result, vocals_separated = _align_stage(
-            s, job, tmp, source_audio, lyrics, align_wav=align_wav, tempo=1.0 / speed_factor
+            s,
+            job,
+            tmp,
+            source_audio,
+            lyrics,
+            align_wav=plan.align_wav,
+            tempo=1.0 / plan.speed_factor,
         )
         qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
         result = qa.result
-        if speed_factor != 1.0:
+        if plan.speed_factor != 1.0:
             if lyrics.source != "caller":
                 # Wrong-song gate: detection can only vouch for title+duration
                 # ratio; the CTC probs are the honest lyrics-identity signal.
@@ -409,7 +436,7 @@ def process_job(s: Session, job: Job) -> None:
                     )
             # QA ran on the slowed (≈ original) clock where the lrclib stamps
             # live; ONE rescale lands everything on the nightcore clock.
-            result = rescale_result(result, speed_factor)
+            result = rescale_result(result, plan.speed_factor)
         if qa.degraded_to_line or qa.flagged:
             logger.warning(
                 "job %s: line QA %s %d line(s), offset %+dms",
@@ -440,7 +467,7 @@ def process_job(s: Session, job: Job) -> None:
             beats,
             palette,
             vocals_separated=vocals_separated or separate_first,
-            speed_factor=speed_factor,
+            speed_factor=plan.speed_factor,
             fallback_duration_ms=round(download.duration_s * 1000),
         )
         persist_processed_track(s, job, doc)
