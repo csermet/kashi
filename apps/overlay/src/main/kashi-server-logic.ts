@@ -4,36 +4,14 @@
  * every rule is unit-tested.
  */
 
-export interface ServerWord {
-  start_ms: number;
-  end_ms: number;
-  text: string;
-}
+import type { BeatsData, LyricLine, PaletteData, WordTiming } from '../shared/lyrics.js';
 
-export interface ServerLine {
-  start_ms: number;
-  end_ms: number;
-  text: string;
-  /** Nonlexical ad-lib line (server 2.1.0+; older docs lack it — tolerant). */
-  adlib?: true;
-  words?: ServerWord[];
-}
-
-export interface ServerPalette {
-  source?: string;
-  primary?: string;
-  secondary?: string;
-  background?: string;
-  text?: string;
-  accent?: string;
-}
-
-export interface ServerBeats {
-  bpm: number;
-  confidence?: number;
-  times_ms: number[];
-  downbeat_indices?: number[];
-}
+// One source of truth for these shapes: src/shared/lyrics.ts (schema-drift
+// guarded). The Server* names stay as aliases for the existing call sites.
+export type ServerWord = WordTiming;
+export type ServerLine = LyricLine;
+export type ServerPalette = PaletteData;
+export type ServerBeats = BeatsData;
 
 /** What lookupLyrics forwards to the renderer for a server hit. */
 export interface ServerLyricsFound {

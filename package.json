@@ -9,6 +9,11 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "codegen": "pnpm --filter @kashi/schemas codegen"
+    "codegen": "pnpm --filter @kashi/schemas codegen",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "eslint": "10.7.0",
+    "typescript-eslint": "8.64.0"
   }
 }

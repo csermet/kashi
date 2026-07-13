@@ -248,7 +248,16 @@ export function beatsUsable(level: EffectLevel, beats: BeatsLike | undefined): b
   if (level !== 'full' || !beats) return false;
   const times = beats.times_ms;
   if (!Array.isArray(times) || times.length === 0) return false;
-  if (!times.every((t) => typeof t === 'number' && Number.isFinite(t))) return false;
+  // Monotonicity too: BeatCursor binary-searches this array — unsorted
+  // times silently break the pulse (retro 4.5 #13).
+  if (
+    !times.every(
+      (t, i) =>
+        typeof t === 'number' && Number.isFinite(t) && (i === 0 || t >= (times[i - 1] as number))
+    )
+  ) {
+    return false;
+  }
   // Missing confidence → conservative off (the schema always writes it today).
   return typeof beats.confidence === 'number' && beats.confidence >= BEAT_CONFIDENCE_GATE;
 }

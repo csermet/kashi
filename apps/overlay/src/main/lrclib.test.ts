@@ -178,7 +178,7 @@ describe('LrclibClient', () => {
   it('times out a hung request via the per-request budget', async () => {
     const { fetchFn } = makeFetch(
       (url) =>
-        new Promise<Response>((resolve, reject) => {
+        new Promise<Response>((_resolve, _reject) => {
           // Simulate a black-holed connection: resolve never, but honor abort.
           void url;
         }),

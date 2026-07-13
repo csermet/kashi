@@ -17,6 +17,7 @@
     "ws": "8.21.0"
   },
   "devDependencies": {
+    "@kashi/schemas": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.0",
     "electron": "42.6.0",

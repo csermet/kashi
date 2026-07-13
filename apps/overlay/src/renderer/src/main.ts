@@ -38,16 +38,8 @@ import {
   type ViewOutput,
   type WordTiming,
 } from './view-logic.js';
+import type { LyricLine } from '../../shared/lyrics.js';
 
-interface LyricLine {
-  start_ms: number;
-  end_ms: number;
-  text: string;
-  /** Nonlexical ad-lib line (server 2.1.0+, Faz 4 styling). */
-  adlib?: boolean;
-  /** Present on kashi-server word-sync documents (Faz 3B). */
-  words?: WordTiming[];
-}
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
 

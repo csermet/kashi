@@ -128,7 +128,7 @@ function rgbToHex(rgb: LinearRgb): string {
  * PRIMARY_C_MIN to decide the L-drop fallback.
  */
 function clipChroma(L: number, C: number, h: number): { rgb: LinearRgb; c: number } {
-  let rgb = oklchToLinearRgb(L, C, h);
+  const rgb = oklchToLinearRgb(L, C, h);
   if (inGamut(rgb)) return { rgb, c: C };
   let lo = 0;
   let hi = C;

@@ -87,11 +87,9 @@ export function shouldAnimateLineChange(
   );
 }
 
-export interface WordTiming {
-  start_ms: number;
-  end_ms: number;
-  text: string;
-}
+import type { WordTiming } from '../../shared/lyrics.js';
+
+export type { WordTiming };
 
 export interface LineSpan {
   start_ms: number;
