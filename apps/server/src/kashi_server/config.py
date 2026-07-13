@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # orphaned rows — job never ran or was canceled — are swept after the TTL.
     upload_max_bytes: int = 64 * 1024 * 1024
     upload_ttl_hours: int = 24
+    # lrclib contribute-back (Faz 5 P6): BOTH flags must be flipped for a
+    # real publish — the feature defaults hard-off, and even when enabled,
+    # dry-run only LOGS the YAML until the operator is sure.
+    lrclib_publish_enabled: bool = False
+    lrclib_publish_dry_run: bool = True
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]

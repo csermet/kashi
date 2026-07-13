@@ -54,6 +54,15 @@ class UploadResponse(BaseModel):
     expires_at: datetime
 
 
+class PublishRequestIn(BaseModel):
+    source: SourceRef
+
+
+class PublishRequestOut(BaseModel):
+    id: uuid.UUID
+    status: str  # queued | published | dry_run | failed
+
+
 class ReprocessRequest(BaseModel):
     source: SourceRef
     # Optional: when omitted, the latest job's hints for this source are reused.

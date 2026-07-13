@@ -87,6 +87,12 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
             session.commit()
             job = queue.claim_next(session)
             if job is None:
+                # Idle slot: drain at most one lrclib publish request (P6) —
+                # PoW may cost minutes and must never delay a lyrics job.
+                from kashi_server.worker.publisher import process_one_publish
+
+                if process_one_publish(session, should_stop=lambda: stopping["flag"]):
+                    continue
                 QUEUE_DEPTH.set(queue.queue_depth(session))
                 session.commit()
                 time.sleep(settings.worker_poll_interval_s)

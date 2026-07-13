@@ -45,6 +45,10 @@ export interface KashiMenuOptions {
   getThemeScope: () => ThemeScope;
   onThemeScopeSelect: (scope: ThemeScope) => void;
   onResetPosition: () => void;
+  /** lrclib contribute-back (Faz 5 P6): visible only while a kashi-server
+   * word-sync document is on screen; the server still gates/dry-runs. */
+  getCanReportSync: () => boolean;
+  onReportSync: () => void;
   onQuit: () => void;
 }
 
@@ -115,6 +119,9 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { label: `Theme colors — ${themeScopeLabel(themeScope)}`, submenu: themeItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },
     { label: `Timing offset — ${shortOffsetLabel(offset)}`, submenu: timingItems },
+    ...(opts.getCanReportSync()
+      ? [{ label: 'Report good sync to LRCLIB', click: opts.onReportSync } as const]
+      : []),
     { label: 'Reset position', click: opts.onResetPosition },
     { type: 'separator' },
     { label: 'Quit Kashi', click: opts.onQuit },

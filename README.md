@@ -149,6 +149,15 @@ expire after 24 h. Re-upload and re-ingest to process the same file again.
 The ingest response also carries `reused`: `true` + `status: failed` means
 the 7-day permanent-fail block answered, not a fresh attempt.
 
+**Contributing timings back to LRCLIB** (off by default): when a
+kashi-server word-sync document is on screen, the tray gains *Report good
+sync to LRCLIB*. The server only queues operator-approved requests, applies
+a hard quality gate (lrclib-sourced text only, no nightcore clocks, no
+QA-repaired or synthetic word spans), solves LRCLIB's proof-of-work
+challenge and publishes a Lyricsfile. Two server flags guard it:
+`KASHI_LRCLIB_PUBLISH_ENABLED` (endpoint) and `KASHI_LRCLIB_PUBLISH_DRY_RUN`
+(logs the exact YAML instead of publishing until you're sure).
+
 ## 🧪 Development
 
 ```bash

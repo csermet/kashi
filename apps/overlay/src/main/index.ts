@@ -93,6 +93,9 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;
 let menuOptions: KashiMenuOptions | null = null;
+// lrclib contribute-back (Faz 5 P6): the last word-sync SERVER hit, valid
+// only while its track is still the current one.
+let publishable: { key: string; source: { type: string; id: string } } | null = null;
 /** Non-null only when settings carry a server_url — otherwise the code path
  * stays byte-for-byte the serverless v0.1.11 behavior (plan R-F3-8). */
 let serverClient: KashiServerClient | null = null;
@@ -528,6 +531,10 @@ app.whenReady().then(async () => {
       enqueueGate.serverMiss(key, Date.now(), lastIsPlaying);
       armGateTimer(track);
     },
+    onServerWordHit: (key, source) => {
+      publishable = { key, source };
+      tray?.refresh(); // the Report entry appears while this doc is on screen
+    },
     isCurrent: (key) => key === latch.currentTrackKey,
     log: makeLogger('lookup'),
   });
@@ -548,6 +555,18 @@ app.whenReady().then(async () => {
     getThemeScope: () => settings?.get().theme_scope ?? DEFAULT_THEME_SCOPE,
     onThemeScopeSelect: applyThemeScope,
     onResetPosition: resetWindowPosition,
+    getCanReportSync: () =>
+      serverClient !== null && publishable !== null && publishable.key === latch.currentTrackKey,
+    onReportSync: () => {
+      const target = publishable;
+      if (!target || !serverClient || target.key !== latch.currentTrackKey) return;
+      log(`publish request: ${target.source.type}:${target.source.id}`);
+      void serverClient.requestPublish(target.source).then((outcome) => {
+        // disabled = the server-side flag is off (default) — expected until
+        // the operator opts in; the menu item still records honest intent.
+        log(`publish request outcome: ${outcome}`);
+      });
+    },
     onQuit: () => app.quit(),
   };
   tray = createTray(menuOptions);

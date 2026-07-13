@@ -129,6 +129,35 @@ export class KashiServerClient {
     return { error: true };
   }
 
+  /** Operator-approved contribute-back (Faz 5 P6). The server gates hard
+   * (409 disabled / 422 not-publishable) — this only carries the intent. A
+   * 202 reports the LEDGER state (queued/published/dry_run/failed), not a
+   * blanket "accepted" (reviewer: honesty over optimism). */
+  async requestPublish(source: IngestSource): Promise<string> {
+    try {
+      const response = await this.opts.fetchFn(`${this.opts.baseUrl}/v1/publish-requests`, {
+        method: 'POST',
+        headers: this.headers({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ source }),
+        signal: AbortSignal.timeout(ENQUEUE_TIMEOUT_MS),
+      });
+      if (response.status === 202) {
+        try {
+          const body = (await response.json()) as { status?: unknown };
+          return typeof body.status === 'string' ? body.status : 'accepted';
+        } catch {
+          return 'accepted';
+        }
+      }
+      if (response.status === 409) return 'disabled';
+      if (response.status === 422) return 'rejected';
+      if (response.status === 404) return 'not_found';
+      return 'error';
+    } catch {
+      return 'error';
+    }
+  }
+
   /** Fire-and-forget ingest; errors are logged, never surfaced (R-9 gate fires it). */
   async enqueue(source: IngestSource, hints: Record<string, unknown>): Promise<void> {
     try {

@@ -146,3 +146,33 @@ class UploadedAudio(Base):
     expires_at: Mapped[datetime]
 
     __table_args__ = (Index("ix_uploaded_audio_expires", "expires_at"),)
+
+
+class LrclibPublish(Base):
+    """Contribute-back ledger (Faz 5 P6): one row per (source, etag) —
+    OUR dedup, since lrclib documents no server-side dedup (PoW is its only
+    abuse control). A document edit (new etag) may be published again; the
+    identical document never is."""
+
+    __tablename__ = "lrclib_publishes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    source_type: Mapped[str]
+    source_id: Mapped[str]
+    etag: Mapped[str]
+    status: Mapped[str] = mapped_column(server_default=text("'queued'"))
+    error: Mapped[str | None]
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_keys.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    finished_at: Mapped[datetime | None]
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','published','dry_run','failed')", name="ck_lrclib_publish_status"
+        ),
+        UniqueConstraint("source_type", "source_id", "etag", name="uq_lrclib_publish_doc"),
+    )

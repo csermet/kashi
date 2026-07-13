@@ -29,6 +29,8 @@ export interface LookupDeps {
   send: (payload: { key: string } & Record<string, unknown>) => void;
   /** Genuine server 404 for the CURRENT track — arm the enqueue gate. */
   onServerMiss: (key: string, track: TrackInfo) => void;
+  /** Word-sync server hit — the only publishable moment (Faz 5 P6). */
+  onServerWordHit?: (key: string, source: { type: string; id: string }) => void;
   isCurrent: (key: string) => boolean;
   log: (line: string) => void;
   /** Retry delays for transient lrclib failures (timeout/network). */
@@ -79,6 +81,9 @@ export class LookupOrchestrator {
       if (abort.signal.aborted || !this.deps.isCurrent(key)) return; // stale (R-9)
       if ('found' in result && result.found) {
         this.deps.log(`server hit: ${key} sync=${result.sync} quality=${result.qualityScore}`);
+        if (result.sync === 'word') {
+          this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
+        }
         this.deps.send({ key, ...result });
         return;
       }
