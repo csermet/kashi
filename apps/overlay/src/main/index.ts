@@ -77,6 +77,24 @@ if (!app.requestSingleInstanceLock()) {
   log('another Kashi instance already runs -> exiting this one');
   app.quit();
 }
+
+// FIELD FIX (2026-07-13, "v0.1'den beri var"): Chromium's native window-
+// occlusion tracker misjudges an always-on-top transparent overlay as
+// occluded a few seconds after it goes idle and drops its rendering —
+// on screen that reads as the box fading MORE TRANSPARENT until anything
+// (screenshot tool, focus change) forces a re-evaluation. Textbook symptom
+// set; the established fix is disabling the feature.
+if (process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+}
+
+// This app has no use for Chromium's disk caches (renderer loads local
+// files; lrclib/server caching is OUR code in the main process). Orphaned
+// helper processes after a dev Ctrl+C hold these cache dirs locked, and
+// every next launch prints 'Unable to move the cache: Access is denied' —
+// no cache dirs, no lock class. Applies packaged too, by design.
+app.commandLine.appendSwitch('disable-http-cache');
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;
 let menuOptions: KashiMenuOptions | null = null;
