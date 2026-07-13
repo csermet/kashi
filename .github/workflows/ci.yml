@@ -55,6 +55,9 @@ jobs:
       DATABASE_URL: postgresql+psycopg://kashi:kashi@localhost:5432/kashi
     steps:
       - uses: actions/checkout@v4
+      # The upload tests probe REAL audio with ffprobe (types lie, streams
+      # don't) — the runner ships no ffmpeg; the server image does.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
       - run: uv run ruff check .
