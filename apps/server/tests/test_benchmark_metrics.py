@@ -100,3 +100,12 @@ def test_format_line_report_marks_failures():
     text = format_line_report(report, threshold_ms=2500)
     assert "<<< FAIL" in text
     assert "1 line(s) over 2.5s" in text
+
+
+def test_over_extension_rate_counts_only_late_ends():
+    from benchmarks.metrics import over_extension_rate
+
+    # 300 and 900 hang past the 250 ms threshold; early/exact ends never count.
+    assert over_extension_rate([300.0, -400.0, 100.0, 900.0]) == 0.5
+    assert over_extension_rate([250.0]) == 0.0  # threshold is exclusive
+    assert over_extension_rate([]) == 0.0

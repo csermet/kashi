@@ -44,6 +44,7 @@ class JamendoSong:
     line_texts: list[str]
     line_starts_ms: list[int]
     words: list[tuple[int, str]]  # (start_ms, token), annotation order
+    word_ends_ms: list[int]  # parallel to words — END ground truth (Faz 5 P1)
     duration_hint_s: float  # last word end — enough for wall-clock ratios
 
 
@@ -78,6 +79,7 @@ def _read_song(root: Path, row: dict) -> JamendoSong:
         (round(float(r["word_start"]) * 1000), token)
         for r, token in zip(rows, tokens, strict=True)
     ]
+    word_ends_ms = [round(float(r["word_end"]) * 1000) for r in rows]
     line_texts: list[str] = []
     line_starts_ms: list[int] = []
     current: list[str] = []
@@ -102,6 +104,7 @@ def _read_song(root: Path, row: dict) -> JamendoSong:
         line_texts=line_texts,
         line_starts_ms=line_starts_ms,
         words=words,
+        word_ends_ms=word_ends_ms,
         duration_hint_s=float(rows[-1]["word_end"]),
     )
 

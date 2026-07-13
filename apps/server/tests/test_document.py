@@ -224,3 +224,42 @@ def test_persist_upserts_and_updates_etag(db_session):
     assert rows[0].etag == etag_two != etag_one
     assert rows[0].quality_score == pytest.approx(0.9)
     assert rows[0].document["alignment"]["quality_score"] == 0.9
+
+
+def test_qa_provenance_block_and_words_derived_flag():
+    from kashi_server.pipeline.line_qa import LineQAOutcome
+
+    result = _word_result()
+    qa = LineQAOutcome(
+        result=result,
+        flagged=[1],
+        offset_ms=-120,
+        degraded_to_line=False,
+        density_dropped=[],
+        adlib_shifted=[],
+        adlib_rederived=[0],
+        trimmed_ends=3,
+    )
+    doc = build_document(
+        _job(), _lyrics(), result, _beats(), DEFAULT_PALETTE, vocals_separated=False, qa=qa
+    )
+    validate_document(doc)
+    assert doc["alignment"]["qa"] == {
+        "flagged": 1,
+        "density_dropped": 0,
+        "adlib_shifted": 0,
+        "adlib_rederived": 1,
+        "offset_ms": -120,
+        "trimmed_ends": 3,
+    }
+    assert doc["lines"][0]["words_derived"] is True  # rederived AND word-carrying
+    assert "words_derived" not in doc["lines"][1]
+
+
+def test_document_without_qa_omits_the_block_entirely():
+    doc = build_document(
+        _job(), _lyrics(), _word_result(), _beats(), DEFAULT_PALETTE, vocals_separated=False
+    )
+    validate_document(doc)
+    assert "qa" not in doc["alignment"]
+    assert all("words_derived" not in line for line in doc["lines"])

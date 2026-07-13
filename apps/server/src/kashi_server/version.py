@@ -27,5 +27,10 @@
 # the rubberband stretch; explicit-r sanity misses fail honest instead of
 # silently reverting; ffprobed (fractional) download duration feeds the
 # sanity gate and detection ratio; referenceless QA path rederives ad-libs.
-PIPELINE_VERSION = "2.2.4"
+# 2.3.0: word-END sustain trim (Faz 5 P1 ear-test fix: words no longer hang
+# past their sung duration into gaps; only ever shortens, tempo-adaptive cap,
+# ad-lib lines exempt) + alignment.qa repair-provenance block and per-line
+# words_derived flag in the document (additive; the lrclib publish gate and
+# field debugging read them).
+PIPELINE_VERSION = "2.3.0"
 PIPELINE_MAJOR = 2

@@ -27,6 +27,7 @@ from statistics import mean, median
 
 from benchmarks import datasets, metrics
 from kashi_server.pipeline.alignment import AlignResult
+from kashi_server.pipeline.line_qa import trim_word_ends
 
 logger = logging.getLogger("benchmarks")
 
@@ -125,6 +126,10 @@ def _hyp_words(result: AlignResult) -> list[tuple[int, str]]:
     return [(w.start_ms, w.text) for chunk in result.words_per_line for w in chunk]
 
 
+def _hyp_word_ends(result: AlignResult) -> list[tuple[int, str]]:
+    return [(w.end_ms, w.text) for chunk in result.words_per_line for w in chunk]
+
+
 def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
     root = datasets.ensure_jamendo(DATA_DIR)
     songs = datasets.load_jamendo(
@@ -164,6 +169,9 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             rows.append(entry)
             continue
 
+        if args.trim_ends:  # production line_qa order: trim precedes everything
+            result, trimmed = trim_word_ends(result)
+            entry["trimmed_ends"] = trimmed
         entry["separate_s"] = round(separate_s, 1)
         entry["align_s"] = round(align_s, 1)
         entry["sync"] = result.sync
@@ -175,6 +183,18 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             stats = metrics.error_stats(deviations, tolerances_ms)
             assert stats is not None
             entry["words"] = asdict(stats)
+            # END-time metrics (Faz 5 P1): same positional pairing, end axis.
+            tokens = [token for _, token in song.words]
+            end_deviations = metrics.word_start_deviations(
+                _hyp_word_ends(result), list(zip(song.word_ends_ms, tokens, strict=True))
+            )
+            if end_deviations is not None:
+                end_stats = metrics.error_stats(end_deviations, tolerances_ms)
+                assert end_stats is not None
+                entry["word_ends"] = asdict(end_stats)
+                entry["over_extension"] = round(
+                    metrics.over_extension_rate(end_deviations), 4
+                )
             line_report = metrics.line_start_report(
                 [(line.start_ms, line.text) for line in result.lines],
                 list(zip(song.line_starts_ms, song.line_texts, strict=True)),
@@ -189,8 +209,14 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             len(songs),
             song.stem,
             entry.get("error")
-            or f"MAE {entry['words']['mae_ms']:.0f}ms PCO@0.3 {entry['words']['pcs']['0.3']:.2f} "
-            f"(align {align_s:.0f}s{f', sep {separate_s:.0f}s' if separate_s else ''})",
+            or f"MAE {entry['words']['mae_ms']:.0f}ms PCO@0.3 {entry['words']['pcs']['0.3']:.2f}"
+            + (
+                f" endMAE {entry['word_ends']['mae_ms']:.0f}ms"
+                f" ovx {entry['over_extension']:.2f}"
+                if "word_ends" in entry
+                else ""
+            )
+            + f" (align {align_s:.0f}s{f', sep {separate_s:.0f}s' if separate_s else ''})",
         )
 
     scored = [r for r in rows if "words" in r]
@@ -212,6 +238,7 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             },
             "align_s_total": round(sum(r["align_s"] for r in scored), 1),
             "align_x_realtime": round(sum(r["align_s"] for r in scored) / total_audio, 3),
+            "trimmed_ends_total": sum(r.get("trimmed_ends", 0) for r in scored),
             "per_language": {
                 lang: {
                     "songs": len(group),
@@ -222,6 +249,19 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 if (group := [r for r in scored if r["language"] == lang])
             },
         }
+        with_ends = [r for r in scored if "word_ends" in r]
+        if with_ends:
+            aggregate |= {
+                "word_end_mae_ms_mean": round(
+                    mean(r["word_ends"]["mae_ms"] for r in with_ends), 1
+                ),
+                "word_end_mae_ms_median": round(
+                    median(r["word_ends"]["mae_ms"] for r in with_ends), 1
+                ),
+                "over_extension_mean": round(
+                    mean(r["over_extension"] for r in with_ends), 4
+                ),
+            }
         separated = [r for r in scored if r.get("separate_s")]
         if separated:  # cache hits excluded — only measured runs count
             aggregate["separate_x_realtime"] = round(
@@ -300,6 +340,9 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
             rows.append(entry)
             continue
 
+        if args.trim_ends:  # line starts are untouched; recorded for the P1 A/B
+            result, trimmed = trim_word_ends(result)
+            entry["trimmed_ends"] = trimmed
         report = metrics.line_start_report(
             [(line.start_ms, line.text) for line in result.lines],
             reference,
@@ -330,6 +373,7 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
     return rows, {
         "cases": len(rows),
         "passed": sum(bool(r.get("passed")) for r in rows),
+        "trimmed_ends_total": sum(r.get("trimmed_ends", 0) for r in rows),
     }
 
 
@@ -343,6 +387,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, help="max jamendo songs (after filters)")
     parser.add_argument("--tolerances", default="0.1,0.2,0.3,0.5", help="PCO tolerances, seconds")
     parser.add_argument("--windowed", action="store_true", help="line-anchored windowed alignment")
+    parser.add_argument(
+        "--trim-ends",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="apply production word-end sustain trim (--no-trim-ends for the P1 baseline)",
+    )
     parser.add_argument(
         "--anchor-jitter-ms",
         type=int,
@@ -361,6 +411,8 @@ def main() -> int:
     )
     if args.windowed:
         config_name += "-win"
+    if not args.trim_ends:
+        config_name += "-notrim"
     started = time.monotonic()
 
     from kashi_server.pipeline.alignment import MODEL_NAME
@@ -376,6 +428,7 @@ def main() -> int:
             "mixback": args.mixback if args.separation != "full-mix" else None,
             "windowed": args.windowed,
             "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
+            "trim_ends": args.trim_ends,
             "host": platform.node(),
             "cpus": os.cpu_count(),
             "tolerances_s": [t / 1000 for t in tolerances_ms],

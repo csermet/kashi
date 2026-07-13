@@ -19,7 +19,7 @@ from kashi_server.config import settings
 from kashi_server.db.models import Job
 from kashi_server.pipeline.alignment import AlignResult
 from kashi_server.pipeline.beats import Beats
-from kashi_server.pipeline.line_qa import is_adlib
+from kashi_server.pipeline.line_qa import LineQAOutcome, is_adlib
 from kashi_server.pipeline.lrclib import LyricsText, normalize_artist
 from kashi_server.vdl_kit.errors import PipelineError
 from kashi_server.version import PIPELINE_MAJOR, PIPELINE_VERSION
@@ -54,11 +54,17 @@ def build_document(
     vocals_separated: bool,
     speed_factor: float = 1.0,
     fallback_duration_ms: int | None = None,
+    qa: LineQAOutcome | None = None,
 ) -> dict:
     hints = job.hints or {}
     # track.duration_ms is REQUIRED by the schema; ingest hints may omit it,
     # but the worker always knows the real duration from the downloaded audio.
     duration_ms = hints.get("duration_ms") or fallback_duration_ms
+    # Line indexes whose word spans are synthetic (rederived across the line,
+    # not aligner-measured). Downstream consumers that treat word boundaries
+    # as evidence — the Faz 5 lrclib publish gate above all — must not present
+    # these as measured timings.
+    derived_lines = set(qa.adlib_rederived) if qa is not None else set()
 
     lines: list[dict] = []
     for index, line in enumerate(align_result.lines):
@@ -81,6 +87,8 @@ def build_document(
                 {"start_ms": w.start_ms, "end_ms": w.end_ms, "text": w.text}
                 for w in align_result.words_per_line[index]
             ]
+            if index in derived_lines:
+                entry["words_derived"] = True
         lines.append(entry)
 
     track: dict = {
@@ -119,6 +127,18 @@ def build_document(
     }
     if lyrics.source_id:
         doc["alignment"]["lyrics_source_id"] = lyrics.source_id
+    if qa is not None:
+        # QA provenance (Faz 5 P1): how much the document was repaired. The
+        # publish quality gate (P6) and field debugging read this — counts
+        # only, never indexes (indexes would drift the etag on no-op edits).
+        doc["alignment"]["qa"] = {
+            "flagged": len(qa.flagged),
+            "density_dropped": len(qa.density_dropped),
+            "adlib_shifted": len(qa.adlib_shifted),
+            "adlib_rederived": len(qa.adlib_rederived),
+            "offset_ms": qa.offset_ms,
+            "trimmed_ends": qa.trimmed_ends,
+        }
     if beats is not None:
         doc["beats"] = {
             "bpm": beats.bpm,

@@ -17,7 +17,15 @@
     "lyrics_source_id": 12345,
     "vocals_separated": true,
     "quality_score": 0.87,
-    "speed_factor": 1.0
+    "speed_factor": 1.0,
+    "qa": {
+      "flagged": 0,
+      "density_dropped": 0,
+      "adlib_shifted": 1,
+      "adlib_rederived": 1,
+      "offset_ms": -120,
+      "trimmed_ends": 3
+    }
   },
   "lines": [
     {
@@ -46,6 +54,19 @@
         { "start_ms": 24300, "end_ms": 24700, "text": "so" },
         { "start_ms": 24700, "end_ms": 25000, "text": "do" },
         { "start_ms": 25000, "end_ms": 26000, "text": "I" }
+      ]
+    },
+    {
+      "start_ms": 26500,
+      "end_ms": 29500,
+      "text": "Ooh ooh ooh",
+      "score": 0.12,
+      "adlib": true,
+      "words_derived": true,
+      "words": [
+        { "start_ms": 26500, "end_ms": 27500, "text": "Ooh" },
+        { "start_ms": 27500, "end_ms": 28500, "text": "ooh" },
+        { "start_ms": 28500, "end_ms": 29500, "text": "ooh" }
       ]
     }
   ],

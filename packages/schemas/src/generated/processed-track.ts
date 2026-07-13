@@ -47,6 +47,17 @@ export interface KashiProcessedTrackV1 {
      * Playback-speed factor the audio was corrected by before alignment (nightcore workflow); 1.0 for unmodified audio.
      */
     speed_factor?: number;
+    /**
+     * Line-QA repair provenance (Faz 5): counts of lines snapped/dropped/shifted/rederived, the compensated median offset and the number of sustain-trimmed word ends. Consumers judging timing trustworthiness (e.g. a publish gate) read this; absent on documents older than pipeline 2.3.0.
+     */
+    qa?: {
+      flagged: number;
+      density_dropped: number;
+      adlib_shifted: number;
+      adlib_rederived: number;
+      offset_ms: number;
+      trimmed_ends: number;
+    };
   };
   lines: {
     start_ms: Ms;
@@ -60,6 +71,10 @@ export interface KashiProcessedTrackV1 {
      * Line is entirely nonlexical vocalization (ooh/whoa/la ad-lib); clients may style it differently (Faz 4 aesthetics). Omitted when false.
      */
     adlib?: boolean;
+    /**
+     * This line's word boundaries are SYNTHETIC (redistributed across the line span for sweep aesthetics), not aligner-measured. Presentation data only — never contribute them as measured timings. Omitted when false; only appears alongside `words`.
+     */
+    words_derived?: boolean;
     /**
      * @minItems 1
      */

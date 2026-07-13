@@ -75,10 +75,24 @@ def word_start_deviations(
     """Signed start deviations, paired positionally. The harness aligns the
     SAME text the ground truth annotates, so differing token counts mean the
     case is broken — return None and let the runner record a skip, never pair
-    words that don't correspond."""
+    words that don't correspond. Works for END times too — the pairing only
+    cares that the (time, token) lists correspond."""
     if len(hyp_words) != len(ref_words):
         return None
     return [float(h - r) for (h, _), (r, _) in zip(hyp_words, ref_words, strict=True)]
+
+
+def over_extension_rate(
+    signed_end_deviations_ms: list[float], threshold_ms: int = 250
+) -> float:
+    """Fraction of words whose hypothesis END runs past the reference end by
+    more than the threshold — the "hanging word" the Faz 5 ear test
+    complains about. Input is SIGNED end deviations (hyp − ref); early ends
+    do not count (at these magnitudes they read as crisp, not wrong)."""
+    if not signed_end_deviations_ms:
+        return 0.0
+    n = len(signed_end_deviations_ms)
+    return sum(d > threshold_ms for d in signed_end_deviations_ms) / n
 
 
 @dataclass(frozen=True)

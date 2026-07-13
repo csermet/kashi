@@ -73,6 +73,18 @@ ADLIB_SNAP_THRESHOLD_MS = 600
 # matter; single words keep the whole span implicitly.
 ADLIB_REDERIVE_MIN_SPAN_MS = 500
 ADLIB_REDERIVE_MIN_WORDS = 2
+# Word-END sustain trim (Faz 5 P1, ear-test finding: words "hang" past their
+# sung duration — CTC over-extends an end into a gap and the karaoke sweep
+# reads it as a long hold). Ends are only ever SHORTENED, and the cap scales
+# with the document's own singing speed: an absolute cap would cut real holds
+# in slow ballads. The factor is deliberately generous — a wrongly shortened
+# real hold is worse than a surviving hang (calibration knob for the P1 ear
+# test).
+TRIM_SUSTAIN_FACTOR = 3.0
+TRIM_MIN_HOLD_MS = 350
+TRIM_MAX_HOLD_MS = 4000
+# Below this many measurable words the median char speed is noise — skip.
+TRIM_MIN_SAMPLE_WORDS = 8
 
 
 _NONLEXICAL_TOKEN = re.compile(
@@ -99,6 +111,49 @@ class LineQAOutcome:
     density_dropped: list[int] = field(default_factory=list)  # neighbours that lost words
     adlib_shifted: list[int] = field(default_factory=list)  # block-shifted onto their anchors
     adlib_rederived: list[int] = field(default_factory=list)  # word spans redistributed
+    trimmed_ends: int = 0  # word ends capped by the sustain trim (Faz 5 P1)
+
+
+def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
+    """Cap each word's end at start + clamp(chars × med_char_ms × factor).
+
+    med_char_ms is the document-wide median per-character word duration, so
+    the cap adapts to the song's tempo. Only ever SHORTENS an end (the
+    intra-line next-start clip stays the other bound). Ad-lib lines are
+    exempt: their spans belong to rederive_adlib_words (sustained-hook
+    aesthetics, user-approved) — which is also why this runs BEFORE the
+    rederive, so redistributed spans are never re-trimmed. Pure, unit-tested.
+    """
+    if result.sync != "word":
+        return result, 0
+    speeds: list[float] = []
+    for i, line in enumerate(result.lines):
+        if is_adlib(line.text) or i >= len(result.words_per_line):
+            continue
+        for w in result.words_per_line[i]:
+            if w.text and w.end_ms > w.start_ms:
+                speeds.append((w.end_ms - w.start_ms) / len(w.text))
+    if len(speeds) < TRIM_MIN_SAMPLE_WORDS:
+        return result, 0
+    med_char_ms = median(speeds)
+    words_out = [list(chunk) for chunk in result.words_per_line]
+    trimmed = 0
+    for i, line in enumerate(result.lines):
+        if is_adlib(line.text) or i >= len(words_out):
+            continue
+        chunk = words_out[i]
+        for k, w in enumerate(chunk):
+            allowed = round(len(w.text) * med_char_ms * TRIM_SUSTAIN_FACTOR)
+            capped = w.start_ms + min(TRIM_MAX_HOLD_MS, max(TRIM_MIN_HOLD_MS, allowed))
+            if w.end_ms > capped:
+                chunk[k] = replace(w, end_ms=capped)
+                trimmed += 1
+    if not trimmed:
+        return result, 0
+    logger.info(
+        "line QA end trim: %d word end(s) capped (med %.0fms/char)", trimmed, med_char_ms
+    )
+    return replace(result, words_per_line=words_out), trimmed
 
 
 def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
@@ -252,15 +307,17 @@ def apply_line_qa(
         # No reference ≠ no ad-libs: document assembly still writes the adlib
         # flag and the overlay still sweeps, so the rederive must run here too
         # (retro finding — QA-less docs swept CTC's scattered spans).
-        clamped, rederived = rederive_adlib_words(
+        clamped, trimmed = trim_word_ends(
             replace(result, lines=_clamp_monotonic(result.lines))
         )
+        clamped, rederived = rederive_adlib_words(clamped)
         return LineQAOutcome(
             result=clamped,
             flagged=[],
             offset_ms=0,
             degraded_to_line=False,
             adlib_rederived=rederived,
+            trimmed_ends=trimmed,
         )
 
     deviations = [
@@ -285,6 +342,7 @@ def apply_line_qa(
         if result.windowed:  # prob quality is invalid on the windowed path
             all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
             clean = replace(clean, quality_score=_quality(result, refs, set(), all_probs))
+        clean, trimmed = trim_word_ends(clean)
         clean, rederived = rederive_adlib_words(clean)
         return LineQAOutcome(
             result=clean,
@@ -293,6 +351,7 @@ def apply_line_qa(
             degraded_to_line=False,
             adlib_shifted=adlib_shifted,
             adlib_rederived=rederived,
+            trimmed_ends=trimmed,
         )
 
     flagged_set = set(flagged)
@@ -339,6 +398,7 @@ def apply_line_qa(
         quality_score=_quality(result, refs, flagged_set | density_dropped, surviving_probs),
         windowed=result.windowed,
     )
+    snapped, trimmed = trim_word_ends(snapped)
     snapped, rederived = rederive_adlib_words(snapped)
     return LineQAOutcome(
         result=snapped,
@@ -348,6 +408,7 @@ def apply_line_qa(
         density_dropped=sorted(density_dropped),
         adlib_shifted=adlib_shifted,
         adlib_rederived=rederived,
+        trimmed_ends=trimmed,
     )
 
 

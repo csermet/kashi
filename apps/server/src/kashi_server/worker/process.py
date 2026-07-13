@@ -85,6 +85,10 @@ NIGHTCORE_JOBS = Counter(
     "Jobs that entered the nightcore branch, by how the factor was resolved",
     ["outcome"],  # explicit | detected | reverted | explicit_failed
 )
+WORD_END_TRIMS = Counter(
+    "kashi_line_qa_word_end_trims_total",
+    "Word ends capped by the sustain trim (Faz 5 P1 ear-test fix)",
+)
 
 
 def checkpoint(s: Session, job: Job) -> None:
@@ -453,6 +457,7 @@ def process_job(s: Session, job: Job) -> None:
             LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
         LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
         LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
+        WORD_END_TRIMS.inc(qa.trimmed_ends)
         checkpoint(s, job)
 
         # --- postprocessing ---
@@ -469,6 +474,7 @@ def process_job(s: Session, job: Job) -> None:
             vocals_separated=vocals_separated or separate_first,
             speed_factor=plan.speed_factor,
             fallback_duration_ms=round(download.duration_s * 1000),
+            qa=qa,
         )
         persist_processed_track(s, job, doc)
         queue.mark_completed(s, job)
