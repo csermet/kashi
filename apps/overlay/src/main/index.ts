@@ -65,7 +65,17 @@ const settingsStore = new SettingsStore(
 );
 if (settingsStore.get().software_render) {
   app.disableHardwareAcceleration();
-  log('software render ON (video-flicker fix) — GPU compositing disabled');
+  log('software render ON (video-flicker fix) -> GPU compositing disabled');
+}
+
+// One overlay per machine: a lingering old instance steals the WS port (the
+// extension silently drifts to 17891+) and holds Chromium's disk-cache locks
+// ('Unable to move the cache: Access is denied' startup noise). app.relaunch
+// starts the successor only after this instance exits, so the toggle-restart
+// path never trips over the lock.
+if (!app.requestSingleInstanceLock()) {
+  log('another Kashi instance already runs -> exiting this one');
+  app.quit();
 }
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;

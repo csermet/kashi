@@ -1,12 +1,12 @@
 {
   "name": "kashi-overlay",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "install-electron",
-    "dev": "electron-vite dev",
+    "dev": "node -e \"if(process.platform==='win32'){try{require('node:child_process').execSync('chcp 65001',{stdio:'ignore'})}catch{}}\" && electron-vite dev",
     "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
