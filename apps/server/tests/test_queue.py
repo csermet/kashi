@@ -23,7 +23,8 @@ def _enqueue(s, **overrides):
         "requested_by": None,
     }
     kwargs.update(overrides)
-    return queue.enqueue(s, **kwargs)
+    job, _reused = queue.enqueue(s, **kwargs)
+    return job
 
 
 def test_enqueue_is_idempotent_for_active_job(db_session):

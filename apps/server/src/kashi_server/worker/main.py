@@ -81,6 +81,9 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     while not stopping["flag"]:
         with SessionLocal() as session:
             queue.reclaim_expired(session)
+            purged = queue.purge_expired_uploads(session)
+            if purged:
+                logger.info("purged %d expired staged upload(s)", purged)
             session.commit()
             job = queue.claim_next(session)
             if job is None:

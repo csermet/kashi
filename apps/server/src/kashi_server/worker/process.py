@@ -20,8 +20,9 @@ from sqlalchemy.orm import Session
 
 from kashi_server import queue
 from kashi_server.config import settings
-from kashi_server.db.models import Job
+from kashi_server.db.models import Job, UploadedAudio
 from kashi_server.pipeline.alignment import AlignResult, align, quality_from_probs
+from kashi_server.pipeline.audio_source import fetch_audio
 from kashi_server.pipeline.beats import extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
 from kashi_server.pipeline.download import DownloadResult, download_audio
@@ -94,6 +95,18 @@ LYRICSFILE_DOCS = Counter(
     "kashi_lyricsfile_docs_total",
     "Documents built from human word-sync Lyricsfile data (CTC skipped)",
 )
+
+
+def _drop_staged_upload(s: Session, job: Job) -> None:
+    """BYO-audio rows die with their job (Faz 5 P4): the AUDIO DELETION
+    GUARANTEE extends to the database copy. Called inside the terminal
+    transaction (completed / permanent fail); retries keep the row — the
+    next attempt still needs the bytes. No-op for non-upload sources."""
+    if job.source_type != "upload":
+        return
+    from sqlalchemy import delete
+
+    s.execute(delete(UploadedAudio).where(UploadedAudio.id == job.source_id))
 
 
 def checkpoint(s: Session, job: Job) -> None:
@@ -403,9 +416,9 @@ def process_job(s: Session, job: Job) -> None:
         checkpoint(s, job)
 
         # --- downloading (claim already set the status) ---
-        download: DownloadResult = download_audio(
-            job.source_id, tmp, max_duration_s=settings.max_track_duration_s
-        )
+        # youtube_fetch is passed from THIS module so the download_audio
+        # monkeypatch seam survives the source dispatch (Faz 5 P4).
+        download: DownloadResult = fetch_audio(job, tmp, s, youtube_fetch=download_audio)
         checkpoint(s, job)
 
         # --- aligning (lyrics resolve FIRST — Faz 5 P3) ---
@@ -532,6 +545,7 @@ def process_job(s: Session, job: Job) -> None:
         )
         persist_processed_track(s, job, doc)
         queue.mark_completed(s, job)
+        _drop_staged_upload(s, job)  # same transaction as the completion
         s.commit()
         logger.info("job %s completed: %s quality=%.3f", job.id, doc["sync"], result.quality_score)
 
@@ -568,6 +582,7 @@ def _fail_or_retry(s: Session, job: Job, error_type: str, message: str) -> None:
     else:
         logger.error("job %s failed (%s): %s", job.id, error_type, message[:500])
         queue.mark_failed(s, job, error_type, message)
+        _drop_staged_upload(s, job)  # permanent fail is terminal too
     s.commit()
 
 

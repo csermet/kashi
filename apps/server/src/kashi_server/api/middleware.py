@@ -25,19 +25,39 @@ async def _reject(send: Send) -> None:
 
 
 class ContentLengthLimitMiddleware:
-    """Rejects oversized bodies before a single byte reaches the app."""
+    """Rejects oversized bodies before a single byte reaches the app.
 
-    def __init__(self, app: ASGIApp, max_bytes: int = MAX_BODY_BYTES) -> None:
+    `overrides` maps an exact path to its own cap — the BYO-audio upload
+    endpoint (Faz 5 P4) legitimately carries tens of MB; everything else
+    keeps the tiny JSON ceiling."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_bytes: int = MAX_BODY_BYTES,
+        overrides: dict[str, int] | None = None,
+    ) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.overrides = overrides or {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        declared = Headers(scope=scope).get("content-length")
-        if declared is not None and declared.isdigit() and int(declared) > self.max_bytes:
+        headers = Headers(scope=scope)
+        limit = self.overrides.get(scope.get("path", ""), self.max_bytes)
+        if limit != self.max_bytes and not headers.get("authorization"):
+            # The big-body override is for AUTHENTICATED uploads; auth deps
+            # run only after the body is parsed, so an anonymous client could
+            # otherwise stream the full cap before every 401 (reviewer).
+            # Header PRESENCE is enough here — the real key check still
+            # happens in deps; this only denies the free bandwidth.
+            limit = self.max_bytes
+
+        declared = headers.get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > limit:
             await _reject(send)
             return
 
@@ -50,7 +70,7 @@ class ContentLengthLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_bytes:
+                if received > limit:
                     exceeded = True
                     # Cut the stream short; the guard below sends 413.
                     return {"type": "http.disconnect"}

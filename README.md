@@ -130,6 +130,25 @@ track that already has a (wrong) document or a failed job, `POST
 /v1/admin/reprocess` (admin key) forces a fresh run and takes the same
 `options`.
 
+**Bring your own audio** (a track that isn't on YouTube): stage the file
+first, then ingest the returned `source` ref like any other track:
+
+```bash
+curl -X POST "$SERVER/v1/uploads" -H "Authorization: Bearer $KEY" \
+  -F "file=@song.mp3"
+# -> {"source": {"type": "upload", "id": "…"}, "duration_ms": 213000, "expires_at": "…"}
+curl -X POST "$SERVER/v1/ingest" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{
+  "source": {"type": "upload", "id": "PASTE_ID"},
+  "hints": {"title": "Song", "artist": "Artist"}
+}'
+```
+
+Uploads are staging only (64 MB cap, validated with ffprobe): the bytes are
+deleted the moment the job finishes — succeed or fail — and unclaimed uploads
+expire after 24 h. Re-upload and re-ingest to process the same file again.
+The ingest response also carries `reused`: `true` + `status: failed` means
+the 7-day permanent-fail block answered, not a fresh attempt.
+
 ## 🧪 Development
 
 ```bash

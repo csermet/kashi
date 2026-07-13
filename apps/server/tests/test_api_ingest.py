@@ -94,3 +94,15 @@ def test_ingest_duration_at_the_cap_still_queues(client, user_key):
         "hints": {"title": "Edge", "artist": "Cap", "duration_ms": 1_200_000},
     }
     assert client.post("/v1/ingest", json=body, headers=_auth(user_key)).status_code == 202
+
+
+def test_reused_flag_distinguishes_fresh_from_existing(client, user_key):
+    body = {
+        "source": {"type": "youtube", "id": "reusedFlag1"},
+        "hints": {"title": "Reused", "artist": "Flag"},
+    }
+    first = client.post("/v1/ingest", json=body, headers=_auth(user_key))
+    assert first.status_code == 202 and first.json()["reused"] is False
+    second = client.post("/v1/ingest", json=body, headers=_auth(user_key))
+    assert second.status_code == 202 and second.json()["reused"] is True
+    assert second.json()["job_id"] == first.json()["job_id"]

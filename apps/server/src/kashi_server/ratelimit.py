@@ -13,6 +13,7 @@ import time
 RATE_LIMITS: dict[str, tuple[float, float]] = {
     "lyrics_get": (120.0, 120.0 / 60.0),  # 120/min
     "ingest": (20.0, 20.0 / 3600.0),  # 20/h
+    "uploads": (10.0, 10.0 / 3600.0),  # 10/h — 64MB bodies deserve a tighter tap
 }
 
 

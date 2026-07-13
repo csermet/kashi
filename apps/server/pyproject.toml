@@ -1,6 +1,6 @@
 [project]
 name = "kashi-server"
-version = "0.4.0"
+version = "0.5.0"
 description = "Kashi processing server: lyrics alignment, beat grid and palette extraction"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,6 +19,9 @@ dependencies = [
     "httpx>=0.28",
     "jsonschema>=4.23",
     "pyyaml==6.0.3",
+    # BYO-audio multipart parsing (Faz 5 P4); >=0.0.18 fixes CVE-2024-53981,
+    # pinned to the current release.
+    "python-multipart==0.0.32",
 ]
 
 [project.optional-dependencies]

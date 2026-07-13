@@ -43,6 +43,15 @@ class IngestRequest(BaseModel):
 class IngestResponse(BaseModel):
     job_id: uuid.UUID
     status: str
+    # True when an EXISTING job answered (live, done, or the 7-day permanent-
+    # fail block) — reused+failed is that block speaking, not a fresh attempt.
+    reused: bool = False
+
+
+class UploadResponse(BaseModel):
+    source: SourceRef  # feed straight into POST /v1/ingest
+    duration_ms: int
+    expires_at: datetime
 
 
 class ReprocessRequest(BaseModel):

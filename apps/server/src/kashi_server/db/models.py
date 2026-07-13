@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     UniqueConstraint,
     text,
 )
@@ -119,3 +120,29 @@ class ProcessedTrack(Base):
     __table_args__ = (
         UniqueConstraint("source_type", "source_id", "schema_version", name="uq_processed_source"),
     )
+
+
+class UploadedAudio(Base):
+    """Bring-your-own-audio staging (Faz 5 P4): the API pod receives the
+    multipart upload, the worker pod fetches it from here — no shared
+    volume, no object store, no new netpol. Rows are small-count and
+    short-lived: the worker deletes them the moment their job goes
+    terminal (the AUDIO DELETION GUARANTEE extends to the database), and
+    a TTL sweep catches orphans whose job never ran."""
+
+    __tablename__ = "uploaded_audio"
+
+    # urlsafe-base64 sha256 of the content (43 chars, no padding) — doubles
+    # as natural dedup and fits the SourceRef.id contract.
+    id: Mapped[str] = mapped_column(primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    size_bytes: Mapped[int]
+    mime: Mapped[str | None]
+    duration_s: Mapped[float]
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_keys.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    expires_at: Mapped[datetime]
+
+    __table_args__ = (Index("ix_uploaded_audio_expires", "expires_at"),)

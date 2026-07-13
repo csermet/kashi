@@ -95,10 +95,15 @@ def enqueue(
     hints: dict[str, Any],
     options: dict[str, Any],
     requested_by: uuid.UUID | None,
-) -> Job:
+) -> tuple[Job, bool]:
+    """(job, reused): reused=True means an EXISTING job represents this
+    source (live, already processed, or a 7-day-blocked permanent fail) —
+    the API surfaces the flag so a client can tell "your request is this
+    old failed job" apart from "a fresh job was queued" (Faz 5 P4;
+    previously the reuse was silent and read as a lying 'enqueued')."""
     existing = _find_reusable(s, source_type, source_id, pipeline_major)
     if existing is not None:
-        return existing
+        return existing, True
     if queue_depth(s) >= settings.queue_depth_limit:
         raise QueueFull
     job = Job(
@@ -118,8 +123,27 @@ def enqueue(
         winner = _find_reusable(s, source_type, source_id, pipeline_major)
         if winner is None:  # pragma: no cover — winner just won the unique index
             raise
-        return winner
-    return job
+        return winner, True
+    return job, False
+
+
+def purge_expired_uploads(s: Session) -> int:
+    """TTL sweep for BYO-audio staging rows whose job never went terminal
+    (canceled mid-flight, ingest never followed the upload). Terminal jobs
+    delete their row inline in the worker — this is the belt to that."""
+    from sqlalchemy import delete
+
+    from kashi_server.db.models import UploadedAudio
+
+    live_ids = select(Job.source_id).where(
+        Job.source_type == "upload", Job.status.in_(LIVE_STATUSES)
+    )
+    result = s.execute(
+        delete(UploadedAudio).where(
+            UploadedAudio.expires_at < _now(), UploadedAudio.id.not_in(live_ids)
+        )
+    )
+    return getattr(result, "rowcount", 0) or 0
 
 
 def enqueue_reprocess(

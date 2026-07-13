@@ -36,7 +36,7 @@ def ingest(
             ),
         )
     try:
-        job = queue.enqueue(
+        job, reused = queue.enqueue(
             db,
             source_type=body.source.type,
             source_id=body.source.id,
@@ -49,4 +49,6 @@ def ingest(
         )
     except queue.QueueFull:
         return queue_full_response()
-    return IngestResponse(job_id=job.id, status=job.status)
+    # reused + failed = the 7-day permanent-fail block answering, not a fresh
+    # attempt — without the flag that read as a lying "enqueued" (Faz 5 P4).
+    return IngestResponse(job_id=job.id, status=job.status, reused=reused)

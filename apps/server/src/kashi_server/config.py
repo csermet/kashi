@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     nightcore_detection: bool = True
     lrclib_base_url: str = "https://lrclib.net"
     max_track_duration_s: int = 1200
+    # BYO-audio staging (Faz 5 P4): multipart cap enforced while streaming
+    # (64 MB covers ~1h of 128kbps audio, far past the duration cap anyway);
+    # orphaned rows — job never ran or was canceled — are swept after the TTL.
+    upload_max_bytes: int = 64 * 1024 * 1024
+    upload_ttl_hours: int = 24
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]

@@ -14,7 +14,7 @@ from sqlalchemy import select, text
 
 from kashi_server import __version__
 from kashi_server.api.middleware import ContentLengthLimitMiddleware
-from kashi_server.api.routers import admin_keys, admin_ops, ingest, jobs, lyrics
+from kashi_server.api.routers import admin_keys, admin_ops, ingest, jobs, lyrics, uploads
 from kashi_server.auth import hash_key, looks_like_key
 from kashi_server.config import settings
 from kashi_server.db.models import ApiKey
@@ -68,9 +68,14 @@ async def _lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="kashi-server", version=__version__, lifespan=_lifespan)
     # Outermost: bodies are capped before FastAPI parses them (pre-auth OOM).
-    app.add_middleware(ContentLengthLimitMiddleware)
+    app.add_middleware(
+        ContentLengthLimitMiddleware,
+        # Multipart framing adds a little on top of the file bytes.
+        overrides={"/v1/uploads": settings.upload_max_bytes + 1024 * 1024},
+    )
     app.include_router(lyrics.router)
     app.include_router(ingest.router)
+    app.include_router(uploads.router)
     app.include_router(jobs.router)
     app.include_router(admin_keys.router)
     app.include_router(admin_ops.router)

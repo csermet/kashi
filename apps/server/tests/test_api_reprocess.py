@@ -128,7 +128,7 @@ def test_queue_full_maps_to_503(client, user_key, db_session, monkeypatch):
 
 def test_enqueue_reprocess_race_returns_live_winner(db_session, monkeypatch):
     """IntegrityError path: a competitor inserts between lookup and flush."""
-    winner = queue.enqueue(
+    winner, _ = queue.enqueue(
         db_session,
         source_type="youtube",
         source_id="raceVid0001",
