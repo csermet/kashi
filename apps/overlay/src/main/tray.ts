@@ -39,8 +39,6 @@ export interface KashiMenuOptions {
   onEffectLevelSelect: (level: EffectLevel) => void;
   getThemeScope: () => ThemeScope;
   onThemeScopeSelect: (scope: ThemeScope) => void;
-  getSoftwareRender: () => boolean;
-  onToggleSoftwareRender: () => void;
   onResetPosition: () => void;
   onQuit: () => void;
 }
@@ -109,14 +107,6 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { label: 'Theme colors', submenu: themeItems },
     { label: 'Box opacity', submenu: opacityItems },
     { label: 'Timing offset', submenu: timingItems },
-    {
-      // Windows MPO/DWM flicker fix (field 2026-07-13): software rendering
-      // sidesteps the driver's translucency-over-video blending bug.
-      label: 'Fix video flicker (software render, restarts)',
-      type: 'checkbox',
-      checked: opts.getSoftwareRender(),
-      click: () => opts.onToggleSoftwareRender(),
-    },
     { label: 'Reset position', click: opts.onResetPosition },
     { type: 'separator' },
     { label: 'Quit Kashi', click: opts.onQuit },

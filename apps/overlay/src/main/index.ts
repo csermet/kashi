@@ -57,16 +57,10 @@ const WINDOW_HEIGHT = 180;
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
-// Constructed at module scope: software_render must be applied BEFORE the app
-// is ready (the GPU process can only be disabled before it spawns).
 const settingsStore = new SettingsStore(
   join(app.getPath('userData'), 'kashi-settings.json'),
   makeLogger('settings'),
 );
-if (settingsStore.get().software_render) {
-  app.disableHardwareAcceleration();
-  log('software render ON (video-flicker fix) -> GPU compositing disabled');
-}
 
 // One overlay per machine: a lingering old instance steals the WS port (the
 // extension silently drifts to 17891+) and holds Chromium's disk-cache locks
@@ -96,17 +90,6 @@ if (process.platform === 'win32') {
 app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
-// EXPERIMENT (field 2026-07-13, opt-in via env): the residual translucency
-// shift now happens only WHILE interacting with Chrome — the signature of
-// DWM tearing down / re-promoting the video's MPO plane on input, which
-// changes how our per-pixel-alpha window is blended. Forcing our window off
-// DirectComposition may sidestep that path entirely, but on some setups it
-// can break window transparency — hence an experiment flag, not a setting:
-//   KASHI_DISABLE_DCOMP=1 pnpm --filter kashi-overlay dev
-if (process.platform === 'win32' && process.env['KASHI_DISABLE_DCOMP'] === '1') {
-  app.commandLine.appendSwitch('disable-direct-composition');
-  makeLogger('main')('EXPERIMENT: direct composition disabled (KASHI_DISABLE_DCOMP=1)');
-}
 let settings: SettingsStore | null = null;
 let tray: TrayHandle | null = null;
 let menuOptions: KashiMenuOptions | null = null;
@@ -322,15 +305,6 @@ function applyThemeScope(scope: unknown): void {
   tray?.refresh();
 }
 
-function toggleSoftwareRender(): void {
-  const next = !(settings?.get().software_render ?? false);
-  settings?.update({ software_render: next });
-  settings?.flush(); // the relaunch must not race the debounced save
-  log(`setting: software render -> ${next} (relaunching)`);
-  app.relaunch();
-  app.quit();
-}
-
 function applyBoxAlpha(alpha: number): void {
   settings?.update({ box_alpha: clampAlpha(alpha) });
   broadcastSettings();
@@ -543,8 +517,6 @@ app.whenReady().then(async () => {
     onEffectLevelSelect: applyEffectLevel,
     getThemeScope: () => settings?.get().theme_scope ?? DEFAULT_THEME_SCOPE,
     onThemeScopeSelect: applyThemeScope,
-    getSoftwareRender: () => settings?.get().software_render ?? false,
-    onToggleSoftwareRender: toggleSoftwareRender,
     onResetPosition: resetWindowPosition,
     onQuit: () => app.quit(),
   };

@@ -1,41 +1,71 @@
+<div align="center">
+
 # Kashi (歌詞)
 
-Transparent, always-on-top lyrics overlay for your desktop — with word-level karaoke sync.
+**Word-level karaoke lyrics for your desktop — themed by the album art, synced to the beat.**
 
-Play music on YouTube Music in your browser; Kashi shows the lyrics in a draggable,
-click-through overlay anywhere on your screen. Songs processed by the (optional,
-self-hostable) server get word-by-word karaoke highlighting, beat-synced effects and
-album-art color themes; everything else falls back to line-level synced lyrics from
-[LRCLIB](https://lrclib.net).
+[![CI](https://github.com/csermet/kashi/actions/workflows/ci.yml/badge.svg)](https://github.com/csermet/kashi/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Electron](https://img.shields.io/badge/Overlay-Electron-9feaf9)](apps/overlay)
+[![Chrome MV3](https://img.shields.io/badge/Extension-Chrome%20MV3-4285F4)](apps/extension)
+[![FastAPI](https://img.shields.io/badge/Server-FastAPI-009688)](apps/server)
 
-> **Status: Phase 4 complete.** The Electron overlay renders line- and word-synced
-> lyrics for YouTube Music via the browser extension, with lrclib as the zero-setup
-> source. The optional self-hosted server pre-processes tracks into word-timed
-> documents (yt-dlp → vocal separation → lrclib-anchored forced alignment →
-> beats/palette), including nightcore/sped-up reuploads (auto speed-factor
-> detection). The effect engine themes the overlay from album art via OKLCH tone
-> mapping and adds word easing, sustained-vowel sweeps, ad-lib styling and
-> beat-synced pulses — all tunable from the tray (levels, theme scope, box
-> opacity, timing offset). Packaged releases (Phase 5) are still ahead.
+Play music on YouTube Music; Kashi shows the lyrics in a transparent, draggable,
+click-through overlay anywhere on your screen. Works out of the box with
+line-synced lyrics from [LRCLIB](https://lrclib.net) — add the optional
+self-hosted server and songs get **word-by-word karaoke highlighting**,
+**album-art color themes** and **beat-synced effects**.
 
-## How it works
+</div>
 
-```
-┌─ Your desktop ──────────────────────────────────────┐
-│ Chrome: music.youtube.com                           │
-│  ├─ MAIN-world script (mediaSession metadata)       │
-│  ├─ content script (position via timeupdate)        │
-│  └─ extension service worker ──ws://127.0.0.1──┐    │
-│                                                ▼    │
-│ kashi-overlay (Electron)                            │
-│  ├─ transparent / click-through / always-on-top     │
-│  ├─ line-level lyrics from LRCLIB (works serverless)│
-│  └─ word-level data from kashi-server (optional) ───┼──► self-hosted
-└─────────────────────────────────────────────────────┘    kashi-server
-                                                           (FastAPI + worker:
-                                                            align lyrics, beats,
-                                                            palette — audio deleted
-                                                            after processing)
+<!-- screenshots: drop PNGs into docs/media/ and uncomment
+## 📸 Screenshots
+
+| Word karaoke + album theme | Sustained-vowel sweep | Tray controls |
+|---|---|---|
+| ![karaoke](docs/media/karaoke.png) | ![sweep](docs/media/sweep.png) | ![tray](docs/media/tray.png) |
+-->
+
+## ✨ Features
+
+- 🎤 **Word-level karaoke** — the active word lifts and lights up in sync with the vocal
+- 🎨 **Album-art theming** — colors are extracted server-side, then re-rendered client-side
+  through an OKLCH tone-mapping system (*hue is data, tone is design*): never muddy,
+  never washed out, always readable
+- 🌊 **Sustained-vowel sweeps** — long-held words and "ooh-whoa" ad-lib lines fill
+  left-to-right like a classic karaoke bar; runs sweep as one gesture
+- 🎙️ **Ad-lib styling** — nonlexical backing-vocal lines render italic and subdued
+- 💓 **Beat pulse** — the box breathes with the beat grid (downbeats hit harder),
+  as an eased light ring
+- ⚡ **Nightcore aware** — sped-up reuploads are auto-detected (duration-ratio
+  analysis against the original), aligned on a slowed copy and rescaled back,
+  with a CTC-probability gate against wrong-song matches
+- 📝 **Zero-setup fallback** — without a server you still get line-synced lyrics
+  from LRCLIB, with polite caching and etiquette
+- 🖱️ **Stays out of your way** — transparent, click-through, always-on-top;
+  drag it anywhere, it remembers its place across monitors and DPI changes
+- 🎛️ **Tray-tunable** — effect level (Off/Simple/Full), theme scope, box opacity
+  (0–90%), lyric timing offset (presets or exact ms)
+
+## 🏗 How it works
+
+```mermaid
+flowchart LR
+    subgraph browser["Chrome — music.youtube.com"]
+        MW["MAIN-world script<br/>(mediaSession metadata)"] --> SW
+        CS["content script<br/>(position via timeupdate)"] --> SW
+        SW["extension<br/>service worker"]
+    end
+    SW -- "ws://127.0.0.1:17890" --> OV
+    subgraph desktop["Desktop"]
+        OV["kashi-overlay (Electron)<br/>transparent · click-through · always-on-top<br/>position clock · effect engine · disk cache"]
+    end
+    OV -- "line lyrics (serverless mode)" --> LRC[("LRCLIB")]
+    OV -- "processed docs (optional)" --> API
+    subgraph server["Self-hosted kashi-server"]
+        API["FastAPI"] --> Q[("Postgres<br/>job queue + docs")]
+        W["worker: yt-dlp → vocal separation →<br/>lrclib-anchored forced alignment →<br/>beats + palette → JSON → audio deleted"] --> Q
+    end
 ```
 
 | Component | Path | Stack |
@@ -45,38 +75,68 @@ album-art color themes; everything else falls back to line-level synced lyrics f
 | Processing server | `apps/server` | Python 3.12, FastAPI, Postgres |
 | Data contracts | `packages/schemas`, `packages/protocol` | JSON Schema (single source of truth) |
 
-## Development
+## 🚀 Quick start (serverless)
 
-Prereqs: Node.js 22 LTS + pnpm 11 (via corepack), Python 3.12 + [uv](https://docs.astral.sh/uv/).
+Prereqs: Node.js 22 LTS + pnpm 11 (via corepack).
 
 ```bash
-pnpm install && pnpm build      # extension + overlay + contracts
-cd apps/server && uv sync && uv run pytest
+git clone https://github.com/csermet/kashi && cd kashi
+pnpm install
+pnpm --filter kashi-extension build   # then load apps/extension/dist as an
+                                      # unpacked extension at chrome://extensions
+pnpm --filter kashi-overlay dev       # start the overlay
 ```
 
-Windows (overlay/extension testing):
-1. `pnpm install`, then `pnpm --filter kashi-overlay dev` to run the overlay.
-2. `pnpm --filter kashi-extension build`, then load `apps/extension/dist` as an
-   unpacked extension at `chrome://extensions` (Developer mode).
+Open [music.youtube.com](https://music.youtube.com), play a song — lyrics appear
+within a couple of seconds. Right-click the lyric box (or the tray icon) for
+settings.
 
-## License
+## 🖥 Self-hosting the server (optional)
 
-[MIT](LICENSE)
+The server turns songs into word-timed documents: it downloads the audio once,
+separates vocals, force-aligns the LRCLIB text against them, extracts a beat
+grid and an album palette, stores a small JSON — and deletes the audio.
 
-## Troubleshooting
+```bash
+cd deploy && cp .env.example .env    # set ADMIN_API_KEY etc.
+docker compose up -d                 # FastAPI + Postgres + worker
+```
+
+Then point the overlay at it (`kashi-settings.json`): `server_url` +
+`server_api_key`. Kubernetes manifests live in `deploy/k8s/`. Prebuilt images:
+[`ghcr.io/csermet/kashi-server`](https://github.com/csermet/kashi/pkgs/container/kashi-server).
+
+## 🧪 Development
+
+```bash
+pnpm install && pnpm build           # extension + overlay + contracts
+pnpm -r test && pnpm -r typecheck
+cd apps/server && uv sync && uv run pytest   # needs Python 3.12 + uv
+```
+
+Project-specific review agents live in `.claude/agents/`.
+
+## 🔧 Troubleshooting
 
 - **The translucent box seems to change opacity while you scroll or interact
   (screenshots always look fine):** check your MONITOR's own HDR setting. A
   monitor doing SDR→HDR expansion (monitor HDR on, Windows HDR off) re-tone-maps
   content dynamically and translucent overlays visibly shift with it. Fix: turn
   HDR off on the monitor, or enable HDR in BOTH Windows and the monitor (a real
-  HDR signal disables the monitor's dynamic expansion). Field-diagnosed 2026-07;
-  this happens after the GPU framebuffer, so no application can prevent it.
+  HDR signal disables the monitor's dynamic expansion). This happens after the
+  GPU framebuffer — no application can prevent it.
 - **The box fades when idle for a few seconds (Windows):** fixed in overlay
-  0.2.9 (Chromium's native window-occlusion tracker is disabled for Kashi). If
-  you still see residual flicker over videos, try the tray option
-  *Fix video flicker (software render)*.
-- **`Unable to move the cache` errors on startup:** harmless and fixed in 0.2.9+
-  (Kashi no longer uses Chromium disk caches). If the WS port drifts to 17891,
-  an old Kashi instance is still running — kill it; 0.2.8+ prevents this with a
+  0.2.9+ (Chromium's native window-occlusion tracker is disabled for Kashi).
+- **`Unable to move the cache` errors on startup:** harmless and gone in 0.2.9+
+  (Kashi doesn't use Chromium disk caches). If the WS port drifts to 17891, an
+  old Kashi instance is still running — kill it; 0.2.8+ prevents this with a
   single-instance lock.
+
+## 🗺 Roadmap
+
+Phase 5: packaged releases (electron-builder + auto-update), Chrome Web Store,
+Plex as a source, macOS support, contributing word-synced lyrics back to LRCLIB.
+
+## 📄 License
+
+[MIT](LICENSE)

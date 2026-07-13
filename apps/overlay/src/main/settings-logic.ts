@@ -58,13 +58,6 @@ export interface StoredSettings {
   effect_level: EffectLevel;
   /** How much of the album palette themes the box (Faz 4 saha turu). */
   theme_scope: ThemeScope;
-  /**
-   * Render the overlay WITHOUT GPU acceleration. Fixes the Windows MPO/DWM
-   * class of intermittent translucency flicker over hardware video planes
-   * (field, 2026-07-13); costs nothing measurable for one small box.
-   * Applied at startup — toggling relaunches the app.
-   */
-  software_render: boolean;
 }
 
 export const DEFAULT_SETTINGS: StoredSettings = {
@@ -76,7 +69,6 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   timing_offset_ms: DEFAULT_TIMING_OFFSET_MS,
   effect_level: DEFAULT_EFFECT_LEVEL,
   theme_scope: DEFAULT_THEME_SCOPE,
-  software_render: false,
 };
 
 /** Integer ms in [-500, 500]; garbage → 0 (Off). */
@@ -203,6 +195,5 @@ export function parseSettings(raw: string): StoredSettings {
     timing_offset_ms: clampTimingOffset(record['timing_offset_ms']),
     effect_level: parseEffectLevel(record['effect_level']),
     theme_scope: parseThemeScope(record['theme_scope']),
-    software_render: record['software_render'] === true,
   };
 }
