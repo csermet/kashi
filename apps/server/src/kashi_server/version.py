@@ -32,5 +32,10 @@
 # ad-lib lines exempt) + alignment.qa repair-provenance block and per-line
 # words_derived flag in the document (additive; the lrclib publish gate and
 # field debugging read them).
-PIPELINE_VERSION = "2.3.0"
+# 2.3.1: lrclib reachability fixes (Faz 5 P2) — multi-artist hints split on
+# locale conjunctions (" ve ", &, commas, feat.) and retry with the primary
+# artist + any-part plausibility (Drift Barbie/Señorita class); lrclib 4xx
+# classified permanent instead of burning retries (61-min-mix 400 case), 429
+# maps to rate_limited; the ingest API rejects over-cap durations up front.
+PIPELINE_VERSION = "2.3.1"
 PIPELINE_MAJOR = 2

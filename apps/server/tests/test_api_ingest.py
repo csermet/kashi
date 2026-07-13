@@ -66,3 +66,31 @@ def test_ingest_rate_limited(client, user_key, monkeypatch):
     limited = client.post("/v1/ingest", json=_BODY, headers=_auth(user_key))
     assert limited.status_code == 429
     assert int(limited.headers["Retry-After"]) >= 1
+
+
+def test_ingest_rejects_tracks_over_the_duration_cap(client, user_key, db_session):
+    from sqlalchemy import select
+
+    from kashi_server.db.models import Job
+
+    # Field case: a 61-minute mix could never complete but still created a
+    # job, queried lrclib with duration=3679 (a 400) and burned its retries.
+    body = {
+        "source": {"type": "youtube", "id": "longmix0001"},
+        "hints": {"title": "Mega Mix", "artist": "DJ Long", "duration_ms": 3_679_000},
+    }
+    resp = client.post("/v1/ingest", json=body, headers=_auth(user_key))
+    assert resp.status_code == 422
+    assert "processing cap" in resp.json()["detail"]
+    assert (
+        db_session.execute(select(Job).where(Job.source_id == "longmix0001")).scalar_one_or_none()
+        is None
+    )  # no job row was created
+
+
+def test_ingest_duration_at_the_cap_still_queues(client, user_key):
+    body = {
+        "source": {"type": "youtube", "id": "capedge0001"},
+        "hints": {"title": "Edge", "artist": "Cap", "duration_ms": 1_200_000},
+    }
+    assert client.post("/v1/ingest", json=body, headers=_auth(user_key)).status_code == 202

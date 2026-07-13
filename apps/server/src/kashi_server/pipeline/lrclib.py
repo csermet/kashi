@@ -52,6 +52,43 @@ def normalize_artist(artist: str) -> str:
     return _TOPIC_SUFFIX.sub("", artist).strip()
 
 
+# YTM joins collaborators with a LOCALE conjunction (" ve " on Turkish UIs,
+# " & "/" and " elsewhere) plus commas and feat./ft./x credits. lrclib records
+# credit "blueberry, PiNKII" or just the primary — the joined string matches
+# nothing structurally (field failure class: Drift Barbie, Señorita, The
+# Storm... most of the no-lyrics backlog).
+_ARTIST_SEPARATORS = re.compile(r"\s+(?:ve|and|x|feat\.?|ft\.?|&)\s+|\s*,\s*", re.IGNORECASE)
+
+
+def split_artists(artist: str) -> list[str]:
+    """Individual artists from a multi-artist hint, primary first; [] when
+    the hint names a single artist (callers gate the retry rung on that)."""
+    parts = [p.strip() for p in _ARTIST_SEPARATORS.split(artist) if p and p.strip()]
+    return parts if len(parts) > 1 else []
+
+
+# lrclib 400/422 = the request itself is bad (field: a 61-minute mix's
+# duration=3679 earned a 400 — and three identical retries). Permanent: the
+# same request cannot succeed later. 429 is the free service asking for
+# patience — transient under its own type so logs/metrics show the pressure.
+# 403 stays TRANSIENT on purpose: reads need no auth, so a 403 is edge/WAF
+# weather that would otherwise stamp whole batches lyrics_not_found behind
+# the 7-day block (reviewer catch). 5xx/timeouts/DNS stay plain network.
+_PERMANENT_HTTP_STATUS = frozenset({400, 422})
+
+
+def _pipeline_error(exc: httpx.HTTPError, context: str) -> PipelineError:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status in _PERMANENT_HTTP_STATUS:
+            return PipelineError(
+                "lyrics_not_found", f"lrclib rejected the request ({status}): {context}"
+            )
+        if status == 429:
+            return PipelineError("rate_limited", f"lrclib rate-limited: {context}")
+    return PipelineError("network", f"lrclib unreachable: {exc}")
+
+
 def _parse_synced(synced: str) -> list[tuple[int | None, str]]:
     """One (start_ms, text) entry per non-empty lyric line.
 
@@ -193,10 +230,26 @@ def fetch_lyrics(
             rung = "search-q"
             record = _search_freetext(http, title, artist, duration_s)
             extracted = _extract(record) if record else None
+        if extracted is None and (parts := split_artists(artist)):
+            # Multi-artist retry: the joined hint matched nothing — try the
+            # primary artist alone. Plausibility accepts ANY credited part so
+            # a record naming only the featured artist still qualifies; the
+            # structured rung gets the same gate (a split-derived short token
+            # like "Tyler" is the loosest query in the ladder — reviewer). Two
+            # extra sequential requests at most (etiquette budget: ≤5 total).
+            rung = "search-primary"
+            record = _search(http, title, parts[0], duration_s, plausible_artists=parts)
+            extracted = _extract(record) if record else None
+            if extracted is None:
+                rung = "search-q-primary"
+                record = _search_freetext(
+                    http, title, parts[0], duration_s, plausible_artists=parts
+                )
+                extracted = _extract(record) if record else None
         if extracted is None:
             raise PipelineError("lyrics_not_found", f"no lyrics for {artist} - {title}")
     except httpx.HTTPError as exc:
-        raise PipelineError("network", f"lrclib unreachable: {exc}") from exc
+        raise _pipeline_error(exc, f"{artist} - {title}") from exc
     finally:
         if owns_client:
             http.close()
@@ -251,10 +304,22 @@ def _pick_candidate(records: list[dict], duration_s: float | None) -> dict | Non
     return min(scored, key=lambda pair: pair[0])[1]
 
 
-def _search(http: httpx.Client, title: str, artist: str, duration_s: float | None) -> dict | None:
+def _search(
+    http: httpx.Client,
+    title: str,
+    artist: str,
+    duration_s: float | None,
+    *,
+    plausible_artists: list[str] | None = None,
+) -> dict | None:
     response = http.get("/api/search", params={"track_name": title, "artist_name": artist})
     response.raise_for_status()
-    return _pick_candidate(response.json(), duration_s)
+    records = response.json()
+    if plausible_artists:  # split-retry rung: gate the loose primary query
+        records = [
+            r for r in records if any(plausible_match(r, title, a) for a in plausible_artists)
+        ]
+    return _pick_candidate(records, duration_s)
 
 
 def search_candidates(
@@ -280,7 +345,7 @@ def search_candidates(
         response.raise_for_status()
         data = response.json()
     except httpx.HTTPError as exc:
-        raise PipelineError("network", f"lrclib unreachable: {exc}") from exc
+        raise _pipeline_error(exc, query) from exc
     finally:
         if owns_client:
             http.close()
@@ -318,15 +383,25 @@ def lyrics_from_text(text: str) -> LyricsText:
 
 
 def _search_freetext(
-    http: httpx.Client, title: str, artist: str, duration_s: float | None
+    http: httpx.Client,
+    title: str,
+    artist: str,
+    duration_s: float | None,
+    *,
+    plausible_artists: list[str] | None = None,
 ) -> dict | None:
-    """Last rung (pipeline 2.0.3): structured search misses remixes and songs
-    with extra credits — the hint title/artist don't literally match the record
-    ("Wet" / "Snoop Dogg" vs "Wet (… vs. David Guetta) [Remix]"). One free-text
-    pass catches those; `_plausible` keeps the loose query honest."""
+    """Free-text rung (pipeline 2.0.3): structured search misses remixes and
+    songs with extra credits — the hint title/artist don't literally match the
+    record ("Wet" / "Snoop Dogg" vs "Wet (… vs. David Guetta) [Remix]"). One
+    free-text pass catches those; `plausible_match` keeps the loose query
+    honest. `plausible_artists` widens ONLY the plausibility axis (multi-artist
+    retry: the record may credit any collaborator), never the query."""
     response = http.get("/api/search", params={"q": f"{artist} {title}"})
     response.raise_for_status()
-    candidates = [r for r in response.json() if plausible_match(r, title, artist)]
+    artists = plausible_artists or [artist]
+    candidates = [
+        r for r in response.json() if any(plausible_match(r, title, a) for a in artists)
+    ]
     picked = _pick_candidate(candidates, duration_s)
     if picked is None and duration_s is not None:
         # Duration-less last chance (client precedent: its structured lookup

@@ -312,3 +312,170 @@ def test_topic_suffix_is_stripped_before_querying():
 
     _fetch(handler, hints={"title": "T", "artist": "Rick Astley - Topic"})
     assert seen["artist"] == "Rick Astley"
+
+
+# --- Faz 5 P2: 4xx classification + multi-artist split retry ---
+
+
+def test_split_artists_variants():
+    from kashi_server.pipeline.lrclib import split_artists
+
+    assert split_artists("blueberry ve PiNKII") == ["blueberry", "PiNKII"]
+    assert split_artists("Pitbull  ve J Balvin") == ["Pitbull", "J Balvin"]  # double space
+    assert split_artists("Shawn Mendes & Camila Cabello") == ["Shawn Mendes", "Camila Cabello"]
+    assert split_artists("TWXNY, Sxilwix ve Airfox") == ["TWXNY", "Sxilwix", "Airfox"]
+    assert split_artists("TheFatRat feat. Maisy Kay") == ["TheFatRat", "Maisy Kay"]
+    assert split_artists("KIDA x Dler") == ["KIDA", "Dler"]
+    assert split_artists("Lil Nas X") == []  # trailing X is a name, not a separator
+    assert split_artists("Pitbull") == []
+
+
+def test_lrclib_400_is_permanent_not_retried_as_network():
+    # Field case: duration=3679 (61-min mix) -> 400; three identical retries
+    # burned the attempt budget on an answer that could never change.
+    def handler(request):
+        return httpx.Response(400, text="Bad Request")
+
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler)
+    assert err.value.error_type == "lyrics_not_found"
+
+
+def test_lrclib_429_maps_to_rate_limited():
+    def handler(request):
+        return httpx.Response(429, text="Too Many Requests")
+
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler)
+    assert err.value.error_type == "rate_limited"
+
+
+def test_lrclib_5xx_stays_transient_network():
+    def handler(request):
+        return httpx.Response(503, text="upstream sad")
+
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler)
+    assert err.value.error_type == "network"
+
+
+def test_multi_artist_hint_retries_with_the_primary_artist():
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, dict(request.url.params)))
+        params = dict(request.url.params)
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        # Structured + free-text searches with the joined artist find nothing;
+        # the primary-artist structured search hits.
+        if params.get("artist_name") == "blueberry ve PiNKII":
+            return httpx.Response(200, json=[])
+        if params.get("q") == "blueberry ve PiNKII Drift Barbie":
+            return httpx.Response(200, json=[])
+        if params.get("artist_name") == "blueberry":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 18141280,
+                        "trackName": "Drift Barbie",
+                        "artistName": "blueberry, PiNKII",
+                        "duration": 180,
+                        "syncedLyrics": "[00:01.00] Drift\n[00:02.00] Barbie",
+                    }
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    hints = {"title": "Drift Barbie", "artist": "blueberry ve PiNKII", "duration_ms": 180_000}
+    lyrics = _fetch(handler, hints)
+    assert lyrics.source_id == 18141280 and lyrics.had_synced
+    # Request budget: get, search(full), q(full), search(primary) — 4 calls.
+    assert len(calls) == 4
+
+
+def test_split_retry_plausibility_accepts_any_credited_part():
+    # The record credits only the FEATURED artist; the primary-artist q= rung
+    # must still accept it (any-part plausibility), not just primary matches.
+    def handler(request):
+        params = dict(request.url.params)
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if params.get("q") == "TheFatRat The Storm":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 7,
+                        "trackName": "The Storm",
+                        "artistName": "Maisy Kay",
+                        "duration": 222,
+                        "syncedLyrics": "[00:01.00] Storm line",
+                    }
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    hints = {"title": "The Storm", "artist": "TheFatRat ve Maisy Kay", "duration_ms": 222_000}
+    lyrics = _fetch(handler, hints)
+    assert lyrics.source_id == 7
+
+
+def test_single_artist_never_pays_the_split_rungs():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        return httpx.Response(200, json=[])
+
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler)
+    assert err.value.error_type == "lyrics_not_found"
+    assert len(calls) == 3  # get, search, q — no extra requests for "Pitbull"
+
+
+def test_search_primary_rung_rejects_implausible_records():
+    # The primary-artist structured search returns a DIFFERENT song by the
+    # same primary token; the plausibility gate must reject it and fall
+    # through to the q= rung (which finds nothing -> lyrics_not_found).
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        params = dict(request.url.params)
+        if request.url.path == "/api/get":
+            return httpx.Response(404)
+        if params.get("artist_name") == "Tyler":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 99,
+                        "trackName": "Completely Different Song",
+                        "artistName": "Tyler",
+                        "duration": 180,
+                        "syncedLyrics": "[00:01.00] wrong words",
+                    }
+                ],
+            )
+        return httpx.Response(200, json=[])
+
+    hints = {"title": "Some Ballad", "artist": "Tyler, The Creator", "duration_ms": 180_000}
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler, hints)
+    assert err.value.error_type == "lyrics_not_found"
+    assert len(calls) == 5  # full budget spent, wrong record never accepted
+
+
+def test_lrclib_403_stays_transient():
+    # Reads need no auth: a 403 is edge/WAF weather, not a permanent verdict —
+    # it must not stamp tracks lyrics_not_found behind the 7-day block.
+    def handler(request):
+        return httpx.Response(403, text="blocked")
+
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler)
+    assert err.value.error_type == "network"

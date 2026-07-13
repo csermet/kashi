@@ -1,12 +1,14 @@
-"""POST /v1/ingest — idempotent enqueue (contract: always 202 with the job that
-represents this source, whether fresh, already running, or already done)."""
+"""POST /v1/ingest — idempotent enqueue (contract: 202 with the job that
+represents this source — fresh, already running, or already done — except a
+422 up-front rejection for tracks the pipeline could never complete)."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from kashi_server import queue
 from kashi_server.api.deps import get_db, queue_full_response, rate_limited
 from kashi_server.api.schemas import IngestRequest, IngestResponse
+from kashi_server.config import settings
 from kashi_server.db.models import ApiKey
 from kashi_server.version import PIPELINE_MAJOR
 
@@ -19,6 +21,20 @@ def ingest(
     key: ApiKey = Depends(rate_limited("ingest")),
     db: Session = Depends(get_db),
 ):
+    # A track over the pipeline cap can never complete — the download stage
+    # enforces the same limit, but only after a job existed and lrclib was
+    # queried with an implausible duration (field: a 61-minute mix earned a
+    # 400 and burned its retries). Reject before a job exists; the admin
+    # reprocess route deliberately bypasses this (operator-repaired hints).
+    duration_ms = body.hints.duration_ms
+    if duration_ms and duration_ms > settings.max_track_duration_s * 1000:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"track duration {duration_ms}ms exceeds the "
+                f"{settings.max_track_duration_s}s processing cap"
+            ),
+        )
     try:
         job = queue.enqueue(
             db,
