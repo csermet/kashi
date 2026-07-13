@@ -111,7 +111,11 @@ def build_document(
         "track": track,
         "sync": align_result.sync,
         "alignment": {
-            "method": "ctc-forced-aligner/mms-300m+line-windowed"
+            # Human word-sync consumed as-is (Faz 5 P3) carries its own
+            # method string — consumers distinguish it from aligner output.
+            "method": "lrclib-lyricsfile/1.0"
+            if lyrics.source == "lyricsfile"
+            else "ctc-forced-aligner/mms-300m+line-windowed"
             if align_result.windowed
             else "ctc-forced-aligner/mms-300m",
             # Provenance must be honest: caller-supplied lyrics_text is NOT an

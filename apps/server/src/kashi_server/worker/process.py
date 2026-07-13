@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import threading
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from prometheus_client import Counter
@@ -26,7 +26,7 @@ from kashi_server.pipeline.beats import extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.langid import detect_language
-from kashi_server.pipeline.line_qa import apply_line_qa
+from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa
 from kashi_server.pipeline.lrclib import (
     LyricsText,
     fetch_lyrics,
@@ -36,6 +36,7 @@ from kashi_server.pipeline.lrclib import (
     search_candidates,
     title_covers,
 )
+from kashi_server.pipeline.lyricsfile import alignresult_from_lyricsfile
 from kashi_server.pipeline.nightcore import (
     detect_speed_factor,
     pick_record_for_factor,
@@ -88,6 +89,10 @@ NIGHTCORE_JOBS = Counter(
 WORD_END_TRIMS = Counter(
     "kashi_line_qa_word_end_trims_total",
     "Word ends capped by the sustain trim (Faz 5 P1 ear-test fix)",
+)
+LYRICSFILE_DOCS = Counter(
+    "kashi_lyricsfile_docs_total",
+    "Documents built from human word-sync Lyricsfile data (CTC skipped)",
 )
 
 
@@ -342,16 +347,26 @@ class NightcorePlan:
 
 
 def resolve_nightcore(
-    job: Job, download: DownloadResult, source_audio: Path, tmp: Path
+    job: Job,
+    download: DownloadResult,
+    source_audio: Path,
+    tmp: Path,
+    *,
+    detection: tuple[float, dict | None, str | None] | None = None,
+    plain_lyrics: LyricsText | None = None,
 ) -> NightcorePlan:
     """Resolve the whole nightcore branch up front: detection, lyrics, the
     slowed decode and its duration sanity gate in one place. Every miss lands
     on the plain r=1 plan; an explicit factor that fails the sanity gate
     raises instead of silently reverting — the caller stated it and cannot
-    see a wrong clock."""
-    speed_factor, detection_record, nc_outcome = _detect_nightcore(job, download)
+    see a wrong clock. `detection`/`plain_lyrics` accept the caller's already
+    -computed values (the lyricsfile fast-path probe) so no lrclib request is
+    ever paid twice."""
+    speed_factor, detection_record, nc_outcome = (
+        detection if detection is not None else _detect_nightcore(job, download)
+    )
     if speed_factor == 1.0 or nc_outcome is None:
-        return NightcorePlan(1.0, _plain_lyrics(job), None, None)
+        return NightcorePlan(1.0, plain_lyrics or _plain_lyrics(job), None, None)
     # Lyrics resolve BEFORE the near-realtime rubberband stretch: a doomed
     # lyrics_not_found must not cost a 30-minute decode first (retro finding
     # — the explicit-r path decoded, then searched).
@@ -378,7 +393,7 @@ def resolve_nightcore(
     )
     NIGHTCORE_JOBS.labels("reverted").inc()
     align_wav = _decode(source_audio, tmp / "align.wav", rate=16000)
-    return NightcorePlan(1.0, _plain_lyrics(job), align_wav, "reverted")
+    return NightcorePlan(1.0, plain_lyrics or _plain_lyrics(job), align_wav, "reverted")
 
 
 def process_job(s: Session, job: Job) -> None:
@@ -393,72 +408,111 @@ def process_job(s: Session, job: Job) -> None:
         )
         checkpoint(s, job)
 
-        separate_first = settings.separation_mode == "always" or bool(
-            (job.options or {}).get("separate")
-        )
-        if separate_first:
-            queue.set_status(s, job, "separating")
-            s.commit()
-            source_audio = _separate_vocals(download.path, tmp)
-            checkpoint(s, job)
-        else:
-            source_audio = download.path
-
-        # --- aligning ---
+        # --- aligning (lyrics resolve FIRST — Faz 5 P3) ---
         queue.set_status(s, job, "aligning")
         s.commit()
-        # Nightcore branch (Faz 4): slow the (possibly separated) audio back
-        # down for alignment, then rescale the output onto the played clock.
-        # Every failure reverts to the plain r=1 flow.
-        plan = resolve_nightcore(job, download, source_audio, tmp)
-        if plan.outcome is not None:  # the branch decoded — same cadence as before
-            checkpoint(s, job)
-        lyrics = plan.lyrics
-        result, vocals_separated = _align_stage(
-            s,
-            job,
-            tmp,
-            source_audio,
-            lyrics,
-            align_wav=plan.align_wav,
-            tempo=1.0 / plan.speed_factor,
+        # Lyricsfile fast path: when the chosen lrclib record carries HUMAN
+        # word timings, alignment has nothing to add — separation, langid,
+        # CTC and line QA are all skipped (the word clock becomes human-
+        # accurate and the job saves the double-digit-minute separation
+        # bill). Only the plain r=1 flow qualifies: nightcore MUST keep the
+        # CTC wrong-song gate. Resolving lyrics before separation also means
+        # a doomed lyrics_not_found no longer pays for separation first
+        # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
+        detection = _detect_nightcore(job, download)
+        plain_lyrics = _plain_lyrics(job) if detection[0] == 1.0 else None
+        fast_result = (
+            alignresult_from_lyricsfile(plain_lyrics.lyricsfile_raw, download.duration_s)
+            if plain_lyrics is not None and plain_lyrics.source == "lrclib"
+            else None
         )
-        qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
-        result = qa.result
-        if plan.speed_factor != 1.0:
-            if lyrics.source != "caller":
-                # Wrong-song gate: detection can only vouch for title+duration
-                # ratio; the CTC probs are the honest lyrics-identity signal.
-                probs = [w.prob for chunk in result.words_per_line for w in chunk]
-                prob_quality = quality_from_probs(probs) if probs else 0.0
-                if prob_quality < NIGHTCORE_PROB_GATE:
-                    raise PipelineError(
-                        "lyrics_not_found",
-                        f"nightcore lyrics failed the wrong-song gate "
-                        f"(ctc prob {prob_quality:.3f} < {NIGHTCORE_PROB_GATE}; "
-                        f"lrclib id {lyrics.source_id})",
-                    )
-            # QA ran on the slowed (≈ original) clock where the lrclib stamps
-            # live; ONE rescale lands everything on the nightcore clock.
-            result = rescale_result(result, plan.speed_factor)
-        if qa.degraded_to_line or qa.flagged:
-            logger.warning(
-                "job %s: line QA %s %d line(s), offset %+dms",
-                job.id,
-                "degraded to line sync after flagging" if qa.degraded_to_line else "snapped",
-                len(qa.flagged),
-                qa.offset_ms,
-            )
-        LINE_QA_DOCS.labels(
-            "degraded" if qa.degraded_to_line else ("snapped" if qa.flagged else "clean")
-        ).inc()
-        if not qa.degraded_to_line:
-            LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
-            LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
-        LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
-        LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
-        WORD_END_TRIMS.inc(qa.trimmed_ends)
         checkpoint(s, job)
+        qa: LineQAOutcome | None = None
+        if fast_result is not None:
+            assert plain_lyrics is not None
+            lyrics = replace(plain_lyrics, source="lyricsfile")
+            result = fast_result
+            vocals_separated = False
+            speed_factor = 1.0
+            LYRICSFILE_DOCS.inc()
+            logger.info(
+                "job %s: lyricsfile fast path (%d lines, %d with words) — CTC skipped",
+                job.id,
+                len(result.lines),
+                sum(bool(chunk) for chunk in result.words_per_line),
+            )
+        else:
+            separate_first = settings.separation_mode == "always" or bool(
+                (job.options or {}).get("separate")
+            )
+            if separate_first:
+                queue.set_status(s, job, "separating")
+                s.commit()
+                source_audio = _separate_vocals(download.path, tmp)
+                checkpoint(s, job)
+                queue.set_status(s, job, "aligning")
+                s.commit()
+            else:
+                source_audio = download.path
+
+            # Nightcore branch (Faz 4): slow the (possibly separated) audio
+            # back down for alignment, then rescale the output onto the
+            # played clock. Every failure reverts to the plain r=1 flow.
+            plan = resolve_nightcore(
+                job, download, source_audio, tmp, detection=detection, plain_lyrics=plain_lyrics
+            )
+            if plan.outcome is not None:  # the branch decoded — same cadence as before
+                checkpoint(s, job)
+            lyrics = plan.lyrics
+            speed_factor = plan.speed_factor
+            result, second_pass_separated = _align_stage(
+                s,
+                job,
+                tmp,
+                source_audio,
+                lyrics,
+                align_wav=plan.align_wav,
+                tempo=1.0 / speed_factor,
+            )
+            vocals_separated = second_pass_separated or separate_first
+            qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
+            result = qa.result
+            if speed_factor != 1.0:
+                if lyrics.source != "caller":
+                    # Wrong-song gate: detection can only vouch for
+                    # title+duration ratio; the CTC probs are the honest
+                    # lyrics-identity signal.
+                    probs = [w.prob for chunk in result.words_per_line for w in chunk]
+                    prob_quality = quality_from_probs(probs) if probs else 0.0
+                    if prob_quality < NIGHTCORE_PROB_GATE:
+                        raise PipelineError(
+                            "lyrics_not_found",
+                            f"nightcore lyrics failed the wrong-song gate "
+                            f"(ctc prob {prob_quality:.3f} < {NIGHTCORE_PROB_GATE}; "
+                            f"lrclib id {lyrics.source_id})",
+                        )
+                # QA ran on the slowed (≈ original) clock where the lrclib
+                # stamps live; ONE rescale lands everything on the nightcore
+                # clock.
+                result = rescale_result(result, speed_factor)
+            if qa.degraded_to_line or qa.flagged:
+                logger.warning(
+                    "job %s: line QA %s %d line(s), offset %+dms",
+                    job.id,
+                    "degraded to line sync after flagging" if qa.degraded_to_line else "snapped",
+                    len(qa.flagged),
+                    qa.offset_ms,
+                )
+            LINE_QA_DOCS.labels(
+                "degraded" if qa.degraded_to_line else ("snapped" if qa.flagged else "clean")
+            ).inc()
+            if not qa.degraded_to_line:
+                LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
+                LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
+            LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
+            LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
+            WORD_END_TRIMS.inc(qa.trimmed_ends)
+            checkpoint(s, job)
 
         # --- postprocessing ---
         queue.set_status(s, job, "postprocessing")
@@ -471,8 +525,8 @@ def process_job(s: Session, job: Job) -> None:
             result,
             beats,
             palette,
-            vocals_separated=vocals_separated or separate_first,
-            speed_factor=plan.speed_factor,
+            vocals_separated=vocals_separated,
+            speed_factor=speed_factor,
             fallback_duration_ms=round(download.duration_s * 1000),
             qa=qa,
         )

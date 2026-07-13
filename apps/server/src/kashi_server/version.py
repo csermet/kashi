@@ -37,5 +37,12 @@
 # artist + any-part plausibility (Drift Barbie/Señorita class); lrclib 4xx
 # classified permanent instead of burning retries (61-min-mix 400 case), 429
 # maps to rate_limited; the ingest API rejects over-cap durations up front.
-PIPELINE_VERSION = "2.3.1"
+# 2.4.0: Lyricsfile-READ (Faz 5 P3) — human word sync from lrclib's
+# lyricsfile field is consumed AS-IS on the plain r=1 flow: separation,
+# langid, CTC and line QA are skipped, the document rides the human clock
+# (method lrclib-lyricsfile/1.0, lyrics_source "lyricsfile", quality 1.0).
+# One record-selection policy (choose_record: lyricsfile-words > synced >
+# plain + duration proximity) replaces the previous three; lyrics resolve
+# BEFORE separation so a doomed lyrics_not_found no longer pays for stems.
+PIPELINE_VERSION = "2.4.0"
 PIPELINE_MAJOR = 2

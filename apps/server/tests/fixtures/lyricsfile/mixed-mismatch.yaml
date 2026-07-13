@@ -1,0 +1,28 @@
+version: "1.0"
+metadata:
+  title: "Song"
+  artist: "Artist"
+lines:
+  - text: "Good line here"
+    start_ms: 1000
+    end_ms: 3000
+    words:
+      - text: "Good "
+        start_ms: 1000
+        end_ms: 1500
+      - text: "line "
+        start_ms: 1500
+        end_ms: 2200
+      - text: "here"
+        start_ms: 2200
+        end_ms: 3000
+  - text: "Display text says this"
+    start_ms: 4000
+    end_ms: 6000
+    words:
+      - text: "totally "
+        start_ms: 4000
+        end_ms: 5000
+      - text: "different"
+        start_ms: 5000
+        end_ms: 6000

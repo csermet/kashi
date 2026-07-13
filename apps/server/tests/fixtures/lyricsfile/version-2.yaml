@@ -1,0 +1,12 @@
+version: "2.0"
+metadata:
+  title: "Song"
+  artist: "Artist"
+lines:
+  - text: "Future format"
+    start_ms: 1000
+    words:
+      - text: "Future "
+        start_ms: 1000
+      - text: "format"
+        start_ms: 1500

@@ -810,3 +810,74 @@ def test_nightcore_lyrics_resolve_before_the_stretch(db_session, scratch, monkey
     wp.process_job(db_session, job)
     db_session.refresh(job)
     assert job.status == "failed" and job.error_type == "lyrics_not_found"
+
+
+def test_lyricsfile_fast_path_skips_ctc_and_separation(db_session, job, scratch, monkeypatch):
+    # Human word sync on the chosen record: separation and alignment must
+    # never run (even under separation_mode=always), the document rides the
+    # human clock with method/provenance to match and no qa block.
+    from pathlib import Path as _P
+
+    from kashi_server.config import settings
+
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(settings, "separation_mode", "always")
+    raw = (_P(__file__).parent / "fixtures" / "lyricsfile" / "valid.yaml").read_text()
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: LyricsText(
+            ["Meet me at the hotel", "Second line"],
+            "Meet me at the hotel Second line",
+            5,
+            True,
+            lyricsfile_raw=raw,
+        ),
+    )
+
+    def never(*args, **kwargs):
+        raise AssertionError("CTC/separation must not run on the lyricsfile fast path")
+
+    monkeypatch.setattr(wp, "_align_stage", never)
+    monkeypatch.setattr(wp, "_separate_vocals", never)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    row = db_session.scalars(select(ProcessedTrack)).one()
+    doc = row.document
+    assert doc["alignment"]["method"] == "lrclib-lyricsfile/1.0"
+    assert doc["alignment"]["lyrics_source"] == "lyricsfile"
+    assert doc["alignment"]["lyrics_source_id"] == 5
+    assert doc["alignment"]["quality_score"] == 1.0
+    assert doc["alignment"]["vocals_separated"] is False
+    assert "qa" not in doc["alignment"]  # no repair ran, none is claimed
+    assert doc["lines"][0]["words"][0]["text"] == "Meet"  # trailing space stripped
+    assert list(scratch.glob("job-*")) == []  # deletion guarantee holds
+
+
+def test_broken_lyricsfile_falls_back_to_the_normal_path(db_session, job, scratch, monkeypatch):
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: LyricsText(
+            ["hello world"], "hello world", 5, True, lyricsfile_raw="version: '9.9'\n"
+        ),
+    )
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["method"] == "ctc-forced-aligner/mms-300m"
+    assert doc["alignment"]["lyrics_source"] == "lrclib"

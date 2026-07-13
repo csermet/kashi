@@ -504,3 +504,27 @@ def test_choose_record_prefers_parsed_synced_within_the_duration_band():
     # duration_s=None: synced-first, original order breaks ties.
     picked = choose_record([plain_close, synced_far], duration_s=None)
     assert picked is not None and picked["id"] == 2
+
+
+def test_choose_record_lyricsfile_probe_never_outranks_synced():
+    from kashi_server.pipeline.lrclib import choose_record
+
+    # A PLAIN record with a words-bearing lyricsfile must not shadow a synced
+    # record: if the lyricsfile later fails the real parse, the CTC fallback
+    # would have lost its QA reference (reviewer catch).
+    plain_with_lf = {
+        "id": 1,
+        "plainLyrics": "hello",
+        "duration": 234,
+        "lyricsfile": (
+            "version: '1.0'\nlines:\n  - text: hi\n    start_ms: 1\n"
+            "    words:\n      - {text: hi, start_ms: 1}\n"
+        ),
+    }
+    synced_plain_lf = {"id": 2, "syncedLyrics": "[00:01.00] hello", "duration": 235}
+    picked = choose_record([plain_with_lf, synced_plain_lf], duration_s=234)
+    assert picked is not None and picked["id"] == 2
+    # WITHIN the synced class the lyricsfile probe wins.
+    synced_with_lf = dict(plain_with_lf, id=3, syncedLyrics="[00:01.00] hello")
+    picked = choose_record([synced_plain_lf, synced_with_lf], duration_s=234)
+    assert picked is not None and picked["id"] == 3

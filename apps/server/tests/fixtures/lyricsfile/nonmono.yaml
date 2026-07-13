@@ -1,0 +1,19 @@
+version: "1.0"
+metadata:
+  title: "Song"
+  artist: "Artist"
+lines:
+  - text: "Later line"
+    start_ms: 5000
+    words:
+      - text: "Later "
+        start_ms: 5000
+      - text: "line"
+        start_ms: 5400
+  - text: "Earlier line"
+    start_ms: 3000
+    words:
+      - text: "Earlier "
+        start_ms: 3000
+      - text: "line"
+        start_ms: 3400

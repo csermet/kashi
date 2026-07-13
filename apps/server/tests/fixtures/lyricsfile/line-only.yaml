@@ -1,0 +1,9 @@
+version: "1.0"
+metadata:
+  title: "Song"
+  artist: "Artist"
+lines:
+  - text: "No words anywhere"
+    start_ms: 1000
+  - text: "Just line stamps"
+    start_ms: 4000

@@ -1,0 +1,16 @@
+version: "1.0"
+metadata:
+  title: "Song"
+  artist: "Artist"
+  offset_ms: 500
+lines:
+  - text: "Hello world"
+    start_ms: 1000
+    end_ms: 2000
+    words:
+      - text: "Hello "
+        start_ms: 1000
+        end_ms: 1400
+      - text: "world"
+        start_ms: 1500
+        end_ms: 2000

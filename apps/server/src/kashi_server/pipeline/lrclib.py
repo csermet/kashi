@@ -43,8 +43,13 @@ class LyricsText:
     synced_starts_ms: list[int | None] | None = None
     # Document provenance: "lrclib" (an lrclib record) or "caller"
     # (ingest options.lyrics_text) — the document must never claim lrclib
-    # served text it did not (reviewer, Faz 4).
+    # served text it did not (reviewer, Faz 4). The worker rewrites it to
+    # "lyricsfile" when the fast path consumes human word sync (Faz 5 P3).
     source: str = "lrclib"
+    # Raw Lyricsfile YAML from the chosen record (null on most records today).
+    # Carried OPAQUE — pipeline/lyricsfile.py parses it lazily on the worker,
+    # never here (a broken lyricsfile must not break the lyrics fetch).
+    lyricsfile_raw: str | None = None
 
 
 def normalize_artist(artist: str) -> str:
@@ -270,7 +275,13 @@ def fetch_lyrics(
         source_id=int(record.get("id") or 0),
         had_synced=had_synced,
         synced_starts_ms=synced_starts_ms,
+        lyricsfile_raw=_lyricsfile_raw(record),
     )
+
+
+def _lyricsfile_raw(record: dict) -> str | None:
+    raw = record.get("lyricsfile")
+    return raw if isinstance(raw, str) and raw.strip() else None
 
 
 def _get_exact(
@@ -288,6 +299,17 @@ def _get_exact(
     return response.json()
 
 
+# Cheap word-level Lyricsfile probe for record SELECTION only (a full YAML
+# parse per candidate would be waste; the worker's real parse still guards
+# correctness — a probe hit that later fails to parse just falls back).
+_LYRICSFILE_WORDS_PROBE = re.compile(r"^\s+words:", re.MULTILINE)
+
+
+def _has_lyricsfile_words(record: dict) -> bool:
+    raw = record.get("lyricsfile")
+    return isinstance(raw, str) and bool(_LYRICSFILE_WORDS_PROBE.search(raw))
+
+
 def choose_record(
     records: list[dict],
     *,
@@ -297,14 +319,19 @@ def choose_record(
     """THE record-selection policy (Faz 5 P3 — one policy instead of three).
 
     Usable lyrics required (the pipeline's own parse, not truthiness);
-    records whose lyrics PARSE as synced outrank plain ones — a synced pick
-    doubles as the QA/windowing reference, the single biggest word-timing
-    lever; duration proximity breaks ties. duration_s=None skips the
-    duration axis entirely (callers that pre-filtered their own band, e.g.
-    the nightcore r-cluster vote); a record without a duration field is
-    never excluded, it just sorts last on the distance axis.
+    records whose lyrics PARSE as synced outrank plain — a synced pick
+    doubles as the QA/windowing reference; WITHIN the synced class, a
+    record carrying word-level Lyricsfile data (HUMAN word sync) wins.
+    The lyricsfile probe deliberately ranks BELOW synced, not above it: a
+    probe hit that later fails the real parse falls back to CTC, and that
+    fallback must not have traded away its QA reference for the probe
+    (reviewer catch). Duration proximity breaks remaining ties.
+    duration_s=None skips the duration axis entirely (callers that
+    pre-filtered their own band, e.g. the nightcore r-cluster vote); a
+    record without a duration field is never excluded, it just sorts last
+    on the distance axis.
     """
-    scored: list[tuple[bool, float, int, dict]] = []
+    scored: list[tuple[bool, bool, float, int, dict]] = []
     for rec in records:
         extracted = _extract(rec)
         if extracted is None:
@@ -317,10 +344,12 @@ def choose_record(
                 continue
             distance = abs(float(rec_duration or 0) - duration_s)
         had_synced = extracted[2]
-        scored.append((not had_synced, distance, len(scored), rec))
+        scored.append(
+            (not had_synced, not _has_lyricsfile_words(rec), distance, len(scored), rec)
+        )
     if not scored:
         return None
-    return min(scored, key=lambda item: item[:3])[3]
+    return min(scored, key=lambda item: item[:4])[4]
 
 
 def _search(
@@ -383,6 +412,7 @@ def lyrics_from_record(record: dict) -> LyricsText:
         source_id=int(record.get("id") or 0),
         had_synced=had_synced,
         synced_starts_ms=synced_starts_ms,
+        lyricsfile_raw=_lyricsfile_raw(record),
     )
 
 

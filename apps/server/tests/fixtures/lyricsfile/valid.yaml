@@ -1,0 +1,36 @@
+version: "1.0"
+
+metadata:
+  title: "Song"
+  artist: "Artist"
+  duration_ms: 200000
+  offset_ms: 0
+
+lines:
+  - text: "Meet me at the hotel"
+    start_ms: 12000
+    end_ms: 15000
+    words:
+      - text: "Meet "
+        start_ms: 12000
+        end_ms: 12300
+      - text: "me "
+        start_ms: 12300
+        end_ms: 12500
+      - text: "at "
+        start_ms: 12500
+      - text: "the "
+        start_ms: 12800
+        end_ms: 13000
+      - text: "hotel"
+        start_ms: 13000
+        end_ms: 15000
+  - text: "Second line"
+    start_ms: 16000
+    words:
+      - text: "Second "
+        start_ms: 16000
+        end_ms: 16500
+      - text: "line"
+        start_ms: 16600
+        end_ms: 17400

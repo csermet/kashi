@@ -1,0 +1,5 @@
+version: "1.0"
+metadata:
+  title: "Song"
+  artist: "Artist"
+  instrumental: true
