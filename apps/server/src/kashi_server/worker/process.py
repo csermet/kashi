@@ -269,6 +269,30 @@ def _original_song_candidates(query_title: str, artist: str) -> list[dict]:
     return candidates
 
 
+def _caller_lyrics(job: Job) -> LyricsText | None:
+    """Caller-supplied `options.lyrics_text`, or None. Honored on EVERY path —
+    the escape hatch must work exactly when detection failed or reverted
+    (retro finding: it was dead in the r=1 flow)."""
+    text = (job.options or {}).get("lyrics_text")
+    if isinstance(text, str) and text.strip():
+        return lyrics_from_text(text)
+    return None
+
+
+def _plain_lyrics(job: Job) -> LyricsText:
+    """Lyrics for the r=1 flow. `options.original_title` repairs a polluted
+    upload title for the lookup (the duration-less q= last chance absorbs the
+    duration mismatch when the audio really is a reupload)."""
+    caller = _caller_lyrics(job)
+    if caller is not None:
+        return caller
+    hints = dict(job.hints or {})
+    original = (job.options or {}).get("original_title")
+    if isinstance(original, str) and original.strip():
+        hints["title"] = original.strip()
+    return fetch_lyrics(hints, base_url=settings.lrclib_base_url)
+
+
 def _nightcore_lyrics(
     job: Job, download: DownloadResult, record: dict | None, r: float
 ) -> LyricsText:
@@ -277,9 +301,9 @@ def _nightcore_lyrics(
     the original by duration ratio."""
     options = job.options or {}
     hints = job.hints or {}
-    text = options.get("lyrics_text")
-    if isinstance(text, str) and text.strip():
-        return lyrics_from_text(text)
+    caller = _caller_lyrics(job)
+    if caller is not None:
+        return caller
     if record is not None:
         return lyrics_from_record(record)
     query_title = (
@@ -332,11 +356,24 @@ def process_job(s: Session, job: Job) -> None:
         speed_factor, detection_record, nc_outcome = _detect_nightcore(job, download)
         align_wav: Path | None = None
         if speed_factor != 1.0:
+            # Lyrics resolve BEFORE the near-realtime rubberband stretch: a
+            # doomed lyrics_not_found must not cost a 30-minute decode first
+            # (retro finding — the explicit-r path decoded, then searched).
+            lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
             align_wav = _decode(
                 source_audio, tmp / "align.wav", rate=16000, tempo=1.0 / speed_factor
             )
             if slow_duration_ok(_wav_duration_s(align_wav), download.duration_s, speed_factor):
                 NIGHTCORE_JOBS.labels(nc_outcome or "detected").inc()
+            elif nc_outcome == "explicit":
+                # The caller STATED this factor; a document silently produced
+                # on the r=1 clock would be wrong in a way they cannot see.
+                raise PipelineError(
+                    "alignment_failed",
+                    f"explicit speed_factor {speed_factor:g} fails the slowed-copy "
+                    f"duration sanity check (slowed {_wav_duration_s(align_wav):.1f}s "
+                    f"vs expected {download.duration_s * speed_factor:.1f}s)",
+                )
             else:
                 logger.warning(
                     "job %s: slowed copy fails the duration sanity check — "
@@ -347,11 +384,10 @@ def process_job(s: Session, job: Job) -> None:
                 NIGHTCORE_JOBS.labels("reverted").inc()
                 speed_factor, detection_record = 1.0, None
                 align_wav = _decode(source_audio, tmp / "align.wav", rate=16000)
+                lyrics = _plain_lyrics(job)
             checkpoint(s, job)
-        if speed_factor != 1.0:
-            lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
         else:
-            lyrics = fetch_lyrics(job.hints or {}, base_url=settings.lrclib_base_url)
+            lyrics = _plain_lyrics(job)
         result, vocals_separated = _align_stage(
             s, job, tmp, source_audio, lyrics, align_wav=align_wav, tempo=1.0 / speed_factor
         )

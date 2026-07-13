@@ -106,6 +106,27 @@ Then point the overlay at it (`kashi-settings.json`): `server_url` +
 `server_api_key`. Kubernetes manifests live in `deploy/k8s/`. Prebuilt images:
 [`ghcr.io/csermet/kashi-server`](https://github.com/csermet/kashi/pkgs/container/kashi-server).
 
+### API cookbook
+
+The overlay only ever sends `source` + `hints`; `options` is the manual escape
+hatch for tracks the automatic flow gets wrong (mangled upload titles,
+nightcore reuploads, lyrics LRCLIB doesn't have):
+
+```bash
+curl -X POST "$SERVER/v1/ingest" -H "X-API-Key: $KEY" -H 'Content-Type: application/json' -d '{
+  "source": {"type": "youtube", "id": "o_j0tc0njUY"},
+  "hints": {"title": "Nightcore - Song (Lyrics)", "artist": "SomeChannel"},
+  "options": {"original_title": "Song"}
+}'
+curl "$SERVER/v1/jobs/$JOB_ID" -H "X-API-Key: $KEY"   # queued → ... → completed
+```
+
+- `original_title` — search LRCLIB for this title instead of the upload's.
+- `speed_factor` (e.g. `1.25`) — skip detection: the known sped-up factor.
+- `lyrics_text` — align this plain text instead of anything from LRCLIB.
+
+Each option works alone; all of them also work on normal-speed tracks.
+
 ## 🧪 Development
 
 ```bash

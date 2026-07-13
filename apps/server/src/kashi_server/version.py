@@ -22,5 +22,10 @@
 # Now") — CTC-prob gate on detected nightcore lyrics, significant-token title
 # containment, duration-less q= last chance (Mor/Gasolina), Turkish-I-safe
 # casefold tokens, \b clean_title markers, record-own-ratio r, usable=extract.
-PIPELINE_VERSION = "2.2.3"
+# 2.2.4: escape hatches live on the r=1 flow too (lyrics_text always wins,
+# original_title repairs the lookup title); nightcore lyrics resolve BEFORE
+# the rubberband stretch; explicit-r sanity misses fail honest instead of
+# silently reverting; ffprobed (fractional) download duration feeds the
+# sanity gate and detection ratio; referenceless QA path rederives ad-libs.
+PIPELINE_VERSION = "2.2.4"
 PIPELINE_MAJOR = 2

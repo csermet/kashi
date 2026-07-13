@@ -697,3 +697,116 @@ def test_nightcore_channel_artist_detects_via_title_only_retry(db_session, scrat
     doc = db_session.scalars(select(ProcessedTrack)).one().document
     assert doc["alignment"]["speed_factor"] == 1.2
     assert doc["alignment"]["lyrics_source_id"] == 7
+
+
+# --- escape hatches on the r=1 flow + honest explicit-r (pipeline 2.2.4) ---
+
+
+def test_plain_flow_honors_lyrics_text(db_session, scratch, monkeypatch):
+    """Retro finding: the escape hatch was dead exactly where it is needed —
+    detection failed/never ran, yet caller lyrics were silently ignored."""
+    job = _nightcore_job(
+        db_session,
+        title="Song",  # no marker, no explicit factor → plain r=1 flow
+        options={"lyrics_text": "hello world"},
+        source_id="ncVid0008",
+    )
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: (_ for _ in ()).throw(AssertionError("fetch_lyrics called")),
+    )
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["speed_factor"] == 1.0
+    assert doc["alignment"]["lyrics_source"] == "caller"
+    assert "lyrics_source_id" not in doc["alignment"]
+
+
+def test_plain_flow_original_title_repairs_the_lookup(db_session, scratch, monkeypatch):
+    job = _nightcore_job(
+        db_session,
+        title="S0ng (broken upl0ad title)",
+        options={"original_title": "Real Song"},
+        source_id="ncVid0009",
+    )
+    _happy_stages(monkeypatch, scratch)
+    # original_title also arms the detection probe (by design); nothing
+    # plausible comes back here, so the flow lands on r=1 + repaired lookup.
+    monkeypatch.setattr(wp, "search_candidates", lambda query, *, base_url: [])
+    seen: dict = {}
+
+    def spy_fetch(hints, base_url):
+        seen.update(hints)
+        return LyricsText(["hello world"], "hello world", 5, True)
+
+    monkeypatch.setattr(wp, "fetch_lyrics", spy_fetch)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert seen["title"] == "Real Song"  # override reached the lookup
+    assert seen["artist"] == "Chan"  # the rest of the hints survive
+
+
+def test_explicit_r_sanity_miss_fails_honest(db_session, scratch, monkeypatch):
+    """The caller STATED the factor; producing a silently-reverted r=1
+    document would be wrong in a way they cannot see (retro finding)."""
+    job = _nightcore_job(
+        db_session,
+        title="Song",
+        options={"speed_factor": 1.25, "lyrics_text": "hello world"},
+        source_id="ncVid0010",
+    )
+    _happy_stages(monkeypatch, scratch)
+
+    def fake_decode(src, dest, rate, **kw):
+        Path(dest).write_bytes(b"wav")
+        return Path(dest)
+
+    monkeypatch.setattr(wp, "_decode", fake_decode)
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: 200.0)  # ≠ 200 × 1.25
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "failed" and job.error_type == "alignment_failed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    docs = db_session.scalars(
+        select(ProcessedTrack).where(ProcessedTrack.source_id == "ncVid0010")
+    ).all()
+    assert docs == []
+
+
+def test_nightcore_lyrics_resolve_before_the_stretch(db_session, scratch, monkeypatch):
+    """A doomed lyrics_not_found must not cost the near-realtime rubberband
+    decode first (retro finding — the explicit path decoded, then searched)."""
+    job = _nightcore_job(
+        db_session,
+        title="Song",
+        options={"speed_factor": 1.25},  # no lyrics_text → lrclib pick must run
+        source_id="ncVid0011",
+    )
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(wp, "search_candidates", lambda query, *, base_url: [])
+    monkeypatch.setattr(
+        wp,
+        "_decode",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("decode ran before lyrics")),
+    )
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "failed" and job.error_type == "lyrics_not_found"

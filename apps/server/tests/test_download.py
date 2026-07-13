@@ -69,6 +69,18 @@ def test_happy_path(tmp_path):
         "vid", tmp_path, max_duration_s=1200, ydl_factory=_factory(info=_info(tmp_path))
     )
     assert result.path.exists() and result.abr == 250 and result.acodec == "opus"
+    # The PROBED duration of the actual file wins over yt-dlp's integer 200
+    # (the wav really is 6 s): the nightcore sanity gate needs the real one.
+    assert result.duration_s == pytest.approx(6.0, abs=0.05)
+
+
+def test_probe_failure_falls_back_to_ytdlp_duration(tmp_path, monkeypatch):
+    import kashi_server.pipeline.download as dl
+
+    monkeypatch.setattr(dl, "run_ffprobe", lambda p: None)
+    result = download_audio(
+        "vid", tmp_path, max_duration_s=1200, ydl_factory=_factory(info=_info(tmp_path))
+    )
     assert result.duration_s == 200
 
 

@@ -18,7 +18,7 @@ from kashi_server.vdl_kit.errors import (
     parse_ytdlp_error,
     validate_audio_quality,
 )
-from kashi_server.vdl_kit.verify import verify_audio_file
+from kashi_server.vdl_kit.verify import run_ffprobe, verify_audio_file
 from kashi_server.vdl_kit.ytdlp_opts import AUDIO_FORMAT_TIERED, common_ytdlp_opts
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,15 @@ def _resolve_downloaded_path(info: dict[str, Any], dest_dir: Path) -> Path:
     if not audio_files:
         raise PipelineError("other", "yt-dlp reported success but produced no file")
     return max(audio_files, key=lambda p: p.stat().st_size)
+
+
+def _probe_duration_s(path: Path) -> float:
+    """Measured container duration, or 0.0 when ffprobe cannot say."""
+    probe = run_ffprobe(path) or {}
+    try:
+        return float(probe.get("format", {}).get("duration") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def download_audio(
@@ -99,6 +108,14 @@ def download_audio(
     verified, reason, size = verify_audio_file(path)
     if not verified:
         raise PipelineError("verify_failed", f"{path.name}: {reason}")
+
+    # yt-dlp's `duration` is an INTEGER; scaled by a nightcore r its rounding
+    # error alone can eat most of the 1.0 s slow-duration tolerance (retro
+    # finding — false reverts at a correct r). The probed container duration
+    # is the real one; the integer stays as the fallback.
+    probed_s = _probe_duration_s(path)
+    if probed_s > 0:
+        duration_s = probed_s
 
     logger.info(
         "downloaded %s: %s %.0f kbps, %.0fs, %d bytes",

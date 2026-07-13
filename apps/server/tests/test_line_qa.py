@@ -519,3 +519,17 @@ def test_adlib_rederive_skips_single_word_and_short_spans():
     assert outcome.adlib_rederived == []
     assert outcome.result.words_per_line[1][1].start_ms == 10_150  # untouched
     assert outcome.result.words_per_line[2][0].end_ms == 20_500  # untouched
+
+
+def test_no_reference_path_still_rederives_adlib_words():
+    # Document assembly writes `adlib` regardless of QA references and the
+    # overlay sweeps those lines — the rederive must run on QA-less docs too
+    # (retro finding: it only ran on the referenced paths).
+    specs = [(1000, "Ooh ooh"), (5000, "two b"), (9000, "three c")]
+    outcome = apply_line_qa(_result(specs), [s[1] for s in specs], None)
+    assert outcome.adlib_rederived == [0]
+    chunk = outcome.result.words_per_line[0]
+    # Gap-free and span-covering: [1000..1400][1400..1800] over the 800ms line.
+    assert (chunk[0].start_ms, chunk[0].end_ms) == (1000, 1400)
+    assert (chunk[1].start_ms, chunk[1].end_ms) == (1400, 1800)
+    assert outcome.result.words_per_line[1]  # lexical lines untouched

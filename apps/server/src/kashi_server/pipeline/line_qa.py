@@ -249,11 +249,18 @@ def apply_line_qa(
                 logger.warning("line QA skipped: aligned lines do not walk the lyric text")
 
     if refs is None or sum(ref is not None for ref in refs) < MIN_REFERENCE_LINES:
+        # No reference ≠ no ad-libs: document assembly still writes the adlib
+        # flag and the overlay still sweeps, so the rederive must run here too
+        # (retro finding — QA-less docs swept CTC's scattered spans).
+        clamped, rederived = rederive_adlib_words(
+            replace(result, lines=_clamp_monotonic(result.lines))
+        )
         return LineQAOutcome(
-            result=replace(result, lines=_clamp_monotonic(result.lines)),
+            result=clamped,
             flagged=[],
             offset_ms=0,
             degraded_to_line=False,
+            adlib_rederived=rederived,
         )
 
     deviations = [
