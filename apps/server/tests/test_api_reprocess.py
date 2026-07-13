@@ -87,6 +87,26 @@ def test_completed_track_gets_a_fresh_job_with_inherited_hints(client, user_key,
     assert fresh.hints["title"] == "T" and fresh.hints["artist"] == "A"
 
 
+def test_reprocess_carries_the_ingest_escape_hatches(client, db_session):
+    """Reprocess IS the manual-retry tool (ingest reuses failed jobs), so the
+    options escape hatches must ride along — 2.2.4 field need: retrying a
+    wrong-song nightcore with original_title."""
+    body = {
+        **_REPROCESS,
+        "hints": {"title": "Nightcore - Song (Lyrics)", "artist": "Chan"},
+        "options": {"original_title": "Song"},
+    }
+    resp = client.post("/v1/admin/reprocess", json=body, headers=_auth(TEST_ADMIN_KEY))
+    assert resp.status_code == 202, resp.text
+
+    import uuid
+
+    from kashi_server.db.models import Job
+
+    job = db_session.get(Job, uuid.UUID(resp.json()["job_id"]))
+    assert job.options == {"original_title": "Song", "separate": False}
+
+
 def test_live_job_is_returned_not_duplicated(client, user_key):
     live = client.post("/v1/ingest", json=_INGEST, headers=_auth(user_key))
     resp = client.post("/v1/admin/reprocess", json=_REPROCESS, headers=_auth(TEST_ADMIN_KEY))

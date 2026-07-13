@@ -49,6 +49,10 @@ class ReprocessRequest(BaseModel):
     source: SourceRef
     # Optional: when omitted, the latest job's hints for this source are reused.
     hints: IngestHints | None = None
+    # The ingest escape hatches work here too: reprocess IS the manual-retry
+    # tool, and user ingest reuses completed/failed jobs — without options
+    # there was no API path to retry a wrong-song track with original_title.
+    options: IngestOptions = IngestOptions()
 
 
 class JobOut(BaseModel):

@@ -47,7 +47,9 @@ def reprocess(
             source_id=body.source.id,
             pipeline_major=PIPELINE_MAJOR,
             hints=hints,
-            options={},
+            # exclude_none like ingest: absent escape hatches must not persist
+            # as nulls (the worker checks key presence).
+            options=body.options.model_dump(exclude_none=True),
             requested_by=key.id,
         )
     except queue.QueueFull:

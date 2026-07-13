@@ -125,7 +125,10 @@ curl "$SERVER/v1/jobs/$JOB_ID" -H "Authorization: Bearer $KEY"   # queued → ..
 - `speed_factor` (e.g. `1.25`) — skip detection: the known sped-up factor.
 - `lyrics_text` — align this plain text instead of anything from LRCLIB.
 
-Each option works alone; all of them also work on normal-speed tracks.
+Each option works alone; all of them also work on normal-speed tracks. For a
+track that already has a (wrong) document or a failed job, `POST
+/v1/admin/reprocess` (admin key) forces a fresh run and takes the same
+`options`.
 
 ## 🧪 Development
 
