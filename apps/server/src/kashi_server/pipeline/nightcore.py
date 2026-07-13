@@ -19,7 +19,7 @@ computed from the nightcore audio/artwork and are never rescaled.
 from dataclasses import replace
 
 from kashi_server.pipeline.alignment import AlignResult
-from kashi_server.pipeline.lrclib import has_usable_lyrics
+from kashi_server.pipeline.lrclib import choose_record
 
 # Re-export from clean_title's historical home (tests and callers predate
 # pipeline/titles.py).
@@ -42,11 +42,6 @@ def rubberband_filter(tempo: float) -> str:
     best. Fixed 6-decimal formatting — float repr must never leak into the
     filter string (plan 4.2-①)."""
     return f"rubberband=tempo={tempo:.6f}:pitch={tempo:.6f}"
-
-
-# Usability = the pipeline's own parse (lrclib._extract) — truthiness
-# lookalikes drift (reviewer finding: syncedLyrics="\n\n" is truthy junk).
-_usable = has_usable_lyrics
 
 
 def detect_speed_factor(
@@ -81,10 +76,10 @@ def detect_speed_factor(
         else:
             clusters.append([pair])
     best = max(clusters, key=lambda c: (len(c), c[0][0] - c[-1][0]))
-    record = next(
-        (rec for _, rec in best if rec.get("syncedLyrics") and _usable(rec)),
-        next((rec for _, rec in best if _usable(rec)), None),
-    )
+    # The cluster only VOTES; picking the member record is choose_record's
+    # job (Faz 5 P3 — one selection policy: parsed-synced first, then usable;
+    # the band already filtered durations, so that axis is off).
+    record = choose_record([rec for _, rec in best], duration_s=None)
     if record is None:
         return None  # no usable member -> revert; a garbage pick was a
         # PERMANENT lyrics_not_found (reviewer finding)
@@ -98,21 +93,12 @@ def pick_record_for_factor(
     candidates: list[dict], track_duration_s: float, r: float
 ) -> dict | None:
     """For an EXPLICIT r: the usable record whose duration best matches
-    r * track_duration (synced lyrics preferred)."""
+    r * track_duration (synced lyrics preferred). Selection delegates to
+    choose_record (Faz 5 P3); records without a duration stay excluded —
+    the ratio IS the identity signal on this path."""
     wanted = track_duration_s * r
-    viable = [
-        rec
-        for rec in candidates
-        if rec.get("duration")
-        and abs(float(rec["duration"]) - wanted) <= PICK_DURATION_TOLERANCE_S
-        and _usable(rec)
-    ]
-    if not viable:
-        return None
-    viable.sort(
-        key=lambda rec: (not rec.get("syncedLyrics"), abs(float(rec["duration"]) - wanted))
-    )
-    return viable[0]
+    viable = [rec for rec in candidates if rec.get("duration")]
+    return choose_record(viable, duration_s=wanted, tolerance_s=PICK_DURATION_TOLERANCE_S)
 
 
 def slow_duration_ok(slow_duration_s: float, nightcore_duration_s: float, r: float) -> bool:

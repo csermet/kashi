@@ -288,20 +288,39 @@ def _get_exact(
     return response.json()
 
 
-def _pick_candidate(records: list[dict], duration_s: float | None) -> dict | None:
-    candidates = [r for r in records if _extract(r) is not None]
-    if not candidates:
-        return None
-    if duration_s is None:
-        return candidates[0]
-    scored = [
-        (abs(float(r.get("duration") or 0) - duration_s), r)
-        for r in candidates
-        if _duration_matches(r, duration_s)
-    ]
+def choose_record(
+    records: list[dict],
+    *,
+    duration_s: float | None,
+    tolerance_s: float = SEARCH_DURATION_TOLERANCE_S,
+) -> dict | None:
+    """THE record-selection policy (Faz 5 P3 — one policy instead of three).
+
+    Usable lyrics required (the pipeline's own parse, not truthiness);
+    records whose lyrics PARSE as synced outrank plain ones — a synced pick
+    doubles as the QA/windowing reference, the single biggest word-timing
+    lever; duration proximity breaks ties. duration_s=None skips the
+    duration axis entirely (callers that pre-filtered their own band, e.g.
+    the nightcore r-cluster vote); a record without a duration field is
+    never excluded, it just sorts last on the distance axis.
+    """
+    scored: list[tuple[bool, float, int, dict]] = []
+    for rec in records:
+        extracted = _extract(rec)
+        if extracted is None:
+            continue
+        if duration_s is None:
+            distance = 0.0
+        else:
+            rec_duration = rec.get("duration")
+            if rec_duration is not None and abs(float(rec_duration) - duration_s) > tolerance_s:
+                continue
+            distance = abs(float(rec_duration or 0) - duration_s)
+        had_synced = extracted[2]
+        scored.append((not had_synced, distance, len(scored), rec))
     if not scored:
         return None
-    return min(scored, key=lambda pair: pair[0])[1]
+    return min(scored, key=lambda item: item[:3])[3]
 
 
 def _search(
@@ -319,7 +338,7 @@ def _search(
         records = [
             r for r in records if any(plausible_match(r, title, a) for a in plausible_artists)
         ]
-    return _pick_candidate(records, duration_s)
+    return choose_record(records, duration_s=duration_s)
 
 
 def search_candidates(
@@ -402,11 +421,11 @@ def _search_freetext(
     candidates = [
         r for r in response.json() if any(plausible_match(r, title, a) for a in artists)
     ]
-    picked = _pick_candidate(candidates, duration_s)
+    picked = choose_record(candidates, duration_s=duration_s)
     if picked is None and duration_s is not None:
         # Duration-less last chance (client precedent: its structured lookup
         # retries without duration and finds what we used to miss — the
         # Mor/Gasolina field failures). Plausibility already filtered the
         # pool, so the loose pick still looks like the requested track.
-        picked = _pick_candidate(candidates, None)
+        picked = choose_record(candidates, duration_s=None)
     return picked

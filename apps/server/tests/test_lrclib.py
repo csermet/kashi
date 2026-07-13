@@ -479,3 +479,28 @@ def test_lrclib_403_stays_transient():
     with pytest.raises(PipelineError) as err:
         _fetch(handler)
     assert err.value.error_type == "network"
+
+
+def test_choose_record_prefers_parsed_synced_within_the_duration_band():
+    from kashi_server.pipeline.lrclib import choose_record
+
+    plain_close = {"id": 1, "plainLyrics": "close", "duration": 234}
+    synced_far = {
+        "id": 2,
+        "syncedLyrics": "[00:01.00] far but synced",
+        "duration": 236,  # inside the ±3 s band, farther than the plain one
+    }
+    junk_synced = {"id": 3, "syncedLyrics": "\n\n", "plainLyrics": "junk", "duration": 234}
+    picked = choose_record([plain_close, synced_far, junk_synced], duration_s=234)
+    assert picked is not None and picked["id"] == 2  # parsed-synced outranks distance
+    # Junk syncedLyrics must not be treated as synced: with the real synced
+    # record gone, the closest PLAIN record wins over truthy junk.
+    picked = choose_record([plain_close, junk_synced], duration_s=234)
+    assert picked is not None and picked["id"] == 1
+
+    # Out-of-band records never qualify, synced or not.
+    assert choose_record([{"id": 4, "syncedLyrics": "[00:01.00] x", "duration": 400}],
+                         duration_s=234) is None
+    # duration_s=None: synced-first, original order breaks ties.
+    picked = choose_record([plain_close, synced_far], duration_s=None)
+    assert picked is not None and picked["id"] == 2
