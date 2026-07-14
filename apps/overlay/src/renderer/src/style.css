@@ -125,6 +125,17 @@ body.fx-full .word {
     color 120ms ease-out;
 }
 
+/* Unsung base tone per dialect — MUST sit before .word-active (equal
+   specificity; source order decides): the active word's primary always
+   wins over the resting base. */
+body.fx-simple .word,
+body.fx-full .word {
+  color: var(--kashi-secondary, #fff);
+}
+body.fill-neutral .word {
+  color: inherit; /* neutral dialect: unsung stays the plain text tone */
+}
+
 body.fx-simple .word-active,
 body.fx-full .word-active {
   transform: translateY(-1px) scale(1.04);
@@ -198,28 +209,23 @@ body.fx-full .lyric.adlib {
    written once per frame on the ONE active span. text-shadow through
    transparent glyphs looks muddy — dropped on fill words (field-check).
    Placed AFTER .word-active so `color: transparent` wins while filling. */
-/* The sweep base is decided at LINE BUILD, not at word activation: planned
-   sweep words carry .word-will-fill from the first paint, so the base tone
-   never changes mid-line (field feedback 2026-07-14: the grey → dim-theme
-   snap at activation read as a glitch). Two user-picked dialects share one
-   rule: pre-base == the fill gradient's tail, always.
-     themed (default) — pre-base and tail are the dim THEME tone
-     neutral (body.fill-neutral) — base stays the resting text tone */
-body.fx-simple .word-will-fill,
-body.fx-full .word-will-fill {
-  /* FULL secondary, no alpha: the resting .word opacity (0.55) does the
-     dimming, so effective brightness == every resting neighbor — and with
-     the stock #fff secondary the pre-base is pixel-identical to 0.3.1
-     (reviewer: an alpha here would DOUBLE-dim, 0.55 x 0.55 ≈ 30%). At
-     activation opacity goes to 1 while the gradient tail carries the same
-     tone at 55% alpha — the composited brightness stays continuous.
-     Safe only because word-fill always accompanies word-active on planned
-     words (same-frame coupling in the render loop) — an active planned
-     word never shows this color or .word-active's primary directly. */
-  color: var(--kashi-secondary, #fff);
-}
-body.fill-neutral .word-will-fill {
-  color: inherit; /* neutral dialect: nothing changes until the fill itself */
+/* One coherent karaoke language (field screenshots 2026-07-14, round 2 —
+   three tones sat side by side: bright sung, grey pop words, dim planned):
+     SUNG part stays bright, UNSUNG part rests in ONE tone, the active word
+     transitions between them (sweep fill or pop). The user-picked dialect
+     only decides the UNSUNG tone:
+       themed (default) — unsung words rest on the dim THEME tone
+       neutral (body.fill-neutral) — unsung words rest on the text tone
+   FULL secondary here, no alpha: the resting .word opacity (0.55) does the
+   dimming, so the stock #fff secondary is pixel-identical to the classic
+   grey (an alpha would DOUBLE-dim, 0.55 x 0.55 ≈ 30% — reviewer catch). */
+/* Passed words PIN bright — the sung part never fades back (field feedback:
+   "geçen söz silik kalıyor"). Applied by the render loop as the active
+   index advances; seek-back un-pins. */
+body.fx-simple .word-sung,
+body.fx-full .word-sung {
+  color: var(--kashi-primary, #fff);
+  opacity: 1;
 }
 
 body.fx-simple .word-fill,

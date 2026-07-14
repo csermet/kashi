@@ -228,7 +228,7 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   wordSpans = words.map((word, i) => {
     if (i > 0) lineEl.appendChild(document.createTextNode(' '));
     const span = document.createElement('span');
-    span.className = fillPlan[i] ? 'word word-will-fill' : 'word';
+    span.className = 'word';
     span.textContent = word.text;
     lineEl.appendChild(span);
     return span;
@@ -245,6 +245,12 @@ function highlightWord(index: number): void {
   if (index === activeWordIndex) return;
   wordSpans[activeWordIndex]?.classList.remove('word-active');
   wordSpans[index]?.classList.add('word-active');
+  // Sung pinning: everything BEFORE the active word stays bright; a
+  // seek-back un-pins (field feedback 2026-07-14 round 2 — passed words
+  // must never fade back to the resting tone while the line is up).
+  for (let i = 0; i < wordSpans.length; i += 1) {
+    wordSpans[i]?.classList.toggle('word-sung', i < index);
+  }
   activeWordIndex = index;
 }
 
