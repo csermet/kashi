@@ -39,3 +39,20 @@
   youtube_id: ULDpeC8TKwA
   lrclib_id: 241744
   language: eng
+
+# Ear-test complaints, morning after the Faz 5 rollout (2026-07-14): word
+# starts slip audibly while the WINDOWED quality metric reads 1.0 (it counts
+# line-anchor agreement at +-2.5s, not word feel). Both are regression
+# targets for any future word-precision work (Faz 6).
+- id: love-taste
+  title: "Love Taste"
+  artist: "Moe Shop"
+  youtube_id: VJANapJTXrg
+  lrclib_id: 1042903
+  language: eng
+- id: bad-girl
+  title: "BAD GIRL"
+  artist: "HEDEGAARD"
+  youtube_id: UJ6mMotRd1M
+  lrclib_id: 25736563
+  language: eng
