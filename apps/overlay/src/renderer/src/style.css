@@ -198,6 +198,30 @@ body.fx-full .lyric.adlib {
    written once per frame on the ONE active span. text-shadow through
    transparent glyphs looks muddy — dropped on fill words (field-check).
    Placed AFTER .word-active so `color: transparent` wins while filling. */
+/* The sweep base is decided at LINE BUILD, not at word activation: planned
+   sweep words carry .word-will-fill from the first paint, so the base tone
+   never changes mid-line (field feedback 2026-07-14: the grey → dim-theme
+   snap at activation read as a glitch). Two user-picked dialects share one
+   rule: pre-base == the fill gradient's tail, always.
+     themed (default) — pre-base and tail are the dim THEME tone
+     neutral (body.fill-neutral) — base stays the resting text tone */
+body.fx-simple .word-will-fill,
+body.fx-full .word-will-fill {
+  /* FULL secondary, no alpha: the resting .word opacity (0.55) does the
+     dimming, so effective brightness == every resting neighbor — and with
+     the stock #fff secondary the pre-base is pixel-identical to 0.3.1
+     (reviewer: an alpha here would DOUBLE-dim, 0.55 x 0.55 ≈ 30%). At
+     activation opacity goes to 1 while the gradient tail carries the same
+     tone at 55% alpha — the composited brightness stays continuous.
+     Safe only because word-fill always accompanies word-active on planned
+     words (same-frame coupling in the render loop) — an active planned
+     word never shows this color or .word-active's primary directly. */
+  color: var(--kashi-secondary, #fff);
+}
+body.fill-neutral .word-will-fill {
+  color: inherit; /* neutral dialect: nothing changes until the fill itself */
+}
+
 body.fx-simple .word-fill,
 body.fx-full .word-fill {
   /* Tail = a dim of the THEME hue (secondary derives from the primary) at
@@ -216,6 +240,18 @@ body.fx-full .word-fill {
      already gone (retro finding). text-fill-color snaps back instantly. */
   -webkit-text-fill-color: transparent;
   text-shadow: none;
+}
+
+/* Neutral dialect: the unfilled tail matches the resting text tone (the
+   themed tone only ever appears inside the advancing fill). */
+body.fx-simple.fill-neutral .word-fill,
+body.fx-full.fill-neutral .word-fill {
+  background-image: linear-gradient(
+    90deg,
+    var(--kashi-primary, #fff) calc(var(--kashi-fill, 0) * 100%),
+    color-mix(in srgb, var(--kashi-text, #fff) 55%, transparent)
+      calc(var(--kashi-fill, 0) * 100%)
+  );
 }
 
 /* Animated "searching" row: lives on its own line under the track label. */

@@ -18,10 +18,13 @@ const resolvedTrayIcon = app.isPackaged
   : trayIconPath;
 import {
   EFFECT_LEVELS,
+  FILL_STYLES,
   THEME_SCOPES,
   effectLevelLabel,
+  fillStyleLabel,
   themeScopeLabel,
   type EffectLevel,
+  type FillStyle,
   type ThemeScope,
 } from '../shared/effect-level.js';
 import {
@@ -44,6 +47,8 @@ export interface KashiMenuOptions {
   onEffectLevelSelect: (level: EffectLevel) => void;
   getThemeScope: () => ThemeScope;
   onThemeScopeSelect: (scope: ThemeScope) => void;
+  getFillStyle: () => FillStyle;
+  onFillStyleSelect: (style: FillStyle) => void;
   onResetPosition: () => void;
   /** lrclib contribute-back (Faz 5 P6): visible only while a kashi-server
    * word-sync document is on screen; the server still gates/dry-runs. */
@@ -109,6 +114,13 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     checked: scope === themeScope,
     click: () => opts.onThemeScopeSelect(scope),
   }));
+  const fillStyle = opts.getFillStyle();
+  const fillItems: MenuItemConstructorOptions[] = FILL_STYLES.map((style) => ({
+    label: fillStyleLabel(style),
+    type: 'radio',
+    checked: style === fillStyle,
+    click: () => opts.onFillStyleSelect(style),
+  }));
   // Parent labels carry the live value (retro 4.5): the menu is rebuilt on
   // every settings change anyway, so "— Full" / "— +100 ms" is free and saves
   // a submenu dive just to check the current state.
@@ -117,6 +129,7 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { type: 'separator' },
     { label: `Effects — ${effectLevelLabel(effectLevel)}`, submenu: effectItems },
     { label: `Theme colors — ${themeScopeLabel(themeScope)}`, submenu: themeItems },
+    { label: `Word fill — ${fillStyleLabel(fillStyle)}`, submenu: fillItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },
     { label: `Timing offset — ${shortOffsetLabel(offset)}`, submenu: timingItems },
     ...(opts.getCanReportSync()

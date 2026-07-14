@@ -41,6 +41,33 @@ export function parseThemeScope(value: unknown): ThemeScope {
     : DEFAULT_THEME_SCOPE;
 }
 
+/**
+ * Sweep-fill base language (field feedback 2026-07-14: the grey -> dim-theme
+ * snap at word activation read as a glitch; the base must be constant from
+ * line build). Two consistent dialects, user-picked:
+ *   themed  — planned sweep words start on the dim THEME tone and fill bright
+ *             (Apple Music look; default)
+ *   neutral — words keep the resting grey; only the fill itself is themed
+ */
+export type FillStyle = 'themed' | 'neutral';
+
+export const FILL_STYLES: readonly FillStyle[] = ['themed', 'neutral'];
+
+export const DEFAULT_FILL_STYLE: FillStyle = 'themed';
+
+export function parseFillStyle(value: unknown): FillStyle {
+  return value === 'themed' || value === 'neutral' ? value : DEFAULT_FILL_STYLE;
+}
+
+export function fillStyleLabel(style: FillStyle): string {
+  switch (style) {
+    case 'themed':
+      return 'Themed base';
+    case 'neutral':
+      return 'Neutral base';
+  }
+}
+
 export function themeScopeLabel(scope: ThemeScope): string {
   switch (scope) {
     case 'full':

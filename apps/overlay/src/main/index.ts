@@ -20,8 +20,10 @@ import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import {
   DEFAULT_EFFECT_LEVEL,
+  DEFAULT_FILL_STYLE,
   DEFAULT_THEME_SCOPE,
   parseEffectLevel,
+  parseFillStyle,
   parseThemeScope,
 } from '../shared/effect-level.js';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
@@ -279,6 +281,7 @@ function broadcastSettings(): void {
     timing_offset_ms: current.timing_offset_ms,
     effect_level: current.effect_level,
     theme_scope: current.theme_scope,
+    fill_style: current.fill_style,
   });
 }
 
@@ -309,6 +312,14 @@ function applyThemeScope(scope: unknown): void {
   const parsed = parseThemeScope(scope);
   settings?.update({ theme_scope: parsed });
   log(`setting: theme colors -> ${parsed}`);
+  broadcastSettings();
+  tray?.refresh();
+}
+
+function applyFillStyle(style: unknown): void {
+  const parsed = parseFillStyle(style);
+  settings?.update({ fill_style: parsed });
+  log(`setting: fill style -> ${parsed}`);
   broadcastSettings();
   tray?.refresh();
 }
@@ -554,6 +565,8 @@ app.whenReady().then(async () => {
     onEffectLevelSelect: applyEffectLevel,
     getThemeScope: () => settings?.get().theme_scope ?? DEFAULT_THEME_SCOPE,
     onThemeScopeSelect: applyThemeScope,
+    getFillStyle: () => settings?.get().fill_style ?? DEFAULT_FILL_STYLE,
+    onFillStyleSelect: applyFillStyle,
     onResetPosition: resetWindowPosition,
     getCanReportSync: () =>
       serverClient !== null && publishable !== null && publishable.key === latch.currentTrackKey,

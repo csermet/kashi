@@ -140,6 +140,7 @@ describe('parseSettings', () => {
       timing_offset_ms: 100,
       effect_level: 'full',
       theme_scope: 'fixed-text',
+      fill_style: 'neutral',
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -212,6 +213,16 @@ describe('theme_scope setting', () => {
     expect(DEFAULT_SETTINGS.theme_scope).toBe('full');
     expect(parseSettings(JSON.stringify({ theme_scope: 'fixed-bg' })).theme_scope).toBe('fixed-bg');
     expect(parseSettings(JSON.stringify({ theme_scope: 'renkler' })).theme_scope).toBe('full');
+  });
+});
+
+describe('fill_style setting', () => {
+  it('defaults to themed and round-trips', () => {
+    expect(DEFAULT_SETTINGS.fill_style).toBe('themed');
+    expect(parseSettings(JSON.stringify({ fill_style: 'neutral' })).fill_style).toBe('neutral');
+    // Garbage/missing -> default (tolerant parse, hand-edited files).
+    expect(parseSettings(JSON.stringify({ fill_style: 'rainbow' })).fill_style).toBe('themed');
+    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).fill_style).toBe('themed');
   });
 });
 

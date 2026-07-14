@@ -12,8 +12,10 @@ import type {
 } from '@kashi/protocol';
 import {
   parseEffectLevel,
+  parseFillStyle,
   parseThemeScope,
   type EffectLevel,
+  type FillStyle,
   type ThemeScope,
 } from '../../shared/effect-level.js';
 import {
@@ -90,6 +92,7 @@ let appliedView: ViewOutput | null = null;
 // comes from settings. All per-frame beat work is class toggles on edges.
 let effectLevel: EffectLevel = 'simple';
 let themeScope: ThemeScope = 'full';
+let fillStyle: FillStyle = 'themed';
 let currentPalette: PaletteLike | undefined; // what applyPaletteVars renders
 let serverPalette: PaletteLike | undefined; // from a kashi-server document
 let artworkPalette: PaletteLike | undefined; // local extraction (lrclib mode)
@@ -216,10 +219,16 @@ function updateWordFill(words: readonly WordTiming[], index: number, pos: number
 function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   if (!lineEl) return;
   lineEl.replaceChildren();
+  // Line-level sweep plan (field feedback: per-word sweep/pop alternation
+  // reads as random — plan once per line, not per frame). Computed BEFORE the
+  // spans: planned words carry their base dialect from the first paint — the
+  // base must never change mid-line (field feedback 2026-07-14: the grey ->
+  // dim-theme snap at activation read as a glitch).
+  fillPlan = planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
   wordSpans = words.map((word, i) => {
     if (i > 0) lineEl.appendChild(document.createTextNode(' '));
     const span = document.createElement('span');
-    span.className = 'word';
+    span.className = fillPlan[i] ? 'word word-will-fill' : 'word';
     span.textContent = word.text;
     lineEl.appendChild(span);
     return span;
@@ -230,9 +239,6 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   // repeated identical ad-lib line ("Ooh" x4) never re-arms (retro finding).
   fillRunStart = -1;
   fillActiveIndex = -1;
-  // Line-level sweep plan (field feedback: per-word sweep/pop alternation
-  // reads as random — plan once per line, not per frame).
-  fillPlan = planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
 }
 
 function highlightWord(index: number): void {
@@ -437,11 +443,12 @@ function flashTimingOffset(offsetMs: number): void {
 }
 
 window.kashi.onSettings((payload) => {
-  const { box_alpha, timing_offset_ms, effect_level, theme_scope } = payload as {
+  const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style } = payload as {
     box_alpha?: unknown;
     timing_offset_ms?: unknown;
     effect_level?: unknown;
     theme_scope?: unknown;
+    fill_style?: unknown;
   };
   if (typeof box_alpha === 'number' && Number.isFinite(box_alpha)) {
     document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
@@ -467,6 +474,12 @@ window.kashi.onSettings((payload) => {
   if (theme_scope !== undefined && parseThemeScope(theme_scope) !== themeScope) {
     themeScope = parseThemeScope(theme_scope);
     applyPaletteVars();
+  }
+  if (fill_style !== undefined && parseFillStyle(fill_style) !== fillStyle) {
+    fillStyle = parseFillStyle(fill_style);
+    // Pure CSS dialect switch — the gradient tail and the pre-base both key
+    // off this one class; spans and plans stay as they are.
+    document.body.classList.toggle('fill-neutral', fillStyle === 'neutral');
   }
   // Paused screens must repaint NOW, not on the 1 Hz self-heal — the user is
   // looking at the box exactly when they change a setting (retro finding).
