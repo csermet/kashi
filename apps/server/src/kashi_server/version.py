@@ -44,5 +44,10 @@
 # One record-selection policy (choose_record: lyricsfile-words > synced >
 # plain + duration proximity) replaces the previous three; lyrics resolve
 # BEFORE separation so a doomed lyrics_not_found no longer pays for stems.
-PIPELINE_VERSION = "2.4.0"
+# 2.4.1: different-edit anchor gate (field: a "video" upload's lyricless
+# intro shifts every lrclib stamp — windowed anchors searched the wrong
+# places and warped the whole doc). When the chosen record's own duration
+# disagrees with the decoded audio by >5s, anchors drop and whole-audio
+# alignment absorbs the offset; line QA still snaps via its median offset.
+PIPELINE_VERSION = "2.4.1"
 PIPELINE_MAJOR = 2

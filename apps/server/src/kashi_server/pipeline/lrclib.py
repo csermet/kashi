@@ -50,6 +50,11 @@ class LyricsText:
     # Carried OPAQUE — pipeline/lyricsfile.py parses it lazily on the worker,
     # never here (a broken lyricsfile must not break the lyrics fetch).
     lyricsfile_raw: str | None = None
+    # The chosen record's own edit length (lrclib `duration`). The worker
+    # compares it against the actual audio: a big disagreement means the
+    # stamps live on a DIFFERENT edit's clock (video intro/outro class) and
+    # windowed anchors would harm instead of help.
+    record_duration_s: float | None = None
 
 
 def normalize_artist(artist: str) -> str:
@@ -276,6 +281,7 @@ def fetch_lyrics(
         had_synced=had_synced,
         synced_starts_ms=synced_starts_ms,
         lyricsfile_raw=_lyricsfile_raw(record),
+        record_duration_s=float(record["duration"]) if record.get("duration") else None,
     )
 
 
@@ -413,6 +419,7 @@ def lyrics_from_record(record: dict) -> LyricsText:
         had_synced=had_synced,
         synced_starts_ms=synced_starts_ms,
         lyricsfile_raw=_lyricsfile_raw(record),
+        record_duration_s=float(record["duration"]) if record.get("duration") else None,
     )
 
 

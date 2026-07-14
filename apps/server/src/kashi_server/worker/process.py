@@ -60,6 +60,15 @@ SECOND_PASS_QUALITY_GATE = 0.5
 # is NOT persisted — the job fails honest. Caller-supplied lyrics_text skips
 # the gate (trusted source; stretch artifacts alone could dip the prob).
 NIGHTCORE_PROB_GATE = 0.3
+# Windowed anchors assume the lrclib clock ≈ the audio clock (search rungs
+# enforce ±3s). The duration-less q= last chance and title-only paths can
+# legitimately pick a record from a DIFFERENT edit (field: a "video" upload
+# with a lyricless intro runs minutes longer than the song) — there the
+# stamps are globally shifted, windows search the wrong places and the whole
+# doc comes out warped. Past this disagreement the anchors are dropped:
+# whole-audio alignment absorbs a global offset naturally, and line QA's
+# median-offset still snaps against the same (shifted) reference.
+ANCHOR_CLOCK_TOLERANCE_S = 5.0
 
 LINE_QA_DOCS = Counter(
     "kashi_line_qa_docs_total",
@@ -217,6 +226,17 @@ def _align_stage(
     # Windowing needs the lrclib stamps; the flag is the single rollout switch.
     anchors = lyrics.synced_starts_ms if settings.windowed_alignment else None
     wav = align_wav or _decode(source_audio, tmp / "align.wav", rate=16000, tempo=tempo)
+    if anchors is not None and lyrics.record_duration_s is not None:
+        wav_s = _wav_duration_s(wav)
+        if abs(wav_s - lyrics.record_duration_s) > ANCHOR_CLOCK_TOLERANCE_S:
+            logger.info(
+                "job %s: anchors disabled — record edit %.0fs vs audio %.0fs "
+                "(different edit; whole-audio alignment absorbs the offset)",
+                job.id,
+                lyrics.record_duration_s,
+                wav_s,
+            )
+            anchors = None
     result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors)
 
     if (

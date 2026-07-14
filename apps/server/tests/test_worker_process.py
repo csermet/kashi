@@ -881,3 +881,46 @@ def test_broken_lyricsfile_falls_back_to_the_normal_path(db_session, job, scratc
     doc = db_session.scalars(select(ProcessedTrack)).one().document
     assert doc["alignment"]["method"] == "ctc-forced-aligner/mms-300m"
     assert doc["alignment"]["lyrics_source"] == "lrclib"
+
+
+def test_different_edit_disables_windowed_anchors(db_session, job, scratch, monkeypatch):
+    # Field case (2026-07-14): a "video" upload carries a lyricless intro —
+    # minutes longer than the lrclib record's edit. Anchors from that record
+    # live on a shifted clock; windows would search the wrong places. Past
+    # the tolerance the anchors must drop (whole-audio alignment absorbs a
+    # global offset); within it they must pass through untouched.
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "windowed_alignment", True)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+    captured: list = []
+
+    def spy_align(wav, texts, lang, **kw):
+        captured.append(kw.get("synced_starts_ms"))
+        return AlignResult(
+            sync="word",
+            lines=[LineTiming(0, 1000, "hello world", 0.8)],
+            words_per_line=[
+                [AlignedWord(0, 400, "hello", 0.8), AlignedWord(500, 1000, "world", 0.8)]
+            ],
+            quality_score=0.8,
+        )
+
+    monkeypatch.setattr(wp, "align", spy_align)
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: 245.0)  # video edit
+
+    stamps = [0, 5000]
+    mismatched = LyricsText(
+        ["hello world"], "hello world", 5, True,
+        synced_starts_ms=stamps, record_duration_s=180.0,  # song edit: 65s shorter
+    )
+    wp._align_stage(db_session, job, scratch, scratch / "a.webm", mismatched)
+    assert captured[-1] is None  # anchors dropped
+
+    agreeing = LyricsText(
+        ["hello world"], "hello world", 5, True,
+        synced_starts_ms=stamps, record_duration_s=243.0,  # within ±5s
+    )
+    wp._align_stage(db_session, job, scratch, scratch / "a.webm", agreeing)
+    assert captured[-1] == stamps  # anchors kept
