@@ -184,19 +184,19 @@ describe('parseSettings', () => {
 });
 
 describe('clampTimingOffset', () => {
-  it('accepts presets, rounds, clamps to +/-500, defaults garbage to Off', () => {
+  it('accepts presets, rounds, clamps to +/-500, defaults garbage to the stock +200', () => {
     expect(clampTimingOffset(100)).toBe(100);
     expect(clampTimingOffset(-100)).toBe(-100);
     expect(clampTimingOffset(100.6)).toBe(101);
     expect(clampTimingOffset(9999)).toBe(500);
     expect(clampTimingOffset(-9999)).toBe(-500);
-    expect(clampTimingOffset('50')).toBe(0);
-    expect(clampTimingOffset(Number.NaN)).toBe(0);
-    expect(clampTimingOffset(undefined)).toBe(0);
+    expect(clampTimingOffset('50')).toBe(200);
+    expect(clampTimingOffset(Number.NaN)).toBe(200);
+    expect(clampTimingOffset(undefined)).toBe(200);
   });
 
   it('missing field in an old settings file parses to Off', () => {
-    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).timing_offset_ms).toBe(0);
+    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).timing_offset_ms).toBe(200);
   });
 });
 

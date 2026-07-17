@@ -34,7 +34,11 @@ export const TIMING_OFFSET_PRESETS = [
   -250, -200, -150, -100, -50, 0, 50, 100, 150, 200, 250,
 ] as const;
 export const TIMING_OFFSET_MAX_ABS = 500;
-export const DEFAULT_TIMING_OFFSET_MS = 0;
+// +200ms out of the box (Caner, Faz 5 kapanisi): the render pipeline's
+// systematic latency reads best around +200 on every tested machine
+// (Windows + Mac field runs) — new installs should not need the manual
+// tune. Stored settings and the live gestures override as always.
+export const DEFAULT_TIMING_OFFSET_MS = 200;
 /** One Ctrl+Shift+scroll notch (matches the prompt's spinner step). */
 export const TIMING_OFFSET_STEP_MS = 10;
 
