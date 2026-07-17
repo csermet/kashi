@@ -60,5 +60,10 @@
 # sibling carrying human word sync; the feature was unreachable in the
 # wild). A get hit without word-level data now pays exactly one extra
 # search request and upgrades only when a sibling probes word-level.
-PIPELINE_VERSION = "2.4.3"
+# 2.4.4: 2.4.3's upgrade probe REVERTED — lrclib /api/search never carries
+# lyricsfile content (verified live: every hit returns the field empty and
+# word-sync records may not rank in search at all), so the probe was one
+# wasted request per song with zero possible benefit. The choose_record
+# preference stays dormant until lrclib serves the field in search.
+PIPELINE_VERSION = "2.4.4"
 PIPELINE_MAJOR = 2
