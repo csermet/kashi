@@ -232,6 +232,18 @@ def fetch_lyrics(
         rung = "get"
         record = _get_exact(http, title, artist, hints.get("album"), duration_s)
         extracted = _extract(record) if record else None
+        if extracted is not None and record is not None and not _has_lyricsfile_words(record):
+            # /api/get returns a SINGLE record, so the lyricsfile preference
+            # cannot act on it — and get is the primary rung, which left the
+            # whole human-word-sync feature unreachable in the wild (closure
+            # e2e: get→4452725 plain-synced while sibling 4764574 held 18KB
+            # of word data). ONE conditional extra request; the upgrade only
+            # replaces the hit when the sibling probes word-level.
+            upgraded = _search(http, title, artist, duration_s)
+            if upgraded is not None and _has_lyricsfile_words(upgraded):
+                rung = "get+lyricsfile-upgrade"
+                record = upgraded
+                extracted = _extract(record)
         if extracted is None:
             rung = "search"
             record = _search(http, title, artist, duration_s)
@@ -368,7 +380,8 @@ def _search(
 ) -> dict | None:
     response = http.get("/api/search", params={"track_name": title, "artist_name": artist})
     response.raise_for_status()
-    records = response.json()
+    payload = response.json()
+    records = payload if isinstance(payload, list) else []  # defensive, like search_candidates
     if plausible_artists:  # split-retry rung: gate the loose primary query
         records = [
             r for r in records if any(plausible_match(r, title, a) for a in plausible_artists)

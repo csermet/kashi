@@ -55,5 +55,10 @@
 # reported duration and the downloadable audio disagree by >30s the job
 # fails honest with both numbers instead of shipping a document timed to
 # audio the browser never plays.
-PIPELINE_VERSION = "2.4.2"
+# 2.4.3: lyricsfile upgrade probe on the get rung (closure-e2e finding —
+# /api/get returns ONE record, so the primary rung could never see a
+# sibling carrying human word sync; the feature was unreachable in the
+# wild). A get hit without word-level data now pays exactly one extra
+# search request and upgrades only when a sibling probes word-level.
+PIPELINE_VERSION = "2.4.3"
 PIPELINE_MAJOR = 2

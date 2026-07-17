@@ -44,7 +44,9 @@ def test_exact_hit_strips_timestamps():
         return httpx.Response(200, json={"id": 42, "syncedLyrics": synced})
 
     lyrics = _fetch(handler)
-    assert calls == ["/api/get"]  # search never touched
+    # get hit lacks word-level lyricsfile data -> exactly ONE upgrade probe
+    # (2.4.3); the dict-shaped search response upgrades nothing.
+    assert calls == ["/api/get", "/api/search"]
     assert lyrics.line_texts == ["Meet me at the hotel room", "Forget about it"]
     assert lyrics.full_text == "Meet me at the hotel room Forget about it"
     assert lyrics.had_synced and lyrics.source_id == 42
@@ -528,3 +530,60 @@ def test_choose_record_lyricsfile_probe_never_outranks_synced():
     synced_with_lf = dict(plain_with_lf, id=3, syncedLyrics="[00:01.00] hello")
     picked = choose_record([synced_plain_lf, synced_with_lf], duration_s=234)
     assert picked is not None and picked["id"] == 3
+
+
+def test_get_hit_without_lyricsfile_upgrades_to_a_word_sync_sibling():
+    # /api/get returns one record; the primary rung would otherwise never see
+    # a sibling carrying HUMAN word sync (closure-e2e field finding).
+    calls = []
+    lf = "version: '1.0'\nlines:\n  - text: hi\n    words:\n      - {text: hi, start_ms: 1}\n"
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return httpx.Response(
+                200, json={"id": 1, "syncedLyrics": "[00:01.00] hi", "duration": 234}
+            )
+        return httpx.Response(
+            200,
+            json=[
+                {"id": 2, "syncedLyrics": "[00:01.00] hi", "duration": 234, "lyricsfile": lf}
+            ],
+        )
+
+    lyrics = _fetch(handler)
+    assert lyrics.source_id == 2 and lyrics.lyricsfile_raw is not None
+    assert calls == ["/api/get", "/api/search"]  # exactly one extra request
+
+
+def test_get_hit_with_lyricsfile_pays_no_extra_request():
+    lf = "version: '1.0'\nlines:\n  - text: hi\n    words:\n      - {text: hi, start_ms: 1}\n"
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={"id": 7, "syncedLyrics": "[00:01.00] hi", "duration": 234, "lyricsfile": lf},
+        )
+
+    lyrics = _fetch(handler)
+    assert lyrics.source_id == 7 and lyrics.lyricsfile_raw is not None
+    assert calls == ["/api/get"]
+
+
+def test_upgrade_probe_keeps_the_get_hit_when_no_sibling_has_words():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return httpx.Response(
+                200, json={"id": 1, "syncedLyrics": "[00:01.00] hi", "duration": 234}
+            )
+        return httpx.Response(
+            200, json=[{"id": 2, "syncedLyrics": "[00:01.00] hi", "duration": 235}]
+        )
+
+    lyrics = _fetch(handler)
+    assert lyrics.source_id == 1  # get hit kept; probe was just a probe
