@@ -924,3 +924,31 @@ def test_different_edit_disables_windowed_anchors(db_session, job, scratch, monk
     )
     wp._align_stage(db_session, job, scratch, scratch / "a.webm", agreeing)
     assert captured[-1] == stamps  # anchors kept
+
+
+def test_client_edit_mismatch_fails_honest(db_session, scratch, monkeypatch):
+    # Field (Sinsirella video id): the browser played a 451s VIDEO while the
+    # downloadable audio was the 216s song. A doc timed to audio the client
+    # never hears must not exist — fail with both numbers in the message.
+    from kashi_server.version import PIPELINE_MAJOR
+
+    _happy_stages(monkeypatch, scratch)  # download stub returns 200s audio
+    queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="videoEdit01",
+        pipeline_major=PIPELINE_MAJOR,
+        hints={"title": "T", "artist": "A", "duration_ms": 451_000},
+        options={},
+        requested_by=None,
+    )
+    db_session.commit()
+    claimed = queue.claim_next(db_session)
+    assert claimed is not None
+    wp.process_job(db_session, claimed)
+    db_session.refresh(claimed)
+    assert claimed.status == "failed"
+    assert claimed.error_type == "alignment_failed"
+    assert "different" in (claimed.error_message or "")
+    # A few seconds of stale-hint jitter must NOT trip the gate: the standard
+    # fixture (200s hint vs 200s download) still completes end to end.

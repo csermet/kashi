@@ -69,6 +69,13 @@ NIGHTCORE_PROB_GATE = 0.3
 # whole-audio alignment absorbs a global offset naturally, and line QA's
 # median-offset still snaps against the same (shifted) reference.
 ANCHOR_CLOCK_TOLERANCE_S = 5.0
+# Client/server EDIT mismatch (field, Sinsirella wUjSOU0p6f8): YTM played a
+# 451s VIDEO while the downloadable audio for the same id was the 216s song
+# — YouTube's music player clients substitute the song stream for video ids.
+# A document timed to audio the browser never plays is confident nonsense;
+# past this gap the job fails honest, naming both numbers. 30s: stale-hint
+# jitter is seconds, a different edit is minutes.
+CLIENT_EDIT_MISMATCH_S = 30.0
 
 LINE_QA_DOCS = Counter(
     "kashi_line_qa_docs_total",
@@ -439,6 +446,21 @@ def process_job(s: Session, job: Job) -> None:
         # youtube_fetch is passed from THIS module so the download_audio
         # monkeypatch seam survives the source dispatch (Faz 5 P4).
         download: DownloadResult = fetch_audio(job, tmp, s, youtube_fetch=download_audio)
+        hinted_ms = (job.hints or {}).get("duration_ms")
+        if (
+            isinstance(hinted_ms, int)
+            and not isinstance(hinted_ms, bool)
+            and hinted_ms > 0
+            and abs(hinted_ms / 1000 - download.duration_s) > CLIENT_EDIT_MISMATCH_S
+        ):
+            raise PipelineError(
+                "alignment_failed",
+                f"the client reports a {hinted_ms // 1000}s edit but the downloadable "
+                f"audio is {download.duration_s:.0f}s — the browser plays a different "
+                f"video/song edit than the pipeline can fetch; play the song entry "
+                f"instead, or upload the audio you actually hear (reprocess accepts "
+                f"corrected hints)",
+            )
         checkpoint(s, job)
 
         # --- aligning (lyrics resolve FIRST — Faz 5 P3) ---

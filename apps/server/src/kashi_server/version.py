@@ -49,5 +49,11 @@
 # places and warped the whole doc). When the chosen record's own duration
 # disagrees with the decoded audio by >5s, anchors drop and whole-audio
 # alignment absorbs the offset; line QA still snaps via its median offset.
-PIPELINE_VERSION = "2.4.1"
+# 2.4.2: client-edit mismatch gate (field: a YTM "video" id played as a
+# 451s clip in the browser while yt-dlp fetched the 216s SONG stream —
+# music player clients substitute streams for video ids). When the client-
+# reported duration and the downloadable audio disagree by >30s the job
+# fails honest with both numbers instead of shipping a document timed to
+# audio the browser never plays.
+PIPELINE_VERSION = "2.4.2"
 PIPELINE_MAJOR = 2
