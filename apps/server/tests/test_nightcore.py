@@ -151,3 +151,71 @@ def test_rescale_r1_is_identity():
         sync="line", lines=[LineTiming(10, 20, "x", 0.1)], words_per_line=[], quality_score=0.2
     )
     assert rescale_result(result, 1.0) is result
+
+
+def test_parse_composite_title_conservative_shapes():
+    from kashi_server.pipeline.titles import parse_composite_title
+
+    # The no-lyrics remnant class (Faz 6 P7):
+    assert parse_composite_title("7clouds | Kesha - TiK ToK (Lyrics)", "7clouds") == (
+        "Kesha",
+        "TiK ToK",
+    )
+    assert parse_composite_title("Dua Lipa - Levitating (Official Music Video)", "SomeChannel") == (
+        "Dua Lipa",
+        "Levitating",
+    )
+    assert parse_composite_title("Artist - Song (Lyric Video)", None) == ("Artist", "Song")
+    # Refusals — zero or 2+ dashes after noise strip, empty halves:
+    assert parse_composite_title("Just A Plain Title", "ch") is None
+    assert parse_composite_title("A - B - C", "ch") is None
+    assert parse_composite_title(" - Song", "ch") is None
+    assert parse_composite_title("", "ch") is None
+    # Real bracket content survives the noise strip ("(Video Games)" is real):
+    assert parse_composite_title("Lana Del Rey - Video Games", None) == (
+        "Lana Del Rey",
+        "Video Games",
+    )
+
+
+def test_plain_lyrics_composite_fallback(monkeypatch):
+    """Ladder dry on the raw hints -> ONE composite retry; second miss
+    re-raises the ORIGINAL error (its message names the user's hints)."""
+    import kashi_server.worker.process as wp
+    from kashi_server.db.models import Job
+    from kashi_server.pipeline.lrclib import LyricsText
+    from kashi_server.vdl_kit.errors import PipelineError
+
+    job = Job(
+        source_type="youtube",
+        source_id="composite01",
+        pipeline_major=2,
+        hints={"title": "7clouds | Kesha - TiK ToK (Lyrics)", "artist": "7clouds"},
+    )
+    calls: list[dict] = []
+    win = LyricsText(line_texts=["x"], full_text="x", source_id=1, had_synced=False)
+
+    def fake_fetch(hints, *, base_url):
+        calls.append(dict(hints))
+        if len(calls) == 1:
+            raise PipelineError("lyrics_not_found", "no lyrics for 7clouds - ...")
+        return win
+
+    monkeypatch.setattr(wp, "fetch_lyrics", fake_fetch)
+    assert wp._plain_lyrics(job) is win
+    assert calls[1]["artist"] == "Kesha" and calls[1]["title"] == "TiK ToK"
+
+    # Second miss: the original error surfaces, not the retry's.
+    calls.clear()
+
+    def always_dry(hints, *, base_url):
+        calls.append(dict(hints))
+        raise PipelineError("lyrics_not_found", f"no lyrics for {hints.get('artist')}")
+
+    monkeypatch.setattr(wp, "fetch_lyrics", always_dry)
+    try:
+        wp._plain_lyrics(job)
+        raise AssertionError("expected lyrics_not_found")
+    except PipelineError as exc:
+        assert "7clouds" in exc.message  # the ORIGINAL hints, honest message
+    assert len(calls) == 2  # exactly one composite retry, no ladder spiral

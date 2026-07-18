@@ -76,5 +76,11 @@
 # energy = 2 Hz track-normalized RMS envelope; sections = energy-derived
 # "high" blocks (chorus proxy — allin1-style labels stay future/additive).
 # Old clients ignore all three; effects arrive with overlay 0.4.0.
-PIPELINE_VERSION = "2.6.0"
+# 2.7.0: composite-title fallback (Faz 6 P7) — when the primary lrclib
+# ladder comes up dry, "Channel | Artist - Song (Lyrics)" upload titles are
+# conservatively parsed (exactly one dash after noise strip) and retried
+# ONCE with the parsed artist/title; plausibility gates unchanged. Second
+# miss re-raises the original honest error. "(Official Music Video)" class
+# bracket groups now count as noise for title hygiene.
+PIPELINE_VERSION = "2.7.0"
 PIPELINE_MAJOR = 2

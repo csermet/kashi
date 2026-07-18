@@ -21,7 +21,7 @@ _TITLE_WORD = re.compile(r"[\w']+")
 # WHOLE bracket group is noise/marker — deleting the words globally mangled
 # real titles ("Nightcore - Video Games" → "Games"; retro finding).
 _NOISE_WORD = re.compile(
-    r"^(?:lyrics?|official|video|audio|visualizer|hq|hd|4k|mv|version)$", re.IGNORECASE
+    r"^(?:lyrics?|lyric|official|music|video|audio|visualizer|hq|hd|4k|mv|version)$", re.IGNORECASE
 )
 
 
@@ -46,3 +46,37 @@ def clean_title(title: str) -> str | None:
     out = re.sub(r"\s+", " ", out).strip()
     out = _EDGE_SEPARATORS.sub("", out)
     return out.strip() or None
+
+
+# --- Composite upload titles (Faz 6 P7) --------------------------------------
+# The no-lyrics remnant class: lyric-channel uploads send artist=CHANNEL and
+# title="Channel | Real Artist - Song (Lyrics)" (or just "Artist - Song
+# (Lyrics)") — the primary lrclib ladder searches artist="7clouds" and finds
+# nothing. Parsing is CONSERVATIVE: exactly one " - " separator after noise
+# stripping, and the caller only ever uses this as a LAST fallback rung when
+# the primary ladder came up dry (plausibility gates in fetch_lyrics still
+# apply — a wrong artist must not bind wrong lyrics).
+
+_COMPOSITE_SEP = re.compile(r"\s+[-–—]\s+")
+
+
+def parse_composite_title(title: str, channel_hint: str | None = None) -> tuple[str, str] | None:
+    """("Real Artist", "Song") from a composite upload title, or None when
+    the shape is not confidently composite. channel_hint (the original
+    artist hint) only rejects a no-op parse — it never fuels one."""
+    if not title or not title.strip():
+        return None
+    # Channels prefix with "Channel | …" — keep the LAST pipe segment.
+    core = title.split("|")[-1].strip() if "|" in title else title.strip()
+    core = _BRACKET_GROUP.sub(lambda m: " " if _is_noise_group(m.group(1)) else m.group(0), core)
+    core = _EMPTY_BRACKETS.sub(" ", core)
+    core = re.sub(r"\s+", " ", core).strip()
+    parts = _COMPOSITE_SEP.split(core)
+    if len(parts) != 2:  # zero or 2+ dashes: ambiguous — refuse to guess
+        return None
+    artist, song = parts[0].strip(), parts[1].strip()
+    if not artist or not song:
+        return None
+    if channel_hint and artist.strip().lower() == channel_hint.strip().lower() and song == title:
+        return None  # nothing was won — the primary ladder already tried this
+    return artist, song

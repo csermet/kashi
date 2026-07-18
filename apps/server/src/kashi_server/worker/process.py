@@ -47,7 +47,7 @@ from kashi_server.pipeline.nightcore import (
     slow_duration_ok,
 )
 from kashi_server.pipeline.palette import extract_palette
-from kashi_server.pipeline.titles import clean_title
+from kashi_server.pipeline.titles import clean_title, parse_composite_title
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,34 @@ def _plain_lyrics(job: Job) -> LyricsText:
     original = (job.options or {}).get("original_title")
     if isinstance(original, str) and original.strip():
         hints["title"] = original.strip()
-    return fetch_lyrics(hints, base_url=settings.lrclib_base_url)
+    try:
+        return fetch_lyrics(hints, base_url=settings.lrclib_base_url)
+    except PipelineError as exc:
+        if exc.error_type != "lyrics_not_found":
+            raise
+        # Composite-title LAST fallback (Faz 6 P7): "Channel | Artist - Song
+        # (Lyrics)" uploads send the channel as artist and the ladder dries.
+        # Conservative by construction (exactly one dash after noise strip)
+        # + fetch_lyrics' own plausibility gates still stand between a parsed
+        # guess and wrong lyrics. On a second miss the ORIGINAL error is
+        # re-raised — its message names the hints the user actually sent.
+        parsed = parse_composite_title(hints.get("title") or "", hints.get("artist"))
+        if parsed is None or parsed == (hints.get("artist"), hints.get("title")):
+            raise
+        artist, song = parsed
+        logger.info(
+            "composite-title fallback: %r / %r -> artist=%r title=%r",
+            hints.get("artist"),
+            hints.get("title"),
+            artist,
+            song,
+        )
+        try:
+            return fetch_lyrics(
+                {**hints, "artist": artist, "title": song}, base_url=settings.lrclib_base_url
+            )
+        except PipelineError:
+            raise exc from None
 
 
 def _nightcore_lyrics(
