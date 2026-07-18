@@ -18,6 +18,9 @@ import {
   beatsUsable,
   buildFxIndex,
   clampBackground,
+  energyAt,
+  inSection,
+  quantizedEnergy,
   contrastRatio,
   fillProgress,
   paletteToCssVars,
@@ -328,5 +331,38 @@ describe('buildFxIndex (Faz 6 hype)', () => {
   it('burst tags are a small fixed set', () => {
     expect(FX_BURST_TAGS.has('explosion')).toBe(true);
     expect(FX_BURST_TAGS.has('love')).toBe(false);
+  });
+});
+
+describe('energy/section dynamics (Faz 6 P5)', () => {
+  const energy = { rate_hz: 2, values: [0, 20, 40, 60, 80, 100] }; // 3s clip
+
+  it('energyAt is O(1) position lookup with edge clamping', () => {
+    expect(energyAt(energy, 0)).toBe(0);
+    expect(energyAt(energy, 500)).toBe(0.2); // sample 1
+    expect(energyAt(energy, 2500)).toBe(1);
+    expect(energyAt(energy, 99_000)).toBe(1); // clamps to the last sample
+    expect(energyAt(energy, -50)).toBe(0);
+    expect(energyAt(undefined, 1000)).toBe(0);
+    expect(energyAt({ rate_hz: 0, values: [50] }, 0)).toBe(0);
+  });
+
+  it('quantizedEnergy steps by ENERGY_QUANT (style writes only on change)', () => {
+    const e = { rate_hz: 2, values: [37] };
+    expect(quantizedEnergy(e, 0)).toBeCloseTo(0.35);
+    expect(quantizedEnergy(e, 0) === quantizedEnergy(e, 400)).toBe(true);
+  });
+
+  it('inSection matches only the asked type inside [start, end)', () => {
+    const sections = [
+      { type: 'high', start_ms: 10_000, end_ms: 20_000 },
+      { type: 'chorus', start_ms: 30_000, end_ms: 40_000 },
+    ];
+    expect(inSection(sections, 'high', 9_999)).toBe(false);
+    expect(inSection(sections, 'high', 10_000)).toBe(true);
+    expect(inSection(sections, 'high', 19_999)).toBe(true);
+    expect(inSection(sections, 'high', 20_000)).toBe(false);
+    expect(inSection(sections, 'high', 35_000)).toBe(false); // other type
+    expect(inSection(undefined, 'high', 0)).toBe(false);
   });
 });

@@ -25,8 +25,10 @@ import {
   buildFxIndex,
   fillProgress,
   FX_BURST_TAGS,
+  inSection,
   paletteToCssVars,
   planWordFills,
+  quantizedEnergy,
   type BeatFrame,
   type BeatsLike,
   type PaletteLike,
@@ -43,7 +45,7 @@ import {
   type ViewOutput,
   type WordTiming,
 } from './view-logic.js';
-import type { FxData, LyricLine } from '../../shared/lyrics.js';
+import type { EnergyData, FxData, LyricLine, SectionData } from '../../shared/lyrics.js';
 import { loadArtworkPalette } from './artwork-palette.js';
 
 
@@ -119,6 +121,23 @@ let fxIndex: ReturnType<typeof buildFxIndex> = new Map();
 
 function rebuildFxIndex(): void {
   fxIndex = effectLevel === 'hype' ? buildFxIndex(currentFx, lines) : new Map();
+}
+
+// Energy/section state (Faz 6 P5) — written only on change (edge/step).
+let currentEnergy: EnergyData | undefined;
+let currentSections: SectionData[] | undefined;
+let appliedEnergy = -1;
+let appliedHigh = false;
+
+function setEnergyState(energy: number, high: boolean): void {
+  if (energy !== appliedEnergy) {
+    appliedEnergy = energy;
+    document.documentElement.style.setProperty('--kashi-energy', String(energy));
+  }
+  if (high !== appliedHigh) {
+    appliedHigh = high;
+    boxEl?.classList.toggle('energy-high', high);
+  }
 }
 
 /** Write the palette CSS vars (defaults when off / no palette — the v0.1.x look). */
@@ -407,6 +426,9 @@ function clearEnrichment(): void {
   artworkRequest += 1; // in-flight artwork loads for the OLD track go stale
   currentBeats = undefined;
   currentFx = undefined;
+  currentEnergy = undefined;
+  currentSections = undefined;
+  setEnergyState(0, false);
   rebuildFxIndex();
   rebuildBeatCursor();
   applyPaletteVars();
@@ -464,6 +486,8 @@ window.kashi.onLyrics((payload) => {
     palette?: PaletteLike;
     beats?: BeatsLike;
     fx?: FxData;
+    energy?: EnergyData;
+    sections?: SectionData[];
   };
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
@@ -483,6 +507,8 @@ window.kashi.onLyrics((payload) => {
     serverPalette = data.palette;
     currentBeats = data.beats;
     currentFx = data.fx;
+    currentEnergy = data.energy;
+    currentSections = data.sections;
     rebuildFxIndex();
     rebuildBeatCursor();
     refreshPalette();
@@ -499,6 +525,8 @@ window.kashi.onLyrics((payload) => {
     serverPalette = undefined;
     currentBeats = undefined;
     currentFx = undefined;
+    currentEnergy = undefined;
+    currentSections = undefined;
     rebuildFxIndex();
     rebuildBeatCursor();
     refreshPalette();
@@ -589,6 +617,7 @@ window.kashi.onSettings((payload) => {
     applyPaletteVars();
     rebuildBeatCursor();
     rebuildFxIndex(); // hype gates the index; other levels empty it
+    setEnergyState(0, false); // paused level switches must not strand the ramp
     clearRunFill();
     clearWordSpans(); // next frame rebuilds spans + fill plan for the new level
   }
@@ -734,6 +763,15 @@ function frame(): void {
     const wordIndex = findActiveWord(words, pos);
     highlightWord(wordIndex);
     updateWordFill(words, wordIndex, pos);
+  }
+
+  // Energy ramp + section dynamics (hype, Faz 6 P5): the played clock like
+  // beats. Style writes happen only on QUANTIZED step changes / section
+  // edges — a few times per second, never per frame.
+  if (effectLevel === 'hype' && clock.isPlaying && !adActive && lines.length > 0) {
+    setEnergyState(quantizedEnergy(currentEnergy, rawPos), inSection(currentSections, 'high', rawPos));
+  } else {
+    setEnergyState(0, false);
   }
 
   // Beat pulse (effect level "full"): per-frame cost is a couple of integer

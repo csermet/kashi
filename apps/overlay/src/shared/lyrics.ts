@@ -66,6 +66,20 @@ export interface FxData {
   lines?: FxLineTag[];
 }
 
+/** Track-normalized loudness curve (server 2.6.0+): 0-100 ints @ rate_hz
+ * on the PLAYED clock — drives the hype intensity ramp. */
+export interface EnergyData {
+  rate_hz: number;
+  values: number[];
+}
+
+/** Coarse song sections (server 2.6.0+). type is open — v1 emits "high". */
+export interface SectionData {
+  type: string;
+  start_ms: number;
+  end_ms: number;
+}
+
 // --- compile-time drift guards (schema value ⊆ our IPC type) ---
 type SchemaLine = KashiProcessedTrackV1['lines'][number];
 type SchemaWord = NonNullable<SchemaLine['words']>[number];
@@ -79,3 +93,7 @@ export type _PaletteDriftGuard = Satisfies<SchemaPalette, PaletteData>;
 export type _BeatsDriftGuard = Satisfies<SchemaBeats, BeatsData>;
 type SchemaFx = NonNullable<KashiProcessedTrackV1['fx']>;
 export type _FxDriftGuard = Satisfies<SchemaFx, FxData>;
+type SchemaEnergy = NonNullable<KashiProcessedTrackV1['energy']>;
+export type _EnergyDriftGuard = Satisfies<SchemaEnergy, EnergyData>;
+type SchemaSection = NonNullable<KashiProcessedTrackV1['sections']>[number];
+export type _SectionDriftGuard = Satisfies<SchemaSection, SectionData>;

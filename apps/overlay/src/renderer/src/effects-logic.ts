@@ -359,3 +359,41 @@ export function buildFxIndex(
   }
   return index;
 }
+
+// ---------------------------------------------------------------------------
+// Energy/section dynamics (Faz 6 P5) — precomputed curves, zero live audio.
+
+import type { EnergyData, SectionData } from '../../shared/lyrics.js';
+
+/** Quantization step for the CSS energy var — style writes only on step
+ * changes (a few per second), never per frame. */
+export const ENERGY_QUANT = 0.05;
+
+/** Track-relative loudness at a position, 0..1 (0 when absent). O(1). */
+export function energyAt(energy: EnergyData | undefined, posMs: number): number {
+  if (!energy || energy.values.length === 0 || energy.rate_hz <= 0) return 0;
+  const idx = Math.floor((Math.max(0, posMs) / 1000) * energy.rate_hz);
+  const value = energy.values[Math.min(idx, energy.values.length - 1)] ?? 0;
+  return Math.min(100, Math.max(0, value)) / 100;
+}
+
+/** Quantized for CSS: 0, 0.05, … 1 — equality-comparable across frames. */
+export function quantizedEnergy(energy: EnergyData | undefined, posMs: number): number {
+  return Math.round(energyAt(energy, posMs) / ENERGY_QUANT) * ENERGY_QUANT;
+}
+
+/** Inside a section of `type` at posMs? Sections are few (v1: a handful of
+ * energy-derived "high" blocks) — a linear scan is O(few) per frame. */
+export function inSection(
+  sections: readonly SectionData[] | undefined,
+  type: string,
+  posMs: number,
+): boolean {
+  if (!sections) return false;
+  for (const section of sections) {
+    if (section.type === type && posMs >= section.start_ms && posMs < section.end_ms) {
+      return true;
+    }
+  }
+  return false;
+}

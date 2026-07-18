@@ -6,11 +6,13 @@
 
 import type {
   BeatsData,
+  EnergyData,
   FxData,
   FxLineTag,
   FxWordTag,
   LyricLine,
   PaletteData,
+  SectionData,
   WordTiming,
 } from '../shared/lyrics.js';
 
@@ -33,6 +35,9 @@ export interface ServerLyricsFound {
   beats?: ServerBeats;
   /** Semantic effect tags (server 2.6.0+, Faz 6) — hype level consumes them. */
   fx?: FxData;
+  /** Track-normalized loudness curve + energy-derived sections (2.6.0+). */
+  energy?: EnergyData;
+  sections?: SectionData[];
 }
 
 export type ServerLyricsResult = ServerLyricsFound | { found: false } | { error: true };
@@ -125,7 +130,49 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
   }
   const fx = mapFx(d['fx'], effectiveSync);
   if (fx) payload.fx = fx;
+  const energy = mapEnergy(d['energy']);
+  if (energy) payload.energy = energy;
+  const sections = mapSections(d['sections']);
+  if (sections) payload.sections = sections;
   return payload;
+}
+
+/** Tolerant energy parse — enrichment like beats; bad shape → absent. */
+export function mapEnergy(raw: unknown): EnergyData | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const e = raw as Record<string, unknown>;
+  const rate = e['rate_hz'];
+  if (!Number.isInteger(rate) || (rate as number) < 1 || (rate as number) > 50) return undefined;
+  if (!Array.isArray(e['values']) || e['values'].length === 0) return undefined;
+  const values: number[] = [];
+  for (const v of e['values'] as unknown[]) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+    values.push(Math.min(100, Math.max(0, Math.round(v))));
+  }
+  return { rate_hz: rate as number, values };
+}
+
+/** Tolerant sections parse — bad ENTRIES drop, empty → absent. */
+export function mapSections(raw: unknown): SectionData[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: SectionData[] = [];
+  for (const entry of raw as unknown[]) {
+    if (out.length >= 64) break;
+    const s = entry as Record<string, unknown>;
+    if (
+      typeof s === 'object' &&
+      s !== null &&
+      typeof s['type'] === 'string' &&
+      s['type'] !== '' &&
+      Number.isInteger(s['start_ms']) &&
+      Number.isInteger(s['end_ms']) &&
+      (s['start_ms'] as number) >= 0 &&
+      (s['end_ms'] as number) > (s['start_ms'] as number)
+    ) {
+      out.push({ type: s['type'], start_ms: s['start_ms'] as number, end_ms: s['end_ms'] as number });
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /**

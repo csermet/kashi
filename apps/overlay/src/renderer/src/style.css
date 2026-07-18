@@ -516,3 +516,56 @@ body.fx-hype #lyric-box.beat-down::after {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------------
+   Faz 6 P5: energy/section dynamics — HYPE level only. All precomputed
+   (2 Hz curve + section blocks from the document); zero live audio analysis.
+   Ambient ring opacity + class edges only — compositor-friendly. */
+
+/* Continuous ambient glow floor: the pre-drawn ::after ring breathes with
+   the track's own loudness (quantized var, a few writes/second). Beat rules
+   (.beat/.beat-down, higher specificity) still pulse above it. */
+body.fx-hype #lyric-box::after {
+  opacity: calc(var(--kashi-energy, 0) * 0.18);
+  transition: opacity 240ms ease-out;
+}
+
+/* High-energy sections (server "high" blocks — the chorus proxy): the ring
+   floor rises and the active word leans a touch harder. */
+body.fx-hype #lyric-box.energy-high::after {
+  opacity: calc(0.1 + var(--kashi-energy, 0) * 0.22);
+}
+body.fx-hype #lyric-box.energy-high .word-active {
+  transform: translateY(-2px) scale(1.08);
+}
+/* fx words keep their own (stronger, intensity-scaled) pop — re-stated so
+   source order can't demote it under the energy-high rule above. */
+body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
+  transform: translateY(-2px) scale(calc(1.06 + 0.12 * var(--fx-intensity, 0.5)));
+}
+
+/* Line entrance with spring (hype): same one-shot class as the fx-simple/
+   full fade, springier curve — transform/opacity only. */
+body.fx-hype #lyric-line.line-in {
+  animation: kashi-line-in-spring 340ms var(--fx-spring);
+}
+@keyframes kashi-line-in-spring {
+  from {
+    opacity: 0.25;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.fx-hype #lyric-line.line-in {
+    animation: none;
+  }
+  body.fx-hype #lyric-box.energy-high .word-active,
+  body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
+    transform: none;
+  }
+}
