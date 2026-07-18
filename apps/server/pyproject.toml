@@ -1,6 +1,6 @@
 [project]
 name = "kashi-server"
-version = "0.9.1"
+version = "0.9.2"
 description = "Kashi processing server: lyrics alignment, beat grid and palette extraction"
 requires-python = ">=3.12"
 dependencies = [
@@ -34,11 +34,6 @@ align = [
     "torch==2.9.1",
     "torchaudio==2.9.1",
     "ctc-forced-aligner",
-    # transitive via ctc-forced-aligner, declared so the pytorch-cpu source
-    # applies (the torchvision lesson, round two): PyPI's linux wheel links
-    # CUDA (libnvrtc) and detonates on CPU-only hosts the moment anything
-    # importable touches it — sentence-transformers' import chain did.
-    "torchcodec==0.14.0",
 ]
 # Vocal separation (hizalama-v2 P2). Separate extra for the same reason as
 # align: heavy (torch models + onnxruntime), and separation_mode=off must keep
@@ -70,6 +65,15 @@ dev = [
 
 [tool.uv]
 package = false
+# torchcodec is DECLARED by ctc-forced-aligner but never used on any of our
+# paths (ctc decodes via its own ffmpeg subprocess; we feed it wav files).
+# Merely INSTALLING it is what breaks: sentence-transformers' modality module
+# eagerly loads any importable torchcodec, whose native lib demands CUDA
+# (PyPI wheel) or shared FFmpeg libraries (cpu wheel) — the image ships a
+# STATIC ffmpeg, so both variants would crash the semantics warmup. The
+# never-true marker removes it from resolution entirely; ST's guarded import
+# then takes its clean text-only path.
+override-dependencies = ["torchcodec ; sys_platform == 'never'"]
 # The pytorch-cpu index publishes exotic local-version variants (+d801a34,
 # win_arm64-only) that sort ABOVE +cpu; this forces the resolver to pick
 # versions that actually have wheels for the image platform.
@@ -81,8 +85,6 @@ torchaudio = { index = "pytorch-cpu" }
 # transitive via audio-separator; without the pin it resolves from PyPI, whose
 # wheels are built against CUDA torch.
 torchvision = { index = "pytorch-cpu" }
-# transitive via ctc-forced-aligner; same CUDA-wheel trap as torchvision.
-torchcodec = { index = "pytorch-cpu" }
 ctc-forced-aligner = { git = "https://github.com/MahmoudAshraf97/ctc-forced-aligner", rev = "264e7a1f81bff9ff5e787a5537020c2ad0b0df02" }
 
 [[tool.uv.index]]
