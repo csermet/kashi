@@ -231,6 +231,7 @@ describe('effect_level setting', () => {
     expect(DEFAULT_SETTINGS.effect_level).toBe('simple');
     expect(parseSettings(JSON.stringify({ effect_level: 'full' })).effect_level).toBe('full');
     expect(parseSettings(JSON.stringify({ effect_level: 'off' })).effect_level).toBe('off');
+    expect(parseSettings(JSON.stringify({ effect_level: 'hype' })).effect_level).toBe('hype');
     // Garbage/missing → default (tolerant parse, hand-edited files).
     expect(parseSettings(JSON.stringify({ effect_level: 'ULTRA' })).effect_level).toBe('simple');
     expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).effect_level).toBe('simple');

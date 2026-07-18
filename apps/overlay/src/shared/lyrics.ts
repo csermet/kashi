@@ -44,6 +44,28 @@ export interface BeatsData {
   downbeat_indices?: number[];
 }
 
+/** Semantic effect tags (server 2.6.0+, Faz 6). Indices reference lines[]
+ * of the SAME payload; sparse by design (server caps ~60 words/doc). */
+export interface FxWordTag {
+  line: number;
+  word: number;
+  tag: string;
+  intensity: number;
+}
+
+export interface FxLineTag {
+  line: number;
+  tag: string;
+}
+
+export interface FxData {
+  lexicon: string;
+  engine: string;
+  words?: FxWordTag[];
+  /** Line-level THEME tags (embedding layer) — consumed from P5 on. */
+  lines?: FxLineTag[];
+}
+
 // --- compile-time drift guards (schema value ⊆ our IPC type) ---
 type SchemaLine = KashiProcessedTrackV1['lines'][number];
 type SchemaWord = NonNullable<SchemaLine['words']>[number];
@@ -55,3 +77,5 @@ export type _WordDriftGuard = Satisfies<SchemaWord, WordTiming>;
 export type _LineDriftGuard = Satisfies<SchemaLine, LyricLine>;
 export type _PaletteDriftGuard = Satisfies<SchemaPalette, PaletteData>;
 export type _BeatsDriftGuard = Satisfies<SchemaBeats, BeatsData>;
+type SchemaFx = NonNullable<KashiProcessedTrackV1['fx']>;
+export type _FxDriftGuard = Satisfies<SchemaFx, FxData>;

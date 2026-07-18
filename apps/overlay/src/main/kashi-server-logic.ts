@@ -4,7 +4,15 @@
  * every rule is unit-tested.
  */
 
-import type { BeatsData, LyricLine, PaletteData, WordTiming } from '../shared/lyrics.js';
+import type {
+  BeatsData,
+  FxData,
+  FxLineTag,
+  FxWordTag,
+  LyricLine,
+  PaletteData,
+  WordTiming,
+} from '../shared/lyrics.js';
 
 // One source of truth for these shapes: src/shared/lyrics.ts (schema-drift
 // guarded). The Server* names stay as aliases for the existing call sites.
@@ -23,6 +31,8 @@ export interface ServerLyricsFound {
   /** Passed through for Faz 4 (renderer ignores them until then). */
   palette?: ServerPalette;
   beats?: ServerBeats;
+  /** Semantic effect tags (server 2.6.0+, Faz 6) — hype level consumes them. */
+  fx?: FxData;
 }
 
 export type ServerLyricsResult = ServerLyricsFound | { found: false } | { error: true };
@@ -113,5 +123,63 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
   if (typeof d['beats'] === 'object' && d['beats'] !== null) {
     payload.beats = d['beats'] as ServerBeats;
   }
+  const fx = mapFx(d['fx'], effectiveSync);
+  if (fx) payload.fx = fx;
   return payload;
+}
+
+/**
+ * Tolerant fx parse (Faz 6): bad ENTRIES are dropped, never the document —
+ * fx is enrichment exactly like palette/beats. Word tags are meaningless
+ * after the quality gate stripped words (line mode), so they are only kept
+ * on word-sync payloads; line theme tags survive either way. Defensive caps
+ * mirror the server's own (60 words / 24 lines) against a hostile server.
+ */
+export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const f = raw as Record<string, unknown>;
+  if (typeof f['lexicon'] !== 'string' || typeof f['engine'] !== 'string') return undefined;
+  const out: FxData = { lexicon: f['lexicon'], engine: f['engine'] };
+  if (sync === 'word' && Array.isArray(f['words'])) {
+    const words: FxWordTag[] = [];
+    for (const raw of f['words'] as unknown[]) {
+      if (words.length >= 60) break;
+      const t = raw as Record<string, unknown>;
+      if (
+        Number.isInteger(t['line']) &&
+        Number.isInteger(t['word']) &&
+        (t['line'] as number) >= 0 &&
+        (t['word'] as number) >= 0 &&
+        typeof t['tag'] === 'string' &&
+        t['tag'] !== '' &&
+        typeof t['intensity'] === 'number' &&
+        Number.isFinite(t['intensity'])
+      ) {
+        words.push({
+          line: t['line'] as number,
+          word: t['word'] as number,
+          tag: t['tag'],
+          intensity: Math.min(1, Math.max(0, t['intensity'])),
+        });
+      }
+    }
+    if (words.length > 0) out.words = words;
+  }
+  if (Array.isArray(f['lines'])) {
+    const lineTags: FxLineTag[] = [];
+    for (const raw of f['lines'] as unknown[]) {
+      if (lineTags.length >= 24) break;
+      const t = raw as Record<string, unknown>;
+      if (
+        Number.isInteger(t['line']) &&
+        (t['line'] as number) >= 0 &&
+        typeof t['tag'] === 'string' &&
+        t['tag'] !== ''
+      ) {
+        lineTags.push({ line: t['line'] as number, tag: t['tag'] });
+      }
+    }
+    if (lineTags.length > 0) out.lines = lineTags;
+  }
+  return out.words || out.lines ? out : undefined;
 }

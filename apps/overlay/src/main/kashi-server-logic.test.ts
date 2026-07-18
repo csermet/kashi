@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cacheFileName,
   mapDocument,
+  mapFx,
   normalizeServerUrl,
   QUALITY_GATE,
 } from './kashi-server-logic.js';
@@ -119,5 +120,50 @@ describe('mapDocument', () => {
 
   it('tolerates unknown extra fields (additive schema)', () => {
     expect(mapDocument(doc({ future_field: { anything: true } }))).not.toBeNull();
+  });
+});
+
+describe('mapFx (Faz 6)', () => {
+  const base = { lexicon: 'kashi-fx/1.0.0', engine: 'keywords' };
+
+  it('keeps valid word tags on word sync, clamping intensity', () => {
+    const fx = mapFx(
+      { ...base, words: [{ line: 0, word: 1, tag: 'love', intensity: 3 }] },
+      'word',
+    );
+    expect(fx).toEqual({
+      ...base,
+      words: [{ line: 0, word: 1, tag: 'love', intensity: 1 }],
+    });
+  });
+
+  it('drops word tags on line sync (quality gate stripped the words)', () => {
+    const fx = mapFx(
+      { ...base, words: [{ line: 0, word: 1, tag: 'love', intensity: 0.6 }] },
+      'line',
+    );
+    expect(fx).toBeUndefined();
+  });
+
+  it('drops malformed ENTRIES, never the block; empty result is undefined', () => {
+    const fx = mapFx(
+      {
+        ...base,
+        words: [
+          { line: -1, word: 0, tag: 'x', intensity: 0.5 },
+          { line: 0.5, word: 0, tag: 'x', intensity: 0.5 },
+          { line: 0, word: 0, tag: '', intensity: 0.5 },
+          { line: 0, word: 0, tag: 'fire', intensity: 'hot' },
+          { line: 2, word: 3, tag: 'fire', intensity: 0.8 },
+        ],
+        lines: [{ line: 1, tag: 'night' }, { line: 'x', tag: 'bad' }],
+      },
+      'word',
+    );
+    expect(fx!.words).toEqual([{ line: 2, word: 3, tag: 'fire', intensity: 0.8 }]);
+    expect(fx!.lines).toEqual([{ line: 1, tag: 'night' }]);
+    expect(mapFx({ ...base }, 'word')).toBeUndefined();
+    expect(mapFx('garbage', 'word')).toBeUndefined();
+    expect(mapFx({ lexicon: 1, engine: 'keywords' }, 'word')).toBeUndefined();
   });
 });

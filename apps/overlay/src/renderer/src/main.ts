@@ -22,13 +22,16 @@ import {
   BEAT_IDLE,
   BeatCursor,
   beatsUsable,
+  buildFxIndex,
   fillProgress,
+  FX_BURST_TAGS,
   paletteToCssVars,
   planWordFills,
   type BeatFrame,
   type BeatsLike,
   type PaletteLike,
 } from './effects-logic.js';
+import { FX_ICON_PATHS, FX_ICON_VIEWBOX } from './fx-icons.js';
 import { PositionClock } from './position-clock.js';
 import {
   accumulateWheel,
@@ -40,7 +43,7 @@ import {
   type ViewOutput,
   type WordTiming,
 } from './view-logic.js';
-import type { LyricLine } from '../../shared/lyrics.js';
+import type { FxData, LyricLine } from '../../shared/lyrics.js';
 import { loadArtworkPalette } from './artwork-palette.js';
 
 
@@ -107,12 +110,26 @@ let currentBeats: BeatsLike | undefined;
 let beatCursor: BeatCursor | null = null;
 let appliedBeat: BeatFrame = BEAT_IDLE;
 
+// Semantic word effects (Faz 6 P4, hype level). fx arrives with server
+// lyrics; the index picks ≤1 winner per line (Caner kararı 8). Spans get
+// their fx classes at BUILD time (line change) — per-frame work stays the
+// existing one-class toggle; the burst fires edge-triggered on activation.
+let currentFx: FxData | undefined;
+let fxIndex: ReturnType<typeof buildFxIndex> = new Map();
+
+function rebuildFxIndex(): void {
+  fxIndex = effectLevel === 'hype' ? buildFxIndex(currentFx, lines) : new Map();
+}
+
 /** Write the palette CSS vars (defaults when off / no palette — the v0.1.x look). */
 function applyPaletteVars(): void {
   const vars = paletteToCssVars(effectLevel === 'off' ? undefined : currentPalette, themeScope);
   for (const [name, value] of Object.entries(vars)) {
     document.documentElement.style.setProperty(name, value);
   }
+  // Fx tints key off this class: scope "none" means EVERYTHING stays stock,
+  // including semantic category colors (Faz 6 — the scope contract holds).
+  document.body.classList.toggle('theme-none', themeScope === 'none');
   if (currentPalette && effectLevel !== 'off' && themeScope !== 'none') {
     // One line per theme application — the color-iteration feedback loop
     // (field turu 2) needs to SEE what the tone mapper produced.
@@ -144,7 +161,11 @@ function setBeatClasses(frame: BeatFrame): void {
 }
 
 function applyEffectLevelClass(): void {
-  document.body.classList.remove('fx-off', 'fx-simple', 'fx-full');
+  document.body.classList.remove('fx-off', 'fx-simple', 'fx-full', 'fx-hype');
+  // Hype is a SUPERSET of full: the body carries BOTH classes so every
+  // existing fx-full rule applies untouched (the "fx-full look has zero
+  // CSS diff" contract holds by construction) and hype-only rules layer on.
+  if (effectLevel === 'hype') document.body.classList.add('fx-full');
   document.body.classList.add(`fx-${effectLevel}`);
 }
 
@@ -154,6 +175,65 @@ function applyEffectLevelClass(): void {
 let wordLineIndex = -1; // index of the line the spans belong to (-1 = none)
 let wordSpans: HTMLSpanElement[] = [];
 let activeWordIndex = -1;
+let fxWordIndex = -1; // the line's single fx word (hype), -1 = none
+let fxWordTag = '';
+
+/** Inline SVG icon (createElementNS — R-7 keeps innerHTML banned; strict
+ * CSP is untouched: presentation attributes only, no style attrs). */
+function buildFxIcon(tag: string): SVGSVGElement | null {
+  const path = FX_ICON_PATHS[tag];
+  if (!path) return null; // unknown tag (newer server lexicon) → no icon
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', FX_ICON_VIEWBOX);
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('fx-icon');
+  const p = document.createElementNS(SVG_NS, 'path');
+  p.setAttribute('d', path);
+  svg.appendChild(p);
+  return svg;
+}
+
+// Particle burst pool (Faz 6 P4): a FIXED set of spans created once and
+// retriggered by class toggle — no allocation on the hot path, transform/
+// opacity-only animation (risk-turu verdict). One layout read per burst
+// (edge-triggered, at most once per line) positions the pool at the word.
+const FX_BURST_COUNT = 12;
+let burstEl: HTMLDivElement | null = null;
+const burstParticles: HTMLSpanElement[] = [];
+
+function ensureBurstPool(): void {
+  if (burstEl || !boxEl) return;
+  burstEl = document.createElement('div');
+  burstEl.id = 'fx-burst';
+  for (let i = 0; i < FX_BURST_COUNT; i += 1) {
+    const particle = document.createElement('span');
+    particle.className = 'fx-particle';
+    // Precomputed scatter vector per particle (deterministic fan) — CSS
+    // consumes it; will-change stays confined to this small pool.
+    const angle = (i / FX_BURST_COUNT) * 2 * Math.PI;
+    const radius = 26 + (i % 3) * 9;
+    particle.style.setProperty('--fx-dx', `${Math.round(Math.cos(angle) * radius)}px`);
+    particle.style.setProperty('--fx-dy', `${Math.round(Math.sin(angle) * radius * 0.6)}px`);
+    burstEl.appendChild(particle);
+    burstParticles.push(particle);
+  }
+  boxEl.appendChild(burstEl);
+}
+
+function triggerBurst(span: HTMLSpanElement): void {
+  if (!burstEl || !boxEl) return;
+  const word = span.getBoundingClientRect(); // one read, edge-triggered
+  const box = boxEl.getBoundingClientRect();
+  burstEl.style.setProperty('--fx-x', `${Math.round(word.left + word.width / 2 - box.left)}px`);
+  burstEl.style.setProperty('--fx-y', `${Math.round(word.top + word.height / 2 - box.top)}px`);
+  burstEl.classList.remove('bursting');
+  // Force the animation restart on consecutive bursts (class re-arm needs a
+  // reflow between remove/add — same one-shot pattern as the line-in fade).
+  void burstEl.offsetWidth;
+  burstEl.classList.add('bursting');
+}
 
 function clearWordSpans(): void {
   wordLineIndex = -1;
@@ -161,6 +241,8 @@ function clearWordSpans(): void {
   activeWordIndex = -1;
   fillRunStart = -1; // spans are gone — nothing carries .word-fill anymore
   fillActiveIndex = -1;
+  fxWordIndex = -1;
+  fxWordTag = '';
 }
 
 // Sustained-fill (Faz 4): a consecutive RUN of planned words sweeps as ONE
@@ -225,11 +307,23 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   // base must never change mid-line (field feedback 2026-07-14: the grey ->
   // dim-theme snap at activation read as a glitch).
   fillPlan = planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
+  const fxHit = fxIndex.get(lineIndex); // ≤1 semantic effect per line (hype)
+  fxWordIndex = fxHit ? fxHit.word : -1;
+  fxWordTag = fxHit ? fxHit.effect.tag : '';
   wordSpans = words.map((word, i) => {
     if (i > 0) lineEl.appendChild(document.createTextNode(' '));
     const span = document.createElement('span');
     span.className = 'word';
     span.textContent = word.text;
+    if (fxHit && i === fxHit.word) {
+      // Classes at build time; activation stays a class toggle (no per-frame
+      // fx work). The inline icon rides INSIDE the span so it wraps with the
+      // word — the box clips at the window edge, never past it.
+      span.classList.add('fx-word', `fx-${fxHit.effect.tag}`);
+      span.style.setProperty('--fx-intensity', String(fxHit.effect.intensity));
+      const icon = buildFxIcon(fxHit.effect.tag);
+      if (icon) span.appendChild(icon);
+    }
     lineEl.appendChild(span);
     return span;
   });
@@ -243,6 +337,17 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
 
 function highlightWord(index: number): void {
   if (index === activeWordIndex) return;
+  // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
+  // repaints of an already-passed word).
+  if (
+    index === fxWordIndex &&
+    index > activeWordIndex &&
+    FX_BURST_TAGS.has(fxWordTag) &&
+    effectLevel === 'hype'
+  ) {
+    const span = wordSpans[index];
+    if (span) triggerBurst(span);
+  }
   wordSpans[activeWordIndex]?.classList.remove('word-active');
   wordSpans[index]?.classList.add('word-active');
   // Sung pinning: everything BEFORE the active word stays bright; a
@@ -301,6 +406,8 @@ function clearEnrichment(): void {
   artworkPalette = undefined;
   artworkRequest += 1; // in-flight artwork loads for the OLD track go stale
   currentBeats = undefined;
+  currentFx = undefined;
+  rebuildFxIndex();
   rebuildBeatCursor();
   applyPaletteVars();
 }
@@ -356,6 +463,7 @@ window.kashi.onLyrics((payload) => {
     lines?: LyricLine[];
     palette?: PaletteLike;
     beats?: BeatsLike;
+    fx?: FxData;
   };
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
@@ -370,15 +478,19 @@ window.kashi.onLyrics((payload) => {
   if (data.found && data.lines) {
     lines = data.lines;
     // Server enrichment (Faz 4): palette themes the box, beats drive the
-    // pulse. lrclib results carry neither — defaults keep the plain look.
+    // pulse; fx tags feed the hype level (Faz 6). lrclib results carry
+    // none of them — defaults keep the plain look.
     serverPalette = data.palette;
     currentBeats = data.beats;
+    currentFx = data.fx;
+    rebuildFxIndex();
     rebuildBeatCursor();
     refreshPalette();
     window.kashi.log(
       `lyrics applied: ${lines.length} lines` +
         (data.beats ? ' +beats' : '') +
-        (data.palette ? ' +palette' : ''),
+        (data.palette ? ' +palette' : '') +
+        (data.fx?.words?.length ? ` +fx(${data.fx.words.length})` : ''),
     );
   } else {
     lines = [];
@@ -386,6 +498,8 @@ window.kashi.onLyrics((payload) => {
     // whether lyrics exist. Only server enrichment resets here.
     serverPalette = undefined;
     currentBeats = undefined;
+    currentFx = undefined;
+    rebuildFxIndex();
     rebuildBeatCursor();
     refreshPalette();
     statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
@@ -474,6 +588,7 @@ window.kashi.onSettings((payload) => {
     applyEffectLevelClass();
     applyPaletteVars();
     rebuildBeatCursor();
+    rebuildFxIndex(); // hype gates the index; other levels empty it
     clearRunFill();
     clearWordSpans(); // next frame rebuilds spans + fill plan for the new level
   }
@@ -645,6 +760,7 @@ function ensureLoop(): void {
 // First paint uses the default level; the settings replay (first channel in
 // replay order) corrects it before any lyrics arrive.
 applyEffectLevelClass();
+ensureBurstPool();
 applyPaletteVars();
 ensureLoop();
 

@@ -13,8 +13,10 @@ import {
   BG_MAX_LUMINANCE,
   BeatCursor,
   DEFAULT_PALETTE_VARS,
+  FX_BURST_TAGS,
   TEXT_CONTRAST_MIN,
   beatsUsable,
+  buildFxIndex,
   clampBackground,
   contrastRatio,
   fillProgress,
@@ -25,19 +27,23 @@ import {
 import { NEUTRAL_BG_TRIPLET } from './color-tone.js';
 
 describe('parseEffectLevel', () => {
-  it('accepts the three levels and defaults everything else', () => {
+  it('accepts the four levels and defaults everything else', () => {
     expect(parseEffectLevel('off')).toBe('off');
     expect(parseEffectLevel('simple')).toBe('simple');
     expect(parseEffectLevel('full')).toBe('full');
+    expect(parseEffectLevel('hype')).toBe('hype');
     expect(parseEffectLevel('FULL')).toBe(DEFAULT_EFFECT_LEVEL);
     expect(parseEffectLevel(2)).toBe(DEFAULT_EFFECT_LEVEL);
     expect(parseEffectLevel(undefined)).toBe(DEFAULT_EFFECT_LEVEL);
+    // A `full` user must see zero change from the Faz 6 upgrade.
+    expect(DEFAULT_EFFECT_LEVEL).toBe('simple');
   });
 
   it('labels levels for the tray', () => {
     expect(effectLevelLabel('off')).toBe('Off');
     expect(effectLevelLabel('simple')).toBe('Simple');
     expect(effectLevelLabel('full')).toBe('Full');
+    expect(effectLevelLabel('hype')).toBe('Hype');
   });
 
   it('parses theme scopes, defaulting garbage to full', () => {
@@ -266,5 +272,61 @@ describe('BeatCursor', () => {
     const cursor = new BeatCursor(TIMES);
     expect(cursor.frame(1500).active).toBe(true);
     expect(cursor.frame(1500).active).toBe(true); // idempotent, no advance past
+  });
+});
+
+describe('buildFxIndex (Faz 6 hype)', () => {
+  const lines = [
+    {
+      start_ms: 0,
+      end_ms: 2000,
+      text: 'the bomb explodes with love',
+      words: [
+        { start_ms: 0, end_ms: 400, text: 'the' },
+        { start_ms: 400, end_ms: 900, text: 'bomb' },
+        { start_ms: 900, end_ms: 1400, text: 'explodes' },
+        { start_ms: 1400, end_ms: 1700, text: 'with' },
+        { start_ms: 1700, end_ms: 2000, text: 'love' },
+      ],
+    },
+    { start_ms: 2000, end_ms: 4000, text: 'wordless line' },
+  ];
+  const fx = (words: unknown[]) =>
+    ({ lexicon: 'kashi-fx/1.0.0', engine: 'keywords', words }) as never;
+
+  it('keeps ONE winner per line: highest intensity, earliest word on ties', () => {
+    const index = buildFxIndex(
+      fx([
+        { line: 0, word: 4, tag: 'love', intensity: 0.6 },
+        { line: 0, word: 1, tag: 'explosion', intensity: 0.9 },
+        { line: 0, word: 2, tag: 'explosion', intensity: 0.9 },
+      ]),
+      lines,
+    );
+    expect(index.size).toBe(1);
+    expect(index.get(0)).toEqual({ word: 1, effect: { tag: 'explosion', intensity: 0.9 } });
+  });
+
+  it('drops out-of-range indices and wordless-line tags (quality-gate strips)', () => {
+    const index = buildFxIndex(
+      fx([
+        { line: 0, word: 99, tag: 'love', intensity: 0.6 },
+        { line: 1, word: 0, tag: 'love', intensity: 0.6 },
+        { line: 7, word: 0, tag: 'love', intensity: 0.6 },
+      ]),
+      lines,
+    );
+    expect(index.size).toBe(0);
+  });
+
+  it('clamps intensity into [0,1] and tolerates missing fx', () => {
+    const index = buildFxIndex(fx([{ line: 0, word: 1, tag: 'fire', intensity: 7 }]), lines);
+    expect(index.get(0)!.effect.intensity).toBe(1);
+    expect(buildFxIndex(undefined, lines).size).toBe(0);
+  });
+
+  it('burst tags are a small fixed set', () => {
+    expect(FX_BURST_TAGS.has('explosion')).toBe(true);
+    expect(FX_BURST_TAGS.has('love')).toBe(false);
   });
 });

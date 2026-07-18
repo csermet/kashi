@@ -1,23 +1,37 @@
 /**
- * Effect-engine level (Faz 4), shared by main (settings/tray) and the
- * renderer (CSS application). off = the pre-Faz-4 look, pixel for pixel;
- * simple = word easing + album palette theming; full = + beat pulse.
+ * Effect-engine level (Faz 4; 4th tier Faz 6), shared by main (settings/
+ * tray) and the renderer (CSS application). off = the pre-Faz-4 look, pixel
+ * for pixel; simple = word easing + album palette theming; full = + beat
+ * pulse; hype = + semantic word effects (fx tags: icon pops, bursts,
+ * category tints, downbeat emphasis). The default stays `simple` — a
+ * `full` user sees zero change until they opt into Hype (Caner kararı 7).
  */
-export type EffectLevel = 'off' | 'simple' | 'full';
+export type EffectLevel = 'off' | 'simple' | 'full' | 'hype';
 
-export const EFFECT_LEVELS: readonly EffectLevel[] = ['off', 'simple', 'full'];
+export const EFFECT_LEVELS: readonly EffectLevel[] = ['off', 'simple', 'full', 'hype'];
 
 export const DEFAULT_EFFECT_LEVEL: EffectLevel = 'simple';
 
-/** IPC/settings values are untrusted — garbage lands on the default. */
+/** IPC/settings values are untrusted — garbage lands on the default.
+ * Forward-tolerance note: an OLDER overlay reading a settings file that
+ * says "hype" lands on the default — by design. */
 export function parseEffectLevel(value: unknown): EffectLevel {
-  return value === 'off' || value === 'simple' || value === 'full'
+  return value === 'off' || value === 'simple' || value === 'full' || value === 'hype'
     ? value
     : DEFAULT_EFFECT_LEVEL;
 }
 
 export function effectLevelLabel(level: EffectLevel): string {
-  return level === 'off' ? 'Off' : level === 'simple' ? 'Simple' : 'Full';
+  switch (level) {
+    case 'off':
+      return 'Off';
+    case 'simple':
+      return 'Simple';
+    case 'full':
+      return 'Full';
+    case 'hype':
+      return 'Hype';
+  }
 }
 
 /**

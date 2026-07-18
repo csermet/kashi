@@ -364,3 +364,155 @@ body.fx-full.fill-neutral .word-fill {
     opacity: 0;
   }
 }
+
+/* ------------------------------------------------------------------------
+   Faz 6 P4: semantic word effects — HYPE level only.
+   hype layers ON TOP of fx-full (the body carries both classes; the fx-full
+   look itself has zero diff by construction). Everything here is transform/
+   opacity/color-only; the glow stays the pre-drawn ::after (risk-turu
+   verdicts). Sacrifice ladder if the <3% CPU budget fails: these hype rules
+   go FIRST (burst, then icon pop, then word pop) — before the beat glow and
+   the scale named at the top of this file. */
+
+:root {
+  /* Damped-spring approximation via linear() (Chromium 113+; Electron 42 =
+     Cr 148) — Jake Archibald generator preset, shared by every hype pop. */
+  --fx-spring: linear(
+    0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017,
+    1.077 20.4%, 1.121, 1.149 24.3%, 1.159, 1.163 27%, 1.154, 1.129 32.8%,
+    1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%,
+    0.997 69.8%, 1.003 76.9%, 1
+  );
+}
+
+/* Category tints — "hue is data, tone is design": the active fx word mixes
+   the theme primary with a fixed category hue in OKLCH, so tints follow the
+   album theme instead of fighting it. theme-none keeps everything stock. */
+body.fx-hype .word.fx-word {
+  --fx-color: var(--kashi-primary, #fff);
+}
+body.fx-hype:not(.theme-none) .fx-explosion { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ff8c42); }
+body.fx-hype:not(.theme-none) .fx-fire { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ff6b35); }
+body.fx-hype:not(.theme-none) .fx-poison { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #b16cff); }
+body.fx-hype:not(.theme-none) .fx-love { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ff6fa5); }
+body.fx-hype:not(.theme-none) .fx-heartbreak { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #7f9cf5); }
+body.fx-hype:not(.theme-none) .fx-water { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #4fc3f7); }
+body.fx-hype:not(.theme-none) .fx-night { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ffd166); }
+body.fx-hype:not(.theme-none) .fx-shine { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #ffe082); }
+body.fx-hype:not(.theme-none) .fx-dance { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #f06292); }
+body.fx-hype:not(.theme-none) .fx-money { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #66bb6a); }
+body.fx-hype:not(.theme-none) .fx-fly { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #81d4fa); }
+body.fx-hype:not(.theme-none) .fx-speed { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ffab40); }
+body.fx-hype:not(.theme-none) .fx-electric { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #ffee58); }
+body.fx-hype:not(.theme-none) .fx-cold { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #80deea); }
+body.fx-hype:not(.theme-none) .fx-dark { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #9575cd); }
+body.fx-hype:not(.theme-none) .fx-death { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 50%, #b0bec5); }
+body.fx-hype:not(.theme-none) .fx-crown { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #ffd700); }
+body.fx-hype:not(.theme-none) .fx-phone { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #4dd0e1); }
+body.fx-hype:not(.theme-none) .fx-fight { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ef5350); }
+body.fx-hype:not(.theme-none) .fx-music { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ce93d8); }
+
+/* The fx word's activation pop: stronger than the stock word-active
+   (specificity wins: 3 classes + body), scaled by the server intensity.
+   Transform/color only — baseline stays put (DG6). */
+body.fx-hype .word.fx-word.word-active {
+  color: var(--fx-color);
+  transform: translateY(-2px) scale(calc(1.06 + 0.12 * var(--fx-intensity, 0.5)));
+  transition:
+    opacity 120ms ease-out,
+    color 120ms ease-out,
+    transform 340ms var(--fx-spring);
+}
+/* Sung fx word keeps a whisper of its tint (word-sung pins bright). */
+body.fx-hype .word.fx-word.word-sung {
+  color: color-mix(in oklch, var(--kashi-primary, #fff) 70%, var(--fx-color));
+}
+
+/* Inline category icon: rides INSIDE the word span (wraps with the word,
+   clipped by the box — never past the 560px window). Hidden at rest,
+   springs in on activation, lingers dim once sung. */
+.fx-icon {
+  display: none;
+}
+body.fx-hype .fx-icon {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.18em;
+  vertical-align: -0.08em;
+  color: var(--fx-color);
+  opacity: 0;
+  transform: scale(0.3);
+  transition:
+    opacity 160ms ease-out,
+    transform 340ms var(--fx-spring);
+}
+body.fx-hype .word.fx-word.word-active .fx-icon {
+  opacity: 0.95;
+  transform: scale(1);
+}
+body.fx-hype .word.fx-word.word-sung .fx-icon {
+  opacity: 0.45;
+  transform: scale(0.85);
+}
+
+/* Particle burst pool (explosion-class tags): FIXED spans, class-toggle
+   trigger, transform/opacity keyframe — will-change confined to the pool. */
+#fx-burst {
+  display: none;
+  position: absolute;
+  left: var(--fx-x, 50%);
+  top: var(--fx-y, 50%);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+body.fx-hype #fx-burst {
+  display: block;
+}
+.fx-particle {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--kashi-accent, #fff);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+#fx-burst.bursting .fx-particle {
+  animation: kashi-fx-burst 480ms ease-out forwards;
+}
+@keyframes kashi-fx-burst {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--fx-dx, 20px), var(--fx-dy, -14px)) scale(0.4);
+    opacity: 0;
+  }
+}
+
+/* Downbeat emphasis: hype leans harder on the existing pre-drawn ring
+   (opacity-only, same compositor story as fx-full). */
+body.fx-hype #lyric-box.beat-down::after {
+  opacity: 0.95;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Core semantics stay (tint + icon presence); motion goes. */
+  body.fx-hype .word.fx-word.word-active {
+    transform: none;
+  }
+  body.fx-hype .fx-icon,
+  body.fx-hype .word.fx-word.word-active .fx-icon,
+  body.fx-hype .word.fx-word.word-sung .fx-icon {
+    transform: none;
+    transition: opacity 160ms ease-out;
+  }
+  #fx-burst.bursting .fx-particle {
+    animation: none;
+  }
+}

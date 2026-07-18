@@ -245,7 +245,7 @@ export const BEAT_RESYNC_JUMP_MS = 2000;
 
 /** Beat pulse only at `full`, only with a usable, confident grid. */
 export function beatsUsable(level: EffectLevel, beats: BeatsLike | undefined): boolean {
-  if (level !== 'full' || !beats) return false;
+  if ((level !== 'full' && level !== 'hype') || !beats) return false;
   const times = beats.times_ms;
   if (!Array.isArray(times) || times.length === 0) return false;
   // Monotonicity too: BeatCursor binary-searches this array — unsorted
@@ -311,4 +311,51 @@ export class BeatCursor {
     }
     this.idx = lo;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Semantic word effects (Faz 6 P4) — consuming the server's fx block.
+
+import type { FxData, LyricLine } from '../../shared/lyrics.js';
+
+export interface FxWordEffect {
+  tag: string;
+  intensity: number;
+}
+
+/** Tags whose activation fires the particle burst (pool in main.ts). */
+export const FX_BURST_TAGS: ReadonlySet<string> = new Set(['explosion', 'electric']);
+
+/**
+ * fx.words → per-line winner map (line → word → effect).
+ *
+ * Selectivity is a PRODUCT decision (Caner kararı 8): at most ONE semantic
+ * effect per line — the highest intensity wins, earliest word breaks ties —
+ * "az ama vurucu", loosened only if the field tour asks for more. Entries
+ * with out-of-range indices (quality-gate word strips, stale docs) are
+ * dropped here so the renderer never styles a nonexistent span (DG6: a
+ * wrong effect is worse than no effect).
+ */
+export function buildFxIndex(
+  fx: FxData | undefined,
+  lines: readonly LyricLine[],
+): Map<number, { word: number; effect: FxWordEffect }> {
+  const index = new Map<number, { word: number; effect: FxWordEffect }>();
+  if (!fx?.words) return index;
+  for (const tag of fx.words) {
+    if (!Number.isInteger(tag.line) || !Number.isInteger(tag.word)) continue;
+    const words = lines[tag.line]?.words;
+    if (!words || tag.word < 0 || tag.word >= words.length) continue;
+    if (typeof tag.tag !== 'string' || !tag.tag) continue;
+    const intensity = typeof tag.intensity === 'number' ? Math.min(1, Math.max(0, tag.intensity)) : 0;
+    const current = index.get(tag.line);
+    if (
+      !current ||
+      intensity > current.effect.intensity ||
+      (intensity === current.effect.intensity && tag.word < current.word)
+    ) {
+      index.set(tag.line, { word: tag.word, effect: { tag: tag.tag, intensity } });
+    }
+  }
+  return index;
 }
