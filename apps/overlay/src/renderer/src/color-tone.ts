@@ -200,3 +200,32 @@ export function toneAccent(c: Oklch): string {
 export function toneBackground(c: Oklch): string {
   return oklchToHex(BG_L, Math.min(c.C, BG_C_MAX), c.h);
 }
+
+/** Circular hue distance in RADIANS (0..π) — Oklch.h is atan2 output. */
+export function hueDistance(a: number, b: number): number {
+  const d = Math.abs(a - b) % (2 * Math.PI);
+  return d > Math.PI ? 2 * Math.PI - d : d;
+}
+
+/**
+ * FX category tint (Faz 6 field round 2): the category color must read as
+ * ITS OWN color — "love is pink, toxic is green" — and must stay visibly
+ * distinct from the album theme. Hue comes from the CATEGORY (data);
+ * lightness/chroma render in a fixed readable band (design). When the
+ * theme primary already sits on the category's hue (a green album playing
+ * a "toxic" line), same-band rendering would disappear into the theme —
+ * so the tint is pushed apart on the LIGHTNESS axis instead (lighter over
+ * a dark primary, darker over a bright one), keeping the hue semantic.
+ */
+export const FX_TINT_L = 0.78;
+/** ~40° in radians: closer than this = the tint would vanish into the theme. */
+export const FX_HUE_CLASH_RAD = (40 * Math.PI) / 180;
+
+export function toneFx(category: Oklch, primary: Oklch | null): string {
+  const c = clamp(category.C < 0.12 ? 0.16 : category.C, 0.14, 0.22);
+  let L = FX_TINT_L;
+  if (primary && hueDistance(category.h, primary.h) < FX_HUE_CLASH_RAD) {
+    L = primary.L >= 0.72 ? 0.6 : 0.88;
+  }
+  return oklchToHex(L, c, category.h);
+}

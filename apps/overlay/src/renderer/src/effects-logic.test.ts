@@ -18,6 +18,8 @@ import {
   beatsUsable,
   buildFxIndex,
   clampBackground,
+  computeFxTintVars,
+  FX_BASE_COLORS,
   energyAt,
   inSection,
   quantizedEnergy,
@@ -364,5 +366,19 @@ describe('energy/section dynamics (Faz 6 P5)', () => {
     expect(inSection(sections, 'high', 20_000)).toBe(false);
     expect(inSection(sections, 'high', 35_000)).toBe(false); // other type
     expect(inSection(undefined, 'high', 0)).toBe(false);
+  });
+});
+
+describe('computeFxTintVars (Faz 6 field round 2)', () => {
+  it('emits one var per category; scope none emits nothing (stock contract)', () => {
+    const vars = computeFxTintVars('#ff847c', 'full');
+    expect(Object.keys(vars).length).toBe(Object.keys(FX_BASE_COLORS).length);
+    expect(vars['--fx-tint-poison']).toMatch(/^#[0-9a-f]{6}$/);
+    expect(computeFxTintVars('#ff847c', 'none')).toEqual({});
+  });
+
+  it('tints differ from the raw base colors (tone-mapped, not passthrough)', () => {
+    const vars = computeFxTintVars(undefined, 'full');
+    expect(vars['--fx-tint-poison']).not.toBe(FX_BASE_COLORS['poison']);
   });
 });

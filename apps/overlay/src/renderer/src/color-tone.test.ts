@@ -21,6 +21,9 @@ import {
   tonePrimary,
   toneSecondary,
   type Oklch,
+  toneFx,
+  hueDistance,
+  FX_TINT_L,
 } from './color-tone.js';
 
 /** ΔE_OK between two hexes (L,a,b distance). */
@@ -154,5 +157,33 @@ describe('band properties (hold for every mapped color)', () => {
       expect(mapped.C).toBeGreaterThanOrEqual(ACCENT_C_MIN - 0.02); // gamut clip tolerance
       expect(mapped.C).toBeLessThanOrEqual(ACCENT_C_MAX + 0.02);
     }
+  });
+});
+
+describe('toneFx (Faz 6 field round 2: semantic, theme-distinct tints)', () => {
+  const green = hexToOklch('#4cd964'); // poison
+  const pink = hexToOklch('#ff6fa5'); // love
+
+  it('keeps the category hue (love stays pink-family, poison green-family)', () => {
+    const tint = hexToOklch(toneFx(green, null));
+    expect(hueDistance(tint.h, green.h)).toBeLessThan(0.15);
+    const loveTint = hexToOklch(toneFx(pink, null));
+    expect(hueDistance(loveTint.h, pink.h)).toBeLessThan(0.15);
+  });
+
+  it('pushes lightness apart when the theme sits on the category hue', () => {
+    // A green album theme playing a "toxic" line: same band would vanish.
+    const brightGreenPrimary = hexToOklch(oklchToHex(0.8, 0.16, green.h));
+    const clashing = hexToOklch(toneFx(green, brightGreenPrimary));
+    expect(Math.abs(clashing.L - brightGreenPrimary.L)).toBeGreaterThan(0.12);
+    // A far-hue theme keeps the standard band.
+    const farPrimary = hexToOklch(oklchToHex(0.8, 0.16, green.h + Math.PI));
+    const calm = hexToOklch(toneFx(green, farPrimary));
+    expect(Math.abs(calm.L - FX_TINT_L)).toBeLessThan(0.06);
+  });
+
+  it('is deterministic', () => {
+    const p = hexToOklch('#ff847c');
+    expect(toneFx(green, p)).toBe(toneFx(green, p));
   });
 });

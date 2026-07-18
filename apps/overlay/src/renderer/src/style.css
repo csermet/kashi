@@ -385,32 +385,34 @@ body.fx-full.fill-neutral .word-fill {
   );
 }
 
-/* Category tints — "hue is data, tone is design": the active fx word mixes
-   the theme primary with a fixed category hue in OKLCH, so tints follow the
-   album theme instead of fighting it. theme-none keeps everything stock. */
+/* Category tints (field round 2): computed in TS (color-tone.toneFx) —
+   semantic hue from the category ("love is pink, toxic is green"), tone in
+   a fixed readable band, and LIGHTNESS pushed apart when the album theme
+   already sits on the category's hue. Vars land on :root at palette/settings
+   cadence; theme-none clears them and the fallback keeps everything stock. */
 body.fx-hype .word.fx-word {
   --fx-color: var(--kashi-primary, #fff);
 }
-body.fx-hype:not(.theme-none) .fx-explosion { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ff8c42); }
-body.fx-hype:not(.theme-none) .fx-fire { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ff6b35); }
-body.fx-hype:not(.theme-none) .fx-poison { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #b16cff); }
-body.fx-hype:not(.theme-none) .fx-love { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ff6fa5); }
-body.fx-hype:not(.theme-none) .fx-heartbreak { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #7f9cf5); }
-body.fx-hype:not(.theme-none) .fx-water { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #4fc3f7); }
-body.fx-hype:not(.theme-none) .fx-night { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ffd166); }
-body.fx-hype:not(.theme-none) .fx-shine { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #ffe082); }
-body.fx-hype:not(.theme-none) .fx-dance { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #f06292); }
-body.fx-hype:not(.theme-none) .fx-money { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #66bb6a); }
-body.fx-hype:not(.theme-none) .fx-fly { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #81d4fa); }
-body.fx-hype:not(.theme-none) .fx-speed { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ffab40); }
-body.fx-hype:not(.theme-none) .fx-electric { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #ffee58); }
-body.fx-hype:not(.theme-none) .fx-cold { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #80deea); }
-body.fx-hype:not(.theme-none) .fx-dark { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #9575cd); }
-body.fx-hype:not(.theme-none) .fx-death { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 50%, #b0bec5); }
-body.fx-hype:not(.theme-none) .fx-crown { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 40%, #ffd700); }
-body.fx-hype:not(.theme-none) .fx-phone { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #4dd0e1); }
-body.fx-hype:not(.theme-none) .fx-fight { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ef5350); }
-body.fx-hype:not(.theme-none) .fx-music { --fx-color: color-mix(in oklch, var(--kashi-primary, #fff) 45%, #ce93d8); }
+body.fx-hype .fx-explosion { --fx-color: var(--fx-tint-explosion, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-fire { --fx-color: var(--fx-tint-fire, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-poison { --fx-color: var(--fx-tint-poison, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-love { --fx-color: var(--fx-tint-love, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-heartbreak { --fx-color: var(--fx-tint-heartbreak, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-water { --fx-color: var(--fx-tint-water, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-night { --fx-color: var(--fx-tint-night, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-shine { --fx-color: var(--fx-tint-shine, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-dance { --fx-color: var(--fx-tint-dance, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-money { --fx-color: var(--fx-tint-money, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-fly { --fx-color: var(--fx-tint-fly, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-speed { --fx-color: var(--fx-tint-speed, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-electric { --fx-color: var(--fx-tint-electric, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-cold { --fx-color: var(--fx-tint-cold, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-dark { --fx-color: var(--fx-tint-dark, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-death { --fx-color: var(--fx-tint-death, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-crown { --fx-color: var(--fx-tint-crown, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-phone { --fx-color: var(--fx-tint-phone, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-fight { --fx-color: var(--fx-tint-fight, var(--kashi-primary, #fff)); }
+body.fx-hype .fx-music { --fx-color: var(--fx-tint-music, var(--kashi-primary, #fff)); }
 
 /* The fx word's activation pop: stronger than the stock word-active
    (specificity wins: 3 classes + body), scaled by the server intensity.

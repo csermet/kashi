@@ -11,6 +11,7 @@ import {
   hexToOklch,
   toneAccent,
   toneBackground,
+  toneFx,
   tonePrimary,
   toneSecondary,
   type Oklch,
@@ -396,4 +397,53 @@ export function inSection(
     }
   }
   return false;
+}
+
+/** Category base colors — the SEMANTIC hue source ("love is pink, toxic is
+ * green"; field round 2). Only the hue survives rendering: toneFx re-renders
+ * every tint in a fixed readable band and pushes lightness apart when the
+ * album theme already sits on the category's hue. */
+export const FX_BASE_COLORS: Readonly<Record<string, string>> = {
+  explosion: '#ff8c42',
+  fire: '#ff6b35',
+  poison: '#4cd964', // green — the field note's canonical example
+  love: '#ff6fa5',
+  heartbreak: '#7f9cf5',
+  water: '#4fc3f7',
+  night: '#ffd166',
+  shine: '#ffe082',
+  dance: '#f06292',
+  money: '#66bb6a',
+  fly: '#81d4fa',
+  speed: '#ffab40',
+  electric: '#ffee58',
+  cold: '#80deea',
+  dark: '#9575cd',
+  death: '#b0bec5',
+  crown: '#ffd700',
+  phone: '#4dd0e1',
+  fight: '#ef5350',
+  music: '#ce93d8',
+};
+
+/**
+ * Per-tag tint CSS vars, recomputed whenever the palette/scope changes
+ * (rare — track changes and settings flips, never per frame). scope "none"
+ * returns an empty map: the caller clears the vars and the CSS fallback
+ * keeps everything stock (the scope contract).
+ */
+export function computeFxTintVars(
+  primaryHex: string | undefined,
+  scope: ThemeScope,
+): Record<string, string> {
+  if (scope === 'none') return {};
+  const primary =
+    primaryHex && HEX_COLOR.test(primaryHex) && primaryHex !== '#ffffff'
+      ? hexToOklch(primaryHex)
+      : null;
+  const vars: Record<string, string> = {};
+  for (const [tag, hex] of Object.entries(FX_BASE_COLORS)) {
+    vars[`--fx-tint-${tag}`] = toneFx(hexToOklch(hex), primary);
+  }
+  return vars;
 }

@@ -23,6 +23,8 @@ import {
   BeatCursor,
   beatsUsable,
   buildFxIndex,
+  computeFxTintVars,
+  FX_BASE_COLORS,
   fillProgress,
   FX_BURST_TAGS,
   inSection,
@@ -33,7 +35,7 @@ import {
   type BeatsLike,
   type PaletteLike,
 } from './effects-logic.js';
-import { FX_ICON_PATHS, FX_ICON_VIEWBOX } from './fx-icons.js';
+import { FX_ICON_VARIANTS, FX_ICON_VIEWBOX } from './fx-icons.js';
 import { PositionClock } from './position-clock.js';
 import {
   accumulateWheel,
@@ -149,6 +151,18 @@ function applyPaletteVars(): void {
   // Fx tints key off this class: scope "none" means EVERYTHING stays stock,
   // including semantic category colors (Faz 6 — the scope contract holds).
   document.body.classList.toggle('theme-none', themeScope === 'none');
+  // Per-category tint vars (field round 2): semantic hue, theme-distinct
+  // tone — recomputed here (track/settings cadence, never per frame).
+  const tintVars = computeFxTintVars(
+    effectLevel === 'off' ? undefined : vars['--kashi-primary'],
+    themeScope,
+  );
+  for (const tag of Object.keys(FX_BASE_COLORS)) {
+    const name = `--fx-tint-${tag}`;
+    const value = tintVars[name];
+    if (value) document.documentElement.style.setProperty(name, value);
+    else document.documentElement.style.removeProperty(name);
+  }
   if (currentPalette && effectLevel !== 'off' && themeScope !== 'none') {
     // One line per theme application — the color-iteration feedback loop
     // (field turu 2) needs to SEE what the tone mapper produced.
@@ -197,13 +211,25 @@ let activeWordIndex = -1;
 let fxWordIndex = -1; // the line's single fx word (hype), -1 = none
 let fxWordTag = '';
 
-/** Inline SVG icon (createElementNS — R-7 keeps innerHTML banned; strict
- * CSP is untouched: presentation attributes only, no style attrs). */
-function buildFxIcon(tag: string): SVGSVGElement | null {
+/** Deterministic per-WORD icon pick (field round 2: the same icon repeating
+ * across different words read poorly). Same word → same icon, always;
+ * different words in one category spread across its 1-3 variants. */
+function fxIconPath(tag: string, wordText: string): string | null {
   // hasOwn + typeof: inherited object keys ('constructor') must not leak a
   // non-string into setAttribute (defense in depth over mapFx's charset gate).
-  const path = Object.hasOwn(FX_ICON_PATHS, tag) ? FX_ICON_PATHS[tag] : undefined;
-  if (typeof path !== 'string') return null; // unknown tag (newer lexicon) → no icon
+  const variants = Object.hasOwn(FX_ICON_VARIANTS, tag) ? FX_ICON_VARIANTS[tag] : undefined;
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+  let hash = 0;
+  for (let i = 0; i < wordText.length; i += 1) hash = (hash * 31 + wordText.charCodeAt(i)) | 0;
+  const path = variants[Math.abs(hash) % variants.length];
+  return typeof path === 'string' ? path : null;
+}
+
+/** Inline SVG icon (createElementNS — R-7 keeps innerHTML banned; strict
+ * CSP is untouched: presentation attributes only, no style attrs). */
+function buildFxIcon(tag: string, wordText: string): SVGSVGElement | null {
+  const path = fxIconPath(tag, wordText);
+  if (path === null) return null; // unknown tag (newer lexicon) → no icon
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', FX_ICON_VIEWBOX);
@@ -342,7 +368,7 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
       // word — the box clips at the window edge, never past it.
       span.classList.add('fx-word', `fx-${fxHit.effect.tag}`);
       span.style.setProperty('--fx-intensity', String(fxHit.effect.intensity));
-      const icon = buildFxIcon(fxHit.effect.tag);
+      const icon = buildFxIcon(fxHit.effect.tag, word.text);
       if (icon) span.appendChild(icon);
     }
     lineEl.appendChild(span);
