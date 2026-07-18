@@ -157,22 +157,22 @@ def test_parse_composite_title_conservative_shapes():
     from kashi_server.pipeline.titles import parse_composite_title
 
     # The no-lyrics remnant class (Faz 6 P7):
-    assert parse_composite_title("7clouds | Kesha - TiK ToK (Lyrics)", "7clouds") == (
+    assert parse_composite_title("7clouds | Kesha - TiK ToK (Lyrics)") == (
         "Kesha",
         "TiK ToK",
     )
-    assert parse_composite_title("Dua Lipa - Levitating (Official Music Video)", "SomeChannel") == (
+    assert parse_composite_title("Dua Lipa - Levitating (Official Music Video)") == (
         "Dua Lipa",
         "Levitating",
     )
-    assert parse_composite_title("Artist - Song (Lyric Video)", None) == ("Artist", "Song")
+    assert parse_composite_title("Artist - Song (Lyric Video)") == ("Artist", "Song")
     # Refusals — zero or 2+ dashes after noise strip, empty halves:
-    assert parse_composite_title("Just A Plain Title", "ch") is None
-    assert parse_composite_title("A - B - C", "ch") is None
-    assert parse_composite_title(" - Song", "ch") is None
-    assert parse_composite_title("", "ch") is None
+    assert parse_composite_title("Just A Plain Title") is None
+    assert parse_composite_title("A - B - C") is None
+    assert parse_composite_title(" - Song") is None
+    assert parse_composite_title("") is None
     # Real bracket content survives the noise strip ("(Video Games)" is real):
-    assert parse_composite_title("Lana Del Rey - Video Games", None) == (
+    assert parse_composite_title("Lana Del Rey - Video Games") == (
         "Lana Del Rey",
         "Video Games",
     )

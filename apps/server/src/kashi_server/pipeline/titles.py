@@ -60,10 +60,12 @@ def clean_title(title: str) -> str | None:
 _COMPOSITE_SEP = re.compile(r"\s+[-–—]\s+")
 
 
-def parse_composite_title(title: str, channel_hint: str | None = None) -> tuple[str, str] | None:
+def parse_composite_title(title: str) -> tuple[str, str] | None:
     """("Real Artist", "Song") from a composite upload title, or None when
-    the shape is not confidently composite. channel_hint (the original
-    artist hint) only rejects a no-op parse — it never fuels one."""
+    the shape is not confidently composite. A successful parse is always a
+    real change (the song half is a strict substring of the input), so no
+    no-op guard exists here — the caller's retry either finds a record or
+    the original honest error is re-raised."""
     if not title or not title.strip():
         return None
     # Channels prefix with "Channel | …" — keep the LAST pipe segment.
@@ -77,6 +79,4 @@ def parse_composite_title(title: str, channel_hint: str | None = None) -> tuple[
     artist, song = parts[0].strip(), parts[1].strip()
     if not artist or not song:
         return None
-    if channel_hint and artist.strip().lower() == channel_hint.strip().lower() and song == title:
-        return None  # nothing was won — the primary ladder already tried this
     return artist, song

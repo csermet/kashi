@@ -352,8 +352,8 @@ def _plain_lyrics(job: Job) -> LyricsText:
         # + fetch_lyrics' own plausibility gates still stand between a parsed
         # guess and wrong lyrics. On a second miss the ORIGINAL error is
         # re-raised — its message names the hints the user actually sent.
-        parsed = parse_composite_title(hints.get("title") or "", hints.get("artist"))
-        if parsed is None or parsed == (hints.get("artist"), hints.get("title")):
+        parsed = parse_composite_title(hints.get("title") or "")
+        if parsed is None:
             raise
         artist, song = parsed
         logger.info(
@@ -367,7 +367,13 @@ def _plain_lyrics(job: Job) -> LyricsText:
             return fetch_lyrics(
                 {**hints, "artist": artist, "title": song}, base_url=settings.lrclib_base_url
             )
-        except PipelineError:
+        except PipelineError as retry_exc:
+            if is_transient_error(retry_exc.error_type):
+                # A transient retry failure (network/rate_limited) must stay
+                # transient — converting it to the original permanent
+                # lyrics_not_found would trip the 7-day re-enqueue block
+                # (reviewer catch, Faz 6 closure).
+                raise
             raise exc from None
 
 
@@ -469,7 +475,6 @@ def _tag_fx(result, lyrics):
     the client renders). Best-effort like palette/beats — never fails a job.
     Tags are (line, word) indices, so the nightcore rescale is irrelevant."""
     try:
-        from kashi_server.pipeline.langid import detect_language
         from kashi_server.pipeline.semantics import get_embedder, tag_words
 
         embedder = None
