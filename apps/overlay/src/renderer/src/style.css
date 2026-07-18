@@ -417,7 +417,10 @@ body.fx-hype:not(.theme-none) .fx-music { --fx-color: color-mix(in oklch, var(--
    Transform/color only — baseline stays put (DG6). */
 body.fx-hype .word.fx-word.word-active {
   color: var(--fx-color);
-  transform: translateY(-2px) scale(calc(1.06 + 0.12 * var(--fx-intensity, 0.5)));
+  /* Modest scale: transform does NOT reflow text, so a big glyph visually
+     collides with its neighbour (field screenshot: "askimiz|zehirli").
+     The tint + icon carry the emphasis; scale is only a nudge. */
+  transform: translateY(-1px) scale(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)));
   transition:
     opacity 120ms ease-out,
     color 120ms ease-out,
@@ -441,8 +444,10 @@ body.fx-hype .fx-icon {
   margin-left: 0.18em;
   vertical-align: -0.08em;
   color: var(--fx-color);
-  opacity: 0;
-  transform: scale(0.3);
+  /* Visible-but-dim from line build (field feedback: popping out of nothing
+     read as a glitch) — activation springs it to full presence. */
+  opacity: 0.35;
+  transform: scale(0.8);
   transition:
     opacity 160ms ease-out,
     transform 340ms var(--fx-spring);
@@ -536,12 +541,12 @@ body.fx-hype #lyric-box.energy-high::after {
   opacity: calc(0.1 + var(--kashi-energy, 0) * 0.22);
 }
 body.fx-hype #lyric-box.energy-high .word-active {
-  transform: translateY(-2px) scale(1.08);
+  transform: translateY(-1px) scale(1.06);
 }
 /* fx words keep their own (stronger, intensity-scaled) pop — re-stated so
    source order can't demote it under the energy-high rule above. */
 body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
-  transform: translateY(-2px) scale(calc(1.06 + 0.12 * var(--fx-intensity, 0.5)));
+  transform: translateY(-1px) scale(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)));
 }
 
 /* Line entrance with spring (hype): same one-shot class as the fx-simple/
