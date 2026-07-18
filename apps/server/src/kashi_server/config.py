@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # dry-run only LOGS the YAML until the operator is sure.
     lrclib_publish_enabled: bool = False
     lrclib_publish_dry_run: bool = True
+    # FX embedding layer (Faz 6 P3, `semantics` extra): line-theme tagging
+    # via multilingual-e5-small. The keyword/stem layer is dependency-free
+    # and ALWAYS runs; this flag only gates the model. Self-hosters without
+    # the extra set it false (warmup gates on it like the separator).
+    fx_embeddings: bool = True
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]

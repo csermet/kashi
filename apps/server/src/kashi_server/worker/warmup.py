@@ -82,6 +82,27 @@ def ensure_separator() -> None:
     logger.info("separator warmup ok: %s", settings.separation_model_filename)
 
 
+def ensure_semantics() -> "object":
+    """Load (downloading once to the model cache) the fx embedding model and
+    run a fixed-sentence sanity check. Called only when fx_embeddings is on —
+    same contract as the separator: a worker configured for semantics must
+    not claim jobs it cannot tag. Returns the ready PrototypeEmbedder so the
+    worker reuses the loaded weights."""
+    from kashi_server.config import settings
+    from kashi_server.pipeline.semantics import get_embedder
+
+    try:
+        embedder = get_embedder(cache_dir=str(settings.model_cache_dir))
+    except ImportError as exc:  # sentence_transformers imports lazily
+        raise RuntimeError(
+            "fx_embeddings=true but sentence-transformers is not installed "
+            "(image built without --extra semantics)"
+        ) from exc
+    sim = embedder.smoke()
+    logger.info("semantics warmup ok (smoke cosine %.3f)", sim)
+    return embedder
+
+
 def _main() -> int:  # pragma: no cover - CLI
     from kashi_server.config import settings
 
@@ -89,6 +110,8 @@ def _main() -> int:  # pragma: no cover - CLI
     quality = ensure_model()
     if settings.separation_mode != "off":
         ensure_separator()
+    if settings.fx_embeddings:
+        ensure_semantics()
     print(f"warmup ok (quality {quality:.3f})")
     return 0
 

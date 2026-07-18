@@ -112,4 +112,45 @@ export interface KashiProcessedTrackV1 {
     text?: Color;
     accent?: Color;
   };
+  /**
+   * Semantic effect tags (pipeline 2.6.0+, Faz 6). SPARSE: most words carry no tag; the server caps word tags (~60/doc). Indices reference lines[]/words[] of THIS document. Clients without effect support ignore the whole block.
+   */
+  fx?: {
+    /**
+     * fx lexicon version, e.g. "kashi-fx/1.0.0".
+     */
+    lexicon: string;
+    /**
+     * "keywords" or "keywords+<model>@<revision12>" when the embedding layer also ran.
+     */
+    engine: string;
+    words?: {
+      line: number;
+      word: number;
+      tag: string;
+      intensity: number;
+    }[];
+    /**
+     * Line-level THEME tags from the embedding layer (no trigger word identified — theme only, no word effect).
+     */
+    lines?: {
+      line: number;
+      tag: string;
+    }[];
+  };
+  /**
+   * Track-normalized loudness envelope (pipeline 2.6.0+): 0-100 ints sampled at rate_hz on the PLAYED clock (same as beats). Drives intensity ramps client-side.
+   */
+  energy?: {
+    rate_hz: number;
+    values: number[];
+  };
+  /**
+   * Coarse song sections (pipeline 2.6.0+). type is an OPEN string: v1 emits only energy-derived "high" blocks (chorus proxy); real structure labels (verse/chorus/bridge) may join additively later.
+   */
+  sections?: {
+    type: string;
+    start_ms: Ms;
+    end_ms: Ms;
+  }[];
 }

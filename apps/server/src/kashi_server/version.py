@@ -70,5 +70,11 @@
 # (windowed line-anchor agreement — word-level feel is NOT measured; the
 # honest label behind "quality 1.0 but drifting words"), or "human"
 # (lyricsfile fast path, fixed 1.0). The number itself is unchanged.
-PIPELINE_VERSION = "2.5.0"
+# 2.6.0: FX data foundation (Faz 6 P3) — additive fx/energy/sections
+# blocks. fx = curated keyword/stem tags (word-level) + optional
+# multilingual-e5-small line-theme tags (semantics extra, fx_embeddings);
+# energy = 2 Hz track-normalized RMS envelope; sections = energy-derived
+# "high" blocks (chorus proxy — allin1-style labels stay future/additive).
+# Old clients ignore all three; effects arrive with overlay 0.4.0.
+PIPELINE_VERSION = "2.6.0"
 PIPELINE_MAJOR = 2

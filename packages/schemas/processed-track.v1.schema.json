@@ -144,6 +144,62 @@
         "text": { "$ref": "#/$defs/color" },
         "accent": { "$ref": "#/$defs/color" }
       }
+    },
+    "fx": {
+      "type": "object",
+      "required": ["lexicon", "engine"],
+      "description": "Semantic effect tags (pipeline 2.6.0+, Faz 6). SPARSE: most words carry no tag; the server caps word tags (~60/doc). Indices reference lines[]/words[] of THIS document. Clients without effect support ignore the whole block.",
+      "properties": {
+        "lexicon": { "type": "string", "description": "fx lexicon version, e.g. \"kashi-fx/1.0.0\"." },
+        "engine": { "type": "string", "description": "\"keywords\" or \"keywords+<model>@<revision12>\" when the embedding layer also ran." },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["line", "word", "tag", "intensity"],
+            "properties": {
+              "line": { "type": "integer", "minimum": 0 },
+              "word": { "type": "integer", "minimum": 0 },
+              "tag": { "type": "string" },
+              "intensity": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        },
+        "lines": {
+          "type": "array",
+          "description": "Line-level THEME tags from the embedding layer (no trigger word identified — theme only, no word effect).",
+          "items": {
+            "type": "object",
+            "required": ["line", "tag"],
+            "properties": {
+              "line": { "type": "integer", "minimum": 0 },
+              "tag": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "energy": {
+      "type": "object",
+      "required": ["rate_hz", "values"],
+      "description": "Track-normalized loudness envelope (pipeline 2.6.0+): 0-100 ints sampled at rate_hz on the PLAYED clock (same as beats). Drives intensity ramps client-side.",
+      "properties": {
+        "rate_hz": { "type": "integer", "minimum": 1 },
+        "values": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 100 } }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "description": "Coarse song sections (pipeline 2.6.0+). type is an OPEN string: v1 emits only energy-derived \"high\" blocks (chorus proxy); real structure labels (verse/chorus/bridge) may join additively later.",
+      "items": {
+        "type": "object",
+        "required": ["type", "start_ms", "end_ms"],
+        "properties": {
+          "type": { "type": "string" },
+          "start_ms": { "$ref": "#/$defs/ms" },
+          "end_ms": { "$ref": "#/$defs/ms" }
+        }
+      }
     }
   },
   "$defs": {

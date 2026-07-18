@@ -84,5 +84,13 @@
     "background": "#1a1a2e",
     "text": "#ffffff",
     "accent": "#903749"
-  }
+  },
+  "fx": {
+    "lexicon": "kashi-fx/1.0.0",
+    "engine": "keywords+multilingual-e5-small@614241f622f5",
+    "words": [ { "line": 0, "word": 4, "tag": "love", "intensity": 0.6 } ],
+    "lines": [ { "line": 1, "tag": "night" } ]
+  },
+  "energy": { "rate_hz": 2, "values": [12, 35, 48, 62, 71, 66, 80, 91, 88, 74] },
+  "sections": [ { "type": "high", "start_ms": 3000, "end_ms": 4500 } ]
 }

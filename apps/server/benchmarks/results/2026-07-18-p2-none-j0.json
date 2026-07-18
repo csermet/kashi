@@ -1,0 +1,600 @@
+{
+ "meta": {
+  "generated_at": "2026-07-18T12:46:24+00:00",
+  "label": "p2-none-j0",
+  "pipeline_version": "2.5.0",
+  "alignment_model": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+  "separation": "full-mix",
+  "mixback": null,
+  "windowed": true,
+  "anchor_jitter_ms": 0,
+  "line_postprocess": "none",
+  "trim_ends": true,
+  "host": "12a9cc3a3f78",
+  "cpus": 4,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 805.8
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 8,
+   "scored": 8,
+   "failed": [],
+   "word_mae_ms_mean": 176.5,
+   "word_mae_ms_median": 122.3,
+   "word_medae_ms_mean": 102.8,
+   "pco": {
+    "0.1": 0.5362,
+    "0.2": 0.8051,
+    "0.3": 0.8916,
+    "0.5": 0.9489
+   },
+   "align_s_total": 447.5,
+   "align_x_realtime": 0.267,
+   "trimmed_ends_total": 69,
+   "per_language": {
+    "deu": {
+     "songs": 2,
+     "word_mae_ms_mean": 122.3,
+     "pco_0.3": 0.9594
+    },
+    "eng": {
+     "songs": 2,
+     "word_mae_ms_mean": 205.9,
+     "pco_0.3": 0.8604
+    },
+    "fra": {
+     "songs": 2,
+     "word_mae_ms_mean": 211.6,
+     "pco_0.3": 0.8224
+    },
+    "spa": {
+     "songs": 2,
+     "word_mae_ms_mean": 166.0,
+     "pco_0.3": 0.9242
+    }
+   },
+   "word_end_mae_ms_mean": 204.7,
+   "word_end_mae_ms_median": 141.3,
+   "over_extension_mean": 0.1311
+  },
+  "songs": [
+   {
+    "stem": "HILA_-_Give_Me_the_Same",
+    "language": "eng",
+    "duration_s": 230.5,
+    "n_words": 322,
+    "n_lines": 58,
+    "trimmed_ends": 26,
+    "separate_s": 0.0,
+    "align_s": 67.8,
+    "sync": "word",
+    "quality_score": 0.4786,
+    "words": {
+     "count": 322,
+     "mae_ms": 319.5031055900621,
+     "medae_ms": 153.0,
+     "p95_ms": 1434.0,
+     "pcs": {
+      "0.1": 0.37888198757763975,
+      "0.2": 0.6211180124223602,
+      "0.3": 0.7608695652173914,
+      "0.5": 0.8819875776397516
+     }
+    },
+    "word_ends": {
+     "count": 322,
+     "mae_ms": 343.5652173913044,
+     "medae_ms": 182.0,
+     "p95_ms": 1211.0,
+     "pcs": {
+      "0.1": 0.2950310559006211,
+      "0.2": 0.5217391304347826,
+      "0.3": 0.6770186335403726,
+      "0.5": 0.8229813664596274
+     }
+    },
+    "over_extension": 0.3292,
+    "lines": {
+     "count": 58,
+     "mae_ms": 426.55172413793105,
+     "medae_ms": 145.0,
+     "p95_ms": 2394.0,
+     "pcs": {
+      "0.3": 0.6551724137931034
+     }
+    }
+   },
+   {
+    "stem": "Quentin_Hannappe_-_Keep_On",
+    "language": "eng",
+    "duration_s": 164.7,
+    "n_words": 175,
+    "n_lines": 27,
+    "trimmed_ends": 5,
+    "separate_s": 0.0,
+    "align_s": 45.3,
+    "sync": "word",
+    "quality_score": 0.7045,
+    "words": {
+     "count": 175,
+     "mae_ms": 92.21714285714286,
+     "medae_ms": 63.0,
+     "p95_ms": 238.0,
+     "pcs": {
+      "0.1": 0.6742857142857143,
+      "0.2": 0.9485714285714286,
+      "0.3": 0.96,
+      "0.5": 0.9885714285714285
+     }
+    },
+    "word_ends": {
+     "count": 175,
+     "mae_ms": 125.97714285714285,
+     "medae_ms": 80.0,
+     "p95_ms": 532.0,
+     "pcs": {
+      "0.1": 0.5942857142857143,
+      "0.2": 0.8742857142857143,
+      "0.3": 0.92,
+      "0.5": 0.9371428571428572
+     }
+    },
+    "over_extension": 0.0914,
+    "lines": {
+     "count": 27,
+     "mae_ms": 126.96296296296296,
+     "medae_ms": 70.0,
+     "p95_ms": 407.0,
+     "pcs": {
+      "0.3": 0.8518518518518519
+     }
+    }
+   },
+   {
+    "stem": "1_Freak_-_Automatisch_Gekommen",
+    "language": "deu",
+    "duration_s": 185.4,
+    "n_words": 367,
+    "n_lines": 60,
+    "trimmed_ends": 20,
+    "separate_s": 0.0,
+    "align_s": 42.0,
+    "sync": "word",
+    "quality_score": 0.0,
+    "words": {
+     "count": 367,
+     "mae_ms": 121.41144414168937,
+     "medae_ms": 98.0,
+     "p95_ms": 238.0,
+     "pcs": {
+      "0.1": 0.5095367847411444,
+      "0.2": 0.8610354223433242,
+      "0.3": 0.9754768392370572,
+      "0.5": 0.989100817438692
+     }
+    },
+    "word_ends": {
+     "count": 367,
+     "mae_ms": 144.69754768392372,
+     "medae_ms": 119.0,
+     "p95_ms": 336.0,
+     "pcs": {
+      "0.1": 0.4223433242506812,
+      "0.2": 0.7874659400544959,
+      "0.3": 0.9264305177111717,
+      "0.5": 0.9782016348773842
+     }
+    },
+    "over_extension": 0.0763,
+    "lines": {
+     "count": 60,
+     "mae_ms": 99.51666666666667,
+     "medae_ms": 85.5,
+     "p95_ms": 281.0,
+     "pcs": {
+      "0.3": 0.95
+     }
+    }
+   },
+   {
+    "stem": "Baila_-_Alfonso_Lugo",
+    "language": "spa",
+    "duration_s": 185.5,
+    "n_words": 282,
+    "n_lines": 36,
+    "trimmed_ends": 9,
+    "separate_s": 0.0,
+    "align_s": 60.7,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 282,
+     "mae_ms": 113.72695035460993,
+     "medae_ms": 92.0,
+     "p95_ms": 339.0,
+     "pcs": {
+      "0.1": 0.5212765957446809,
+      "0.2": 0.8617021276595744,
+      "0.3": 0.9361702127659575,
+      "0.5": 1.0
+     }
+    },
+    "word_ends": {
+     "count": 282,
+     "mae_ms": 132.95035460992906,
+     "medae_ms": 130.0,
+     "p95_ms": 284.0,
+     "pcs": {
+      "0.1": 0.3900709219858156,
+      "0.2": 0.7907801418439716,
+      "0.3": 0.9645390070921985,
+      "0.5": 0.9964539007092199
+     }
+    },
+    "over_extension": 0.078,
+    "lines": {
+     "count": 36,
+     "mae_ms": 35.05555555555556,
+     "medae_ms": 14.0,
+     "p95_ms": 156.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "Besando_Sapos_-_Dream_Tabu",
+    "language": "spa",
+    "duration_s": 238.8,
+    "n_words": 228,
+    "n_lines": 64,
+    "trimmed_ends": 2,
+    "separate_s": 0.0,
+    "align_s": 56.1,
+    "sync": "word",
+    "quality_score": 0.7266,
+    "words": {
+     "count": 228,
+     "mae_ms": 218.359649122807,
+     "medae_ms": 62.0,
+     "p95_ms": 401.0,
+     "pcs": {
+      "0.1": 0.6666666666666666,
+      "0.2": 0.8640350877192983,
+      "0.3": 0.9122807017543859,
+      "0.5": 0.9824561403508771
+     }
+    },
+    "word_ends": {
+     "count": 228,
+     "mae_ms": 273.0263157894737,
+     "medae_ms": 76.0,
+     "p95_ms": 697.0,
+     "pcs": {
+      "0.1": 0.5921052631578947,
+      "0.2": 0.8114035087719298,
+      "0.3": 0.8991228070175439,
+      "0.5": 0.9298245614035088
+     }
+    },
+    "over_extension": 0.0439,
+    "lines": {
+     "count": 64,
+     "mae_ms": 343.234375,
+     "medae_ms": 56.0,
+     "p95_ms": 448.0,
+     "pcs": {
+      "0.3": 0.734375
+     }
+    }
+   },
+   {
+    "stem": "Bitte_beweg_dich_nicht_-_Bukto",
+    "language": "deu",
+    "duration_s": 259.5,
+    "n_words": 353,
+    "n_lines": 38,
+    "trimmed_ends": 3,
+    "separate_s": 0.0,
+    "align_s": 71.1,
+    "sync": "word",
+    "quality_score": 0.2149,
+    "words": {
+     "count": 353,
+     "mae_ms": 123.22662889518413,
+     "medae_ms": 94.0,
+     "p95_ms": 314.0,
+     "pcs": {
+      "0.1": 0.5269121813031161,
+      "0.2": 0.8130311614730878,
+      "0.3": 0.943342776203966,
+      "0.5": 0.9773371104815864
+     }
+    },
+    "word_ends": {
+     "count": 353,
+     "mae_ms": 137.89518413597733,
+     "medae_ms": 121.0,
+     "p95_ms": 362.0,
+     "pcs": {
+      "0.1": 0.45609065155807366,
+      "0.2": 0.7762039660056658,
+      "0.3": 0.9320113314447592,
+      "0.5": 0.9745042492917847
+     }
+    },
+    "over_extension": 0.0822,
+    "lines": {
+     "count": 38,
+     "mae_ms": 110.84210526315789,
+     "medae_ms": 28.0,
+     "p95_ms": 700.0,
+     "pcs": {
+      "0.3": 0.8947368421052632
+     }
+    }
+   },
+   {
+    "stem": "Capotes_à_un_Franc_-_elmanu",
+    "language": "fra",
+    "duration_s": 183.3,
+    "n_words": 245,
+    "n_lines": 26,
+    "trimmed_ends": 2,
+    "separate_s": 0.0,
+    "align_s": 49.1,
+    "sync": "word",
+    "quality_score": 1.0,
+    "words": {
+     "count": 245,
+     "mae_ms": 82.95102040816326,
+     "medae_ms": 70.0,
+     "p95_ms": 205.0,
+     "pcs": {
+      "0.1": 0.6693877551020408,
+      "0.2": 0.9428571428571428,
+      "0.3": 0.9877551020408163,
+      "0.5": 1.0
+     }
+    },
+    "word_ends": {
+     "count": 245,
+     "mae_ms": 112.98367346938775,
+     "medae_ms": 89.0,
+     "p95_ms": 280.0,
+     "pcs": {
+      "0.1": 0.5551020408163265,
+      "0.2": 0.8448979591836735,
+      "0.3": 0.963265306122449,
+      "0.5": 0.9918367346938776
+     }
+    },
+    "over_extension": 0.0449,
+    "lines": {
+     "count": 26,
+     "mae_ms": 55.46153846153846,
+     "medae_ms": 32.5,
+     "p95_ms": 272.0,
+     "pcs": {
+      "0.3": 1.0
+     }
+    }
+   },
+   {
+    "stem": "CHRISTMAS_AVEC_TOI_-_imfreshyourepretty",
+    "language": "fra",
+    "duration_s": 229.6,
+    "n_words": 350,
+    "n_lines": 40,
+    "trimmed_ends": 2,
+    "separate_s": 0.0,
+    "align_s": 55.4,
+    "sync": "word",
+    "quality_score": 0.1389,
+    "words": {
+     "count": 350,
+     "mae_ms": 340.27142857142854,
+     "medae_ms": 190.5,
+     "p95_ms": 1159.0,
+     "pcs": {
+      "0.1": 0.34285714285714286,
+      "0.2": 0.5285714285714286,
+      "0.3": 0.6571428571428571,
+      "0.5": 0.7714285714285715
+     }
+    },
+    "word_ends": {
+     "count": 350,
+     "mae_ms": 366.6457142857143,
+     "medae_ms": 239.5,
+     "p95_ms": 1159.0,
+     "pcs": {
+      "0.1": 0.23714285714285716,
+      "0.2": 0.42857142857142855,
+      "0.3": 0.62,
+      "0.5": 0.76
+     }
+    },
+    "over_extension": 0.3029,
+    "lines": {
+     "count": 40,
+     "mae_ms": 300.825,
+     "medae_ms": 35.0,
+     "p95_ms": 1154.0,
+     "pcs": {
+      "0.3": 0.75
+     }
+    }
+   }
+  ]
+ },
+ "cases": {
+  "aggregate": {
+   "cases": 7,
+   "passed": 4,
+   "trimmed_ends_total": 65
+  },
+  "results": [
+   {
+    "id": "tiktok",
+    "title": "TiK ToK",
+    "artist": "Kesha",
+    "trimmed_ends": 2,
+    "separate_s": 0.0,
+    "align_s": 49.1,
+    "sync": "word",
+    "quality_score": 0.4992,
+    "offset_ms": 217,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 59,
+     "mae_ms": 449.93220338983053,
+     "medae_ms": 290.0,
+     "p95_ms": 2140.0,
+     "pcs": {
+      "0.3": 0.5254237288135594
+     }
+    }
+   },
+   {
+    "id": "never-gonna-give-you-up",
+    "title": "Never Gonna Give You Up",
+    "artist": "Rick Astley",
+    "trimmed_ends": 14,
+    "separate_s": 0.0,
+    "align_s": 51.2,
+    "sync": "word",
+    "quality_score": 0.0,
+    "offset_ms": -130,
+    "lines_over_threshold": 2,
+    "passed": false,
+    "lines": {
+     "count": 58,
+     "mae_ms": 399.0344827586207,
+     "medae_ms": 198.5,
+     "p95_ms": 1681.5,
+     "pcs": {
+      "0.3": 0.6379310344827587
+     }
+    }
+   },
+   {
+    "id": "wet-snoop-remix",
+    "title": "Wet",
+    "artist": "Snoop Dogg",
+    "trimmed_ends": 12,
+    "separate_s": 0.0,
+    "align_s": 47.6,
+    "sync": "word",
+    "quality_score": 0.4745,
+    "offset_ms": 280,
+    "lines_over_threshold": 3,
+    "passed": false,
+    "lines": {
+     "count": 60,
+     "mae_ms": 700.2666666666667,
+     "medae_ms": 301.5,
+     "p95_ms": 1995.0,
+     "pcs": {
+      "0.3": 0.5
+     }
+    }
+   },
+   {
+    "id": "geliyorum-yanina",
+    "title": "Geliyorum Yanına",
+    "artist": "Hadise",
+    "trimmed_ends": 0,
+    "separate_s": 0.0,
+    "align_s": 38.4,
+    "sync": "word",
+    "quality_score": 0.3332,
+    "offset_ms": 553,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 32,
+     "mae_ms": 146.40625,
+     "medae_ms": 129.5,
+     "p95_ms": 303.0,
+     "pcs": {
+      "0.3": 0.9375
+     }
+    }
+   },
+   {
+    "id": "halsey-control",
+    "title": "Control",
+    "artist": "Halsey",
+    "trimmed_ends": 12,
+    "separate_s": 0.0,
+    "align_s": 50.7,
+    "sync": "word",
+    "quality_score": 0.4329,
+    "offset_ms": 91,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 53,
+     "mae_ms": 250.8679245283019,
+     "medae_ms": 147.0,
+     "p95_ms": 695.0,
+     "pcs": {
+      "0.3": 0.7547169811320755
+     }
+    }
+   },
+   {
+    "id": "love-taste",
+    "title": "Love Taste",
+    "artist": "Moe Shop",
+    "trimmed_ends": 18,
+    "separate_s": 0.0,
+    "align_s": 43.3,
+    "sync": "word",
+    "quality_score": 0.0,
+    "offset_ms": 204,
+    "lines_over_threshold": 1,
+    "passed": false,
+    "lines": {
+     "count": 54,
+     "mae_ms": 371.55555555555554,
+     "medae_ms": 161.5,
+     "p95_ms": 2009.0,
+     "pcs": {
+      "0.3": 0.7407407407407407
+     }
+    }
+   },
+   {
+    "id": "bad-girl",
+    "title": "BAD GIRL",
+    "artist": "HEDEGAARD",
+    "trimmed_ends": 7,
+    "separate_s": 0.0,
+    "align_s": 41.4,
+    "sync": "word",
+    "quality_score": 0.3617,
+    "offset_ms": 91,
+    "lines_over_threshold": 0,
+    "passed": true,
+    "lines": {
+     "count": 52,
+     "mae_ms": 121.11538461538461,
+     "medae_ms": 70.5,
+     "p95_ms": 399.0,
+     "pcs": {
+      "0.3": 0.9423076923076923
+     }
+    }
+   }
+  ]
+ }
+}

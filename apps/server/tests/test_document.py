@@ -210,6 +210,46 @@ def test_quality_basis_names_what_the_number_measured():
         validate_document(doc)  # additive field passes the hard schema gate
 
 
+def test_fx_energy_sections_serialize_additively():
+    from kashi_server.pipeline.energy import Energy, Section
+    from kashi_server.pipeline.semantics import FxTags, LineTag, WordTag
+
+    common = dict(beats=_beats(), palette=dict(DEFAULT_PALETTE), vocals_separated=False)
+    doc = build_document(
+        _job(),
+        _lyrics(),
+        _word_result(),
+        **common,
+        fx=FxTags(
+            lexicon_version="kashi-fx/1.0.0",
+            engine="keywords",
+            words=[WordTag(0, 1, "love", 0.6)],
+            lines=[LineTag(1, "night")],
+        ),
+        energy=Energy(rate_hz=2, values=[10, 50, 90]),
+        sections=[Section("high", 3000, 12000)],
+    )
+    assert doc["fx"]["lexicon"] == "kashi-fx/1.0.0"
+    assert doc["fx"]["words"] == [{"line": 0, "word": 1, "tag": "love", "intensity": 0.6}]
+    assert doc["fx"]["lines"] == [{"line": 1, "tag": "night"}]
+    assert doc["energy"] == {"rate_hz": 2, "values": [10, 50, 90]}
+    assert doc["sections"] == [{"type": "high", "start_ms": 3000, "end_ms": 12000}]
+    validate_document(doc)  # hard schema gate accepts the additive blocks
+
+    empty = build_document(
+        _job(),
+        _lyrics(),
+        _word_result(),
+        **common,
+        fx=FxTags("kashi-fx/1.0.0", "keywords", [], []),
+        energy=None,
+        sections=[],
+    )
+    for key in ("fx", "energy", "sections"):
+        assert key not in empty  # empty enrichment = absent, not null/[]
+    validate_document(empty)
+
+
 def test_etag_is_canonical_and_stable():
     doc_a = {"b": 1, "a": {"y": [1, 2], "x": "ü"}}
     doc_b = {"a": {"x": "ü", "y": [1, 2]}, "b": 1}  # same content, different order

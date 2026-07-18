@@ -24,6 +24,13 @@ def test_nightcore_defaults():
     assert _default("nightcore_detection") is True
 
 
+def test_fx_defaults():
+    # Faz 6 P3: the embedding layer ships ON in our image (semantics extra
+    # baked); self-hosters without the extra flip it off. The keyword layer
+    # has no flag — it is dependency-free and always runs.
+    assert _default("fx_embeddings") is True
+
+
 def test_pipeline_major_matches_the_archive_invalidation():
     assert PIPELINE_VERSION.startswith("2.")
     assert PIPELINE_MAJOR == 2

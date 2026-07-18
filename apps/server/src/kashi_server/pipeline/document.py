@@ -19,8 +19,10 @@ from kashi_server.config import settings
 from kashi_server.db.models import Job
 from kashi_server.pipeline.alignment import AlignResult
 from kashi_server.pipeline.beats import Beats
+from kashi_server.pipeline.energy import Energy, Section
 from kashi_server.pipeline.line_qa import LineQAOutcome, is_adlib
 from kashi_server.pipeline.lrclib import LyricsText, normalize_artist
+from kashi_server.pipeline.semantics import FxTags
 from kashi_server.vdl_kit.errors import PipelineError
 from kashi_server.version import PIPELINE_MAJOR, PIPELINE_VERSION
 
@@ -55,6 +57,9 @@ def build_document(
     speed_factor: float = 1.0,
     fallback_duration_ms: int | None = None,
     qa: LineQAOutcome | None = None,
+    fx: FxTags | None = None,
+    energy: Energy | None = None,
+    sections: list[Section] | None = None,
 ) -> dict:
     hints = job.hints or {}
     # track.duration_ms is REQUIRED by the schema; ingest hints may omit it,
@@ -158,6 +163,24 @@ def build_document(
             "times_ms": beats.times_ms,
             "downbeat_indices": beats.downbeat_indices,
         }
+    # FX data foundation (Faz 6 P3) — all additive, all optional; a document
+    # without them renders exactly like before (old clients ignore unknowns).
+    if fx is not None and (fx.words or fx.lines):
+        fx_block: dict = {"lexicon": fx.lexicon_version, "engine": fx.engine}
+        if fx.words:
+            fx_block["words"] = [
+                {"line": t.line, "word": t.word, "tag": t.tag, "intensity": t.intensity}
+                for t in fx.words
+            ]
+        if fx.lines:
+            fx_block["lines"] = [{"line": t.line, "tag": t.tag} for t in fx.lines]
+        doc["fx"] = fx_block
+    if energy is not None:
+        doc["energy"] = {"rate_hz": energy.rate_hz, "values": energy.values}
+    if sections:
+        doc["sections"] = [
+            {"type": s.type, "start_ms": s.start_ms, "end_ms": s.end_ms} for s in sections
+        ]
     return doc
 
 

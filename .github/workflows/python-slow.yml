@@ -20,11 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Cache the HF model (~1.2 GB)
+      - name: Cache the HF models (~1.7 GB — MMS + e5-small)
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-mms-300m-v1
+          key: hf-mms-300m-e5-small-v2
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++ ffmpeg
-      - run: uv sync --extra align
+      - run: uv sync --extra align --extra semantics
       - run: uv run pytest -q -m slow --override-ini addopts=''

@@ -26,6 +26,7 @@ from kashi_server.pipeline.audio_source import fetch_audio
 from kashi_server.pipeline.beats import extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
 from kashi_server.pipeline.download import DownloadResult, download_audio
+from kashi_server.pipeline.energy import extract_energy
 from kashi_server.pipeline.langid import detect_language
 from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa
 from kashi_server.pipeline.lrclib import (
@@ -436,6 +437,34 @@ def resolve_nightcore(
     return NightcorePlan(1.0, plain_lyrics or _plain_lyrics(job), align_wav, "reverted")
 
 
+def _tag_fx(result, lyrics):
+    """FX tagging over the FINAL line/word structure (indices reference what
+    the client renders). Best-effort like palette/beats — never fails a job.
+    Tags are (line, word) indices, so the nightcore rescale is irrelevant."""
+    try:
+        from kashi_server.pipeline.langid import detect_language
+        from kashi_server.pipeline.semantics import get_embedder, tag_words
+
+        embedder = None
+        if settings.fx_embeddings:
+            try:
+                embedder = get_embedder(cache_dir=str(settings.model_cache_dir))
+            except ImportError:
+                logger.warning("fx_embeddings on but semantics extra missing — keywords only")
+        language = {"eng": "en", "tur": "tr"}.get(
+            detect_language(lyrics.full_text), "default"
+        )
+        return tag_words(
+            [[w.text for w in chunk] for chunk in result.words_per_line],
+            [line.text for line in result.lines],
+            language=language,
+            embedder=embedder,
+        )
+    except Exception as exc:  # noqa: BLE001 - enrichment, never a job failure
+        logger.warning("fx tagging failed (%s) — document ships without fx", exc)
+        return None
+
+
 def process_job(s: Session, job: Job) -> None:
     tmp = settings.data_dir / f"job-{job.id}"
     tmp.mkdir(parents=True, exist_ok=True)
@@ -573,6 +602,8 @@ def process_job(s: Session, job: Job) -> None:
         queue.set_status(s, job, "postprocessing")
         s.commit()
         beats = extract_beats(download.path)  # full mix — the PLAYED audio, never rescaled
+        energy_and_sections = extract_energy(download.path)  # same clock as beats
+        fx = _tag_fx(result, lyrics)  # AFTER QA/rescale: indices must match the doc
         palette = extract_palette((job.hints or {}).get("artwork_url"))
         doc = build_document(
             job,
@@ -584,6 +615,9 @@ def process_job(s: Session, job: Job) -> None:
             speed_factor=speed_factor,
             fallback_duration_ms=round(download.duration_s * 1000),
             qa=qa,
+            fx=fx,
+            energy=energy_and_sections[0] if energy_and_sections else None,
+            sections=energy_and_sections[1] if energy_and_sections else None,
         )
         persist_processed_track(s, job, doc)
         queue.mark_completed(s, job)

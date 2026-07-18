@@ -37,6 +37,7 @@ def _hermetic_pipeline_defaults(monkeypatch):
 
     monkeypatch.setattr(settings, "separation_mode", "off")
     monkeypatch.setattr(settings, "windowed_alignment", False)
+    monkeypatch.setattr(settings, "fx_embeddings", False)  # keyword layer stays on
 
 
 @pytest.fixture()

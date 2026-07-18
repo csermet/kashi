@@ -20,7 +20,7 @@ COPY apps/server/pyproject.toml apps/server/uv.lock ./
 # --extra separate: audio-separator (vocal stems, hizalama-v2 P2) — grows the
 # image by roughly a gigabyte; SEPARATION_MODE=off never imports it.
 # The benchmark container overrides SERVER_EXTRAS to add --extra bench.
-ARG SERVER_EXTRAS="--extra align --extra separate"
+ARG SERVER_EXTRAS="--extra align --extra separate --extra semantics"
 RUN uv sync --frozen --no-dev --no-install-project $SERVER_EXTRAS
 
 FROM python:3.12-slim
