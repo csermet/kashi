@@ -30,6 +30,7 @@ import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';
 import { enableUtf8Console, makeLogger, makeWarnLogger } from './log.js';
 import { KashiServerClient } from './kashi-server.js';
+import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
 import { ReplayStore } from './replay-store.js';
@@ -98,6 +99,9 @@ let menuOptions: KashiMenuOptions | null = null;
 // lrclib contribute-back (Faz 5 P6): the last word-sync SERVER hit, valid
 // only while its track is still the current one.
 let publishable: { key: string; source: { type: string; id: string } } | null = null;
+// The current track's lookup inputs — replayed after a live server-settings
+// re-init (Faz 6 P6) so lyrics refresh without waiting for a track change.
+let lastTrack: { key: string; track: TrackInfo } | null = null;
 /** Non-null only when settings carry a server_url — otherwise the code path
  * stays byte-for-byte the serverless v0.1.11 behavior (plan R-F3-8). */
 let serverClient: KashiServerClient | null = null;
@@ -150,6 +154,7 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
           `${dup && decision.key === wasKey ? ' [dup]' : ''}`,
       );
       if (dup) return; // metadata refresh for same track
+      lastTrack = { key: decision.key, track: decision.track };
       enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
       send('kashi:track', { key: decision.key, track: decision.track });
 
@@ -417,6 +422,96 @@ ipcMain.on('kashi:timing-offset-cancel', (event) => {
   if (promptWindow && event.sender === promptWindow.webContents) promptWindow.close();
 });
 
+// Server settings prompt (Faz 6 P6): the SAME prompt-window recipe as the
+// timing-offset dialog — always-on-top, no blur-close, Escape cancels. It
+// exists to kill the hand-edit trap: the running app's debounced flush used
+// to overwrite manual kashi-settings.json edits (field, twice).
+const SERVER_PROMPT_HEIGHT = 230;
+let serverPromptWindow: BrowserWindow | null = null;
+
+function openServerSettingsPrompt(): void {
+  if (serverPromptWindow && !serverPromptWindow.isDestroyed()) {
+    serverPromptWindow.focus();
+    return;
+  }
+  const win = new BrowserWindow({
+    width: PROMPT_WIDTH,
+    height: SERVER_PROMPT_HEIGHT,
+    frame: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: '#14161f',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (window && !window.isDestroyed()) {
+    const box = window.getBounds();
+    const area = screen.getDisplayMatching(box).workArea;
+    const x = Math.round(box.x + (box.width - PROMPT_WIDTH) / 2);
+    const y = Math.round(box.y + (box.height - SERVER_PROMPT_HEIGHT) / 2);
+    win.setBounds({
+      x: Math.max(area.x, Math.min(x, area.x + area.width - PROMPT_WIDTH)),
+      y: Math.max(area.y, Math.min(y, area.y + area.height - SERVER_PROMPT_HEIGHT)),
+      width: PROMPT_WIDTH,
+      height: SERVER_PROMPT_HEIGHT,
+    });
+  }
+  win.on('closed', () => {
+    if (serverPromptWindow === win) serverPromptWindow = null;
+  });
+  win.once('ready-to-show', () => win.show());
+  // The key NEVER rides the query string — hasKey=1 just marks that one is
+  // stored (the page shows an "unchanged" placeholder).
+  const current = settings?.get();
+  const query = {
+    url: current?.server_url ?? '',
+    hasKey: current?.server_api_key ? '1' : '0',
+  };
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    const params = new URLSearchParams(query).toString();
+    void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/server-settings.html?${params}`);
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/server-settings.html'), { query });
+  }
+  serverPromptWindow = win;
+}
+
+ipcMain.on('kashi:server-settings-submit', (event, raw: unknown) => {
+  if (!serverPromptWindow || event.sender !== serverPromptWindow.webContents) return;
+  serverPromptWindow.close();
+  if (typeof raw !== 'object' || raw === null || !settings) return;
+  const { url, key } = raw as { url?: unknown; key?: unknown };
+  const trimmedUrl = typeof url === 'string' ? url.trim() : '';
+  if (trimmedUrl === '') {
+    // Empty URL = serverless mode; the stored key dies with it (a key
+    // without a URL is meaningless and the old pair must not resurrect).
+    settings.update({ server_url: null, server_api_key: null });
+    log('server settings: cleared -> serverless mode');
+  } else {
+    const normalized = normalizeServerUrl(trimmedUrl);
+    if (normalized === null) {
+      warn(`server settings: invalid URL ${JSON.stringify(trimmedUrl)} — nothing changed`);
+      return;
+    }
+    const nextKey =
+      key === null
+        ? (settings.get().server_api_key ?? null) // untouched field = keep
+        : typeof key === 'string' && key.trim() !== ''
+          ? key.trim()
+          : null;
+    settings.update({ server_url: normalized, server_api_key: nextKey });
+    log(`server settings: ${normalized} (key ${nextKey ? 'set' : 'MISSING'})`);
+  }
+  reinitServerConnections();
+});
+
 ipcMain.on('kashi:set-interactive', (_event, interactive: unknown) => {
   window?.setIgnoreMouseEvents(interactive !== true, { forward: true });
 });
@@ -506,16 +601,8 @@ ipcMain.on('kashi:drag-start', () => {
 });
 ipcMain.on('kashi:drag-end', stopDrag);
 
-app.whenReady().then(async () => {
-  settings = settingsStore;
-
-  lrclib = new LrclibClient({
-    cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
-    // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)
-    // — Node's fetch stalls for seconds on broken IPv6 routes.
-    fetchFn: net.fetch.bind(net) as typeof fetch,
-  });
-
+function buildServerConnections(): void {
+  if (!settings) return;
   const { server_url: serverUrl, server_api_key: serverApiKey } = settings.get();
   if (serverUrl && serverApiKey) {
     serverClient = new KashiServerClient({
@@ -549,6 +636,33 @@ app.whenReady().then(async () => {
     isCurrent: (key) => key === latch.currentTrackKey,
     log: makeLogger('lookup'),
   });
+}
+
+/** Live re-init after a server-settings save (Faz 6 P6): rebuild the client
+ * + orchestrator against the new settings and replay the current track so
+ * lyrics refresh in place. Old in-flight lookups die by staleness (R-9's
+ * isCurrent guard); a wrong key lands on the existing graceful
+ * "server disabled"/error paths. */
+function reinitServerConnections(): void {
+  lookups?.cancel();
+  serverClient = null;
+  publishable = null; // the old server's word-doc claim is void now
+  buildServerConnections();
+  tray?.refresh();
+  if (lastTrack) void lookups.lookup(lastTrack.key, lastTrack.track);
+}
+
+app.whenReady().then(async () => {
+  settings = settingsStore;
+
+  lrclib = new LrclibClient({
+    cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
+    // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)
+    // — Node's fetch stalls for seconds on broken IPv6 routes.
+    fetchFn: net.fetch.bind(net) as typeof fetch,
+  });
+
+  buildServerConnections();
 
   window = createOverlayWindow();
   // Seed the replay map so every renderer load starts with current settings.
@@ -567,6 +681,7 @@ app.whenReady().then(async () => {
     onThemeScopeSelect: applyThemeScope,
     getFillStyle: () => settings?.get().fill_style ?? DEFAULT_FILL_STYLE,
     onFillStyleSelect: applyFillStyle,
+    onServerSettings: openServerSettingsPrompt,
     onResetPosition: resetWindowPosition,
     getCanReportSync: () =>
       serverClient !== null && publishable !== null && publishable.key === latch.currentTrackKey,

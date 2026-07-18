@@ -36,9 +36,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          // Multi-page: the overlay itself + the tiny timing-offset prompt.
+          // Multi-page: the overlay itself + the tiny prompt windows.
           index: resolve(__dirname, 'src/renderer/index.html'),
           'timing-offset': resolve(__dirname, 'src/renderer/timing-offset.html'),
+          'server-settings': resolve(__dirname, 'src/renderer/server-settings.html'),
         },
       },
     },

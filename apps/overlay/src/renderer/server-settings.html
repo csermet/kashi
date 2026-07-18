@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Same CSP stance as index.html: 'unsafe-inline' only for vite dev-mode
+         style injection; the BUILD strips 'unsafe-inline' (tightenCsp plugin). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data:"
+    />
+    <title>Kashi — Server settings</title>
+    <link rel="stylesheet" href="./src/timing-offset.css" />
+  </head>
+  <body>
+    <main id="prompt">
+      <label for="url-input">Server URL (empty = serverless mode)</label>
+      <input id="url-input" type="text" placeholder="https://kashi.example.com" spellcheck="false" />
+      <label for="key-input">API key</label>
+      <input id="key-input" type="password" spellcheck="false" />
+      <div class="buttons">
+        <button id="cancel" type="button">Cancel</button>
+        <button id="ok" type="button">Save</button>
+      </div>
+    </main>
+    <script type="module" src="./src/server-settings.ts"></script>
+  </body>
+</html>
