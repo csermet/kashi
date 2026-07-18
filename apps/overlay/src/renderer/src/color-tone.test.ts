@@ -23,7 +23,6 @@ import {
   type Oklch,
   toneFx,
   hueDistance,
-  FX_TINT_L,
 } from './color-tone.js';
 
 /** ΔE_OK between two hexes (L,a,b distance). */
