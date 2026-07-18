@@ -56,6 +56,11 @@
           "maximum": 1,
           "description": "Normalized alignment confidence. Clients should fall back to line rendering below ~0.5."
         },
+        "quality_basis": {
+          "type": "string",
+          "enum": ["ctc-probs", "anchors", "human"],
+          "description": "What quality_score actually measured (pipeline 2.5.0+). \"ctc-probs\": calibrated CTC probability ramp (whole-audio path). \"anchors\": line-anchor agreement on the windowed path — word-level precision is NOT measured, so a 1.0 can still drift at word granularity. \"human\": human word data consumed as-is (lyricsfile), fixed 1.0. Absent on older documents."
+        },
         "speed_factor": {
           "type": "number",
           "exclusiveMinimum": 0,

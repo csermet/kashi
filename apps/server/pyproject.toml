@@ -1,6 +1,6 @@
 [project]
 name = "kashi-server"
-version = "0.6.5"
+version = "0.7.0"
 description = "Kashi processing server: lyrics alignment, beat grid and palette extraction"
 requires-python = ">=3.12"
 dependencies = [

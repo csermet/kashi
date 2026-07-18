@@ -65,5 +65,10 @@
 # word-sync records may not rank in search at all), so the probe was one
 # wasted request per song with zero possible benefit. The choose_record
 # preference stays dormant until lrclib serves the field in search.
-PIPELINE_VERSION = "2.4.4"
+# 2.5.0: quality_basis provenance (Faz 6 P1) — documents now say what
+# quality_score MEASURED: "ctc-probs" (whole-audio ramp), "anchors"
+# (windowed line-anchor agreement — word-level feel is NOT measured; the
+# honest label behind "quality 1.0 but drifting words"), or "human"
+# (lyricsfile fast path, fixed 1.0). The number itself is unchanged.
+PIPELINE_VERSION = "2.5.0"
 PIPELINE_MAJOR = 2

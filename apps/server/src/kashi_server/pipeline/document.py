@@ -124,6 +124,14 @@ def build_document(
             "lyrics_source": lyrics.source,
             "vocals_separated": vocals_separated,
             "quality_score": round(align_result.quality_score, 4),
+            # What quality_score actually MEASURED (Faz 6 P1) — the honest
+            # answer to "quality 1.0 but the words drift": "anchors" means
+            # line-anchor agreement only, word-level feel is not measured.
+            "quality_basis": "human"
+            if lyrics.source == "lyricsfile"
+            else "anchors"
+            if align_result.windowed
+            else "ctc-probs",
             "speed_factor": speed_factor,
         },
         "lines": lines,

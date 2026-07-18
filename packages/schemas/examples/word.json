@@ -17,6 +17,7 @@
     "lyrics_source_id": 12345,
     "vocals_separated": true,
     "quality_score": 0.87,
+    "quality_basis": "ctc-probs",
     "speed_factor": 1.0,
     "qa": {
       "flagged": 0,

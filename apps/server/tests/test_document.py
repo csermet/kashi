@@ -186,6 +186,30 @@ def test_invalid_document_is_rejected_by_the_gate():
     assert "start_ms" in exc.value.message
 
 
+def test_quality_basis_names_what_the_number_measured():
+    """Faz 6 P1: the number is unchanged; the document now says what it
+    measured. anchors = line-anchor agreement (word feel NOT measured) —
+    the honest label behind the "quality 1.0 but drifting words" class."""
+    from dataclasses import replace
+
+    common = dict(beats=_beats(), palette=dict(DEFAULT_PALETTE), vocals_separated=False)
+
+    plain = build_document(_job(), _lyrics(), _word_result(), **common)
+    assert plain["alignment"]["quality_basis"] == "ctc-probs"
+
+    windowed = build_document(_job(), _lyrics(), replace(_word_result(), windowed=True), **common)
+    assert windowed["alignment"]["quality_basis"] == "anchors"
+    assert windowed["alignment"]["method"].endswith("+line-windowed")
+
+    human_lyrics = replace(_lyrics(), source="lyricsfile")
+    human = build_document(_job(), human_lyrics, _word_result(), **common)
+    assert human["alignment"]["quality_basis"] == "human"
+    assert human["alignment"]["method"] == "lrclib-lyricsfile/1.0"
+
+    for doc in (plain, windowed, human):
+        validate_document(doc)  # additive field passes the hard schema gate
+
+
 def test_etag_is_canonical_and_stable():
     doc_a = {"b": 1, "a": {"y": [1, 2], "x": "ü"}}
     doc_b = {"a": {"x": "ü", "y": [1, 2]}, "b": 1}  # same content, different order

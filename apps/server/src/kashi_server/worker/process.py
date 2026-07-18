@@ -589,7 +589,13 @@ def process_job(s: Session, job: Job) -> None:
         queue.mark_completed(s, job)
         _drop_staged_upload(s, job)  # same transaction as the completion
         s.commit()
-        logger.info("job %s completed: %s quality=%.3f", job.id, doc["sync"], result.quality_score)
+        logger.info(
+            "job %s completed: %s quality=%.3f basis=%s",
+            job.id,
+            doc["sync"],
+            result.quality_score,
+            doc["alignment"].get("quality_basis", "?"),
+        )
 
     except JobCanceled:
         s.rollback()

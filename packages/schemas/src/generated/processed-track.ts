@@ -44,6 +44,10 @@ export interface KashiProcessedTrackV1 {
      */
     quality_score: number;
     /**
+     * What quality_score actually measured (pipeline 2.5.0+). "ctc-probs": calibrated CTC probability ramp (whole-audio path). "anchors": line-anchor agreement on the windowed path — word-level precision is NOT measured, so a 1.0 can still drift at word granularity. "human": human word data consumed as-is (lyricsfile), fixed 1.0. Absent on older documents.
+     */
+    quality_basis?: "ctc-probs" | "anchors" | "human";
+    /**
      * Playback-speed factor the audio was corrected by before alignment (nightcore workflow); 1.0 for unmodified audio.
      */
     speed_factor?: number;
