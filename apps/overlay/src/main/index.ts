@@ -419,7 +419,14 @@ ipcMain.on('kashi:timing-offset-submit', (event, value: unknown) => {
 });
 
 ipcMain.on('kashi:timing-offset-cancel', (event) => {
+  // cancelPrompt() is shared by BOTH prompt pages (timing-offset and
+  // server-settings) — the handler must serve both, or Escape/Cancel on the
+  // frameless always-on-top settings window silently does nothing
+  // (reviewer catch, Faz 6 closure).
   if (promptWindow && event.sender === promptWindow.webContents) promptWindow.close();
+  if (serverPromptWindow && event.sender === serverPromptWindow.webContents) {
+    serverPromptWindow.close();
+  }
 });
 
 // Server settings prompt (Faz 6 P6): the SAME prompt-window recipe as the
@@ -647,6 +654,7 @@ function reinitServerConnections(): void {
   lookups?.cancel();
   serverClient = null;
   publishable = null; // the old server's word-doc claim is void now
+  enqueueGate.trackChanged(); // the OLD server's 404/enqueue state is void too
   buildServerConnections();
   tray?.refresh();
   if (lastTrack) void lookups.lookup(lastTrack.key, lastTrack.track);

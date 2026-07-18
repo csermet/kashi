@@ -153,6 +153,8 @@ describe('mapFx (Faz 6)', () => {
           { line: -1, word: 0, tag: 'x', intensity: 0.5 },
           { line: 0.5, word: 0, tag: 'x', intensity: 0.5 },
           { line: 0, word: 0, tag: '', intensity: 0.5 },
+          { line: 0, word: 0, tag: 'Bad Tag!', intensity: 0.5 },
+          { line: 0, word: 0, tag: '__proto__', intensity: 0.5 },
           { line: 0, word: 0, tag: 'fire', intensity: 'hot' },
           { line: 2, word: 3, tag: 'fire', intensity: 0.8 },
         ],

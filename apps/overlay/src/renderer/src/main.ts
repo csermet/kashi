@@ -200,8 +200,10 @@ let fxWordTag = '';
 /** Inline SVG icon (createElementNS — R-7 keeps innerHTML banned; strict
  * CSP is untouched: presentation attributes only, no style attrs). */
 function buildFxIcon(tag: string): SVGSVGElement | null {
-  const path = FX_ICON_PATHS[tag];
-  if (!path) return null; // unknown tag (newer server lexicon) → no icon
+  // hasOwn + typeof: inherited object keys ('constructor') must not leak a
+  // non-string into setAttribute (defense in depth over mapFx's charset gate).
+  const path = Object.hasOwn(FX_ICON_PATHS, tag) ? FX_ICON_PATHS[tag] : undefined;
+  if (typeof path !== 'string') return null; // unknown tag (newer lexicon) → no icon
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', FX_ICON_VIEWBOX);

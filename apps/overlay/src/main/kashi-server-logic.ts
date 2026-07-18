@@ -182,6 +182,11 @@ export function mapSections(raw: unknown): SectionData[] | undefined {
  * on word-sync payloads; line theme tags survive either way. Defensive caps
  * mirror the server's own (60 words / 24 lines) against a hostile server.
  */
+/** fx tags become CSS class tokens and FX_ICON_PATHS keys — gate the
+ * charset (lowercase kebab) so a hostile/buggy server can neither throw
+ * InvalidCharacterError in classList nor probe prototype keys. */
+const FX_TAG_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/; // leading alnum: kills __proto__-style keys
+
 export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const f = raw as Record<string, unknown>;
@@ -198,7 +203,7 @@ export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
         (t['line'] as number) >= 0 &&
         (t['word'] as number) >= 0 &&
         typeof t['tag'] === 'string' &&
-        t['tag'] !== '' &&
+        FX_TAG_RE.test(t['tag']) &&
         typeof t['intensity'] === 'number' &&
         Number.isFinite(t['intensity'])
       ) {
@@ -221,7 +226,7 @@ export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
         Number.isInteger(t['line']) &&
         (t['line'] as number) >= 0 &&
         typeof t['tag'] === 'string' &&
-        t['tag'] !== ''
+        FX_TAG_RE.test(t['tag'])
       ) {
         lineTags.push({ line: t['line'] as number, tag: t['tag'] });
       }
