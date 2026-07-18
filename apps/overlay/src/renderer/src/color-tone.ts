@@ -223,8 +223,11 @@ export const FX_HUE_CLASH_RAD = (40 * Math.PI) / 180;
 
 export function toneFx(category: Oklch, primary: Oklch | null): string {
   const c = clamp(category.C < 0.12 ? 0.16 : category.C, 0.14, 0.22);
-  let L = FX_TINT_L;
+  // No clash: the category wears ITS OWN color — own lightness too (inside a
+  // readability window), so green looks like THE green, not a uniform pastel.
+  let L = clamp(category.L, 0.7, 0.84);
   if (primary && hueDistance(category.h, primary.h) < FX_HUE_CLASH_RAD) {
+    // Clash with the normal text color: same hue, CLEARLY lighter or darker.
     L = primary.L >= 0.72 ? 0.6 : 0.88;
   }
   return oklchToHex(L, c, category.h);

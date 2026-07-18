@@ -179,7 +179,10 @@ describe('toneFx (Faz 6 field round 2: semantic, theme-distinct tints)', () => {
     // A far-hue theme keeps the standard band.
     const farPrimary = hexToOklch(oklchToHex(0.8, 0.16, green.h + Math.PI));
     const calm = hexToOklch(toneFx(green, farPrimary));
-    expect(Math.abs(calm.L - FX_TINT_L)).toBeLessThan(0.06);
+    // No clash: the category keeps its OWN lightness (readability window).
+    expect(calm.L).toBeGreaterThanOrEqual(0.68);
+    expect(calm.L).toBeLessThanOrEqual(0.86);
+    expect(hueDistance(calm.h, green.h)).toBeLessThan(0.15);
   });
 
   it('is deterministic', () => {
