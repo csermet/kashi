@@ -18,7 +18,7 @@ from kashi_server.pipeline.semantics import (
 
 def test_lexicon_shape_and_stem_discipline():
     lex = load_lexicon()
-    assert lex.version == "kashi-fx/1.0.0"
+    assert lex.version == "kashi-fx/1.1.0"
     assert 15 <= len(lex.categories) <= 25
     ids = [cat.id for cat in lex.categories]
     assert len(ids) == len(set(ids))
@@ -100,6 +100,17 @@ GOLDEN = [
     ("savaş", "fight"),
     ("music", "music"),
     ("şarkı", "music"),
+    # v1.1 genişlemesi (saha turu 1: "bi tık daha bol olsun"):
+    ("butterfly", "fly"),
+    ("kelebek", "fly"),
+    ("kabus", "dark"),
+    ("parıldıyor", "shine"),
+    ("canım", "love"),
+    ("acı", "heartbreak"),
+    ("hurt", "heartbreak"),
+    ("duman", "fire"),
+    ("princess", "crown"),
+    ("guitar", "music"),
     # negatives — no tag, ever:
     ("yanında", None),
     ("karar", None),
@@ -114,13 +125,18 @@ GOLDEN = [
 
 
 def test_keyword_layer_golden_set():
-    words = [w for w, _ in GOLDEN]
-    tags = tag_words([words], [" ".join(words)])
-    got = {t.word: t.tag for t in tags.words}
-    for idx, (word, expected) in enumerate(GOLDEN):
-        assert got.get(idx) == expected, f"{word!r}: got {got.get(idx)!r}, want {expected!r}"
-    assert tags.engine == "keywords"  # no embedder passed
-    assert tags.lines == []
+    # Chunked into separate documents: the golden set outgrew MAX_WORD_TAGS
+    # (v1.1), and the per-document brake dropping low-intensity tags is
+    # correct behavior — tested separately below, not here.
+    for start in range(0, len(GOLDEN), 40):
+        chunk = GOLDEN[start : start + 40]
+        words = [w for w, _ in chunk]
+        tags = tag_words([words], [" ".join(words)])
+        got = {t.word: t.tag for t in tags.words}
+        for idx, (word, expected) in enumerate(chunk):
+            assert got.get(idx) == expected, f"{word!r}: got {got.get(idx)!r}, want {expected!r}"
+        assert tags.engine == "keywords"  # no embedder passed
+        assert tags.lines == []
 
 
 def test_tagging_is_deterministic_and_capped():

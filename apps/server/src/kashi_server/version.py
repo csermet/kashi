@@ -82,5 +82,9 @@
 # ONCE with the parsed artist/title; plausibility gates unchanged. Second
 # miss re-raises the original honest error. "(Official Music Video)" class
 # bracket groups now count as noise for title hygiene.
-PIPELINE_VERSION = "2.7.0"
+# 2.8.0: fx lexicon v1.1 (Faz 6 field round 1 — "a touch more plentiful"):
+# ~70 new EN+TR keywords/stems across the same 20 categories (vowel-narrowing
+# aware TR stems, min-4 discipline kept). Documents re-tag richer on
+# reprocess; fx.lexicon says kashi-fx/1.1.0.
+PIPELINE_VERSION = "2.8.0"
 PIPELINE_MAJOR = 2

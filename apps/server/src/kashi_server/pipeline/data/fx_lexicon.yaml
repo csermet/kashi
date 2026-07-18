@@ -13,13 +13,13 @@
 # icon: Material Symbols name (monochrome, fill=currentColor — Caner kararı 5);
 #       verified/vendored at P4, names here are the draft intent.
 # base_intensity: 0..1 — client scales effect strength from this.
-version: kashi-fx/1.0.0
+version: kashi-fx/1.1.0
 categories:
   - id: explosion
     icon: bomb
     base_intensity: 0.9
-    keywords_en: [bomb, bombs, boom, dynamite, tnt, explosion, explosions]
-    stems_en: [explod, blast]
+    keywords_en: [bomb, bombs, boom, kaboom, dynamite, tnt, grenade, explosion, explosions]
+    stems_en: [explod, blast, detonat]
     keywords_tr: [bomba, dinamit]
     stems_tr: [patl]
     prototypes_en:
@@ -31,10 +31,10 @@ categories:
   - id: fire
     icon: local_fire_department
     base_intensity: 0.8
-    keywords_en: [fire, flame, flames, inferno, ash, ashes]
-    stems_en: [burn, blaz, scorch]
-    keywords_tr: [ateş, alev, kül, yanıyor, yanıyorum]
-    stems_tr: [yakt, tutuş]
+    keywords_en: [fire, flame, flames, inferno, ash, ashes, smoke, ember, embers]
+    stems_en: [burn, blaz, scorch, ignit]
+    keywords_tr: [ateş, alev, kül, duman, yanıyor, yanıyorum, ateşi, ateşe, ateşin]
+    stems_tr: [yakt, tutuş, alevl]
     prototypes_en:
       - my heart is on fire and burning
       - we set the whole world in flames
@@ -44,7 +44,7 @@ categories:
   - id: poison
     icon: skull
     base_intensity: 0.8
-    keywords_en: [poison, venom, toxic, toxin]
+    keywords_en: [poison, venom, venomous, toxic, toxin, toxins]
     stems_en: [poison]
     keywords_tr: [zehir, zehri, ağı]
     stems_tr: [zehir, zehirl]
@@ -57,10 +57,10 @@ categories:
   - id: love
     icon: favorite
     base_intensity: 0.6
-    keywords_en: [love, heart, hearts, kiss, kisses, darling, baby]
+    keywords_en: [love, lover, loved, heart, hearts, kiss, kisses, darling, baby, romance, sweetheart, valentine]
     stems_en: [lovin]
-    keywords_tr: [aşk, kalp, kalbim, yar, yarim, sevgilim, öpücük]
-    stems_tr: [sevgi, sevda, seviyor, aşkı]
+    keywords_tr: [aşk, kalp, yar, yarim, sevgilim, öpücük, canım, bebeğim]
+    stems_tr: [sevgi, sevda, seviyor, aşkı, kalbi]
     prototypes_en:
       - i am deeply in love with you
       - my heart beats only for you
@@ -70,10 +70,10 @@ categories:
   - id: heartbreak
     icon: heart_broken
     base_intensity: 0.6
-    keywords_en: [heartbreak, heartbroken, goodbye, tears, lonely, alone]
-    stems_en: [broke, break, cryin]
-    keywords_tr: [elveda, veda, yalnız, gözyaşı, hüzün]
-    stems_tr: [ağla, ağlı, kırık, unut]
+    keywords_en: [heartbreak, heartbroken, goodbye, tears, teardrops, lonely, alone, sorrow, pain, hurt, hurts]
+    stems_en: [broke, break, cryin, wound]
+    keywords_tr: [elveda, veda, yalnız, gözyaşı, hüzün, acı, hasret, özlem, yaralı]
+    stems_tr: [ağla, ağlı, kırık, unut, özle, özlü, gözyaş]
     prototypes_en:
       - you broke my heart and left me crying
       - tears fall as we say goodbye
@@ -83,10 +83,10 @@ categories:
   - id: water
     icon: water_drop
     base_intensity: 0.5
-    keywords_en: [rain, ocean, sea, river, wave, waves, tide]
+    keywords_en: [rain, raindrops, ocean, oceans, sea, river, wave, waves, tide, waterfall, splash]
     stems_en: [drown, sink]
-    keywords_tr: [yağmur, deniz, okyanus, nehir, dalga]
-    stems_tr: [boğul, ısla]
+    keywords_tr: [yağmur, deniz, okyanus, nehir, dalga, sular]
+    stems_tr: [boğul, ısla, yağmur, dalgal]
     prototypes_en:
       - the rain keeps falling on me
       - i am drowning in the ocean waves
@@ -96,7 +96,7 @@ categories:
   - id: night
     icon: star
     base_intensity: 0.5
-    keywords_en: [star, stars, night, moon, moonlight, midnight]
+    keywords_en: [star, stars, starlight, night, nights, moon, moonlight, midnight]
     stems_en: []
     keywords_tr: [yıldız, gece, ay, mehtap]
     stems_tr: [yıldızl, gecele]
@@ -110,9 +110,9 @@ categories:
     icon: flare
     base_intensity: 0.6
     keywords_en: [shine, light, lights, sun, sunshine, diamond, diamonds, gold, golden]
-    stems_en: [glow, spark, shini]
-    keywords_tr: [ışık, güneş, elmas, altın, parıltı]
-    stems_tr: [parl, ışıl]
+    stems_en: [glow, spark, shini, glitter, gleam]
+    keywords_tr: [ışık, güneş, elmas, altın, parıltı, güneşin, güneşe]
+    stems_tr: [parl, parıl, ışıl]
     prototypes_en:
       - you shine bright like a diamond
       - golden light glowing in the dark
@@ -122,10 +122,10 @@ categories:
   - id: dance
     icon: celebration
     base_intensity: 0.6
-    keywords_en: [dance, dancing, party, club, dj]
-    stems_en: [danc, groov]
+    keywords_en: [dance, dancing, party, club, dj, disco, rave]
+    stems_en: [danc, groov, boogi]
     keywords_tr: [dans, parti, oynak]
-    stems_tr: [oyna, oynu, dansed]
+    stems_tr: [oyna, oynu, dansed, salla]
     prototypes_en:
       - we dance all night at the party
       - move your body on the dance floor
@@ -135,10 +135,10 @@ categories:
   - id: money
     icon: paid
     base_intensity: 0.5
-    keywords_en: [money, cash, rich, dollar, dollars]
+    keywords_en: [money, cash, rich, dollar, dollars, million, millions, billionaire]
     stems_en: []
     keywords_tr: [para, zengin, dolar, altını]
-    stems_tr: [paray]
+    stems_tr: [paray, paral, zengin]
     prototypes_en:
       - counting money stacking cash
       - we are rich and living large
@@ -148,9 +148,9 @@ categories:
   - id: fly
     icon: flight_takeoff
     base_intensity: 0.5
-    keywords_en: [fly, flying, wings, sky, skies]
+    keywords_en: [fly, flying, wings, sky, skies, butterfly, butterflies]
     stems_en: [soar]
-    keywords_tr: [gökyüzü, kanat, kanatlar]
+    keywords_tr: [gökyüzü, kanat, kanatlar, kelebek]
     stems_tr: [uçuy, uçtu, uçar]
     prototypes_en:
       - i spread my wings and fly away
@@ -164,7 +164,7 @@ categories:
     keywords_en: [fast, faster, race, racing, highway]
     stems_en: [runn, driv, chas]
     keywords_tr: [hızlı, yarış]
-    stems_tr: [koşu, koşt, kaçıyor, kaçt]
+    stems_tr: [koşu, koşt, koşar, kaçıyor, kaçt]
     prototypes_en:
       - we run fast down the highway
       - racing through the streets tonight
@@ -176,8 +176,8 @@ categories:
     base_intensity: 0.7
     keywords_en: [electric, electricity, lightning, thunder, shock, spark, sparks]
     stems_en: []
-    keywords_tr: [elektrik, şimşek, yıldırım, gökgürültüsü]
-    stems_tr: [çarpıl]
+    keywords_tr: [elektrik, şimşek, yıldırım, gökgürültüsü, şok, neon]
+    stems_tr: [çarpıl, elektrik]
     prototypes_en:
       - you hit me like lightning and thunder
       - electricity running through my body
@@ -187,10 +187,10 @@ categories:
   - id: cold
     icon: ac_unit
     base_intensity: 0.6
-    keywords_en: [cold, ice, snow, frozen, freeze, winter]
+    keywords_en: [cold, ice, icy, snow, snowflake, frost, frozen, freeze, winter]
     stems_en: [freez, chill]
     keywords_tr: [soğuk, buz, kar, kış]
-    stems_tr: [dond, üşüy, üşüd]
+    stems_tr: [dond, donuy, üşüy, üşüd]
     prototypes_en:
       - cold as ice frozen in the snow
       - winter chill runs down my spine
@@ -200,10 +200,10 @@ categories:
   - id: dark
     icon: dark_mode
     base_intensity: 0.7
-    keywords_en: [dark, darkness, shadow, shadows, ghost, ghosts, devil, demon, demons, grave]
+    keywords_en: [dark, darkness, shadow, shadows, ghost, ghosts, devil, demon, demons, grave, nightmare, evil, hell]
     stems_en: [haunt]
-    keywords_tr: [karanlık, gölge, hayalet, şeytan, mezar]
-    stems_tr: [karanl]
+    keywords_tr: [karanlık, gölge, hayalet, şeytan, mezar, kabus, cehennem]
+    stems_tr: [karanl, gölgel]
     prototypes_en:
       - shadows and demons haunt the darkness
       - a ghost walks over my grave
@@ -216,7 +216,7 @@ categories:
     keywords_en: [die, dead, death, dying, kill, killed]
     stems_en: []
     keywords_tr: [ölüm, ölü]
-    stems_tr: [öldü, ölüy, öldür]
+    stems_tr: [öldü, ölüy, öldür, ölür]
     prototypes_en:
       - i would die for you tonight
       - love me until the day we die
@@ -226,9 +226,9 @@ categories:
   - id: crown
     icon: crown
     base_intensity: 0.5
-    keywords_en: [king, queen, crown, throne, royal]
+    keywords_en: [king, queen, crown, throne, royal, royalty, kingdom, prince, princess]
     stems_en: []
-    keywords_tr: [kral, kraliçe, taç, taht]
+    keywords_tr: [kral, kraliçe, taç, taht, prens, prenses, saray]
     stems_tr: []
     prototypes_en:
       - i am the king on my throne
@@ -242,7 +242,7 @@ categories:
     keywords_en: [phone, call, calls, calling, text]
     stems_en: [dial]
     keywords_tr: [telefon]
-    stems_tr: []
+    stems_tr: [telefon]
     prototypes_en:
       - call me on the phone tonight
       - waiting for your late night call
@@ -252,10 +252,10 @@ categories:
   - id: fight
     icon: sports_mma
     base_intensity: 0.6
-    keywords_en: [fight, fighting, war, battle, soldier, bullet, bullets]
+    keywords_en: [fight, fighting, war, battle, battlefield, soldier, soldiers, warrior, army, bullet, bullets]
     stems_en: [punch]
-    keywords_tr: [savaş, kavga, asker, kurşun]
-    stems_tr: [dövüş, vuruş]
+    keywords_tr: [savaş, kavga, asker, kurşun, düşman]
+    stems_tr: [dövüş, vuruş, savaş]
     prototypes_en:
       - we fight this battle like soldiers
       - bullets flying in the war
@@ -265,10 +265,10 @@ categories:
   - id: music
     icon: music_note
     base_intensity: 0.4
-    keywords_en: [music, song, songs, melody, rhythm, radio]
+    keywords_en: [music, song, songs, melody, rhythm, radio, guitar, piano, drums]
     stems_en: [sing]
-    keywords_tr: [müzik, şarkı, melodi, ritim, radyo]
-    stems_tr: [söylü]
+    keywords_tr: [müzik, şarkı, melodi, ritim, radyo, gitar, piyano]
+    stems_tr: [söylü, şarkıl]
     prototypes_en:
       - sing this song out loud with me
       - the melody plays on the radio
