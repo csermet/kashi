@@ -204,8 +204,8 @@ class PrototypeEmbedder:
 
     def __init__(self, cache_dir: str | None = None):
         # The `semantics` extra — absent in plain dev installs, present in the image.
-        from sentence_transformers import (
-            SentenceTransformer,  # pyright: ignore[reportMissingImports]
+        from sentence_transformers import (  # pyright: ignore[reportMissingImports]
+            SentenceTransformer,
         )
 
         self._model = SentenceTransformer(
