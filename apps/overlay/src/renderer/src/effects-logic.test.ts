@@ -29,7 +29,7 @@ import {
   planWordFills,
   relativeLuminance,
 } from './effects-logic.js';
-import { NEUTRAL_BG_TRIPLET } from './color-tone.js';
+import { NEUTRAL_BG_TRIPLET, hexToOklch, hueDistance } from './color-tone.js';
 
 describe('parseEffectLevel', () => {
   it('accepts the four levels and defaults everything else', () => {
@@ -377,8 +377,12 @@ describe('computeFxTintVars (Faz 6 field round 2)', () => {
     expect(computeFxTintVars('#ff847c', 'none')).toEqual({});
   });
 
-  it('tints differ from the raw base colors (tone-mapped, not passthrough)', () => {
+  it('tints are valid hex and keep the category hue (0.7.1 own-vividness)', () => {
     const vars = computeFxTintVars(undefined, 'full');
-    expect(vars['--fx-tint-poison']).not.toBe(FX_BASE_COLORS['poison']);
+    for (const [tag, base] of Object.entries(FX_BASE_COLORS)) {
+      const tint = vars[`--fx-tint-${tag}`]!;
+      expect(tint).toMatch(/^#[0-9a-f]{6}$/);
+      expect(hueDistance(hexToOklch(tint).h, hexToOklch(base).h)).toBeLessThan(0.2);
+    }
   });
 });
