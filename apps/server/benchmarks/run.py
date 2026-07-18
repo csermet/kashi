@@ -169,6 +169,10 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             rows.append(entry)
             continue
 
+        if args.line_postprocess != "none" and anchors is not None:  # P2 experiment
+            from benchmarks.softoffset import apply_soft_offset
+
+            result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
         if args.trim_ends:  # production line_qa order: trim precedes everything
             result, trimmed = trim_word_ends(result)
             entry["trimmed_ends"] = trimmed
@@ -340,6 +344,14 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
             rows.append(entry)
             continue
 
+        if args.line_postprocess != "none" and anchors is not None:  # P2 experiment
+            # NOTE: case metrics compare against the SAME lrclib anchors the
+            # offset is derived from — circular by construction. Case rows
+            # under soft-* are a monotonicity/sanity signal only; the honest
+            # word-level evidence lives in the Jamendo rows.
+            from benchmarks.softoffset import apply_soft_offset
+
+            result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
         if args.trim_ends:  # line starts are untouched; recorded for the P1 A/B
             result, trimmed = trim_word_ends(result)
             entry["trimmed_ends"] = trimmed
@@ -388,6 +400,14 @@ def main() -> int:
     parser.add_argument("--tolerances", default="0.1,0.2,0.3,0.5", help="PCO tolerances, seconds")
     parser.add_argument("--windowed", action="store_true", help="line-anchored windowed alignment")
     parser.add_argument(
+        "--line-postprocess",
+        choices=("none", "soft-median", "soft-pl"),
+        default="none",
+        help="P2 experiment: shift every line (rigidly, words included) by its "
+        "median-filtered anchor delta — step (soft-median) or piecewise-linear "
+        "(soft-pl). Requires --windowed; bench-only, never production.",
+    )
+    parser.add_argument(
         "--trim-ends",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -411,6 +431,8 @@ def main() -> int:
     )
     if args.windowed:
         config_name += "-win"
+    if args.line_postprocess != "none":
+        config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
         config_name += "-notrim"
     started = time.monotonic()
@@ -428,6 +450,7 @@ def main() -> int:
             "mixback": args.mixback if args.separation != "full-mix" else None,
             "windowed": args.windowed,
             "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
+            "line_postprocess": args.line_postprocess,
             "trim_ends": args.trim_ends,
             "host": platform.node(),
             "cpus": os.cpu_count(),
