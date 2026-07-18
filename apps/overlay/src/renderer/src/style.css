@@ -393,26 +393,26 @@ body.fx-full.fill-neutral .word-fill {
 body.fx-hype .word.fx-word {
   --fx-color: var(--kashi-primary, #fff);
 }
-body.fx-hype .fx-explosion { --fx-color: var(--fx-tint-explosion, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-fire { --fx-color: var(--fx-tint-fire, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-poison { --fx-color: var(--fx-tint-poison, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-love { --fx-color: var(--fx-tint-love, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-heartbreak { --fx-color: var(--fx-tint-heartbreak, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-water { --fx-color: var(--fx-tint-water, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-night { --fx-color: var(--fx-tint-night, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-shine { --fx-color: var(--fx-tint-shine, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-dance { --fx-color: var(--fx-tint-dance, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-money { --fx-color: var(--fx-tint-money, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-fly { --fx-color: var(--fx-tint-fly, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-speed { --fx-color: var(--fx-tint-speed, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-electric { --fx-color: var(--fx-tint-electric, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-cold { --fx-color: var(--fx-tint-cold, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-dark { --fx-color: var(--fx-tint-dark, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-death { --fx-color: var(--fx-tint-death, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-crown { --fx-color: var(--fx-tint-crown, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-phone { --fx-color: var(--fx-tint-phone, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-fight { --fx-color: var(--fx-tint-fight, var(--kashi-primary, #fff)); }
-body.fx-hype .fx-music { --fx-color: var(--fx-tint-music, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-explosion { --fx-color: var(--fx-tint-explosion, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-fire { --fx-color: var(--fx-tint-fire, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-poison { --fx-color: var(--fx-tint-poison, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-love { --fx-color: var(--fx-tint-love, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-heartbreak { --fx-color: var(--fx-tint-heartbreak, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-water { --fx-color: var(--fx-tint-water, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-night { --fx-color: var(--fx-tint-night, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-shine { --fx-color: var(--fx-tint-shine, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-dance { --fx-color: var(--fx-tint-dance, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-money { --fx-color: var(--fx-tint-money, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-fly { --fx-color: var(--fx-tint-fly, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-speed { --fx-color: var(--fx-tint-speed, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-electric { --fx-color: var(--fx-tint-electric, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-cold { --fx-color: var(--fx-tint-cold, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-dark { --fx-color: var(--fx-tint-dark, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-death { --fx-color: var(--fx-tint-death, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-crown { --fx-color: var(--fx-tint-crown, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-phone { --fx-color: var(--fx-tint-phone, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-fight { --fx-color: var(--fx-tint-fight, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-music { --fx-color: var(--fx-tint-music, var(--kashi-primary, #fff)); }
 
 /* The fx word's activation pop: stronger than the stock word-active
    (specificity wins: 3 classes + body), scaled by the server intensity.
