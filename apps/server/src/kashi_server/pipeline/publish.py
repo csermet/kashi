@@ -30,8 +30,23 @@ PUBLISH_QUALITY_FLOOR = 0.5
 MAX_POW_ATTEMPTS = 50_000_000  # minutes-of-CPU ceiling; the worker owns it
 
 
-def publish_gate(doc: dict) -> list[str]:
-    """Reasons this document must NOT be published (empty list = eligible).
+# Stable reason codes for the coded gate — a FIXED enum (metric label safety:
+# kashi_lrclib_publish_gate_total{reason} must stay low-cardinality).
+GATE_REASON_CODES = (
+    "lyrics_source",
+    "not_word_sync",
+    "nightcore_clock",
+    "quality_floor",
+    "qa_missing",
+    "qa_flagged",
+    "qa_density_dropped",
+    "no_measured_words",
+    "track_metadata",
+)
+
+
+def publish_gate_coded(doc: dict) -> list[tuple[str, str]]:
+    """(code, reason) pairs this document must NOT be published (empty = eligible).
 
     Every rule reads document provenance (alignment + alignment.qa — the
     Faz 5 P1 block), never live state:
@@ -42,36 +57,58 @@ def publish_gate(doc: dict) -> list[str]:
       written onto the original track's record.
     - line QA must not have repaired anything (flagged/density drops mean
       the aligner lost lock somewhere — not contribution material).
+
+    Codes come from GATE_REASON_CODES; messages stay human-readable.
     """
-    reasons: list[str] = []
+    reasons: list[tuple[str, str]] = []
     alignment = doc.get("alignment") or {}
     if alignment.get("lyrics_source") != "lrclib":
-        reasons.append(f"lyrics_source is {alignment.get('lyrics_source')!r}, not 'lrclib'")
+        reasons.append(
+            ("lyrics_source", f"lyrics_source is {alignment.get('lyrics_source')!r}, not 'lrclib'")
+        )
     if doc.get("sync") != "word":
-        reasons.append("document is not word-sync")
+        reasons.append(("not_word_sync", "document is not word-sync"))
     if alignment.get("speed_factor", 1.0) != 1.0:
-        reasons.append("nightcore clock (speed_factor != 1) cannot be published")
+        reasons.append(
+            ("nightcore_clock", "nightcore clock (speed_factor != 1) cannot be published")
+        )
     quality = alignment.get("quality_score")
     if not isinstance(quality, (int, float)) or quality < PUBLISH_QUALITY_FLOOR:
-        reasons.append(f"quality {quality!r} under the {PUBLISH_QUALITY_FLOOR} publish floor")
+        reasons.append(
+            (
+                "quality_floor",
+                f"quality {quality!r} under the {PUBLISH_QUALITY_FLOOR} publish floor",
+            )
+        )
     qa = alignment.get("qa")
     if not isinstance(qa, dict):
-        reasons.append("no alignment.qa provenance (pre-2.3.0 document — reprocess first)")
+        reasons.append(
+            ("qa_missing", "no alignment.qa provenance (pre-2.3.0 document — reprocess first)")
+        )
     else:
         if qa.get("flagged", 1) != 0:
-            reasons.append("line QA snapped lines (aligner lost lock)")
+            reasons.append(("qa_flagged", "line QA snapped lines (aligner lost lock)"))
         if qa.get("density_dropped", 1) != 0:
-            reasons.append("line QA dropped damaged word runs")
+            reasons.append(("qa_density_dropped", "line QA dropped damaged word runs"))
     if not any(
         line.get("words") and not line.get("words_derived") for line in doc.get("lines") or []
     ):
         # All word content synthetic/absent: the generated lyricsfile would
         # carry no measured words — noise, not signal (reviewer catch).
-        reasons.append("no measured word lines (only rederived/wordless content)")
+        reasons.append(
+            ("no_measured_words", "no measured word lines (only rederived/wordless content)")
+        )
     track = doc.get("track") or {}
     if not track.get("title") or not track.get("artist") or not track.get("duration_ms"):
-        reasons.append("track metadata incomplete")
+        reasons.append(("track_metadata", "track metadata incomplete"))
     return reasons
+
+
+def publish_gate(doc: dict) -> list[str]:
+    """Human-readable reasons this document must NOT be published (empty =
+    eligible). Thin view over publish_gate_coded — API responses keep their
+    message-only contract."""
+    return [message for _, message in publish_gate_coded(doc)]
 
 
 def generate_lyricsfile(doc: dict) -> str:

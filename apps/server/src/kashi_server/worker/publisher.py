@@ -11,15 +11,32 @@ lrclib_publish_dry_run off.
 import logging
 from datetime import UTC, datetime
 
+from prometheus_client import Counter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from kashi_server.config import settings
 from kashi_server.db.models import LrclibPublish, ProcessedTrack
-from kashi_server.pipeline.publish import generate_lyricsfile, publish_document, publish_gate
+from kashi_server.pipeline.publish import (
+    generate_lyricsfile,
+    publish_document,
+    publish_gate_coded,
+)
 from kashi_server.vdl_kit.errors import PipelineError
 
 logger = logging.getLogger(__name__)
+
+PUBLISH_TOTAL = Counter(
+    "kashi_lrclib_publish_total",
+    "Drained lrclib publish requests by terminal outcome",
+    ["outcome"],  # published | dry_run | failed — mirrors LrclibPublish.status
+)
+PUBLISH_GATE_TOTAL = Counter(
+    "kashi_lrclib_publish_gate_total",
+    "Worker-side publish gate rejections by reason code (defense-in-depth "
+    "re-run; API-side 422s never reach the worker and are not counted here)",
+    ["reason"],  # fixed enum: pipeline.publish.GATE_REASON_CODES
+)
 
 
 def process_one_publish(s: Session, *, should_stop: object = None) -> bool:
@@ -51,9 +68,13 @@ def process_one_publish(s: Session, *, should_stop: object = None) -> bool:
             raise PipelineError(
                 "other", "document changed or vanished since the request — request again"
             )
-        reasons = publish_gate(doc_row.document)
-        if reasons:
-            raise PipelineError("other", "gate: " + "; ".join(reasons))
+        coded_reasons = publish_gate_coded(doc_row.document)
+        if coded_reasons:
+            for code, _ in coded_reasons:
+                PUBLISH_GATE_TOTAL.labels(reason=code).inc()
+            raise PipelineError(
+                "other", "gate: " + "; ".join(message for _, message in coded_reasons)
+            )
         if settings.lrclib_publish_dry_run:
             yaml_text = generate_lyricsfile(doc_row.document)
             logger.info(
@@ -79,5 +100,6 @@ def process_one_publish(s: Session, *, should_stop: object = None) -> bool:
         row.status = "failed"
         row.error = str(exc)[:500]
     row.finished_at = datetime.now(UTC)
+    PUBLISH_TOTAL.labels(outcome=row.status).inc()
     s.commit()
     return True

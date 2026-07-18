@@ -14,10 +14,12 @@ from sqlalchemy import select
 from kashi_server.db.models import LrclibPublish
 from kashi_server.pipeline.lyricsfile import alignresult_from_lyricsfile
 from kashi_server.pipeline.publish import (
+    GATE_REASON_CODES,
     _nonce_ok,
     generate_lyricsfile,
     publish_document,
     publish_gate,
+    publish_gate_coded,
     solve_challenge,
 )
 from kashi_server.vdl_kit.errors import PipelineError
@@ -272,3 +274,77 @@ def test_worker_fails_when_document_moved_on(db_session, monkeypatch):
     assert process_one_publish(db_session) is True
     row = db_session.scalars(select(LrclibPublish)).one()
     assert row.status == "failed" and "changed or vanished" in (row.error or "")
+
+
+def test_gate_codes_cover_every_rule():
+    """Every gate rule emits a stable code from the fixed enum (Prometheus
+    label safety) and the message-only view stays in lockstep."""
+    bad = _doc(sync="line")
+    bad["alignment"]["lyrics_source"] = "caller"
+    bad["alignment"]["speed_factor"] = 1.25
+    bad["alignment"]["quality_score"] = 0.1
+    del bad["alignment"]["qa"]
+    for line in bad["lines"]:
+        line["words_derived"] = True
+    bad["track"] = {}
+    codes = [code for code, _ in publish_gate_coded(bad)]
+    assert codes == [
+        "lyrics_source",
+        "not_word_sync",
+        "nightcore_clock",
+        "quality_floor",
+        "qa_missing",
+        "no_measured_words",
+        "track_metadata",
+    ]
+
+    repaired = _doc()
+    repaired["alignment"]["qa"]["flagged"] = 1
+    repaired["alignment"]["qa"]["density_dropped"] = 3
+    assert [code for code, _ in publish_gate_coded(repaired)] == [
+        "qa_flagged",
+        "qa_density_dropped",
+    ]
+
+    for doc in (bad, repaired):
+        assert {code for code, _ in publish_gate_coded(doc)} <= set(GATE_REASON_CODES)
+        assert publish_gate(doc) == [message for _, message in publish_gate_coded(doc)]
+
+
+def _metric(name: str, **labels) -> float:
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value(name, labels or None) or 0.0
+
+
+def test_worker_metrics_count_outcomes_and_gate_codes(db_session, monkeypatch):
+    from kashi_server.config import settings
+    from kashi_server.worker.publisher import process_one_publish
+
+    monkeypatch.setattr(settings, "lrclib_publish_enabled", True)
+    assert settings.lrclib_publish_dry_run is True
+
+    # Row 1: clean document drains as dry_run.
+    doc = _doc()
+    doc["track"]["source"]["id"] = "pubMetricOk1"
+    etag = _persist_doc(db_session, doc)
+    db_session.add(LrclibPublish(source_type="youtube", source_id="pubMetricOk1", etag=etag))
+    # Row 2: nightcore document trips the worker-side gate re-run.
+    nc = _doc()
+    nc["track"]["source"]["id"] = "pubMetricNc1"
+    nc["alignment"]["speed_factor"] = 1.3
+    nc_etag = _persist_doc(db_session, nc)
+    db_session.add(LrclibPublish(source_type="youtube", source_id="pubMetricNc1", etag=nc_etag))
+    db_session.flush()
+
+    before_dry = _metric("kashi_lrclib_publish_total", outcome="dry_run")
+    before_failed = _metric("kashi_lrclib_publish_total", outcome="failed")
+    before_gate = _metric("kashi_lrclib_publish_gate_total", reason="nightcore_clock")
+
+    assert process_one_publish(db_session) is True
+    assert process_one_publish(db_session) is True
+    assert process_one_publish(db_session) is False  # drained
+
+    assert _metric("kashi_lrclib_publish_total", outcome="dry_run") == before_dry + 1
+    assert _metric("kashi_lrclib_publish_total", outcome="failed") == before_failed + 1
+    assert _metric("kashi_lrclib_publish_gate_total", reason="nightcore_clock") == before_gate + 1
