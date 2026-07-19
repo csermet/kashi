@@ -123,6 +123,39 @@ file:line and the checklist item it violates.
 - `stable-ts` (archived), `torchaudio` forced-alignment API (removal scheduled), unofficial
   Musixmatch/Apple Music lyric fetchers. Any import/reference is a violation.
 
+### H. FX & lyricsfile pipeline (Phase 5–6 baselines)
+- Lyricsfile fast path: parse guards (≤256 KB, major==1, duration slack 5 s, monotonic starts,
+  word-text match) — every parse failure returns None and the job CONTINUES on the CTC path;
+  the CTC bypass is allowed ONLY when r==1 AND lyrics_source==lrclib (nightcore keeps the CTC
+  probability gate).
+- Publish gate invariants (`publish.py`): lrclib-sourced + word sync + r==1 + quality ≥0.5 +
+  `qa.flagged==0` + `density_dropped==0` + ≥1 measured word line; PoW is SIGTERM-interruptible;
+  ledger dedup on `(source_type, source_id, etag)`; code defaults are double-OFF
+  (`LRCLIB_PUBLISH_ENABLED=False`, `DRY_RUN=True`) — prod enables via env only.
+- `alignment.quality_basis` (`ctc-probs|anchors|human`) documents what the score MEASURED —
+  changing a score's semantics without a matching basis change is a violation.
+- `fx`/`energy`/`sections` are OPTIONAL additive document fields; semantics/energy/structure
+  failures must never fail the document (best-effort, like palette/beats); fx stays SPARSE
+  (word-tag cap ~60 per document — the DG6 attention brake starts server-side).
+- `semantics.py` layer order is FIXED: curated keyword/stem layer FIRST, embedding only for
+  uncovered lines; below-threshold = NO tag (forced assignment is a violation); Turkish
+  normalization = `translate(İ→i, I→ı)` BEFORE `lower()` — `casefold()` on Turkish text is a
+  violation; Turkish stems are ≥4 chars.
+- Dependency armor: the `[tool.uv] override-dependencies` torchcodec line in
+  `apps/server/pyproject.toml` must never be removed; any ML-dependency change must show in the
+  MR that `uv.lock` kept the torch / transformers / huggingface-hub pins unchanged.
+- Overlay hype contract: `fx-off`/`simple`/`full` render PIXEL-IDENTICAL to pre-hype output
+  (regression-tested); the DEFAULT level (`simple`) never changes appearance; at most ONE
+  semantic effect per line (highest intensity wins).
+- Hype CSS: tag/tint rules must win the cascade — pattern `body.fx-hype .word.fx-word.fx-<tag>`
+  (specificity 0,4,1); re-verify the cascade manually whenever custom-property rules change
+  (the 0.7.2 regression). Effects animate transform/opacity ONLY; glow/aberration live on
+  pre-drawn layers driven by opacity/class toggles; box-shadow/blur/text-shadow VALUES and
+  `font-variation-settings` are never animated.
+- Icons: vendored monochrome Material Symbols (Apache-2.0, license badge in the vendored dir),
+  built with `createElementNS` + presentation attributes (no `style` attr, no innerHTML);
+  fx tag charset gate `/^[a-z0-9][a-z0-9_-]{0,31}$/` before any DOM/class use.
+
 ## Output format
 Return a compact report: (1) scope reviewed; (2) findings ranked by severity — each as
 `[violation|risk|nit] file:line — one-sentence defect + checklist item (e.g. C.1)`; (3) a short

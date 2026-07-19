@@ -186,9 +186,9 @@ Project-specific review agents live in `.claude/agents/`.
 
 ## 🗺 Roadmap
 
-Phase 6: meaning-reactive word effects (semantic tags, themed icons, particle
-pops), energy/beat-driven dynamics, in-app server settings, smarter
-composite-title parsing.
+Phase 6.5: effects beyond the box (ambient category glow, icons entering from
+outside the lyric box), richer fx lexicon, real song-structure sections, a
+canvas effect-layer experiment.
 
 Later: Chrome Web Store, Plex as a source, macOS support, auto-update.
 
