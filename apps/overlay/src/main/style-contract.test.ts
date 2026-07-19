@@ -51,6 +51,19 @@ describe('style contract: ambient ring stays hype-scoped', () => {
   });
 });
 
+describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
+  it('every selector naming nightcore starts with body.fx-hype', () => {
+    const offenders = selectorLines(css).filter(
+      (line) => line.includes('nightcore') && !line.startsWith('body.fx-hype'),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('the nightcore rules exist', () => {
+    expect(css).toContain('body.fx-hype.nightcore .lyric');
+  });
+});
+
 describe('style contract: icon stage / park spot (Faz 6.5 P2)', () => {
   // Structural shells may exist outside hype ONLY as these invisible base
   // selectors (position/opacity:0); every visible rule must be hype-scoped.

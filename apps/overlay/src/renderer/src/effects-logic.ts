@@ -441,6 +441,31 @@ export function inSection(
   return false;
 }
 
+/** Section types that drive the high-intensity ramp (Faz 6.5 P5): today's
+ * energy-derived "high" blocks plus real "chorus" labels — additive-ready
+ * for the structure analysis (P6) before it even ships. */
+export const RAMP_SECTION_TYPES: readonly string[] = ['high', 'chorus'];
+
+export function inRampSection(
+  sections: readonly SectionData[] | undefined,
+  posMs: number,
+): boolean {
+  return RAMP_SECTION_TYPES.some((type) => inSection(sections, type, posMs));
+}
+
+// ---------------------------------------------------------------------------
+// Nightcore aesthetics (Faz 6.5 P5) — sped-up documents only.
+
+import type { AlignmentData } from '../../shared/lyrics.js';
+
+/** Below this the speed difference is inaudible tape drift, not nightcore. */
+export const NIGHTCORE_MIN_SPEED = 1.05;
+
+export function isNightcore(alignment: AlignmentData | undefined): boolean {
+  const speed = alignment?.speed_factor;
+  return typeof speed === 'number' && Number.isFinite(speed) && speed >= NIGHTCORE_MIN_SPEED;
+}
+
 /** Category base colors — the SEMANTIC hue source ("love is pink, toxic is
  * green"; field round 2). Only the hue survives rendering: toneFx re-renders
  * every tint in a fixed readable band and pushes lightness apart when the

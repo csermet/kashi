@@ -5,6 +5,7 @@
  */
 
 import type {
+  AlignmentData,
   BeatsData,
   EnergyData,
   FxData,
@@ -38,6 +39,8 @@ export interface ServerLyricsFound {
   /** Track-normalized loudness curve + energy-derived sections (2.6.0+). */
   energy?: EnergyData;
   sections?: SectionData[];
+  /** Alignment slice (Faz 6.5 P5): nightcore speed factor for the aesthetics. */
+  alignment?: AlignmentData;
 }
 
 export type ServerLyricsResult = ServerLyricsFound | { found: false } | { error: true };
@@ -134,6 +137,12 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
   if (energy) payload.energy = energy;
   const sections = mapSections(d['sections']);
   if (sections) payload.sections = sections;
+  // Nightcore provenance (Faz 6.5 P5): only a sane positive factor rides —
+  // enrichment tolerance, absent on garbage like everything above.
+  const speed = alignment?.['speed_factor'];
+  if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
+    payload.alignment = { speed_factor: speed };
+  }
   return payload;
 }
 

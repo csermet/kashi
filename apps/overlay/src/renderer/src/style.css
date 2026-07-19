@@ -684,6 +684,52 @@ body.fx-hype #fx-park .fx-icon {
   color: var(--stage-color, var(--kashi-primary, #fff));
 }
 
+/* ------------------------------------------------------------------------
+   Faz 6.5 P5: nightcore prototypes — sped-up documents only (body carries
+   .nightcore from the document's speed_factor; rules fire only under
+   fx-hype). PROTOTYPE semantics: Caner's ear/eye tour decides, disliked
+   pieces get deleted. (1) Chromatic aberration: STATIC double text-shadow
+   (inherited by the word spans), single repaint on the class edge — the
+   value itself is never animated. (2) Hue shimmer: slow STEPPED color
+   cycle (steps() = a couple of small text repaints per second, no
+   continuous interpolation) on plain-line text and sung words; the active
+   word keeps its semantic color untouched. */
+body.fx-hype.nightcore .lyric {
+  text-shadow:
+    1.5px 0 rgba(255, 64, 96, 0.45),
+    -1.5px 0 rgba(64, 208, 255, 0.45),
+    0 1px 8px rgba(0, 0, 0, 0.8);
+}
+body.fx-hype.nightcore #lyric-line {
+  animation: kashi-nc-hue 16s steps(32) infinite;
+}
+body.fx-hype.nightcore .word.word-sung {
+  animation: kashi-nc-hue 16s steps(32) infinite;
+}
+@keyframes kashi-nc-hue {
+  0%,
+  100% {
+    color: #9be8ff;
+  }
+  25% {
+    color: #c9a8ff;
+  }
+  50% {
+    color: #ffa8d8;
+  }
+  75% {
+    color: #a8ffd0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Aberration is static (stays); the shimmer is motion (goes). */
+  body.fx-hype.nightcore #lyric-line,
+  body.fx-hype.nightcore .word.word-sung {
+    animation: none;
+  }
+}
+
 /* Line entrance with spring (hype): same one-shot class as the fx-simple/
    full fade, springier curve — transform/opacity only. */
 body.fx-hype #lyric-line.line-in {

@@ -66,6 +66,13 @@ export interface FxData {
   lines?: FxLineTag[];
 }
 
+/** Alignment provenance slice the renderer consumes (Faz 6.5 P5): only the
+ * nightcore speed factor for now — tolerant subset, the schema's alignment
+ * object carries much more. */
+export interface AlignmentData {
+  speed_factor?: number;
+}
+
 /** Track-normalized loudness curve (server 2.6.0+): 0-100 ints @ rate_hz
  * on the PLAYED clock — drives the hype intensity ramp. */
 export interface EnergyData {
@@ -97,3 +104,5 @@ type SchemaEnergy = NonNullable<KashiProcessedTrackV1['energy']>;
 export type _EnergyDriftGuard = Satisfies<SchemaEnergy, EnergyData>;
 type SchemaSection = NonNullable<KashiProcessedTrackV1['sections']>[number];
 export type _SectionDriftGuard = Satisfies<SchemaSection, SectionData>;
+type SchemaAlignment = KashiProcessedTrackV1['alignment'];
+export type _AlignmentDriftGuard = Satisfies<SchemaAlignment, AlignmentData>;

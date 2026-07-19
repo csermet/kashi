@@ -23,7 +23,9 @@ import {
   computeFxTintVars,
   FX_BASE_COLORS,
   energyAt,
+  inRampSection,
   inSection,
+  isNightcore,
   quantizedEnergy,
   contrastRatio,
   fillProgress,
@@ -447,5 +449,30 @@ describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => 
     const tints = { '--fx-tint-poison': '#22aa55' };
     expect(ambientColors(0, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
     expect(ambientColors(-1, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
+  });
+});
+
+describe('nightcore gate + ramp sections (Faz 6.5 P5)', () => {
+  it('isNightcore: r>=1.05 only, garbage never', () => {
+    expect(isNightcore({ speed_factor: 1.27 })).toBe(true);
+    expect(isNightcore({ speed_factor: 1.05 })).toBe(true);
+    expect(isNightcore({ speed_factor: 1.0 })).toBe(false);
+    expect(isNightcore({ speed_factor: 1.04 })).toBe(false);
+    expect(isNightcore({ speed_factor: Number.NaN })).toBe(false);
+    expect(isNightcore({})).toBe(false);
+    expect(isNightcore(undefined)).toBe(false);
+  });
+
+  it('inRampSection: high AND chorus both drive the ramp (P6-ready)', () => {
+    const sections = [
+      { type: 'high', start_ms: 0, end_ms: 1000 },
+      { type: 'chorus', start_ms: 5000, end_ms: 9000 },
+      { type: 'verse', start_ms: 2000, end_ms: 4000 },
+    ];
+    expect(inRampSection(sections, 500)).toBe(true);
+    expect(inRampSection(sections, 6000)).toBe(true);
+    expect(inRampSection(sections, 3000)).toBe(false); // verse is not a ramp type
+    expect(inRampSection(sections, 4500)).toBe(false);
+    expect(inRampSection(undefined, 0)).toBe(false);
   });
 });

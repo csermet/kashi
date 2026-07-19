@@ -169,3 +169,26 @@ describe('mapFx (Faz 6)', () => {
     expect(mapFx({ lexicon: 1, engine: 'keywords' }, 'word')).toBeUndefined();
   });
 });
+
+describe('mapDocument alignment passthrough (Faz 6.5 P5 nightcore)', () => {
+  const base = () => ({
+    schema_version: 1,
+    sync: 'line',
+    alignment: { quality_score: 0.7, speed_factor: 1.27 },
+    lines: [{ start_ms: 0, end_ms: 1000, text: 'hey' }],
+  });
+
+  it('forwards a sane speed_factor', () => {
+    expect(mapDocument(base())!.alignment).toEqual({ speed_factor: 1.27 });
+  });
+
+  it('drops absent/garbage speed factors (enrichment tolerance)', () => {
+    const doc = base();
+    delete (doc.alignment as Record<string, unknown>)['speed_factor'];
+    expect(mapDocument(doc)!.alignment).toBeUndefined();
+    (doc.alignment as Record<string, unknown>)['speed_factor'] = 'fast';
+    expect(mapDocument(doc)!.alignment).toBeUndefined();
+    (doc.alignment as Record<string, unknown>)['speed_factor'] = -2;
+    expect(mapDocument(doc)!.alignment).toBeUndefined();
+  });
+});

@@ -29,7 +29,8 @@ import {
   FX_BASE_COLORS,
   fillProgress,
   FX_BURST_TAGS,
-  inSection,
+  inRampSection,
+  isNightcore,
   paletteToCssVars,
   planWordFills,
   quantizedEnergy,
@@ -49,7 +50,13 @@ import {
   type ViewOutput,
   type WordTiming,
 } from './view-logic.js';
-import type { EnergyData, FxData, LyricLine, SectionData } from '../../shared/lyrics.js';
+import type {
+  AlignmentData,
+  EnergyData,
+  FxData,
+  LyricLine,
+  SectionData,
+} from '../../shared/lyrics.js';
 import { loadArtworkPalette } from './artwork-palette.js';
 
 
@@ -203,6 +210,14 @@ function rebuildFxIndex(): void {
 // Energy/section state (Faz 6 P5) — written only on change (edge/step).
 let currentEnergy: EnergyData | undefined;
 let currentSections: SectionData[] | undefined;
+// Nightcore aesthetics (Faz 6.5 P5): reflects the DOCUMENT only — the CSS
+// rules are body.fx-hype.nightcore-scoped, so the level needs no hook here.
+let nightcoreDoc = false;
+
+function setNightcoreClass(on: boolean): void {
+  nightcoreDoc = on;
+  document.body.classList.toggle('nightcore', on);
+}
 let appliedEnergy = -1;
 let appliedHigh = false;
 
@@ -574,6 +589,7 @@ function clearEnrichment(): void {
   currentFx = undefined;
   currentEnergy = undefined;
   currentSections = undefined;
+  setNightcoreClass(false);
   setEnergyState(0, false);
   rebuildFxIndex();
   rebuildBeatCursor();
@@ -634,6 +650,7 @@ window.kashi.onLyrics((payload) => {
     fx?: FxData;
     energy?: EnergyData;
     sections?: SectionData[];
+    alignment?: AlignmentData;
   };
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
@@ -655,6 +672,7 @@ window.kashi.onLyrics((payload) => {
     currentFx = data.fx;
     currentEnergy = data.energy;
     currentSections = data.sections;
+    setNightcoreClass(isNightcore(data.alignment));
     rebuildFxIndex();
     rebuildBeatCursor();
     refreshPalette();
@@ -673,6 +691,7 @@ window.kashi.onLyrics((payload) => {
     currentFx = undefined;
     currentEnergy = undefined;
     currentSections = undefined;
+    setNightcoreClass(false);
     rebuildFxIndex();
     rebuildBeatCursor();
     refreshPalette();
@@ -930,7 +949,7 @@ function frame(): void {
   // beats. Style writes happen only on QUANTIZED step changes / section
   // edges — a few times per second, never per frame.
   if (effectLevel === 'hype' && clock.isPlaying && !adActive && lines.length > 0) {
-    setEnergyState(quantizedEnergy(currentEnergy, rawPos), inSection(currentSections, 'high', rawPos));
+    setEnergyState(quantizedEnergy(currentEnergy, rawPos), inRampSection(currentSections, rawPos));
   } else {
     setEnergyState(0, false);
   }
