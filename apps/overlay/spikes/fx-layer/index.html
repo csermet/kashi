@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Kashi fx-layer spike</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        font: 13px/1.5 monospace;
+        color: #d8f6ff;
+        background: rgba(8, 10, 18, 0.72);
+        padding: 8px 12px;
+        border-radius: 8px;
+        white-space: pre;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #hud.done {
+        color: #b8ffc8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">starting…</div>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

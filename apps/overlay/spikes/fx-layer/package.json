@@ -1,0 +1,15 @@
+{
+  "name": "kashi-fx-layer-spike",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Dev-only measurement spike: canvas/WebGL particle layer inside a transparent, click-through, always-on-top Electron window (Faz 6.5 P3). Never shipped, never bundled.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^42.6.0",
+    "pixi.js": "^8.14.0"
+  }
+}
