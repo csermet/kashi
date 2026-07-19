@@ -33,6 +33,18 @@ describe('style contract: ambient ring stays hype-scoped', () => {
     expect(offenders).toEqual([]);
   });
 
+  it("the ring's pre-drawn base rule (no 'ambient' in its selector) is hype-scoped too", () => {
+    // The base `#lyric-box::before` layer slips past the substring net above
+    // (reviewer nit) — guard it explicitly.
+    const offenders = selectorLines(css).filter(
+      (line) =>
+        line.includes('lyric-box') &&
+        line.includes('::before') &&
+        !line.startsWith('body.fx-hype'),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it('the ambient rules exist (the guard must be guarding something)', () => {
     expect(css).toContain('#lyric-box.fx-ambient::before');
     expect(css).toContain('#lyric-box.ambient-flash::before');

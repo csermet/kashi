@@ -140,6 +140,9 @@ let appliedParkTag: string | null = null;
 function applyAmbient(lineIndex: number, force = false): void {
   if (!force && lineIndex === ambientLineIndex) return;
   ambientLineIndex = lineIndex;
+  // A new line means any pending flash is over (belt for reduced-motion,
+  // where animation:none never fires animationend).
+  boxEl?.classList.remove('ambient-flash');
   const { ambient, flash } = ambientColors(lineIndex, lineThemeIndex, fxIndex, currentTintVars);
   if (ambient !== appliedAmbient) {
     appliedAmbient = ambient;
@@ -180,6 +183,16 @@ function triggerAmbientFlash(): void {
   void boxEl.offsetWidth; // re-arm the one-shot animation (burst pattern)
   boxEl.classList.add('ambient-flash');
 }
+// The flash class must NOT outlive its pulse: while present it also swaps
+// the ring's shadow to the flash tint/geometry, so a lingering class held
+// the floor in the wrong color from the first flash on (reviewer risk).
+// animationend covers the normal path; the line-change removal in
+// applyAmbient covers reduced-motion, where animation:none never fires it.
+boxEl?.addEventListener('animationend', (event) => {
+  if (event.animationName === 'kashi-ambient-flash') {
+    boxEl.classList.remove('ambient-flash');
+  }
+});
 
 function rebuildFxIndex(): void {
   fxIndex = effectLevel === 'hype' ? buildFxIndex(currentFx, lines) : new Map();
@@ -890,6 +903,18 @@ function frame(): void {
     }),
   );
 
+  // Beat pulse BEFORE word karaoke: the ambient flash suppresses itself
+  // while a beat pulse is up, and reading appliedBeat one block later left
+  // that check a frame stale exactly on the beat's opening edge (reviewer).
+  // Per-frame cost is a couple of integer comparisons; DOM classes change
+  // only on window edges. No work while paused/hidden/ad — and never a
+  // stuck .beat class after a stop.
+  if (beatCursor && clock.isPlaying && !adActive && lines.length > 0) {
+    setBeatClasses(beatCursor.frame(rawPos));
+  } else {
+    setBeatClasses(BEAT_IDLE);
+  }
+
   // Word karaoke (kashi-server word-sync documents): applyView's change
   // detection leaves the spans alone on quiet frames; a line change repaints
   // the text and clears the span cache, and they are rebuilt here once.
@@ -908,15 +933,6 @@ function frame(): void {
     setEnergyState(quantizedEnergy(currentEnergy, rawPos), inSection(currentSections, 'high', rawPos));
   } else {
     setEnergyState(0, false);
-  }
-
-  // Beat pulse (effect level "full"): per-frame cost is a couple of integer
-  // comparisons; DOM classes change only on window edges. No work while
-  // paused/hidden/ad — and never a stuck .beat class after a stop.
-  if (beatCursor && clock.isPlaying && !adActive && lines.length > 0) {
-    setBeatClasses(beatCursor.frame(rawPos));
-  } else {
-    setBeatClasses(BEAT_IDLE);
   }
 
   if (clock.isPlaying && !adActive) {

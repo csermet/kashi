@@ -256,6 +256,15 @@ function createOverlayWindow(): BrowserWindow {
     // ≤0.8.x bounds (the legacy 560×180 size is the sentinel) shift by the
     // band/gutter so the lyric BOX lands exactly where the user parked it.
     const target = migrateWindowBounds(savedBounds, WINDOW_WIDTH, WINDOW_HEIGHT);
+    if (target.x !== savedBounds.x || target.y !== savedBounds.y) {
+      // A box parked <120px from the top edge now puts the band off-screen
+      // (icons drop invisibly; some Linux WMs clamp instead) — log the
+      // shift so a field report is one grep away (reviewer nit).
+      log(
+        `window bounds migrated from legacy 560x180: ` +
+          `(${savedBounds.x},${savedBounds.y}) -> (${target.x},${target.y})`,
+      );
+    }
     if (isPositionVisible(target, screen.getAllDisplays())) {
       win.setBounds(target);
     }
