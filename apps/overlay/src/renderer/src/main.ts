@@ -19,10 +19,12 @@ import {
   type ThemeScope,
 } from '../../shared/effect-level.js';
 import {
+  ambientColors,
   BEAT_IDLE,
   BeatCursor,
   beatsUsable,
   buildFxIndex,
+  buildLineThemeIndex,
   computeFxTintVars,
   FX_BASE_COLORS,
   fillProgress,
@@ -120,9 +122,46 @@ let appliedBeat: BeatFrame = BEAT_IDLE;
 // existing one-class toggle; the burst fires edge-triggered on activation.
 let currentFx: FxData | undefined;
 let fxIndex: ReturnType<typeof buildFxIndex> = new Map();
+// Line-theme ambient ring (Faz 6.5 P1): fx.lines → box halo. Applied at line
+// cadence (one int compare per frame); colors come from the same tint map
+// the word effects use, captured in applyPaletteVars.
+let lineThemeIndex: Map<number, string> = new Map();
+let currentTintVars: Record<string, string> = {};
+let ambientLineIndex = -1;
+let appliedAmbient: string | null = null;
+let appliedFlash: string | null = null;
+
+function applyAmbient(lineIndex: number, force = false): void {
+  if (!force && lineIndex === ambientLineIndex) return;
+  ambientLineIndex = lineIndex;
+  const { ambient, flash } = ambientColors(lineIndex, lineThemeIndex, fxIndex, currentTintVars);
+  if (ambient !== appliedAmbient) {
+    appliedAmbient = ambient;
+    boxEl?.classList.toggle('fx-ambient', ambient !== null);
+    if (ambient) boxEl?.style.setProperty('--fx-ambient', ambient);
+    else boxEl?.style.removeProperty('--fx-ambient');
+  }
+  if (flash !== appliedFlash) {
+    appliedFlash = flash;
+    if (flash) boxEl?.style.setProperty('--fx-ambient-flash', flash);
+    else boxEl?.style.removeProperty('--fx-ambient-flash');
+  }
+}
+
+/** One-shot halo pulse on the fx word's activation (the "poison → green
+ * glow around the box" field idea). Suppressed while a beat pulse is up —
+ * two rings flaring together read as soup (plan feda rule). */
+function triggerAmbientFlash(): void {
+  if (!boxEl || appliedFlash === null || appliedBeat.active) return;
+  boxEl.classList.remove('ambient-flash');
+  void boxEl.offsetWidth; // re-arm the one-shot animation (burst pattern)
+  boxEl.classList.add('ambient-flash');
+}
 
 function rebuildFxIndex(): void {
   fxIndex = effectLevel === 'hype' ? buildFxIndex(currentFx, lines) : new Map();
+  lineThemeIndex = effectLevel === 'hype' ? buildLineThemeIndex(currentFx, lines) : new Map();
+  applyAmbient(ambientLineIndex, true); // indexes changed under the same line
 }
 
 // Energy/section state (Faz 6 P5) — written only on change (edge/step).
@@ -163,6 +202,11 @@ function applyPaletteVars(): void {
     if (value) document.documentElement.style.setProperty(name, value);
     else document.documentElement.style.removeProperty(name);
   }
+  // Ambient ring colors ride the same tint map — re-derive for the current
+  // line whenever the palette/scope changes (scope "none" empties the map
+  // and the ring goes with it: the scope contract covers ambient too).
+  currentTintVars = tintVars;
+  applyAmbient(ambientLineIndex, true);
   if (currentPalette && effectLevel !== 'off' && themeScope !== 'none') {
     // One line per theme application — the color-iteration feedback loop
     // (field turu 2) needs to SEE what the tone mapper produced.
@@ -386,14 +430,13 @@ function highlightWord(index: number): void {
   if (index === activeWordIndex) return;
   // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
   // repaints of an already-passed word).
-  if (
-    index === fxWordIndex &&
-    index > activeWordIndex &&
-    FX_BURST_TAGS.has(fxWordTag) &&
-    effectLevel === 'hype'
-  ) {
-    const span = wordSpans[index];
-    if (span) triggerBurst(span);
+  if (index === fxWordIndex && index > activeWordIndex && effectLevel === 'hype') {
+    if (FX_BURST_TAGS.has(fxWordTag)) {
+      const span = wordSpans[index];
+      if (span) triggerBurst(span);
+    }
+    // Same edge lights the box halo in the word's category color (P1).
+    triggerAmbientFlash();
   }
   wordSpans[activeWordIndex]?.classList.remove('word-active');
   wordSpans[index]?.classList.add('word-active');
@@ -770,6 +813,9 @@ function frame(): void {
     activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   }
   const activeAdlib = lineIndex >= 0 && lines[lineIndex]?.adlib === true;
+  // Ambient ring follows the DISPLAY line (line cadence; the call is an int
+  // compare on quiet frames). Ads/idle pass -1 and clear it.
+  applyAmbient(lineIndex);
   applyView(
     deriveView({
       adActive,

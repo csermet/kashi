@@ -6,6 +6,7 @@ import {
   parseThemeScope,
 } from '../../shared/effect-level.js';
 import {
+  ambientColors,
   BEAT_IDLE,
   BEAT_RESYNC_JUMP_MS,
   BEAT_WINDOW_AFTER_MS,
@@ -17,6 +18,7 @@ import {
   TEXT_CONTRAST_MIN,
   beatsUsable,
   buildFxIndex,
+  buildLineThemeIndex,
   clampBackground,
   computeFxTintVars,
   FX_BASE_COLORS,
@@ -384,5 +386,66 @@ describe('computeFxTintVars (Faz 6 field round 2)', () => {
       expect(tint).toMatch(/^#[0-9a-f]{6}$/);
       expect(hueDistance(hexToOklch(tint).h, hexToOklch(base).h)).toBeLessThan(0.2);
     }
+  });
+});
+
+describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => {
+  const lines = [
+    { start_ms: 0, end_ms: 2000, text: 'poison in my veins' },
+    { start_ms: 2000, end_ms: 4000, text: 'plain line' },
+  ];
+  const fx = (extra: object) =>
+    ({ lexicon: 'kashi-fx/1.1.0', engine: 'keywords', ...extra }) as never;
+
+  it('maps valid line tags and drops garbage entries', () => {
+    const index = buildLineThemeIndex(
+      fx({
+        lines: [
+          { line: 0, tag: 'poison' },
+          { line: 5, tag: 'love' }, // out of range
+          { line: 1.5, tag: 'love' }, // non-integer
+          { line: -1, tag: 'love' },
+          { line: 1, tag: '' }, // empty tag
+        ],
+      }),
+      lines,
+    );
+    expect(index.size).toBe(1);
+    expect(index.get(0)).toBe('poison');
+  });
+
+  it('first entry wins on duplicate lines (deterministic)', () => {
+    const index = buildLineThemeIndex(
+      fx({ lines: [{ line: 0, tag: 'poison' }, { line: 0, tag: 'love' }] }),
+      lines,
+    );
+    expect(index.get(0)).toBe('poison');
+  });
+
+  it('is empty without fx.lines or off-index', () => {
+    expect(buildLineThemeIndex(undefined, lines).size).toBe(0);
+    expect(buildLineThemeIndex(fx({}), lines).size).toBe(0);
+  });
+
+  it('ambientColors: theme drives the ring, fx word drives the flash', () => {
+    const themes = new Map([[0, 'poison']]);
+    const fxIndex = new Map([[0, { word: 2, effect: { tag: 'love', intensity: 0.8 } }]]);
+    const tints = { '--fx-tint-poison': '#22aa55', '--fx-tint-love': '#dd6699' };
+    expect(ambientColors(0, themes, fxIndex, tints)).toEqual({
+      ambient: '#22aa55',
+      flash: '#dd6699',
+    });
+    // Line without a theme but with an fx word: flash only.
+    expect(ambientColors(0, new Map(), fxIndex, tints)).toEqual({
+      ambient: null,
+      flash: '#dd6699',
+    });
+  });
+
+  it('ambientColors: unknown tags and idle lines resolve to null (DG6)', () => {
+    const themes = new Map([[0, 'brand-new-category']]);
+    const tints = { '--fx-tint-poison': '#22aa55' };
+    expect(ambientColors(0, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
+    expect(ambientColors(-1, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
   });
 });

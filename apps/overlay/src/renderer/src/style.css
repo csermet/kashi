@@ -551,6 +551,52 @@ body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
   transform: translateY(-1px) scale(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)));
 }
 
+/* ------------------------------------------------------------------------
+   Faz 6.5 P1: category ambient ring — the box's surroundings take the
+   ACTIVE LINE's theme color ("poison line → the box glows green"). Lives on
+   the FREE ::before (the ::after ring belongs to beat/energy); pre-drawn
+   shadow, opacity-only animation, colors set by main.ts at line cadence.
+   Specificity audit (0.7.2 lesson): base (1,2,1) < .fx-ambient/.ambient-
+   flash (1,3,1); the flash animation outranks the floor transition by CSS
+   animation precedence — verified bottom-up, no custom-property chain. */
+body.fx-hype #lyric-box::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* Wider + softer than the 14px beat ring so the two read as different
+     voices: beat = tight accent pulse, ambient = category aura. On the
+     widest lines the aura clips at the 560px window edge (~12px lateral
+     margin) — accepted until P2 grows the window and gives it gutters. */
+  box-shadow: 0 0 22px 6px var(--fx-ambient, transparent);
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+  pointer-events: none;
+}
+/* Continuous floor while a THEMED line is up (fx.lines hit). */
+body.fx-hype #lyric-box.fx-ambient::before {
+  opacity: 0.3;
+}
+/* One-shot halo pulse on the fx WORD's activation, in the word's own
+   category color (class re-armed by main.ts; suppressed during beat
+   pulses JS-side — one ring at a time). The shadow color swaps via the
+   class edge (single repaint) — the VALUE itself is never animated. */
+body.fx-hype #lyric-box.ambient-flash::before {
+  box-shadow: 0 0 26px 8px var(--fx-ambient-flash, var(--fx-ambient, transparent));
+  animation: kashi-ambient-flash 700ms ease-out;
+}
+@keyframes kashi-ambient-flash {
+  0% {
+    opacity: 0.3;
+  }
+  25% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.3;
+  }
+}
+
 /* Line entrance with spring (hype): same one-shot class as the fx-simple/
    full fade, springier curve — transform/opacity only. */
 body.fx-hype #lyric-line.line-in {
@@ -574,5 +620,9 @@ body.fx-hype #lyric-line.line-in {
   body.fx-hype #lyric-box.energy-high .word-active,
   body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
     transform: none;
+  }
+  /* Ambient: the static faint halo stays (semantics), the pulse goes. */
+  body.fx-hype #lyric-box.ambient-flash::before {
+    animation: none;
   }
 }

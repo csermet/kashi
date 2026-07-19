@@ -361,6 +361,48 @@ export function buildFxIndex(
   return index;
 }
 
+/**
+ * fx.lines → line-theme map (Faz 6.5 P1, ambient ring). Line-level tags are
+ * the embedding layer's THEME verdicts — one per line from the server; if a
+ * doc ever carries duplicates the FIRST entry wins (deterministic). Entries
+ * with out-of-range indices or empty tags are dropped, same tolerance story
+ * as buildFxIndex (enrichment never breaks the document).
+ */
+export function buildLineThemeIndex(
+  fx: FxData | undefined,
+  lines: readonly LyricLine[],
+): Map<number, string> {
+  const index = new Map<number, string>();
+  if (!fx?.lines) return index;
+  for (const tag of fx.lines) {
+    if (!Number.isInteger(tag.line) || tag.line < 0 || tag.line >= lines.length) continue;
+    if (typeof tag.tag !== 'string' || !tag.tag) continue;
+    if (!index.has(tag.line)) index.set(tag.line, tag.tag);
+  }
+  return index;
+}
+
+/**
+ * Ambient ring colors for the ACTIVE line (Faz 6.5 P1): the continuous ring
+ * takes the line THEME's tint; the activation flash takes the line's fx
+ * WORD tint (the "poison word → green halo" field idea). Unknown tags (a
+ * newer lexicon than this build) resolve to null — no ring beats a wrong
+ * ring (DG6). Pure: main.ts applies the result to the box at line cadence.
+ */
+export function ambientColors(
+  lineIndex: number,
+  themes: ReadonlyMap<number, string>,
+  fxIndex: ReadonlyMap<number, { word: number; effect: FxWordEffect }>,
+  tintVars: Readonly<Record<string, string>>,
+): { ambient: string | null; flash: string | null } {
+  if (lineIndex < 0) return { ambient: null, flash: null };
+  const theme = themes.get(lineIndex);
+  const ambient = theme ? (tintVars[`--fx-tint-${theme}`] ?? null) : null;
+  const fxTag = fxIndex.get(lineIndex)?.effect.tag;
+  const flash = fxTag ? (tintVars[`--fx-tint-${fxTag}`] ?? null) : null;
+  return { ambient, flash };
+}
+
 // ---------------------------------------------------------------------------
 // Energy/section dynamics (Faz 6 P5) — precomputed curves, zero live audio.
 
