@@ -82,6 +82,10 @@ const boxEl = document.getElementById('lyric-box');
 const lineEl = document.getElementById('lyric-line');
 const searchEl = document.getElementById('search-line');
 const offsetFlashEl = document.getElementById('offset-flash');
+// Outside-the-box effect anchors (Faz 6.5 P2): top icon band + left-gutter
+// park spot. Both pointer-events:none — hover/click-through stays box-only.
+const stageEl = document.getElementById('fx-stage');
+const parkEl = document.getElementById('fx-park');
 
 const clock = new PositionClock();
 let currentKey: string | null = null;
@@ -131,6 +135,8 @@ let ambientLineIndex = -1;
 let appliedAmbient: string | null = null;
 let appliedFlash: string | null = null;
 
+let appliedParkTag: string | null = null;
+
 function applyAmbient(lineIndex: number, force = false): void {
   if (!force && lineIndex === ambientLineIndex) return;
   ambientLineIndex = lineIndex;
@@ -145,6 +151,23 @@ function applyAmbient(lineIndex: number, force = false): void {
     appliedFlash = flash;
     if (flash) boxEl?.style.setProperty('--fx-ambient-flash', flash);
     else boxEl?.style.removeProperty('--fx-ambient-flash');
+  }
+  // Park icon (P2): the line THEME's icon rests dim in the left gutter —
+  // same line cadence, rebuilt only when the tag actually changes.
+  const parkTag = lineIndex >= 0 ? (lineThemeIndex.get(lineIndex) ?? null) : null;
+  if (parkTag !== appliedParkTag || force) {
+    appliedParkTag = parkTag;
+    if (parkEl) {
+      parkEl.replaceChildren();
+      const icon = parkTag ? buildFxIcon(parkTag, parkTag) : null;
+      if (icon) {
+        parkEl.appendChild(icon);
+        const tint = currentTintVars[`--fx-tint-${parkTag}`];
+        if (tint) parkEl.style.setProperty('--stage-color', tint);
+        else parkEl.style.removeProperty('--stage-color');
+      }
+      parkEl.classList.toggle('parked', icon !== null);
+    }
   }
 }
 
@@ -313,6 +336,43 @@ function ensureBurstPool(): void {
   boxEl.appendChild(burstEl);
 }
 
+// Icon stage slot pool (Faz 6.5 P2): fixed spans in the top band, retriggered
+// by class toggle — the falling icon enters at the fx word's x. Pool of 4
+// covers overlapping drops (≤1 per line makes even 2 rare).
+const STAGE_SLOT_COUNT = 4;
+const stageSlots: HTMLSpanElement[] = [];
+let stageSlotNext = 0;
+
+function ensureIconStage(): void {
+  if (!stageEl || stageSlots.length > 0) return;
+  for (let i = 0; i < STAGE_SLOT_COUNT; i += 1) {
+    const slot = document.createElement('span');
+    slot.className = 'stage-slot';
+    stageEl.appendChild(slot);
+    stageSlots.push(slot);
+  }
+}
+
+/** Falling band icon at the fx word's x — one layout read, edge-triggered
+ * (≤1 per line), same budget story as the burst. */
+function triggerStageIcon(tag: string, span: HTMLSpanElement): void {
+  if (stageSlots.length === 0) return;
+  const icon = buildFxIcon(tag, span.textContent ?? tag);
+  if (!icon) return; // unknown tag (newer lexicon) → no drop
+  const slot = stageSlots[stageSlotNext % stageSlots.length];
+  stageSlotNext += 1;
+  if (!slot) return;
+  const word = span.getBoundingClientRect();
+  slot.replaceChildren(icon);
+  slot.style.setProperty('--stage-x', `${Math.round(word.left + word.width / 2)}px`);
+  const tint = currentTintVars[`--fx-tint-${tag}`];
+  if (tint) slot.style.setProperty('--stage-color', tint);
+  else slot.style.removeProperty('--stage-color');
+  slot.classList.remove('drop');
+  void slot.offsetWidth; // re-arm the one-shot animation (burst pattern)
+  slot.classList.add('drop');
+}
+
 function triggerBurst(span: HTMLSpanElement): void {
   if (!burstEl || !boxEl) return;
   const word = span.getBoundingClientRect(); // one read, edge-triggered
@@ -431,9 +491,11 @@ function highlightWord(index: number): void {
   // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
   // repaints of an already-passed word).
   if (index === fxWordIndex && index > activeWordIndex && effectLevel === 'hype') {
-    if (FX_BURST_TAGS.has(fxWordTag)) {
-      const span = wordSpans[index];
-      if (span) triggerBurst(span);
+    const span = wordSpans[index];
+    if (span) {
+      if (FX_BURST_TAGS.has(fxWordTag)) triggerBurst(span);
+      // Falling band icon above the word (P2) — every fx tag, not just bursts.
+      triggerStageIcon(fxWordTag, span);
     }
     // Same edge lights the box halo in the word's category color (P1).
     triggerAmbientFlash();
@@ -873,6 +935,7 @@ function ensureLoop(): void {
 // replay order) corrects it before any lyrics arrive.
 applyEffectLevelClass();
 ensureBurstPool();
+ensureIconStage();
 applyPaletteVars();
 ensureLoop();
 

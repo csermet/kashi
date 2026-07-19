@@ -129,6 +129,35 @@ export function nearestPresetIndex(alpha: number): number {
   return OPACITY_PRESETS.findIndex((preset) => Math.abs(preset - alpha) < 0.005);
 }
 
+/** The pre-0.9.0 window size — the SENTINEL for legacy saved bounds
+ * (persistWindowBounds always writes the real window size, so an exact
+ * 560×180 can only come from a ≤0.8.x install). */
+export const LEGACY_WINDOW = { width: 560, height: 180 } as const;
+
+/**
+ * 0.9.0 grew the window once (top icon band + side gutters) while keeping
+ * the BOX ZONE — the bottom-centered old-window rect — as the box's home.
+ * Legacy bounds shift by the band/gutter so the box stays EXACTLY where the
+ * user parked it (the zone equals the old window rect, all content heights
+ * included). Anything else passes through with the size pinned: stored
+ * width/height could be hand-edited, and a position-only move across a
+ * Windows DPI boundary rescales the window (the drag-path trap).
+ */
+export function migrateWindowBounds(
+  bounds: WindowBounds,
+  windowWidth: number,
+  windowHeight: number,
+): WindowBounds {
+  const legacy =
+    bounds.width === LEGACY_WINDOW.width && bounds.height === LEGACY_WINDOW.height;
+  return {
+    x: legacy ? bounds.x - Math.round((windowWidth - LEGACY_WINDOW.width) / 2) : bounds.x,
+    y: legacy ? bounds.y - (windowHeight - LEGACY_WINDOW.height) : bounds.y,
+    width: windowWidth,
+    height: windowHeight,
+  };
+}
+
 export interface WorkAreaLike {
   workArea: { x: number; y: number; width: number; height: number };
 }

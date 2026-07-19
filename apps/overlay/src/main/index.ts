@@ -40,6 +40,7 @@ import {
   emptyLatch,
 } from './source-latch-logic.js';
 import { adjustAlpha, adjustTimingOffset, clampAlpha, isPositionVisible, clampTimingOffset,
+  migrateWindowBounds,
 } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
 import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
@@ -55,8 +56,20 @@ const logRenderer = makeLogger('renderer');
 
 /** NOTE: the extension keeps its own announce debounce of the same length. */
 const TRACK_DEBOUNCE_MS = 500;
-const WINDOW_WIDTH = 560;
-const WINDOW_HEIGHT = 180;
+/**
+ * 0.9.0 window geometry (Faz 6.5 P2): the window grew ONCE (560×180 →
+ * 640×300) to host effects OUTSIDE the lyric box — a 120px top icon stage
+ * and 40px side gutters (the ambient ring stops clipping at the edge). The
+ * BOX ZONE (bottom 640×… center 560×180) is the old window verbatim:
+ * `#stage` pads the band away and centers the box in the remaining area, so
+ * saved positions migrate by a constant shift (settings-logic
+ * migrateWindowBounds) and the box stays exactly where the user parked it.
+ * Still a FIXED size — transparent windows must never resize (Electron).
+ */
+const WINDOW_WIDTH = 640;
+const WINDOW_HEIGHT = 300;
+/** Box zone rect inside the window (must match #stage padding in style.css). */
+const BOX_ZONE = { x: 40, y: 120, width: 560, height: 180 } as const;
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
@@ -240,12 +253,9 @@ function createOverlayWindow(): BrowserWindow {
   // boundary rescales the window (same trap as the drag path — review).
   const savedBounds = settings?.get().window_bounds;
   if (savedBounds) {
-    const target = {
-      x: savedBounds.x,
-      y: savedBounds.y,
-      width: WINDOW_WIDTH,
-      height: WINDOW_HEIGHT,
-    };
+    // ≤0.8.x bounds (the legacy 560×180 size is the sentinel) shift by the
+    // band/gutter so the lyric BOX lands exactly where the user parked it.
+    const target = migrateWindowBounds(savedBounds, WINDOW_WIDTH, WINDOW_HEIGHT);
     if (isPositionVisible(target, screen.getAllDisplays())) {
       win.setBounds(target);
     }
@@ -338,9 +348,11 @@ function applyBoxAlpha(alpha: number): void {
 function resetWindowPosition(): void {
   if (!window || window.isDestroyed()) return;
   const workArea = screen.getPrimaryDisplay().workArea;
+  // Center the BOX ZONE, not the window — the asymmetric top band would
+  // otherwise park the visible box 60px below screen center.
   window.setBounds({
-    x: workArea.x + Math.round((workArea.width - WINDOW_WIDTH) / 2),
-    y: workArea.y + Math.round((workArea.height - WINDOW_HEIGHT) / 2),
+    x: workArea.x + Math.round(workArea.width / 2 - (BOX_ZONE.x + BOX_ZONE.width / 2)),
+    y: workArea.y + Math.round(workArea.height / 2 - (BOX_ZONE.y + BOX_ZONE.height / 2)),
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
   });
@@ -389,8 +401,10 @@ function openTimingOffsetPrompt(): void {
   if (window && !window.isDestroyed()) {
     const box = window.getBounds();
     const area = screen.getDisplayMatching(box).workArea;
-    const x = Math.round(box.x + (box.width - PROMPT_WIDTH) / 2);
-    const y = Math.round(box.y + (box.height - PROMPT_HEIGHT) / 2);
+    // Center on the BOX ZONE (the window itself now carries an off-center
+    // icon band — window-centering would float the prompt over the band).
+    const x = Math.round(box.x + BOX_ZONE.x + (BOX_ZONE.width - PROMPT_WIDTH) / 2);
+    const y = Math.round(box.y + BOX_ZONE.y + (BOX_ZONE.height - PROMPT_HEIGHT) / 2);
     win.setBounds({
       x: Math.max(area.x, Math.min(x, area.x + area.width - PROMPT_WIDTH)),
       y: Math.max(area.y, Math.min(y, area.y + area.height - PROMPT_HEIGHT)),
@@ -461,8 +475,9 @@ function openServerSettingsPrompt(): void {
   if (window && !window.isDestroyed()) {
     const box = window.getBounds();
     const area = screen.getDisplayMatching(box).workArea;
-    const x = Math.round(box.x + (box.width - PROMPT_WIDTH) / 2);
-    const y = Math.round(box.y + (box.height - SERVER_PROMPT_HEIGHT) / 2);
+    // Box-zone centering, same reasoning as the timing-offset prompt.
+    const x = Math.round(box.x + BOX_ZONE.x + (BOX_ZONE.width - PROMPT_WIDTH) / 2);
+    const y = Math.round(box.y + BOX_ZONE.y + (BOX_ZONE.height - SERVER_PROMPT_HEIGHT) / 2);
     win.setBounds({
       x: Math.max(area.x, Math.min(x, area.x + area.width - PROMPT_WIDTH)),
       y: Math.max(area.y, Math.min(y, area.y + area.height - SERVER_PROMPT_HEIGHT)),

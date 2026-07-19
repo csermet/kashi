@@ -30,6 +30,40 @@ body {
   height: 100%;
   display: grid;
   place-items: center;
+  /* 0.9.0 window geometry (Faz 6.5 P2): the top 120px is the icon stage,
+     the remaining bottom area IS the old 560×180 window (the "box zone") —
+     centering there keeps the box exactly where ≤0.8.x users parked it
+     (main's migrateWindowBounds shifts saved positions by the same rect).
+     Must match BOX_ZONE in src/main/index.ts. */
+  padding-top: 120px;
+  box-sizing: border-box;
+}
+
+/* Icon stage (top band) + park spot (left gutter): structural, invisible
+   base — every VISIBLE rule for them is hype-scoped further down. Both are
+   decoration: pointer-events none keeps hover/click-through box-only. */
+#fx-stage {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  pointer-events: none;
+}
+.stage-slot {
+  position: absolute;
+  left: var(--stage-x, 50%);
+  top: 14px;
+  opacity: 0;
+  pointer-events: none;
+}
+#fx-park {
+  position: fixed;
+  left: 6px;
+  top: 210px; /* box-zone vertical center */
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 /*
@@ -597,6 +631,59 @@ body.fx-hype #lyric-box.ambient-flash::before {
   }
 }
 
+/* ------------------------------------------------------------------------
+   Faz 6.5 P2: icons OUTSIDE the box. (1) Stage drop: on the fx word's
+   activation a large icon enters from the top band and falls toward the
+   box (transform/opacity keyframe, one-shot class re-armed by main.ts,
+   slot pool — no allocation on the hot path). (2) Park spot: the active
+   line's THEME icon rests dim in the left gutter (line cadence, static).
+   Base elements are invisible structural shells above; everything visible
+   lives here under fx-hype. */
+body.fx-hype .stage-slot.drop {
+  animation: kashi-stage-drop 900ms ease-out;
+}
+@keyframes kashi-stage-drop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.7);
+  }
+  18% {
+    opacity: 0.95;
+  }
+  70% {
+    opacity: 0.9;
+    transform: translate(-50%, 72px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 92px) scale(0.9);
+  }
+}
+body.fx-hype #fx-stage .fx-icon {
+  display: block;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  opacity: 1;
+  transform: none;
+  transition: none;
+  color: var(--stage-color, var(--kashi-primary, #fff));
+}
+body.fx-hype #fx-park.parked {
+  opacity: 0.3;
+  transition: opacity 240ms ease-out;
+}
+body.fx-hype #fx-park .fx-icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  opacity: 1;
+  transform: none;
+  transition: none;
+  color: var(--stage-color, var(--kashi-primary, #fff));
+}
+
 /* Line entrance with spring (hype): same one-shot class as the fx-simple/
    full fade, springier curve — transform/opacity only. */
 body.fx-hype #lyric-line.line-in {
@@ -623,6 +710,11 @@ body.fx-hype #lyric-line.line-in {
   }
   /* Ambient: the static faint halo stays (semantics), the pulse goes. */
   body.fx-hype #lyric-box.ambient-flash::before {
+    animation: none;
+  }
+  /* Stage drop is pure motion flourish — off entirely (the in-word icon
+     still carries the semantics); the static park icon stays. */
+  body.fx-hype .stage-slot.drop {
     animation: none;
   }
 }

@@ -38,3 +38,28 @@ describe('style contract: ambient ring stays hype-scoped', () => {
     expect(css).toContain('#lyric-box.ambient-flash::before');
   });
 });
+
+describe('style contract: icon stage / park spot (Faz 6.5 P2)', () => {
+  // Structural shells may exist outside hype ONLY as these invisible base
+  // selectors (position/opacity:0); every visible rule must be hype-scoped.
+  const BASE_SHELLS = new Set(['#fx-stage {', '.stage-slot {', '#fx-park {']);
+
+  it('every stage/park selector is hype-scoped or an invisible base shell', () => {
+    const offenders = selectorLines(css).filter(
+      (line) =>
+        (line.includes('fx-stage') || line.includes('stage-slot') || line.includes('fx-park')) &&
+        !line.startsWith('body.fx-hype') &&
+        !BASE_SHELLS.has(line),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('base shells are invisible and click-through (opacity 0 + no pointer events)', () => {
+    for (const shell of ['#fx-stage', '.stage-slot', '#fx-park']) {
+      const block = css.match(new RegExp(`^${shell.replace('.', '\\.')} \\{[^}]*\\}`, 'm'))?.[0];
+      expect(block, shell).toBeDefined();
+      expect(block, shell).toContain('pointer-events: none');
+      if (shell !== '#fx-stage') expect(block, shell).toContain('opacity: 0');
+    }
+  });
+});

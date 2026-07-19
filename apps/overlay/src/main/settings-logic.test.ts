@@ -17,6 +17,7 @@ import {
   parseSettings,
   presetLabel,
   sanitizeDeltaSteps,
+  migrateWindowBounds,
 } from './settings-logic.js';
 
 describe('clampAlpha', () => {
@@ -247,5 +248,39 @@ describe('TIMING_OFFSET_PRESETS', () => {
     for (const preset of TIMING_OFFSET_PRESETS) {
       expect(clampTimingOffset(preset)).toBe(preset);
     }
+  });
+});
+
+describe('migrateWindowBounds (Faz 6.5 P2 — the one-time window growth)', () => {
+  it('shifts legacy 560×180 bounds so the BOX stays put (x-40, y-120 @ 640×300)', () => {
+    const migrated = migrateWindowBounds({ x: 1000, y: 500, width: 560, height: 180 }, 640, 300);
+    expect(migrated).toEqual({ x: 960, y: 380, width: 640, height: 300 });
+  });
+
+  it('passes non-legacy bounds through with only the size pinned (DPI trap)', () => {
+    // Already-migrated bounds round-trip unchanged.
+    expect(migrateWindowBounds({ x: 960, y: 380, width: 640, height: 300 }, 640, 300)).toEqual({
+      x: 960,
+      y: 380,
+      width: 640,
+      height: 300,
+    });
+    // Hand-edited garbage sizes: position kept, size pinned to the real window.
+    expect(migrateWindowBounds({ x: 10, y: 20, width: 9999, height: 1 }, 640, 300)).toEqual({
+      x: 10,
+      y: 20,
+      width: 640,
+      height: 300,
+    });
+  });
+
+  it('box optical position is preserved exactly (zone == old window rect)', () => {
+    // Old box center: window origin + (280, 90). New box zone center:
+    // origin + (40+280, 120+90). The migration must cancel the difference.
+    const old = { x: 200, y: 300, width: 560, height: 180 };
+    const oldBoxCenter = { x: old.x + 280, y: old.y + 90 };
+    const migrated = migrateWindowBounds(old, 640, 300);
+    const newBoxCenter = { x: migrated.x + 40 + 280, y: migrated.y + 120 + 90 };
+    expect(newBoxCenter).toEqual(oldBoxCenter);
   });
 });
