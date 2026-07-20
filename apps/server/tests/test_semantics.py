@@ -18,7 +18,7 @@ from kashi_server.pipeline.semantics import (
 
 def test_lexicon_shape_and_stem_discipline():
     lex = load_lexicon()
-    assert lex.version == "kashi-fx/1.1.0"
+    assert lex.version == "kashi-fx/1.2.0"
     assert 15 <= len(lex.categories) <= 25
     ids = [cat.id for cat in lex.categories]
     assert len(ids) == len(set(ids))
@@ -121,6 +121,63 @@ GOLDEN = [
     ("table", None),
     ("the", None),
     ("ve", None),
+    # --- v1.2 additions (Faz 6.5 P4) ---
+    ("firework", "explosion"),
+    ("füzeler", "explosion"),
+    ("lit", "fire"),
+    ("yandım", "fire"),
+    ("snakes", "poison"),
+    ("yılanlar", "poison"),
+    ("bae", "love"),
+    ("sevdiğim", "love"),
+    ("cried", "heartbreak"),
+    ("ayrılık", "heartbreak"),
+    ("hüznü", "heartbreak"),  # variants_tr — the loader's new exact space
+    ("tonight", "night"),
+    ("geceler", "night"),
+    ("bling", "shine"),
+    ("pırıl", "shine"),
+    ("bands", "money"),
+    ("band", "music"),  # singular = the group; plural = the cash (draft call)
+    ("hustling", "money"),
+    ("angel", "fly"),
+    ("meleğim", "fly"),  # variants_tr: k→ğ softening the stem cannot catch
+    ("kanadı", "fly"),
+    ("lambo", "speed"),
+    ("arabada", "speed"),
+    ("voltage", "electric"),
+    ("kıvılcımlar", "electric"),
+    ("shiver", "cold"),
+    ("titriyorum", "cold"),
+    ("monsters", "dark"),
+    ("hayaletler", "dark"),  # dark's own stem outranks dream's hayal- prefix
+    ("murdered", "death"),
+    ("katili", "death"),
+    ("katılmak", None),  # İ/I discipline: katıl- (join) is NOT katil (killer)
+    ("kings", "crown"),
+    ("sultanım", "crown"),
+    ("hotline", "phone"),
+    ("mesajlar", "phone"),
+    ("guns", "fight"),
+    ("tetiği", "fight"),
+    ("enemies", "fight"),
+    ("bass", "music"),
+    ("türküler", "music"),
+    # new categories
+    ("drunk", "drink"),
+    ("sarhoşum", "drink"),
+    ("şarabı", "drink"),
+    ("biraz", None),  # the "bira" trap: exact keyword only, never a stem
+    ("dreams", "dream"),
+    ("rüyamda", "dream"),
+    ("hayallerim", "dream"),
+    ("galaxy", "space"),
+    ("gezegenler", "space"),
+    ("uzayıp", None),  # uzamak (elongate) must not hit the space category
+    ("hurricane", "storm"),
+    ("rüzgarın", "storm"),
+    ("window", None),  # the "wind" trap: exact keyword only, never a stem
+    ("fırtınalar", "storm"),
 ]
 
 

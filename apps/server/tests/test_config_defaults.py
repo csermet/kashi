@@ -25,10 +25,12 @@ def test_nightcore_defaults():
 
 
 def test_fx_defaults():
-    # Faz 6 P3: the embedding layer ships ON in our image (semantics extra
-    # baked); self-hosters without the extra flip it off. The keyword layer
-    # has no flag — it is dependency-free and always runs.
-    assert _default("fx_embeddings") is True
+    # Pipeline 2.9.0 (Faz 6.5 P4 calibration): the embedding line-theme
+    # layer is ~half wrong at EVERY threshold on the labeled archive sample
+    # — it defaults OFF; env re-enables it for experimentation only. The
+    # keyword layer has no flag: dependency-free, always runs, and is the
+    # precision path (docs/research/embed-threshold-calibration-2026-07.md).
+    assert _default("fx_embeddings") is False
 
 
 def test_pipeline_major_matches_the_archive_invalidation():

@@ -41,9 +41,14 @@ MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
 MIN_STEM_LEN = 4
 MAX_WORD_TAGS = 60  # per document — the DG6 noise brake starts server-side
 MAX_LINE_TAGS = 24
-# Conservative starting thresholds (cosine, E5 space) — field-calibrated in
-# the P4 tour; below threshold means NO tag, never a forced nearest match.
-EMBED_THRESHOLD = {"en": 0.86, "tr": 0.88, "default": 0.88}
+# Calibrated 2026-07-20 (Faz 6.5 P4, 200-line labeled archive sample —
+# docs/research/embed-threshold-calibration-2026-07.md): E5 cosines are so
+# compressed here that NO threshold separates right from wrong (precision
+# plateaus ~24% strict / ~50% lenient even at 0.90+). The old values sat at
+# the score MEDIAN and tagged half of all uncovered lines, mostly wrongly.
+# 0.90 is the harm-reduction floor for anyone who enables the layer anyway;
+# the real verdict is settings.fx_embeddings defaulting OFF (same commit).
+EMBED_THRESHOLD = {"en": 0.90, "tr": 0.90, "default": 0.90}
 
 _TR_TRANSLATE = str.maketrans({"İ": "i", "I": "ı"})
 _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
@@ -104,7 +109,12 @@ def load_lexicon(path: Path = LEXICON_PATH) -> Lexicon:
     categories = []
     for cat in raw["categories"]:
         keywords = frozenset(
-            normalize(k) for k in (cat.get("keywords_en") or []) + (cat.get("keywords_tr") or [])
+            normalize(k)
+            for k in (cat.get("keywords_en") or [])
+            + (cat.get("keywords_tr") or [])
+            # variants_tr (v1.2): irregular Turkish inflections a stem cannot
+            # catch (consonant softening: melek→meleğim) — exact-match space.
+            + (cat.get("variants_tr") or [])
         )
         stems = tuple(
             normalize(s) for s in (cat.get("stems_en") or []) + (cat.get("stems_tr") or [])

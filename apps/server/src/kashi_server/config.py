@@ -61,9 +61,14 @@ class Settings(BaseSettings):
     lrclib_publish_dry_run: bool = True
     # FX embedding layer (Faz 6 P3, `semantics` extra): line-theme tagging
     # via multilingual-e5-small. The keyword/stem layer is dependency-free
-    # and ALWAYS runs; this flag only gates the model. Self-hosters without
-    # the extra set it false (warmup gates on it like the separator).
-    fx_embeddings: bool = True
+    # and ALWAYS runs; this flag only gates the model.
+    # DEFAULT OFF since pipeline 2.9.0: the P4 calibration (200 labeled
+    # archive lines) showed the layer's verdicts are ~half wrong at EVERY
+    # threshold — E5 prototype-centroid cosines do not separate right from
+    # wrong on lyric lines. A wrong theme is worse than no theme (DG6), so
+    # the layer is opt-in for experimentation only. Full data:
+    # docs/research/embed-threshold-calibration-2026-07.md
+    fx_embeddings: bool = False
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]
