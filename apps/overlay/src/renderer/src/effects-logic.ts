@@ -402,8 +402,10 @@ export function ambientColors(
   const theme = themes.get(lineIndex);
   const fxTag = fxIndex.get(lineIndex)?.effect.tag;
   const flash = fxTag ? (tintVars[`--fx-tint-${fxTag}`] ?? null) : null;
-  const ambient = theme ? (tintVars[`--fx-tint-${theme}`] ?? null) : flash;
-  return { ambient, flash };
+  // Symmetric fallback (reviewer): an UNKNOWN theme tint falls to the word
+  // tint too — the keyword layer is the precision path either way.
+  const themeTint = theme ? tintVars[`--fx-tint-${theme}`] : undefined;
+  return { ambient: themeTint ?? flash, flash };
 }
 
 // ---------------------------------------------------------------------------

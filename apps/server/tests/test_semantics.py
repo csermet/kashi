@@ -121,6 +121,8 @@ GOLDEN = [
     ("table", None),
     ("the", None),
     ("ve", None),
+    ("texture", None),  # the "text" trap: exact keywords only, never a stem
+    ("yandan", None),  # yan- direction words must not read as fire (reviewer)
     # --- v1.2 additions (Faz 6.5 P4) ---
     ("firework", "explosion"),
     ("füzeler", "explosion"),
@@ -148,7 +150,10 @@ GOLDEN = [
     ("voltage", "electric"),
     ("kıvılcımlar", "electric"),
     ("shiver", "cold"),
-    ("titriyorum", "cold"),
+    # titr- stem is DELIBERATELY gone: trembling is fear/love as often as
+    # cold, and titreşim (vibration) landed here too (reviewer) — cold
+    # keeps only its unambiguous words.
+    ("titriyorum", None),
     ("monsters", "dark"),
     ("hayaletler", "dark"),  # dark's own stem outranks dream's hayal- prefix
     ("murdered", "death"),

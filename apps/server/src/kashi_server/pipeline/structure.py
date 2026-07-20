@@ -5,7 +5,11 @@ docs/research/allin1-viability-2026-07.md), so structure comes from
 librosa's Laplacian segmentation (McFee & Ellis 2014) over beat-synchronous
 chroma: recurrence + path affinity → normalized Laplacian → spectral
 clustering. Zero new dependencies (librosa + scipy are base), CPU-cheap,
-deterministic end to end (seeded k-means; two runs → identical sections).
+and deterministic PER MACHINE (pinned k-means rng; two runs on the same
+box → identical sections). Cross-machine identity is best-effort only:
+near-degenerate eigenpairs at the evecs[:, :k] cut and BLAS reduction
+order can move a boundary beat on a different LAPACK build — acceptable,
+nothing keys document identity to section bytes (reviewer risk note).
 
 Labeling claims ONLY what the math supports: clustering finds REPETITION,
 not semantic roles. The most-repeated cluster with the highest mean energy
@@ -112,17 +116,28 @@ def _segment(y, sr: int) -> list[Segment]:
     # test fragmented into 40 sub-floor pieces without this).
     labels = scipy.ndimage.median_filter(labels, size=9, mode="nearest")
 
+    # sync() aggregates BETWEEN boundaries: len(beats) frames yield
+    # len(beats)+1 columns (leading + trailing partials included), so the
+    # label array is one LONGER than the beat times. Segment j spans
+    # bounds[j]..bounds[j+1] with bounds = [0, *beat_times, duration] —
+    # the reviewer caught the off-by-one that shifted every boundary a
+    # beat late and IndexError'd tracks whose last label differed.
     times = librosa.frames_to_time(beats, sr=sr)
     duration = len(y) / sr
+    bounds = [0.0, *(float(t) for t in times), duration]
+    if len(bounds) != len(labels) + 1:
+        logger.warning(
+            "structure: label/boundary mismatch (%d labels, %d bounds) — skipping",
+            len(labels),
+            len(bounds),
+        )
+        return []
     segments: list[Segment] = []
-    start = float(times[0]) if len(times) else 0.0
-    current = int(labels[0])
-    for i in range(1, len(labels)):
-        if int(labels[i]) != current:
-            segments.append(Segment(start, float(times[i]), current))
-            start = float(times[i])
-            current = int(labels[i])
-    segments.append(Segment(start, duration, current))
+    start = 0
+    for i in range(1, len(labels) + 1):
+        if i == len(labels) or int(labels[i]) != int(labels[start]):
+            segments.append(Segment(bounds[start], bounds[i], int(labels[start])))
+            start = i
     return segments
 
 

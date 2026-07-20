@@ -51,6 +51,20 @@ describe('style contract: ambient ring stays hype-scoped', () => {
   });
 });
 
+describe('style contract: every FX category has a live CSS tint rule', () => {
+  it('FX_BASE_COLORS keys and the .fx-<tag> --fx-color block stay in lockstep', async () => {
+    // The v1.2 categories shipped colors + icons but NO CSS mapping — the
+    // words rendered stock while the ambient ring showed the hue (reviewer
+    // violation). This pins the two lists together forever.
+    const { FX_BASE_COLORS } = await import('../renderer/src/effects-logic.js');
+    for (const tag of Object.keys(FX_BASE_COLORS)) {
+      expect(css, tag).toContain(
+        `body.fx-hype .word.fx-word.fx-${tag} { --fx-color: var(--fx-tint-${tag},`,
+      );
+    }
+  });
+});
+
 describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
   it('every selector naming nightcore starts with body.fx-hype', () => {
     const offenders = selectorLines(css).filter(

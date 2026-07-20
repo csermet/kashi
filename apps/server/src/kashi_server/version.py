@@ -86,5 +86,5 @@
 # ~70 new EN+TR keywords/stems across the same 20 categories (vowel-narrowing
 # aware TR stems, min-4 discipline kept). Documents re-tag richer on
 # reprocess; fx.lexicon says kashi-fx/1.1.0.
-PIPELINE_VERSION = "2.10.0"
+PIPELINE_VERSION = "2.11.0"
 PIPELINE_MAJOR = 2

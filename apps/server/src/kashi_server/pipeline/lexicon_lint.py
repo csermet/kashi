@@ -189,4 +189,13 @@ def lint_lexicon(raw: object) -> LintReport:
                     f"keyword {entry!r} ('{owner}') also matches stem {stem!r} "
                     f"('{stem_cat}') — higher base_intensity wins; confirm intent"
                 )
+    # Stem-vs-stem shadowing (reviewer): a shorter foreign stem swallows every
+    # token a longer stem was written for (dream 'hayal' vs dark 'hayalet').
+    for stem_a, owner_a in sorted(stem_owner.items()):
+        for stem_b, owner_b in sorted(stem_owner.items()):
+            if owner_a != owner_b and stem_a != stem_b and stem_b.startswith(stem_a):
+                report.warn(
+                    f"stem {stem_b!r} ('{owner_b}') is shadowed by shorter stem "
+                    f"{stem_a!r} ('{owner_a}') — higher base_intensity wins; confirm intent"
+                )
     return report

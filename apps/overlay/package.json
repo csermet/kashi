@@ -1,6 +1,6 @@
 {
   "name": "kashi-overlay",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Word-synced lyrics overlay for the music you are playing",
   "homepage": "https://github.com/csermet/kashi",
   "author": "Caner Sermet <canersermet@gmail.com>",

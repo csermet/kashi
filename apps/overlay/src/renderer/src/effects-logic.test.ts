@@ -450,6 +450,13 @@ describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => 
     const tints = { '--fx-tint-poison': '#22aa55' };
     expect(ambientColors(0, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
     expect(ambientColors(-1, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
+    // Symmetric fallback: an unknown THEME with a known word tint still
+    // floors on the word tint (reviewer nit).
+    const fxIndex = new Map([[0, { word: 1, effect: { tag: 'poison', intensity: 0.7 } }]]);
+    expect(ambientColors(0, themes, fxIndex, tints)).toEqual({
+      ambient: '#22aa55',
+      flash: '#22aa55',
+    });
   });
 });
 

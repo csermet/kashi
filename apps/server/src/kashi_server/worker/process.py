@@ -644,7 +644,12 @@ def process_job(s: Session, job: Job) -> None:
                 download.path, energy_and_sections[0] if energy_and_sections else None
             )
             if chorus:
-                sections = (sections or []) + chorus
+                # Keep the combined array start-sorted: nothing requires it
+                # today, but an unsorted mixed-type list is a trap for the
+                # next consumer (reviewer nit).
+                sections = sorted(
+                    (sections or []) + chorus, key=lambda s: (s.start_ms, s.end_ms)
+                )
         fx = _tag_fx(result, lyrics)  # AFTER QA/rescale: indices must match the doc
         palette = extract_palette((job.hints or {}).get("artwork_url"))
         doc = build_document(

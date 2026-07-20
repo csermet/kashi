@@ -35,8 +35,8 @@ categories:
     base_intensity: 0.8
     keywords_en: [fire, flame, flames, inferno, ash, ashes, smoke, ember, embers, lit, flaming, flamin, torch, gasoline, wildfire, fever]
     stems_en: [burn, blaz, scorch, ignit]
-    keywords_tr: [ateş, alev, kül, duman, yanıyor, yanıyorum, ateşi, ateşe, ateşin]
-    stems_tr: [yakt, tutuş, alevl, ateş, yangın, duman, yand]
+    keywords_tr: [ateş, alev, kül, duman, yanıyor, yanıyorum, ateşi, ateşe, ateşin, yandım, yandık, yandın]
+    stems_tr: [yakt, tutuş, alevl, ateş, yangın, duman]
     prototypes_en:
       - my heart is on fire and burning
       - we set the whole world in flames
@@ -194,7 +194,7 @@ categories:
     keywords_en: [cold, ice, icy, snow, snowflake, frost, frozen, freeze, winter, blizzard]
     stems_en: [freez, chill, cold, shiver, frost]
     keywords_tr: [soğuk, buz, kar, kış, ayaz]
-    stems_tr: [dond, donuy, üşüy, üşüd, buzl, titr]
+    stems_tr: [dond, donuy, üşüy, üşüd, buzl]
     prototypes_en:
       - cold as ice frozen in the snow
       - winter chill runs down my spine
@@ -243,8 +243,8 @@ categories:
   - id: phone
     icon: call
     base_intensity: 0.4
-    keywords_en: [phone, call, calls, calling, text, hotline, voicemail, facetime]
-    stems_en: [dial, text]
+    keywords_en: [phone, call, calls, calling, text, texts, texting, hotline, voicemail, facetime]
+    stems_en: [dial]
     keywords_tr: [telefon]
     stems_tr: [telefon, mesaj]
     prototypes_en:

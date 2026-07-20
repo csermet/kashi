@@ -447,6 +447,10 @@ body.fx-hype .word.fx-word.fx-crown { --fx-color: var(--fx-tint-crown, var(--kas
 body.fx-hype .word.fx-word.fx-phone { --fx-color: var(--fx-tint-phone, var(--kashi-primary, #fff)); }
 body.fx-hype .word.fx-word.fx-fight { --fx-color: var(--fx-tint-fight, var(--kashi-primary, #fff)); }
 body.fx-hype .word.fx-word.fx-music { --fx-color: var(--fx-tint-music, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-drink { --fx-color: var(--fx-tint-drink, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-dream { --fx-color: var(--fx-tint-dream, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-space { --fx-color: var(--fx-tint-space, var(--kashi-primary, #fff)); }
+body.fx-hype .word.fx-word.fx-storm { --fx-color: var(--fx-tint-storm, var(--kashi-primary, #fff)); }
 
 /* The fx word's activation pop: stronger than the stock word-active
    (specificity wins: 3 classes + body), scaled by the server intensity.
@@ -703,7 +707,10 @@ body.fx-hype.nightcore .lyric {
 body.fx-hype.nightcore #lyric-line {
   animation: kashi-nc-hue 16s steps(32) infinite;
 }
-body.fx-hype.nightcore .word.word-sung {
+body.fx-hype.nightcore .word.word-sung:not(.fx-word) {
+  /* :not(.fx-word): animated color beats ANY specificity, so without the
+     guard the sung fx word's semantic tint whisper would be overridden
+     for the animation's infinite duration (reviewer). */
   animation: kashi-nc-hue 16s steps(32) infinite;
 }
 @keyframes kashi-nc-hue {
@@ -725,7 +732,7 @@ body.fx-hype.nightcore .word.word-sung {
 @media (prefers-reduced-motion: reduce) {
   /* Aberration is static (stays); the shimmer is motion (goes). */
   body.fx-hype.nightcore #lyric-line,
-  body.fx-hype.nightcore .word.word-sung {
+  body.fx-hype.nightcore .word.word-sung:not(.fx-word) {
     animation: none;
   }
 }
