@@ -60,7 +60,7 @@ bench = []
 dev = [
     "pytest==9.1.1",
     "ruff==0.15.20",
-    "pyright==1.1.409",
+    "pyright==1.1.411",
 ]
 
 [tool.uv]
