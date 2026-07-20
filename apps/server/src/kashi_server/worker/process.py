@@ -47,6 +47,7 @@ from kashi_server.pipeline.nightcore import (
     slow_duration_ok,
 )
 from kashi_server.pipeline.palette import extract_palette
+from kashi_server.pipeline.structure import extract_structure
 from kashi_server.pipeline.titles import clean_title, parse_composite_title
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
@@ -635,6 +636,15 @@ def process_job(s: Session, job: Job) -> None:
         s.commit()
         beats = extract_beats(download.path)  # full mix — the PLAYED audio, never rescaled
         energy_and_sections = extract_energy(download.path)  # same clock as beats
+        sections = energy_and_sections[1] if energy_and_sections else None
+        if settings.structure_sections:
+            # Structure v2 (Faz 6.5 P6): repetition-derived chorus spans join
+            # the energy "high" blocks additively — best-effort like the rest.
+            chorus = extract_structure(
+                download.path, energy_and_sections[0] if energy_and_sections else None
+            )
+            if chorus:
+                sections = (sections or []) + chorus
         fx = _tag_fx(result, lyrics)  # AFTER QA/rescale: indices must match the doc
         palette = extract_palette((job.hints or {}).get("artwork_url"))
         doc = build_document(
@@ -649,7 +659,7 @@ def process_job(s: Session, job: Job) -> None:
             qa=qa,
             fx=fx,
             energy=energy_and_sections[0] if energy_and_sections else None,
-            sections=energy_and_sections[1] if energy_and_sections else None,
+            sections=sections,
         )
         persist_processed_track(s, job, doc)
         queue.mark_completed(s, job)

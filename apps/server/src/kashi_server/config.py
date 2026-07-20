@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     # the layer is opt-in for experimentation only. Full data:
     # docs/research/embed-threshold-calibration-2026-07.md
     fx_embeddings: bool = False
+    # Structure v2 (Faz 6.5 P6): librosa Laplacian segmentation → "chorus"
+    # sections beside the energy "high" blocks. Zero extra dependencies,
+    # deterministic; default off until the canary wave proves it in the
+    # field (BAD GIRL is the acceptance case).
+    structure_sections: bool = False
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]
