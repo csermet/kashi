@@ -437,9 +437,10 @@ describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => 
       ambient: '#22aa55',
       flash: '#dd6699',
     });
-    // Line without a theme but with an fx word: flash only.
+    // No line theme (the norm since P4 parked the embedding layer): the
+    // floor falls back to the fx WORD's tint — keyword-layer precision.
     expect(ambientColors(0, new Map(), fxIndex, tints)).toEqual({
-      ambient: null,
+      ambient: '#dd6699',
       flash: '#dd6699',
     });
   });

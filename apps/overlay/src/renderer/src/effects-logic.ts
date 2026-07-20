@@ -385,9 +385,12 @@ export function buildLineThemeIndex(
 /**
  * Ambient ring colors for the ACTIVE line (Faz 6.5 P1): the continuous ring
  * takes the line THEME's tint; the activation flash takes the line's fx
- * WORD tint (the "poison word → green halo" field idea). Unknown tags (a
- * newer lexicon than this build) resolve to null — no ring beats a wrong
- * ring (DG6). Pure: main.ts applies the result to the box at line cadence.
+ * WORD tint (the "poison word → green halo" field idea). Since the P4
+ * calibration parked the embedding layer (line themes are rare now), the
+ * floor FALLS BACK to the fx word's tint — the keyword layer is the
+ * precision path, and a poison-word line still gets its green surround.
+ * Unknown tags (a newer lexicon than this build) resolve to null — no ring
+ * beats a wrong ring (DG6). Pure: main.ts applies at line cadence.
  */
 export function ambientColors(
   lineIndex: number,
@@ -397,9 +400,9 @@ export function ambientColors(
 ): { ambient: string | null; flash: string | null } {
   if (lineIndex < 0) return { ambient: null, flash: null };
   const theme = themes.get(lineIndex);
-  const ambient = theme ? (tintVars[`--fx-tint-${theme}`] ?? null) : null;
   const fxTag = fxIndex.get(lineIndex)?.effect.tag;
   const flash = fxTag ? (tintVars[`--fx-tint-${fxTag}`] ?? null) : null;
+  const ambient = theme ? (tintVars[`--fx-tint-${theme}`] ?? null) : flash;
   return { ambient, flash };
 }
 
@@ -491,6 +494,11 @@ export const FX_BASE_COLORS: Readonly<Record<string, string>> = {
   phone: '#4dd0e1',
   fight: '#ef5350',
   music: '#ce93d8',
+  // v1.2 (Faz 6.5 P4): the brown and magenta bands were unused until now.
+  drink: '#d4a373', // whiskey amber
+  dream: '#d1c4e9', // pale lilac
+  space: '#ea80fc', // nebula magenta
+  storm: '#78909c', // storm-cloud slate
 };
 
 /**
