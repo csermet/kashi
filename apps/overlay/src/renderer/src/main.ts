@@ -210,12 +210,10 @@ function rebuildFxIndex(): void {
 // Energy/section state (Faz 6 P5) — written only on change (edge/step).
 let currentEnergy: EnergyData | undefined;
 let currentSections: SectionData[] | undefined;
-// Nightcore aesthetics (Faz 6.5 P5): reflects the DOCUMENT only — the CSS
-// rules are body.fx-hype.nightcore-scoped, so the level needs no hook here.
-let nightcoreDoc = false;
-
+// Nightcore aesthetics (Faz 6.5 P5): the body class IS the state — it
+// reflects the DOCUMENT only, and the CSS rules are body.fx-hype.nightcore-
+// scoped, so the level needs no hook here.
 function setNightcoreClass(on: boolean): void {
-  nightcoreDoc = on;
   document.body.classList.toggle('nightcore', on);
 }
 let appliedEnergy = -1;
