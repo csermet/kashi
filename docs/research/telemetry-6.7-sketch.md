@@ -48,9 +48,64 @@ so a bug is one query away instead of a repro hunt.
 - Privacy default: ON-when-server-set vs explicit opt-in.
 - Does this subsume the ntfy/session-notification habit or complement it.
 
+## Bundled bug: "wrong timing, fixed by a YTM refresh" — ROOT CAUSE FOUND
+
+ytm-scout round (2026-07-24, sourced) localized a strong root-cause
+hypothesis (mechanism-level UNVERIFIED, but the code gap is real and the
+precedent is solid):
+
+**The asymmetric position-staleness gap.** `content/index.ts` guards
+DURATION staleness at a track switch (`freshDurationMs()` returns undefined
+until `durationchange` fires for the new source) but has **no equivalent
+guard for POSITION**. `maybeAnnounceTrack()` sends a
+`positionEvent('position')` right after the announce, reading
+`video.currentTime` unconditionally — and at that instant currentTime can
+still be the OLD track's value (or a cumulative offset under YTM's gapless
+playback, or a frozen swapped `<video>` element). The overlay's
+`PositionClock.update()` then accepts the FIRST post-`track_changed` report
+as the anchor with NO delta check (`if (!hasAnchor || isSeek) setAnchor`).
+So a wrong first position becomes the anchor → lyrics scroll at the wrong
+time until a real seek/large delta resnaps — and a YTM **refresh** clears
+all state, which is why it "fixes it".
+
+Precedent: pear-desktop sets `elapsedSeconds = 0` on every `videodatachange`
+(never trusts currentTime at a switch); Spotify's Web SDK has the analogous
+"first event after skip carries wrong data" class. No scrobbler documents an
+explicit guard, but pear-desktop's 0-assumption is the low-risk pattern.
+
+**Proposed guards (extension 0.1.12 — currently FROZEN, so this is a
+deliberate un-freeze in 6.7):**
+1. *Sanity clamp (near-zero risk, mechanism-independent):* before the
+   announce-accompanying `pos`, if `freshDurationMs()` is defined and
+   `position_ms > duration + ~2000`, skip THAT event — the next `timeupdate`
+   (~250 ms) brings the real value.
+2. *Mid-session-only defer:* if `announcedVideoId !== null` (a real
+   mid-session change, NOT cold-start/refresh) AND `freshDurationMs()` is
+   undefined, skip that `pos` too. The cold-start/refresh path
+   (`announcedVideoId === null`) stays byte-for-byte — the behavior Caner
+   relies on today ("refresh fixes it") is preserved.
+3. *Diagnostic log:* add raw `video.currentTime` to the announce log line —
+   the next repro capture then reveals WHICH mechanism (cumulative offset /
+   frozen element / transient glitch). This is exactly what telemetry above
+   would capture as a `position_anomaly` event.
+
+Side effects: none to auto-advance/shuffle/seek — only the single
+announce-accompanying position report can be delayed ~250 ms–1.5 s (within
+YTM's own dataupdated-fallback window; imperceptible since lyrics are already
+in "searching" state at a track change). Full report + sources: the
+ytm-scout round output.
+
+**OPEN QUESTION for Caner:** does he have YTM **Premium**? Gapless playback
+is Premium-only (2026) — if yes, the cumulative-buffer-offset mechanism is
+likely; if no, "frozen element"/"transient glitch" lead. The proposed guards
+work either way (they neutralize the symptom regardless of mechanism), but
+this sharpens the root-cause confirmation.
+
 ## Relation to open bugs
 
-Faz 6.7 could bundle: this telemetry + the "wrong timing" fix (whose
-root-cause the ytm-scout round is narrowing now) + the macOS window
-placement follow-through (0.10.2 `enableLargerThanScreen` — verify on
-Caner's Mac) + any P3-spike-driven effect-layer work + accumulated nits.
+Faz 6.7 could bundle: this telemetry + the "wrong timing" fix (root cause
+above) + the macOS window placement follow-through (0.10.2
+`enableLargerThanScreen` — verify on Caner's Mac) + any P3-spike-driven
+effect-layer work + accumulated nits. The telemetry and the timing fix are
+mutually reinforcing: telemetry's `position_anomaly` events confirm the fix
+in the field.
