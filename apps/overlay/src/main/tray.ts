@@ -133,9 +133,11 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { label: `Word fill — ${fillStyleLabel(fillStyle)}`, submenu: fillItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },
     { label: `Timing offset — ${shortOffsetLabel(offset)}`, submenu: timingItems },
-    ...(opts.getCanReportSync()
-      ? [{ label: 'Report good sync to LRCLIB', click: opts.onReportSync } as const]
-      : []),
+    // The per-song "Report good sync to LRCLIB" entry was REMOVED from the UI
+    // (Caner, 2026-07-24: don't push lrclib contribution up front — a bulk
+    // review UI may come later). The backend (publish gate + ledger + IPC
+    // getCanReportSync/onReportSync) stays intact and dormant; only this menu
+    // item is gone. To re-surface, restore the spread here.
     { label: 'Server settings…', click: opts.onServerSettings },
     { label: 'Reset position', click: opts.onResetPosition },
     { type: 'separator' },

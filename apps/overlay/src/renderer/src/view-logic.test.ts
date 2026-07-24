@@ -127,16 +127,19 @@ describe('shouldAnimateLineChange', () => {
 });
 
 describe('watchdogShouldReset', () => {
-  it('trips on a playing clock starved of positions', () => {
-    expect(watchdogShouldReset(true, false, 10_001)).toBe(true);
+  it('trips on a playing clock starved of positions past the 60 s threshold', () => {
+    expect(watchdogShouldReset(true, false, 60_001)).toBe(true);
   });
 
-  it('does not trip below the threshold', () => {
-    expect(watchdogShouldReset(true, false, 9_999)).toBe(false);
+  it('does not trip below the threshold (a seek/buffer stall is not a dead source)', () => {
+    // 10 s used to trip here and wipe the rich document; 60 s tolerates the
+    // MSE buffer (Caner field bug, RE700X flaky WiFi).
+    expect(watchdogShouldReset(true, false, 30_000)).toBe(false);
+    expect(watchdogShouldReset(true, false, 59_999)).toBe(false);
   });
 
   it('does not trip while paused (no extrapolation, nothing to kill)', () => {
-    expect(watchdogShouldReset(false, false, 60_000)).toBe(false);
+    expect(watchdogShouldReset(false, false, 120_000)).toBe(false);
   });
 
   it('does not trip during a normal-length ad — position silence there is deliberate', () => {

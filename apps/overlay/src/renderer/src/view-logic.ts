@@ -164,7 +164,14 @@ export function findActiveWord(words: readonly WordTiming[], pos: number): numbe
   return found;
 }
 
-export const WATCHDOG_THRESHOLD_MS = 10_000;
+// 60 s, not 10 s (field bug, Caner 2026-07-24): a big SEEK stalls YTM's MSE
+// buffer with `paused=false`, so the clock reads "playing" while timeupdate
+// goes silent — at 10 s the watchdog mistook the buffer for a dead source and
+// wiped the rich document (palette/fx/lines) to the plain white fallback.
+// Flaky WiFi backhaul (RE700X) makes 10 s+ buffers common. 60 s covers the
+// buffer and still bounds a genuinely dead source (a closed tab drops the WS
+// and resets via the connection path far sooner anyway).
+export const WATCHDOG_THRESHOLD_MS = 60_000;
 /**
  * Ads get a longer leash, NOT a full exemption: position silence during an ad
  * is deliberate (a >10 s ad must not wipe the lyrics — Faz 2 closure review),

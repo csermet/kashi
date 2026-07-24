@@ -610,29 +610,40 @@ window.kashi.onTrack((payload) => {
     key: string;
     track: { title: string; artist: string; artwork_url?: string };
   };
+  // Same song RE-announced (MV3 service-worker flap / WS reconnect re-fires
+  // the current track — Caner field bug): keep the lyrics, palette, fx and
+  // clock exactly as they are. Wiping here is what blinked effects and
+  // flashed the search dots while a song already played fine. Keyed on the
+  // id alone (not lines) so instrumental / no-lyrics tracks keep their
+  // artwork palette too (reviewer). A same-key replay-from-0 self-corrects:
+  // the retained clock extrapolates ahead, the incoming position 0 is a
+  // >1.5 s delta, and the clock snaps.
+  const sameTrack = key === currentKey;
   currentKey = key;
-  lines = [];
-  searching = false;
   adActive = false; // a track announce proves no ad is playing (audit: a lost
   // ad_state=false otherwise blanks every following song forever)
-  clock.reset();
-  clearEnrichment(); // last track's palette/beats must not theme this one
-  if (typeof track.artwork_url === 'string' && track.artwork_url) {
-    // Serverless palette (Faz 5 P5): theme from the artwork while (or in
-    // place of) a server document. A later server palette overrides.
-    const request = artworkRequest;
-    void loadArtworkPalette(track.artwork_url).then((palette) => {
-      if (palette === null || request !== artworkRequest || key !== currentKey) return;
-      artworkPalette = palette;
-      refreshPalette();
-      window.kashi.log('artwork palette applied (serverless theme)');
-    });
+  if (!sameTrack) {
+    lines = [];
+    searching = false;
+    clock.reset();
+    clearEnrichment(); // last track's palette/beats must not theme this one
+    if (typeof track.artwork_url === 'string' && track.artwork_url) {
+      // Serverless palette (Faz 5 P5): theme from the artwork while (or in
+      // place of) a server document. A later server palette overrides.
+      const request = artworkRequest;
+      void loadArtworkPalette(track.artwork_url).then((palette) => {
+        if (palette === null || request !== artworkRequest || key !== currentKey) return;
+        artworkPalette = palette;
+        refreshPalette();
+        window.kashi.log('artwork palette applied (serverless theme)');
+      });
+    }
   }
   trackLabel = `♪ ${track.artist} — ${track.title}`;
   statusText = trackLabel;
   statusDim = false;
   // Log line stays ASCII-decorated; the label keeps its glyphs for DISPLAY.
-  window.kashi.log(`track set: ${key} "${track.artist} - ${track.title}"`);
+  window.kashi.log(`track ${sameTrack ? 're-announced' : 'set'}: ${key} "${track.artist} - ${track.title}"`);
   ensureLoop();
 });
 
@@ -652,10 +663,15 @@ window.kashi.onLyrics((payload) => {
   };
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
-    lines = [];
-    searching = true;
-    statusText = trackLabel;
-    statusDim = false;
+    // Keep an already-shown lyric visible during a BACKGROUND re-lookup (SW
+    // flap / reconnect re-runs the lookup for the current song): only surface
+    // the searching dots when there is nothing on screen yet. Otherwise a
+    // re-lookup would blink a playing lyric to dots (Caner field bug).
+    if (lines.length === 0) {
+      searching = true;
+      statusText = trackLabel;
+      statusDim = false;
+    }
     ensureLoop();
     return;
   }
@@ -883,7 +899,7 @@ let loopActive = false;
 let timingOffsetMs = 0;
 
 function frame(): void {
-  // Data-loss watchdog: a "playing" clock with no position reports for 10 s
+  // Data-loss watchdog: a "playing" clock with no position reports for 60 s
   // means the source vanished mid-play (tab closed, browser gone) — don't
   // keep scrolling ghost lyrics forever, drop to the idle badge. Ads get a
   // 3-minute leash instead (see watchdogShouldReset).

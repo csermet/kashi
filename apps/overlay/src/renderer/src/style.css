@@ -704,13 +704,13 @@ body.fx-hype.nightcore .lyric {
     -1.5px 0 rgba(64, 208, 255, 0.45),
     0 1px 8px rgba(0, 0, 0, 0.8);
 }
+/* Shimmer lives ONLY on the line container — plain-text lines cycle hue as
+   one unit. The per-word sung shimmer was REMOVED (Caner: nightcore "biraz
+   buggy"): each word started its own 16 s clock when it became .word-sung,
+   so a line read as an out-of-phase COLOR PATCHWORK. Word-karaoke lines keep
+   their karaoke colors + the static aberration; the container shimmer shows
+   on plain/interlude lines where words don't override the color. */
 body.fx-hype.nightcore #lyric-line {
-  animation: kashi-nc-hue 16s steps(32) infinite;
-}
-body.fx-hype.nightcore .word.word-sung:not(.fx-word) {
-  /* :not(.fx-word): animated color beats ANY specificity, so without the
-     guard the sung fx word's semantic tint whisper would be overridden
-     for the animation's infinite duration (reviewer). */
   animation: kashi-nc-hue 16s steps(32) infinite;
 }
 @keyframes kashi-nc-hue {
@@ -731,8 +731,7 @@ body.fx-hype.nightcore .word.word-sung:not(.fx-word) {
 
 @media (prefers-reduced-motion: reduce) {
   /* Aberration is static (stays); the shimmer is motion (goes). */
-  body.fx-hype.nightcore #lyric-line,
-  body.fx-hype.nightcore .word.word-sung:not(.fx-word) {
+  body.fx-hype.nightcore #lyric-line {
     animation: none;
   }
 }
