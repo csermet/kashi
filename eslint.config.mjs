@@ -13,6 +13,7 @@ export default tseslint.config(
       'apps/server/**',
       '**/*.mjs',
       '**/*.js',
+      '**/*.cjs', // CJS build/config scripts (e.g. electron-builder afterPack)
     ],
   },
   ...tseslint.configs.recommended,
