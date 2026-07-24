@@ -26,7 +26,7 @@
     "@kashi/schemas": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.0",
-    "electron": "42.6.0",
+    "electron": "42.7.1",
     "electron-builder": "26.15.6",
     "electron-vite": "^5.0.0",
     "typescript": "^6.0.0",
