@@ -17,6 +17,9 @@ extraResources:
 asar: true
 npmRebuild: false # no native deps (ws runs pure-JS; bufferutil not installed)
 publish: null # CI attaches artifacts to the GitHub release itself
+# macOS: ad-hoc sign the packed .app (Apple Silicon rejects unsigned code as
+# "damaged"). No-op on win/linux. See build/after-pack.cjs.
+afterPack: build/after-pack.cjs
 win:
   target:
     - nsis
@@ -33,16 +36,17 @@ linux:
   maintainer: Caner Sermet <canersermet@gmail.com>
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 mac:
-  # Apple Silicon (M2) is the target — the CI runner is arm64. UNSIGNED and
-  # UN-NOTARIZED on purpose (no Apple Developer account): Gatekeeper shows a
-  # warning like Windows SmartScreen — right-click → Open, or once:
+  # Apple Silicon (M2) is the target — the CI runner is arm64. AD-HOC signed
+  # (build/after-pack.cjs), NOT notarized (no Apple Developer account). arm64
+  # rejects a TRULY unsigned app as "damaged"; ad-hoc signing fixes that, and
+  # the only user step left is clearing the download quarantine:
   #   xattr -cr /Applications/Kashi.app
   # (documented in the README). Notarization stays out of scope.
   target:
     - dmg
-    - zip # zip is the friendlier unsigned path (dmg quarantines harder)
+    - zip # zip is the friendlier path (dmg quarantines harder)
   category: public.app-category.music
-  identity: null # force an unsigned build even if a cert is present
+  # electron-builder's OWN signing stays off (no cert); after-pack.cjs does
+  # the ad-hoc `codesign --sign -` on the packed .app instead.
+  identity: null
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
-  # The overlay reads no notarization entitlements; the default hardened
-  # runtime is off (unsigned), which is what we want here.

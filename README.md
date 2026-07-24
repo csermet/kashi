@@ -177,16 +177,24 @@ Each `overlay-v*` tag builds installers on the
 - **macOS (Apple Silicon)** — `Kashi-<version>-mac-arm64.dmg` (or `.zip`).
 - **Linux** — `.AppImage` or `.deb`.
 
-The builds are **unsigned** (no code-signing certificate), so the OS warns on
-first launch — this is expected, not malware:
+The builds are **not notarized** (no Apple Developer / code-signing
+certificate), so the OS warns on first launch — this is expected, not malware:
 
 - **Windows:** SmartScreen → *More info* → *Run anyway*.
-- **macOS:** the app is *quarantined* on download. Right-click the app →
-  *Open* (once), or clear the quarantine flag from a terminal:
+- **macOS (Apple Silicon):** the download is *quarantined*; clear the flag
+  from a terminal, then open normally:
   ```bash
   xattr -cr /Applications/Kashi.app
   ```
-  You still need the extension loaded and a song playing in YouTube Music.
+  If you ever see **"Kashi.app is damaged and can't be opened"**, the app
+  reached you unsigned — ad-hoc sign it once and it will launch:
+  ```bash
+  xattr -cr /Applications/Kashi.app
+  codesign --force --deep --sign - /Applications/Kashi.app
+  ```
+  (Builds from `overlay-v0.10.3`+ are already ad-hoc signed, so only the
+  first `xattr -cr` is needed.) You still need the extension loaded and a
+  song playing in YouTube Music.
 
 ## 🔧 Troubleshooting
 
