@@ -168,6 +168,26 @@ cd apps/server && uv sync && uv run pytest   # needs Python 3.12 + uv
 
 Project-specific review agents live in `.claude/agents/`.
 
+## 📦 Prebuilt downloads
+
+Each `overlay-v*` tag builds installers on the
+[Releases](https://github.com/csermet/kashi/releases) page:
+
+- **Windows** — `Kashi-<version>-win-x64.exe` (installer) or the `portable` build.
+- **macOS (Apple Silicon)** — `Kashi-<version>-mac-arm64.dmg` (or `.zip`).
+- **Linux** — `.AppImage` or `.deb`.
+
+The builds are **unsigned** (no code-signing certificate), so the OS warns on
+first launch — this is expected, not malware:
+
+- **Windows:** SmartScreen → *More info* → *Run anyway*.
+- **macOS:** the app is *quarantined* on download. Right-click the app →
+  *Open* (once), or clear the quarantine flag from a terminal:
+  ```bash
+  xattr -cr /Applications/Kashi.app
+  ```
+  You still need the extension loaded and a song playing in YouTube Music.
+
 ## 🔧 Troubleshooting
 
 - **The translucent box seems to change opacity while you scroll or interact

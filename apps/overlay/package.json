@@ -15,7 +15,8 @@
     "test": "vitest run",
     "fake-extension": "node scripts/fake-extension.mjs",
     "dist:linux": "electron-vite build && electron-builder --linux",
-    "dist:win": "electron-vite build && electron-builder --win"
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {
     "@kashi/protocol": "workspace:*",

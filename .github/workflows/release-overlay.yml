@@ -96,8 +96,41 @@ jobs:
             apps/overlay/release/SHA256SUMS-windows.txt
           if-no-files-found: error
 
+  macos:
+    # macos-latest is Apple Silicon (arm64) — matches the M2 target. UNSIGNED:
+    # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder hunting for a
+    # cert, so the build never fails for lack of one (identity:null in the yml
+    # is the belt, this is the braces).
+    runs-on: macos-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/check-versions.mjs
+      - run: pnpm --filter kashi-overlay dist:mac
+      - name: Checksums
+        run: |
+          cd apps/overlay/release
+          shasum -a 256 *.dmg *.zip > SHA256SUMS-macos.txt
+          cat SHA256SUMS-macos.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: overlay-macos
+          path: |
+            apps/overlay/release/*.dmg
+            apps/overlay/release/*.zip
+            apps/overlay/release/SHA256SUMS-macos.txt
+          if-no-files-found: error
+
   release:
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

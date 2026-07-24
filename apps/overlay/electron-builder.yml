@@ -32,3 +32,17 @@ linux:
   category: AudioVideo
   maintainer: Caner Sermet <canersermet@gmail.com>
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
+mac:
+  # Apple Silicon (M2) is the target — the CI runner is arm64. UNSIGNED and
+  # UN-NOTARIZED on purpose (no Apple Developer account): Gatekeeper shows a
+  # warning like Windows SmartScreen — right-click → Open, or once:
+  #   xattr -cr /Applications/Kashi.app
+  # (documented in the README). Notarization stays out of scope.
+  target:
+    - dmg
+    - zip # zip is the friendlier unsigned path (dmg quarantines harder)
+  category: public.app-category.music
+  identity: null # force an unsigned build even if a cert is present
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  # The overlay reads no notarization entitlements; the default hardened
+  # runtime is off (unsigned), which is what we want here.
