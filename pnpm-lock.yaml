@@ -51,7 +51,7 @@ importers:
         version: link:../../packages/schemas
       '@types/node':
         specifier: ^22.10.0
-        version: 22.20.0
+        version: 22.20.1
       '@types/ws':
         specifier: ^8.18.0
         version: 8.18.1
@@ -63,16 +63,16 @@ importers:
         version: 26.15.6(electron-builder-squirrel-windows@26.15.6)
       electron-vite:
         specifier: ^5.0.0
-        version: 5.0.0(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0))
+        version: 5.0.0(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0))
       typescript:
         specifier: ^6.0.0
         version: 6.0.3
       vite:
         specifier: ^7.3.0
-        version: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)
+        version: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)
       vitest:
         specifier: ^4.1.0
-        version: 4.1.9(@types/node@22.20.0)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0))
+        version: 4.1.9(@types/node@22.20.1)(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0))
 
   packages/protocol:
     devDependencies:
@@ -841,6 +841,9 @@ packages:
 
   '@types/node@22.20.0':
     resolution: {integrity: sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g==}
+
+  '@types/node@22.20.1':
+    resolution: {integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==}
 
   '@types/node@24.13.2':
     resolution: {integrity: sha512-fRa09kZTgu8o71KFcDjUFuc7F+dEbZYZmkI0mg5YBTRs0yMKjYHsq/c0urDKeDb+D5qVgXOdFcuu+DZPKOITwA==}
@@ -2966,6 +2969,10 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/node@22.20.1':
+    dependencies:
+      undici-types: 6.21.0
+
   '@types/node@24.13.2':
     dependencies:
       undici-types: 7.18.2
@@ -2976,7 +2983,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 22.20.0
+      '@types/node': 22.20.1
 
   '@typescript-eslint/eslint-plugin@8.64.0(@typescript-eslint/parser@8.64.0(eslint@10.7.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.7.0(jiti@2.7.0))(typescript@6.0.3)':
     dependencies:
@@ -3078,13 +3085,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.9(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0))':
+  '@vitest/mocker@4.1.9(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0))':
     dependencies:
       '@vitest/spy': 4.1.9
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)
+      vite: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)
 
   '@vitest/mocker@4.1.9(vite@7.3.6(@types/node@24.13.2)(jiti@2.7.0))':
     dependencies:
@@ -3507,7 +3514,7 @@ snapshots:
 
   electron-to-chromium@1.5.387: {}
 
-  electron-vite@5.0.0(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)):
+  electron-vite@5.0.0(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)):
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-transform-arrow-functions': 7.29.7(@babel/core@7.29.7)
@@ -3515,7 +3522,7 @@ snapshots:
       esbuild: 0.25.12
       magic-string: 0.30.21
       picocolors: 1.1.1
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)
+      vite: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -4493,7 +4500,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0):
+  vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0):
     dependencies:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.5)
@@ -4502,7 +4509,7 @@ snapshots:
       rollup: 4.62.2
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 22.20.0
+      '@types/node': 22.20.1
       fsevents: 2.3.3
       jiti: 2.7.0
 
@@ -4519,10 +4526,10 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.7.0
 
-  vitest@4.1.9(@types/node@22.20.0)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)):
+  vitest@4.1.9(@types/node@22.20.1)(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)):
     dependencies:
       '@vitest/expect': 4.1.9
-      '@vitest/mocker': 4.1.9(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0))
+      '@vitest/mocker': 4.1.9(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0))
       '@vitest/pretty-format': 4.1.9
       '@vitest/runner': 4.1.9
       '@vitest/snapshot': 4.1.9
@@ -4539,10 +4546,10 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)
+      vite: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 22.20.0
+      '@types/node': 22.20.1
     transitivePeerDependencies:
       - msw
 
