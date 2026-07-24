@@ -229,6 +229,14 @@ function createOverlayWindow(): BrowserWindow {
     // break transparency on some platforms.
     resizable: false,
     fullscreenable: false,
+    // macOS-only: disable AppKit's constrainFrameRect, which otherwise clamps
+    // the window top below the menu bar. Without this the lyric box — pinned
+    // to the BOTTOM of the 640×300 window, 120px below its top — cannot reach
+    // the upper ~30% of the screen (Caner, M2). No-op on Windows/Linux, which
+    // already allow off-screen positioning; it does NOT resize the window
+    // (resizable stays false), only lets setBounds place it freely, even
+    // partly off-screen — exactly the ask.
+    enableLargerThanScreen: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
