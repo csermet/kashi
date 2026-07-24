@@ -95,11 +95,15 @@ YTM's own dataupdated-fallback window; imperceptible since lyrics are already
 in "searching" state at a track change). Full report + sources: the
 ytm-scout round output.
 
-**OPEN QUESTION for Caner:** does he have YTM **Premium**? Gapless playback
-is Premium-only (2026) — if yes, the cumulative-buffer-offset mechanism is
-likely; if no, "frozen element"/"transient glitch" lead. The proposed guards
-work either way (they neutralize the symptom regardless of mechanism), but
-this sharpens the root-cause confirmation.
+**CONFIRMED (Caner, 2026-07-24): YTM Premium = YES → gapless is ON.** So the
+leading mechanism is the **cumulative-buffer offset**: under gapless,
+`video.currentTime` does NOT reset to 0 at a track boundary, it keeps
+increasing across the queue. At the announce instant it can therefore read
+FAR past the new track's duration — which makes guard #1 (sanity clamp
+`pos > duration + 2s → skip`) fire reliably and correctly in exactly this
+case. The diagnostic log (guard #3) will still confirm the magnitude in the
+field. **DECISION: fold the fix into Faz 6.7** (not a standalone 0.1.12) —
+telemetry lands alongside it and confirms it.
 
 ## Relation to open bugs
 
