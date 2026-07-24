@@ -181,20 +181,25 @@ The builds are **not notarized** (no Apple Developer / code-signing
 certificate), so the OS warns on first launch — this is expected, not malware:
 
 - **Windows:** SmartScreen → *More info* → *Run anyway*.
-- **macOS (Apple Silicon):** the download is *quarantined*; clear the flag
-  from a terminal, then open normally:
-  ```bash
-  xattr -cr /Applications/Kashi.app
-  ```
-  If you ever see **"Kashi.app is damaged and can't be opened"**, the app
-  reached you unsigned — ad-hoc sign it once and it will launch:
+- **macOS (Apple Silicon):** the app is ad-hoc signed but **not notarized**
+  (no paid Apple Developer account), so Gatekeeper blocks the first launch.
+  Copy it to `/Applications`, then:
+  1. Double-click → you'll see *"Apple could not verify … is free of
+     malware"* → click **Done**.
+  2. **System Settings → Privacy & Security**, scroll to **Security**: there's
+     an **"Open Anyway"** button for Kashi → click it, authenticate, confirm.
+  3. It launches, and every launch after is normal. (One-time, per version.)
+
+  If instead you saw **"Kashi.app is damaged and can't be opened"** (only on
+  builds before `overlay-v0.10.3`, which shipped unsigned), ad-hoc sign it
+  once first, then do the Open-Anyway steps above:
   ```bash
   xattr -cr /Applications/Kashi.app
   codesign --force --deep --sign - /Applications/Kashi.app
   ```
-  (Builds from `overlay-v0.10.3`+ are already ad-hoc signed, so only the
-  first `xattr -cr` is needed.) You still need the extension loaded and a
-  song playing in YouTube Music.
+  The "malware could not be verified" dialog is inherent to non-notarized
+  apps — only Apple notarization removes it (out of scope). You still need
+  the extension loaded and a song playing in YouTube Music.
 
 ## 🔧 Troubleshooting
 
