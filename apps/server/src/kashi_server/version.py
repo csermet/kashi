@@ -86,5 +86,26 @@
 # ~70 new EN+TR keywords/stems across the same 20 categories (vowel-narrowing
 # aware TR stems, min-4 discipline kept). Documents re-tag richer on
 # reprocess; fx.lexicon says kashi-fx/1.1.0.
-PIPELINE_VERSION = "2.11.0"
+# 2.9.0: fx lexicon v1.2 (Faz 6.5 P4) — 4 new categories (drink/dream/space/
+# storm) plus enrichment across the existing 20; variants_tr joins the
+# exact-match space for irregular Turkish inflections. The embedding
+# line-theme layer DEFAULTS OFF and EMBED_THRESHOLD rises to 0.90: a
+# 200-line labelled archive sample showed it ~half wrong at every threshold
+# (docs/research/embed-threshold-calibration-2026-07.md). Documents from
+# here carry fx.lexicon kashi-fx/1.2.0 and, normally, no fx.lines.
+# 2.10.0: structure sections v2 (Faz 6.5 P6) — librosa Laplacian
+# segmentation over beat-synchronous chroma adds "chorus" spans beside the
+# energy-derived "high" blocks. Config-gated (structure_sections, default
+# off; the cluster runs it via env). allin1 was evaluated and declared
+# unusable (docs/research/allin1-viability-2026-07.md).
+# 2.11.0: reviewer follow-ups — segment boundaries rebuilt as
+# [0, *beat_times, duration]; lexicon trap stems removed (yand-/titr-/text-).
+# 2.12.0: structure honesty pass (Faz 6.5 closure verification). Boundaries
+# now come from librosa.util.fix_frames — the same helper sync() uses — so a
+# beat landing on frame 0 or the final frame no longer yields a label/bound
+# mismatch that silently dropped the WHOLE structure pass (field: one canary
+# track in ten). Chorus spans are also bounded: longer than 60 s is a
+# structural block, not a chorus, and a winner still covering >55% of the
+# track is the song's texture and yields nothing at all.
+PIPELINE_VERSION = "2.12.0"
 PIPELINE_MAJOR = 2

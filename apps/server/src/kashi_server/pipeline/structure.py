@@ -37,6 +37,17 @@ STRUCTURE_METHOD = "librosa-laplacian/1.0"
 _N_CLUSTERS = 5
 # A chorus span shorter than this is noise, same floor as energy sections.
 _MIN_SECTION_S = 8.0
+# ...and one LONGER than this is not a chorus either. Clustering finds the
+# most-repeated texture; on some tracks that texture IS most of the song, and
+# labeling a 2.3-minute block "chorus" both misnames it and flattens the very
+# dynamic the label exists to drive (field: Beggin shipped a 139.5 s span,
+# 80% of the track, leaving the overlay's ramp permanently on).
+_MAX_SECTION_S = 60.0
+# Even after that filter, a cluster covering most of the track is the song's
+# general texture, not its chorus. Past this share we emit NOTHING — "no
+# distinct chorus" is an honest answer, and the energy-derived "high" blocks
+# still carry the intensity ramp.
+_MAX_COVERAGE = 0.55
 # Below this length there is no structure to find (jingles, fragments).
 _MIN_TRACK_S = 60.0
 
@@ -116,15 +127,20 @@ def _segment(y, sr: int) -> list[Segment]:
     # test fragmented into 40 sub-floor pieces without this).
     labels = scipy.ndimage.median_filter(labels, size=9, mode="nearest")
 
-    # sync() aggregates BETWEEN boundaries: len(beats) frames yield
-    # len(beats)+1 columns (leading + trailing partials included), so the
-    # label array is one LONGER than the beat times. Segment j spans
-    # bounds[j]..bounds[j+1] with bounds = [0, *beat_times, duration] —
-    # the reviewer caught the off-by-one that shifted every boundary a
-    # beat late and IndexError'd tracks whose last label differed.
-    times = librosa.frames_to_time(beats, sr=sr)
+    # Derive the boundaries THE WAY sync() itself does. sync() aggregates
+    # between boundaries built by `fix_frames`, which pads with 0 and the
+    # final frame and then DEDUPLICATES — so a beat landing exactly on
+    # either edge swallows one boundary and yields one FEWER column than a
+    # naive len(beats)+1. Assuming that count silently dropped the whole
+    # structure pass on such tracks (field: GOT IT MAID, "350 labels, 352
+    # bounds"). Building bounds from the same helper makes
+    # len(bounds) == len(labels) + 1 true BY CONSTRUCTION; the guard below
+    # is now a belt that should never tighten.
+    bound_frames = librosa.util.fix_frames(beats, x_min=0, x_max=chroma.shape[1])
     duration = len(y) / sr
-    bounds = [0.0, *(float(t) for t in times), duration]
+    bounds = [
+        min(float(t), duration) for t in librosa.frames_to_time(bound_frames, sr=sr)
+    ]
     if len(bounds) != len(labels) + 1:
         logger.warning(
             "structure: label/boundary mismatch (%d labels, %d bounds) — skipping",
@@ -146,9 +162,11 @@ def label_segments(segments: list[Segment], energy: Energy | None) -> list[Secti
 
     Honesty rules: a cluster must REPEAT (≥2 spans) to be a chorus candidate
     — a track with no repetition yields NO sections (that is a valid
-    outcome, not a failure); candidate spans shorter than the noise floor
-    are dropped; ties break toward the higher mean energy then the lower
-    cluster id (deterministic).
+    outcome, not a failure); spans outside [_MIN_SECTION_S, _MAX_SECTION_S]
+    are dropped (too short = noise, too long = a structural block, not a
+    chorus); a winner still covering more than _MAX_COVERAGE of the track is
+    the song's texture rather than its chorus and yields NOTHING; ties break
+    toward the higher mean energy then the lower cluster id (deterministic).
     """
     by_cluster: dict[int, list[Segment]] = {}
     for seg in segments:
@@ -183,15 +201,32 @@ def label_segments(segments: list[Segment], energy: Energy | None) -> list[Secti
             item[0],
         ),
     )
-    chorus_spans = scored[0][1]
+    chorus_spans = [
+        span
+        for span in scored[0][1]
+        if _MIN_SECTION_S <= (span.end_s - span.start_s) <= _MAX_SECTION_S
+    ]
+    if not chorus_spans:
+        return []
 
-    sections = [
+    # Coverage sanity: the segments tile the whole track, so their extent IS
+    # the duration. A "chorus" filling most of the song is the track's
+    # general texture under a wrong name — say nothing rather than flatten
+    # the client's ramp across the entire song.
+    track_s = max((seg.end_s for seg in segments), default=0.0)
+    covered_s = sum(span.end_s - span.start_s for span in chorus_spans)
+    if track_s > 0 and covered_s / track_s > _MAX_COVERAGE:
+        logger.info(
+            "structure: winning cluster covers %.0f%% of the track — no distinct chorus",
+            100 * covered_s / track_s,
+        )
+        return []
+
+    return [
         Section(
             type="chorus",
             start_ms=int(round(span.start_s * 1000)),
             end_ms=int(round(span.end_s * 1000)),
         )
         for span in chorus_spans
-        if (span.end_s - span.start_s) >= _MIN_SECTION_S
     ]
-    return sections
