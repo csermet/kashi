@@ -56,36 +56,76 @@ proves nothing about modest hardware. The MacBook Pro M2 run covers that:
 integrated GPU, different compositor (CoreAnimation), and a laptop thermal
 and battery envelope.
 
-## macOS — pending (MacBook Pro M2, Retina)
+## macOS (MacBook Pro M2, ProMotion 120 Hz) — **PASS**
 
-This is the run that actually stresses the design: integrated GPU, Apple's
-own compositor, a Retina surface to blend, and a laptop's thermal/battery
-envelope. It answers the question the Windows box could not.
+The run that actually stresses the design: integrated GPU, Apple's
+compositor, a Retina surface to blend, laptop thermals.
 
-| engine | particles | p95 (ms) | ~fps | worst (ms) | CPU % | soak |
-|--------|-----------|----------|------|------------|-------|------|
-| pixi   | 300 ⭐    |          |      |            |       |      |
+| engine | particles | p95 (ms) | ~fps | worst (ms) | CPU | GPU | soak |
+|--------|-----------|----------|------|------------|-----|-----|------|
+| pixi   | 300 ⭐    | **9.1–9.2** | ~120 | 416 (sleep/wake) | ~30% of ONE core | **3.7%** | 20 min |
 
-Notes to capture while running:
-- **fps vs the panel's refresh** (60 Hz, or 120 Hz on a ProMotion model) —
-  if fps tracks the refresh and p95 ≈ its interval, the loop is
-  vsync-locked and there is headroom; if fps sits BELOW the refresh, p95 is
-  the real cost and that is the number that matters.
-- **Plugged in or on battery** — macOS runs different power profiles;
-  record which, because a battery run is the pessimistic case.
+fps ~120 tracks the ProMotion refresh and 9.1 ms sits just above its
+8.33 ms interval — **vsync-locked with a small tail**, comfortably inside
+the 16.7 ms gate. GPU load 3.7% is nothing.
 
-Durability: YTM-fullscreen ☐ · click-through ☐ · transparency holds ☐ ·
-sleep/wake ☐ · thermals ☐ (an M2 only starts throttling after minutes
-under load — the reason the soak is 5 min and not 30 s).
+**The CPU number needs its units spelled out, or it looks alarming.**
+macOS Activity Monitor reports %CPU **relative to a single core** (an
+8-core machine can read up to 800%); Windows Task Manager reports a share
+of the WHOLE package. Summing the spike's processes (main 2.1 + GPU helper
+17.0 + renderer 11.4) gives ~30% of one core ≈ **3–4% of the machine** —
+i.e. the same ballpark as Windows' 1.7–3.0%, not ten times worse. The
+machine-wide reading during the run (~29% busy, 70% idle) also covered
+YouTube Music, the real Kashi overlay, VS Code and a browser, not just the
+spike.
 
-## Verdict
+**Sleep/wake: PASSED, by accident.** The Mac slept mid-run (untouched
+mouse) and macOS throttles hard in that state. The app survived, came back
+rendering at ~120 fps, and the 416 ms `worst` frame is that transition —
+the same magnitude as the Windows startup hitch, and a one-off over 20
+minutes. It also means the reported p95 is trustworthy: the HUD keeps a
+ROLLING window of the last 600 frames, so 9.1 ms describes the seconds
+after wake, not the throttled sleep period. Sleep only polluted `worst`.
 
-**GO / NO-GO:** _(pending macOS)_ — Windows alone already answers the
-question the spike was built for: a transparent, always-on-top,
-click-through WebGL window is stable and cheap on the platform where the
-combination was historically fragile. Unless macOS surprises us, this is a
-**GO**, and the P7 effect layer (plus the richer graphical/particle
-direction Caner asked for) is technically clear.
+Durability: YTM-fullscreen ☐ · click-through ✅ (drove Activity Monitor and
+Terminal underneath the layer) · transparency holds ✅ (everything below
+legible for 20 min) · **sleep/wake ✅** · thermals ✅ (3.7% GPU, no
+throttling signature in the post-wake numbers).
+
+## Verdict: **GO** (both platforms, 2026-07-25)
+
+| gate | Windows (4K/144, 5070 Ti) | macOS (M2, ProMotion 120) |
+|------|---------------------------|---------------------------|
+| p95 < 16.7 ms | **7.1** ✅ | **9.1** ✅ |
+| process CPU < 10% | **1.7–3.0%** ✅ | **~3–4% of machine** ✅ |
+| transparency / click-through / always-on-top, 5 min | ✅ | ✅ |
+| sleep/wake, no crash | screen-off ✅ | **full sleep ✅** |
+| memory leak over soak | none (100.2→100.4 MB) | not sampled |
+
+A transparent, always-on-top, click-through WebGL layer is **viable on both
+platforms** — including the Windows/DWM combination that was historically
+fragile and the integrated-GPU laptop case. **P7 (the separate effect-layer
+window) is technically unblocked**, and with it the richer graphical /
+particle direction Caner asked for after finding the vendored Material
+Symbols icons too plain.
+
+### What the numbers mean for the DESIGN (the useful part)
+
+1. **Particle count is nearly free at this scale.** Both machines sat at
+   their panel's refresh with 300 particles. Budgets should be governed by
+   screen area and the compositor, not by "how many particles".
+2. **The spike was the pessimistic case.** It renders 300 particles
+   CONTINUOUSLY forever. A real effect layer is event-driven — bursts on
+   fx words, ambient only during choruses — so average load lands well
+   below these figures.
+3. **Laptop battery is the real constraint, not framerate.** Nothing here
+   is compute-bound, but a full-screen composite that never idles does
+   drain a battery. Design implication: the layer should go fully idle
+   (stop the ticker, ideally hide the window) when nothing is animating,
+   rather than rendering an empty scene at 120 fps.
+4. **Untested, deliberately:** the 1000-particle headroom cell and the
+   canvas-2D fallback. Neither is needed now — revisit only if a future
+   effect design pushes far past this scale.
 
 ## Known background
 
