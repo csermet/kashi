@@ -14,7 +14,7 @@ path.
 
 ## Windows — **PASS** (high-end machine, read with the caveat below)
 
-Hardware: Ryzen 7 9700X + RTX 5070 Ti + 32 GB, **4K display @ 120 Hz**.
+Hardware: Ryzen 7 9700X + RTX 5070 Ti + 32 GB, **4K display @ 144 Hz**.
 
 | engine | particles | p95 (ms) | ~fps | worst (ms) | CPU % | soak |
 |--------|-----------|----------|------|------------|-------|------|
@@ -31,25 +31,23 @@ cmd window and drove Task Manager *underneath* the layer for 16 min) ·
 transparency holds ✅ (VS Code + terminal fully legible throughout, never
 went black) · sleep/wake ☐ · monitor change ☐ · thermals ✅ (3% CPU).
 
-### Reading the 7.1 ms honestly — two possible interpretations
+### Reading the 7.1 ms
 
-~144 fps on a **120 Hz** panel is faster than that panel's vsync interval
-(8.33 ms), so the frame loop is **not** simply vsync-locked. Either the
-display was running above 120 Hz, or Chromium free-ran the transparent
-window's rAF. That matters:
+144 Hz has a 6.94 ms vsync interval, and the loop measured 7.1 ms p95 at
+~144 fps — i.e. the frame loop is **vsync-locked and idle between
+refreshes**. 7.1 ms is a FLOOR, not a cost: the renderer draws and waits.
+300 particles do not register on this GPU.
 
-- *If vsync-locked:* 7.1 ms is a floor, the renderer is idle — enormous
-  headroom.
-- *If free-running:* 7.1 ms is the REAL per-frame cost. On a 5070 Ti, 300
-  sprites cannot explain that — which points at the **transparent
-  full-screen composite** as the dominant cost: a 3840×2160 RGBA surface
-  blended by DWM every frame. That scales with RESOLUTION, not particle
-  count.
-
-Either way the practical conclusion is the same and is good news for the
-design: **particle count is nearly free; screen area and the compositor
-are the real variables.** Effect budgets should therefore be set by
-resolution/compositor, not by "how many particles".
+Consequences for the design:
+- **Particle count is essentially free** at this scale; effect budgets
+  should be set by screen area / compositor, not by "how many particles".
+- The actual cost of the 4K transparent composite (a 3840×2160 RGBA
+  surface blended by DWM every frame) stays UNMEASURED here — vsync masks
+  it. We know it fits inside 6.94 ms on this hardware, not what it is. If
+  the M2 run comes in *below* its panel's refresh, that number becomes
+  visible there.
+- Worth noting the machine held 1.7–3.0% CPU while driving a full-screen
+  transparent layer at 4K/144 — a demanding surface, not a soft target.
 
 **Caveat (Caner, correctly): this is a very strong machine.** It settles
 the *compatibility* question — transparent + always-on-top + click-through
