@@ -14,21 +14,50 @@ cd apps/overlay/spikes/fx-layer
 npm install
 ```
 
-## Run the matrix
+## The ~12-minute path: ONE cell, BOTH platforms
 
-Each cell: start, let it run ~5 minutes (the HUD counts and flips to
-"SOAK DONE"), note **p95** from the HUD and the **process CPU** from Task
-Manager (Windows: the `electron.exe` group of this spike / macOS: Activity
-Monitor). Quit with Ctrl+C in the terminal.
+Spend the budget on PLATFORM COVERAGE, not on matrix cells. Rendering a
+transparent, always-on-top window is an OS-specific job — Windows goes
+through DWM + ANGLE→D3D, macOS through CoreAnimation + ANGLE→Metal — and
+Kashi's own bug history is proof: every rendering/transparency bug so far
+(occlusion fade, disk-cache locks, DPI drag creep, the monitor-HDR mystery)
+was Windows-only, while macOS produced a different class entirely (window
+clamping, signing). A pass on one platform says almost nothing about the
+other.
+
+**Run Windows FIRST** — it carries the risk (transparency × hardware
+acceleration is the historically fragile combination there). If Windows
+passes, macOS very likely passes too (friendlier compositor, strong GPU);
+the reverse does not hold.
+
+On EACH machine, one cell, ~5 minutes (the HUD counts and flips to
+"SOAK DONE"). Walk the durability checklist below WHILE it runs, then quit
+with Ctrl+C.
 
 ```
-npm start -- --mode=pixi   --particles=100
-npm start -- --mode=pixi   --particles=300     <- the GO-gate cell
-npm start -- --mode=pixi   --particles=1000
-npm start -- --mode=canvas --particles=100
-npm start -- --mode=canvas --particles=300
-npm start -- --mode=canvas --particles=1000
+npm start -- --mode=pixi --particles=300
 ```
+
+Why not 30 seconds: Kashi's history is full of "fine at first, degrades
+later" bugs, and an M2 only starts thermal-throttling after a few minutes
+under load. The soak is not idle waiting — it is when you run the checklist.
+
+Note two numbers: **p95** from the HUD, and the spike's **process CPU**
+(macOS: Activity Monitor / Windows: Task Manager, the `electron` group).
+
+
+### Optional extras (NOT needed to decide — tuning detail only)
+
+Run these later, and only if you want headroom/fallback data:
+
+```
+npm start -- --mode=pixi   --particles=1000   # how much headroom is left
+npm start -- --mode=canvas --particles=300    # the fallback engine's baseline
+```
+
+If the pixi@300 cell FAILS, the canvas@300 cell becomes worth running —
+it answers "is it WebGL that's unhappy, or transparent-window rendering in
+general?"
 
 ## Durability checklist (once per machine, any mode @300)
 
