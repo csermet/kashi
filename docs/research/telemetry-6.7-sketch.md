@@ -42,7 +42,8 @@ so a bug is one query away instead of a repro hunt.
 ## Open questions (plan round)
 
 - Extension side: does it need to emit anything new, or does the overlay's
-  view suffice? (Extension is frozen at 0.1.11 — keeping it out is a plus.)
+  view suffice? (0.1.12 spent the un-freeze on the position guards alone;
+  keeping telemetry out of the extension is still a plus.)
 - Volume/retention/PII: song titles + ids are already sent for lookups, so
   no NEW exposure — but confirm scope and a purge path.
 - Privacy default: ON-when-server-set vs explicit opt-in.

@@ -49,3 +49,29 @@ Calibration: dump per-line embedding scores from the archive, label a
 ~120-150 line EN+TR eval set, sweep 0.80-0.92 per language, pick from the
 precision/recall curve with false-positives ≤5%. Report:
 `docs/research/embed-threshold-calibration-2026-07.md`.
+
+## Risky candidates (Faz 6.5 curation round, 2026-07-25)
+
+The curation step (3) rejected the following words. **Nothing changed in the
+lexicon** — this is the standing "considered and declined" list, kept so a
+future expansion round does not rediscover them as fresh ideas. If any of
+them is ever admitted, it needs a narrower stem, a disambiguating context
+rule, or acceptance of the false-positive rate below.
+
+**(1) Turkish stems that are also common given names.** `deniz`, `melek`,
+`evren`, `sultan`, `servet`. Each is a real, frequent Turkish first name, so
+in a lyric line they are often addressing a *person*, not naming the sea, an
+angel, the universe, wealth. The keyword layer has no way to tell the two
+apart, and a wrong effect on someone's name is exactly the DG6 harm the fx
+system exists to avoid — a wrong tag is worse than no tag.
+
+**(2) Frequent but semantically empty English words.** `lit`, `tonight`,
+`bread`, `miss`. They are common enough to fire constantly while carrying no
+reliable theme: `lit` is both the past tense of *light* and slang for
+excitement, `miss` is both longing and a form of address, `tonight` and
+`bread` are filler in most lines they appear in. High trigger rate × low
+signal = visual noise.
+
+**Decision (Caner, 2026-07-25): leave the lexicon as is for now — the focus
+is on effects, not on lexicon growth.** These stay a rejected-with-reason
+candidate list for the next expansion round.

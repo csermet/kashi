@@ -88,3 +88,5 @@ the round's report; the load-bearing facts:
   canonical id first; absent → exactly the 2.4.2 path (no regression).
 
 Extension stays at 0.1.11 for Faz 6.5 — both phases are Faz 7 candidates.
+(Update: the freeze ended in Faz 6.7 P0 at 0.1.12, for the position guards
+only. These phases are still Faz 7 candidates.)

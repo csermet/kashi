@@ -151,7 +151,12 @@ file:line and the checklist item it violates.
   (specificity 0,4,1); re-verify the cascade manually whenever custom-property rules change
   (the 0.7.2 regression). Effects animate transform/opacity ONLY; glow/aberration live on
   pre-drawn layers driven by opacity/class toggles; box-shadow/blur/text-shadow VALUES and
-  `font-variation-settings` are never animated.
+  `font-variation-settings` are never animated. The one sanctioned exception is STEPPED
+  (non-interpolated) color cycling via `steps()` on the LINE container only (`#lyric-line`) —
+  it repaints a few times per second instead of every frame (reference: the nightcore shimmer,
+  `apps/overlay/src/renderer/src/style.css:691-737`); continuous color interpolation and
+  per-word color clocks remain violations (the per-word variant was removed in overlay 0.11.0
+  because it read as a phase-shifted patchwork).
 - Icons: vendored monochrome Material Symbols (Apache-2.0, license badge in the vendored dir),
   built with `createElementNS` + presentation attributes (no `style` attr, no innerHTML);
   fx tag charset gate `/^[a-z0-9][a-z0-9_-]{0,31}$/` before any DOM/class use.
