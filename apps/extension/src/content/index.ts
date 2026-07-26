@@ -11,6 +11,11 @@ import {
   type ContentEvent,
   type MainWorldSnapshot,
 } from '../shared/messages.js';
+import {
+  durationIsAuthoritative,
+  PositionClamp,
+  shouldDeferAnnouncePosition,
+} from './position-guard.js';
 
 const TRACK_DEBOUNCE_MS = 500;
 const AD_SELECTOR = '.ytmusic-player-bar.advertisement';
@@ -65,14 +70,32 @@ function isAdPlaying(): boolean {
   return document.querySelector(AD_SELECTOR) !== null;
 }
 
+const clamp = new PositionClamp();
+
 function positionEvent(
   kind: 'position' | 'seek' | 'playback_state',
 ): ContentEvent | null {
   if (!video) return null;
+  const positionMs = Math.round(video.currentTime * 1000);
+
+  // Guard 1: a position past the end of THIS track belongs to another
+  // timeline. Only armed once durationchange fired for the current track —
+  // clamping against the previous track's duration would suppress the
+  // legitimate positions of a longer one.
+  const authoritativeDuration = durationIsAuthoritative(
+    lastDurationChangeAt,
+    videoIdChangedAt,
+  )
+    ? freshDurationMs()
+    : undefined;
+  const verdict = clamp.decide(positionMs, authoritativeDuration, Date.now());
+  if (verdict.note) log(verdict.note);
+  if (!verdict.send) return null;
+
   const now = Date.now();
   return {
     kind,
-    position_ms: Math.round(video.currentTime * 1000),
+    position_ms: positionMs,
     playback_rate: video.playbackRate,
     is_playing: !video.paused,
     captured_at: now,
@@ -92,14 +115,29 @@ function refreshAdState(): void {
 let pendingVideoId: string | null = null;
 let lastAnnouncedTitle: string | null = null;
 let staleTitleRetries = 0;
+/**
+ * The id `videoIdChangedAt` was stamped for. Kept apart from `pendingVideoId`
+ * because a `reannounce` clears the pending id: re-stamping the SAME track
+ * would tell the guards a track change just happened, and since no further
+ * `durationchange` is coming for a track already playing, they would stay
+ * disarmed for the rest of it.
+ */
+let stampedVideoId: string | null = null;
+/** Set when guard 2 withheld the announce position; flushed on durationchange. */
+let announcePositionPending = false;
 
 function maybeAnnounceTrack(): void {
   const videoId = currentVideoId();
   if (!videoId || videoId === announcedVideoId) return;
   if (videoId !== pendingVideoId) {
     pendingVideoId = videoId;
-    videoIdChangedAt = Date.now(); // stamp the actual id change, not each call
     staleTitleRetries = 0;
+  }
+  if (videoId !== stampedVideoId) {
+    stampedVideoId = videoId;
+    videoIdChangedAt = Date.now(); // stamp the actual id change, not each call
+    clamp.reset(); // budget is per track
+    announcePositionPending = false; // never flush a previous track's report
   }
 
   // Debounce: metadata settles milliseconds after the track signal, and radio
@@ -118,10 +156,14 @@ function maybeAnnounceTrack(): void {
       trackTimer = window.setTimeout(() => maybeAnnounceTrack(), TRACK_DEBOUNCE_MS);
       return;
     }
+    // Captured BEFORE the assignment below: a null announcedVideoId means cold
+    // start or refresh, which guard 2 must leave untouched.
+    const wasMidSession = announcedVideoId !== null;
     announcedVideoId = id;
     lastAnnouncedTitle = meta.title;
     log(
-      `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'}, duration=${freshDurationMs() ?? 'n/a'})`,
+      `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'},` +
+        ` duration=${freshDurationMs() ?? 'n/a'}, currentTime=${video?.currentTime.toFixed(2) ?? 'n/a'}s)`,
     );
     sendEvent({
       kind: 'track_changed',
@@ -135,9 +177,29 @@ function maybeAnnounceTrack(): void {
       artwork_url: meta.artworkUrl ?? undefined,
       sent_at: Date.now(),
     });
+    // Guard 2: this report becomes the overlay's clock anchor, so a stale
+    // currentTime here misplaces the whole song. The next timeupdate
+    // (~250 ms) anchors instead — imperceptible, lyrics are still "searching".
+    if (shouldDeferAnnouncePosition(wasMidSession, freshDurationMs())) {
+      announcePositionPending = true;
+      log('announce position deferred (duration for this track has not landed)');
+      return;
+    }
     const pos = positionEvent('position');
     if (pos) sendEvent(pos);
   }, TRACK_DEBOUNCE_MS);
+}
+
+/**
+ * Sends the position guard 2 withheld at the announce, once this track's
+ * duration lands. Under a track changed while PAUSED this is the only chance:
+ * `timeupdate` only fires while playback advances.
+ */
+function flushDeferredPosition(): void {
+  if (!announcePositionPending) return;
+  announcePositionPending = false;
+  const evt = positionEvent('position');
+  if (evt) sendEvent(evt);
 }
 
 function attachVideo(): boolean {
@@ -145,9 +207,19 @@ function attachVideo(): boolean {
   if (!el || el === video) return el !== null;
   video = el;
   log('video element attached');
+  // The element can be REPLACED on auto-advance. If the new one already has
+  // its metadata, `durationchange` fired before we could listen and would
+  // never fire again for this track — leaving the clamp disarmed exactly in
+  // the auto-advance case it exists for. Treat "attached with metadata" as
+  // the durationchange we missed.
+  if (el.readyState >= HTMLMediaElement.HAVE_METADATA && Number.isFinite(el.duration)) {
+    lastDurationChangeAt = Date.now();
+    flushDeferredPosition();
+  }
 
   video.addEventListener('durationchange', () => {
     lastDurationChangeAt = Date.now();
+    flushDeferredPosition();
   });
   video.addEventListener('timeupdate', () => {
     refreshAdState();

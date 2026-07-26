@@ -1,0 +1,153 @@
+/**
+ * Position staleness guards.
+ *
+ * Duration already has a staleness guard (`freshDurationMs`), position had
+ * none. At a mid-session track switch `video.currentTime` can still describe
+ * the PREVIOUS track: YouTube Music Premium plays gapless, so the media
+ * timeline does not necessarily restart at zero on a track boundary. The
+ * overlay accepts the first report after a track change as its clock anchor
+ * WITHOUT a delta check, so one bad value misplaces the lyrics for the rest of
+ * the song — until a real seek resnaps, or the page is reloaded.
+ *
+ * Both guards are pure/testable so the content script keeps one decision
+ * surface. Neither ever fabricates a position: they only withhold a report,
+ * and the next `timeupdate` (~250 ms later) carries the real value.
+ */
+
+/**
+ * How far past the track's end a position may sit before it cannot be real.
+ * Covers rounding between the reported duration and the decoded stream.
+ */
+export const POSITION_OVERSHOOT_TOLERANCE_MS = 2000;
+
+/**
+ * The clamp gives up after this many suppressed reports, or this long — see
+ * `PositionClamp` for why giving up is mandatory.
+ */
+export const CLAMP_BUDGET_REPORTS = 12;
+export const CLAMP_BUDGET_MS = 3000;
+
+/**
+ * Guard 1 — sanity clamp. A position beyond the end of the track it claims to
+ * belong to is impossible, so it describes some other timeline (the gapless
+ * cumulative offset being the leading candidate).
+ *
+ * `durationMs` MUST come from a `durationchange` that fired for the CURRENT
+ * track — see `durationIsAuthoritative`. A stale duration would make this drop
+ * legitimate positions of a longer track.
+ */
+export function positionOvershootsTrack(
+  positionMs: number,
+  durationMs: number | undefined,
+): boolean {
+  if (durationMs === undefined) return false;
+  return positionMs > durationMs + POSITION_OVERSHOOT_TOLERANCE_MS;
+}
+
+/**
+ * True only when `durationchange` has fired since the current videoId
+ * appeared, i.e. the duration describes THIS track rather than the previous
+ * one. `freshDurationMs()` is deliberately more permissive (it also accepts a
+ * duration from just before the id change, which is right for lyrics lookup
+ * but not safe enough to drop position reports on).
+ */
+export function durationIsAuthoritative(
+  lastDurationChangeAt: number,
+  videoIdChangedAt: number,
+): boolean {
+  return lastDurationChangeAt >= videoIdChangedAt;
+}
+
+/** `note`, when present, is a line worth logging; `send` is the decision. */
+export interface ClampDecision {
+  send: boolean;
+  note?: string;
+}
+
+/**
+ * Stateful half of guard 1: suppresses implausible reports, but only on a
+ * BUDGET.
+ *
+ * The budget is not politeness, it is the safety property. The root-cause
+ * hypothesis (gapless cumulative offset) is mechanism-level unverified, and
+ * one of its readings is that `currentTime` never returns to this track's
+ * range at all. An unbounded clamp would then suppress every report for the
+ * whole song: the overlay's clock would never anchor, lyrics would sit frozen
+ * on the first line, and the data-loss watchdog could not even complain
+ * (it only fires while the clock is playing). That is a worse failure than the
+ * bug being fixed. So when suppression stops looking like a boundary glitch,
+ * the clamp releases, says so loudly, and the user is back to today's
+ * behavior — lyrics that run, possibly at the wrong offset.
+ */
+export class PositionClamp {
+  private dropped = 0;
+  private firstDropAt = 0;
+  private released = false;
+
+  /** Called whenever the videoId changes: a fresh track gets a fresh budget. */
+  reset(): void {
+    this.dropped = 0;
+    this.firstDropAt = 0;
+    this.released = false;
+  }
+
+  decide(
+    positionMs: number,
+    durationMs: number | undefined,
+    now: number,
+  ): ClampDecision {
+    if (this.released) return { send: true };
+
+    if (!positionOvershootsTrack(positionMs, durationMs)) {
+      if (this.dropped === 0) return { send: true };
+      const note = `position recovered after ${this.dropped} dropped report(s)`;
+      this.reset();
+      return { send: true, note };
+    }
+
+    this.dropped++;
+    if (this.dropped === 1) this.firstDropAt = now;
+
+    const exhausted =
+      this.dropped >= CLAMP_BUDGET_REPORTS ||
+      now - this.firstDropAt >= CLAMP_BUDGET_MS;
+    if (exhausted) {
+      this.released = true;
+      return {
+        send: true,
+        note:
+          `position ${positionMs}ms still past duration ${durationMs}ms after` +
+          ` ${this.dropped} reports — clamp released, timing may be off for this track`,
+      };
+    }
+
+    return {
+      send: false,
+      note:
+        this.dropped === 1
+          ? `position ${positionMs}ms is past duration ${durationMs}ms — dropping (gapless offset?)`
+          : undefined,
+    };
+  }
+}
+
+/**
+ * Guard 2 — defer the announce-accompanying position. That single report is
+ * the one that becomes the overlay's anchor, and at the announce instant the
+ * new source's metadata has usually not landed yet (no fresh duration), so
+ * currentTime cannot be trusted.
+ *
+ * Cold start and refresh (`wasMidSession === false`) are exempt: there is no
+ * previous track to leak from, and that path is what makes "a refresh fixes
+ * it" work today. Keeping it byte-for-byte preserves the known-good recovery.
+ *
+ * A deferred report is not lost: the caller flushes one as soon as
+ * `durationchange` lands, which also covers a track changed while PAUSED
+ * (no `timeupdate` would ever arrive to replace it).
+ */
+export function shouldDeferAnnouncePosition(
+  wasMidSession: boolean,
+  freshDurationMs: number | undefined,
+): boolean {
+  return wasMidSession && freshDurationMs === undefined;
+}

@@ -33,6 +33,7 @@ import { KashiServerClient } from './kashi-server.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
+import { AnchorGuard } from './position-sanity.js';
 import { ReplayStore } from './replay-store.js';
 import {
   applyExtensionMessage,
@@ -115,6 +116,8 @@ let publishable: { key: string; source: { type: string; id: string } } | null = 
 // The current track's lookup inputs — replayed after a live server-settings
 // re-init (Faz 6 P6) so lyrics refresh without waiting for a track change.
 let lastTrack: { key: string; track: TrackInfo } | null = null;
+/** Armed at every track change; screens the report the clock anchors on. */
+const anchorGuard = new AnchorGuard();
 /** Non-null only when settings carry a server_url — otherwise the code path
  * stays byte-for-byte the serverless v0.1.11 behavior (plan R-F3-8). */
 let serverClient: KashiServerClient | null = null;
@@ -168,6 +171,7 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       );
       if (dup) return; // metadata refresh for same track
       lastTrack = { key: decision.key, track: decision.track };
+      anchorGuard.arm(Date.now()); // screen the next position — it becomes the anchor
       enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
       send('kashi:track', { key: decision.key, track: decision.track });
 
@@ -180,13 +184,31 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       );
       return;
     }
-    case 'playback':
+    case 'playback': {
+      // Play/pause bookkeeping runs for EVERY report, including one whose
+      // position is about to be dropped: the position may be stale, the
+      // playing flag is not, and swallowing it would strand the enqueue gate.
       if (decision.isPlaying !== null) {
         lastIsPlaying = decision.isPlaying;
         enqueueGate.playback(decision.isPlaying, Date.now());
       }
+      // Until the first plausible position lands, screen out reports that sit
+      // past the end of the track — under gapless playback an older extension
+      // build reports the PREVIOUS track's time here, and the clock anchors on
+      // it without a delta check (the extension guards this from 0.1.12).
+      if (
+        'position_ms' in decision.msg &&
+        anchorGuard.rejects(decision.msg.position_ms, lastTrack?.track.duration_ms, Date.now())
+      ) {
+        log(
+          `position ${decision.msg.position_ms}ms is past track end` +
+            ` (${lastTrack?.track.duration_ms}ms) — dropped before anchoring`,
+        );
+        return;
+      }
       send('kashi:playback', decision.msg);
       return;
+    }
     default:
       return;
   }

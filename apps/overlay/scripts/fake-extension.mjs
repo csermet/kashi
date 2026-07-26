@@ -4,6 +4,12 @@
  * Usage:  node scripts/fake-extension.mjs [--title "..."] [--artist "..."]
  *                                         [--duration-ms 213000] [--port 17890]
  * Streams `position` messages at 4 Hz from 0 until the duration is reached.
+ *
+ * `--gapless-leak-ms N` reproduces the field bug an older extension build
+ * causes: the report that rides along the announce still carries the PREVIOUS
+ * track's time (YTM Premium plays gapless, so the media timeline does not
+ * restart at zero). Expect the overlay to log "past track end — dropped
+ * before anchoring" and then anchor on the next honest report.
  */
 import { WebSocket } from 'ws';
 import { parseArgs } from 'node:util';
@@ -16,11 +22,15 @@ const { values: args } = parseArgs({
     'duration-ms': { type: 'string', default: '213000' },
     port: { type: 'string', default: '17890' },
     'start-ms': { type: 'string', default: '0' },
+    'gapless-leak-ms': { type: 'string', default: '0' },
+    'gapless-leak-persist': { type: 'boolean', default: false },
   },
 });
 
 const durationMs = Number(args['duration-ms']);
 const startMs = Number(args['start-ms']);
+const gaplessLeakMs = Number(args['gapless-leak-ms']);
+const gaplessLeakPersist = args['gapless-leak-persist'];
 let seq = 0;
 
 const socket = new WebSocket(`ws://127.0.0.1:${args.port}/ws`, {
@@ -67,9 +77,28 @@ function start() {
     },
   });
 
+  if (gaplessLeakMs > 0) {
+    const leaked = durationMs + gaplessLeakMs;
+    console.log(`leaking a stale first position: ${leaked}ms (track ends at ${durationMs}ms)`);
+    send({
+      type: 'position',
+      tab_id: 1,
+      position_ms: leaked,
+      playback_rate: 1,
+      is_playing: true,
+      captured_at: Date.now(),
+    });
+  }
+
   const timer = setInterval(() => {
-    const position = startMs + (Date.now() - startedAt);
-    if (position >= durationMs) {
+    // --gapless-leak-persist: EVERY report stays past the end, the reading of
+    // the root-cause hypothesis where currentTime never returns to this
+    // track's range. The guard must give up on its budget and let the clock
+    // anchor — a frozen overlay would be worse than a misplaced one.
+    const position = gaplessLeakPersist
+      ? durationMs + gaplessLeakMs + (Date.now() - startedAt)
+      : startMs + (Date.now() - startedAt);
+    if (!gaplessLeakPersist && position >= durationMs) {
       clearInterval(timer);
       socket.close();
       return;
