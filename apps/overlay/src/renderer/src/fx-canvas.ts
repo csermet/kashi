@@ -85,10 +85,22 @@ export class FxCanvas {
   private loggedFirstBurst = false;
   private failures = 0;
 
+  /**
+   * `fallbackBox` is the RESERVED zone — the fixed rect the window layout
+   * keeps free for the lyric box. The box itself shrinks to its content (a
+   * one-line lyric is far shorter than three), so emitting from the zone left
+   * a visible empty band between the text and its own effect. Each burst
+   * passes the box's REAL rect; the zone is only the answer before anything
+   * has measured it.
+   */
+  private box: Rect;
+
   constructor(
-    private readonly box: Rect,
+    fallbackBox: Rect,
     private readonly log: (line: string) => void = () => {},
-  ) {}
+  ) {
+    this.box = fallbackBox;
+  }
 
   /** True while anything is animating — the battery contract's test hook. */
   isIdle(): boolean {
@@ -123,8 +135,11 @@ export class FxCanvas {
    * Fires one burst at a window-space point. Creates the layer on first use —
    * an overlay that never reaches hype never pays for Pixi at all.
    */
-  async burst(colour: number): Promise<void> {
+  async burst(colour: number, box?: Rect): Promise<void> {
     if (this.disposed) return;
+    // One layout read on an edge that fires at most once per line — the same
+    // budget the old word-rect read used.
+    if (box) this.box = box;
     const app = await this.ensureApp();
     if (!app || !this.layer || this.disposed) return;
 

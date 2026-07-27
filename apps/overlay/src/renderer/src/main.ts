@@ -502,7 +502,13 @@ function highlightWord(index: number): void {
       // Particles OUTSIDE the box (P5), radiating from the whole box edge
       // in the word's category colour. Deliberately not aimed at the word: a
       // burst from one point read as detached from the line it belonged to.
-      fxCanvas?.burst(tintOf(fxWordTag));
+      if (fxCanvas) {
+        const box = boxEl?.getBoundingClientRect();
+        void fxCanvas.burst(
+          tintOf(fxWordTag),
+          box ? { x: box.left, y: box.top, width: box.width, height: box.height } : undefined,
+        );
+      }
     }
     // Same edge lights the box halo in the word's category color (P1).
     triggerAmbientFlash();
