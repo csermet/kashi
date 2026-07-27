@@ -100,11 +100,15 @@ describe('LookupOrchestrator', () => {
 describe('server self-heal (Faz 6.7 P3)', () => {
   afterEach(() => vi.useRealTimers());
 
-  /** Runs the ladder to completion under fake timers (lrclib sleeps too). */
+  /**
+   * Runs the ladder to completion under fake timers. Each lrclib retry only
+   * creates its timer once the previous one resolved, so a single advance
+   * cannot cover a ladder that retries — step it.
+   */
   async function runLadder(d: ReturnType<typeof deps>) {
     const orch = new LookupOrchestrator(d);
     const done = orch.lookup(KEY, TRACK);
-    await vi.advanceTimersByTimeAsync(1);
+    for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(1);
     await done;
     return orch;
   }
@@ -182,5 +186,110 @@ describe('server self-heal (Faz 6.7 P3)', () => {
     await runLadder(d);
     await vi.advanceTimersByTimeAsync(200_000);
     expect(getProcessed).toHaveBeenCalledTimes(1);
+  });
+
+  it('fills a screen that lrclib left empty (the correlated-failure case)', async () => {
+    vi.useFakeTimers();
+    // The network event that timed out the server usually takes lrclib too —
+    // and that is precisely when a late server document is worth the most.
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({
+        found: true,
+        source: 'kashi-server',
+        sync: 'word',
+        qualityScore: 0.9,
+        lines: [],
+      });
+    const d = deps({
+      getProcessed,
+      getLyrics: vi.fn(async () => {
+        throw new Error('offline');
+      }),
+    });
+
+    await runLadder(d);
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, error: true }); // screen empty
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'word' });
+  });
+
+  it('a late lrclib answer never overwrites a healed server document (R-8)', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({
+        found: true,
+        source: 'kashi-server',
+        sync: 'word',
+        qualityScore: 0.9,
+        lines: [],
+      });
+    // lrclib is slow enough that the probe heals the track first.
+    const getLyrics = vi.fn(
+      () => new Promise((resolve) => setTimeout(() => resolve({ found: true, lines: [] }), 30_000)),
+    ) as unknown as LookupDeps['getLyrics'];
+    const d = deps({ getProcessed, getLyrics });
+
+    const orch = new LookupOrchestrator(d);
+    const done = orch.lookup(KEY, TRACK);
+    // Let the blocking attempt fail first: the probe's timer does not exist
+    // until then, and advancing past a timer that was never created is a no-op.
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(10_001); // probe wins the race
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'word' });
+
+    await vi.advanceTimersByTimeAsync(30_000); // lrclib finally answers
+    await done;
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'word' }); // not clobbered
+  });
+
+  it('the schedule really ends — a dead server is asked 1 + 5 times, then never', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi.fn().mockResolvedValue({ error: true });
+    const d = deps({ getProcessed });
+
+    await runLadder(d);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(getProcessed).toHaveBeenCalledTimes(6); // 1 blocking + 5 probes
+  });
+
+  it('a recovered but not richer document is never re-rendered', async () => {
+    vi.useFakeTimers();
+    // lrclib line doc on screen; the server answers with a BARE line doc —
+    // same granularity, no palette/beats/fx to buy the flicker.
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({ found: true, source: 'kashi-server', sync: 'line', qualityScore: 0.9, lines: [] });
+    const d = deps({ getProcessed });
+
+    await runLadder(d);
+    const afterLadder = d.sent.length;
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(d.sent.length).toBe(afterLadder);
+  });
+
+  it('a bare line doc is declined, an enriched one is taken', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({
+        found: true,
+        source: 'kashi-server',
+        sync: 'line',
+        qualityScore: 0.9,
+        lines: [],
+        beats: { bpm: 120, times_ms: [] },
+      });
+    const d = deps({ getProcessed });
+
+    await runLadder(d);
+    await vi.advanceTimersByTimeAsync(10_001);
+    // Beats/palette/fx are invisible in the text and very visible on screen.
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'line', beats: { bpm: 120 } });
   });
 });

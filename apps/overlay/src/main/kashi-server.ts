@@ -1,9 +1,10 @@
 /**
  * kashi-server HTTP client (overlay main process).
  *
- * The server is OPTIONAL infrastructure: one attempt per track start with a
- * short timeout, disk cache with ETag revalidation, and every failure path
- * degrades silently (the caller falls back to lrclib). With no server
+ * The server is OPTIONAL infrastructure: one BLOCKING attempt per track start
+ * with a short timeout, disk cache with ETag revalidation, and every failure
+ * path degrades silently (the caller falls back to lrclib, and since 0.14.0
+ * retries in the background — see the orchestrator's selfHeal). With no server
  * configured this module is never constructed — the code path stays
  * byte-for-byte the serverless behavior (plan R-F3-8).
  */
@@ -59,7 +60,9 @@ export class KashiServerClient {
     return { Authorization: `Bearer ${this.opts.apiKey}`, ...extra };
   }
 
-  /** ONE conditional GET per track start — no retry loop (lrclib covers misses). */
+  /** ONE conditional GET per call — no retry loop here. The caller makes one
+   * blocking call per track start; the orchestrator's background probe may
+   * call again after an error (Faz 6.7 P3). */
   async getProcessed(
     sourceType: string,
     sourceId: string,

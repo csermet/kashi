@@ -46,10 +46,27 @@ export function shouldUpgrade(current: DisplayedLyrics, incoming: ServerLyricsRe
   if (current.source === 'none') return true;
   if (incoming.sync === 'word' && current.sync === 'line') return true;
   if (incoming.sync === 'line' && current.sync === 'word') return false;
-  // Same granularity: only a real quality gain justifies the swap, and only
-  // between comparable documents (an lrclib doc carries no quality score).
+  // Line over line looks like a wash on the text alone — but a server
+  // document also carries the palette, beats, fx tags, energy curve, sections
+  // and the nightcore speed factor, none of which lrclib has. Losing all of
+  // that is not "no difference" at hype level, so the swap is worth it when
+  // the enrichment is actually there, and declined when it is not.
+  if (current.source === 'lrclib') return carriesEnrichment(incoming);
+  // Same source and granularity: only a real quality gain justifies the swap.
   if (current.source !== 'kashi-server' || current.qualityScore === undefined) return false;
   return incoming.qualityScore > current.qualityScore;
+}
+
+/** Does this document bring anything lrclib cannot? */
+function carriesEnrichment(doc: {
+  palette?: unknown;
+  beats?: unknown;
+  fx?: unknown;
+  energy?: unknown;
+  sections?: unknown;
+  alignment?: unknown;
+}): boolean {
+  return Boolean(doc.palette ?? doc.beats ?? doc.fx ?? doc.energy ?? doc.sections ?? doc.alignment);
 }
 
 /** Only an error is worth asking again about — a 404 is an answer. */

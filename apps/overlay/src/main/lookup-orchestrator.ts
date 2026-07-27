@@ -50,6 +50,9 @@ const DEFAULT_RETRY_DELAYS_MS = [0, 2000, 6000];
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
+    // 'abort' never fires again on an already-aborted signal, so without this
+    // the caller waits out the full delay before noticing it was cancelled.
+    if (signal.aborted) return resolve();
     const timer = setTimeout(resolve, ms);
     signal.addEventListener(
       'abort',
@@ -117,7 +120,7 @@ export class LookupOrchestrator {
         this.deps.emit?.('lyrics_outcome', { source: 'server-error' });
         // Do NOT await: the ladder must reach lrclib now. The probe rides the
         // same AbortController, so a track change kills it.
-        void this.selfHeal(key, track, abort);
+        void this.selfHeal(key, track, abort).catch(() => {});
       }
     }
 
@@ -150,6 +153,13 @@ export class LookupOrchestrator {
           source: result.found ? 'lrclib' : 'none',
           attempt: attempt + 1,
         });
+        if (this.displayed?.key === key && this.displayed.state.source === 'kashi-server') {
+          // The probe already healed this track while lrclib was still
+          // retrying. A server document is the single source of truth (R-8);
+          // publishing lrclib over it would be a visible downgrade.
+          this.deps.log(`lrclib answered after the server probe healed ${key} — discarded`);
+          return;
+        }
         this.displayed = {
           key,
           state: { source: result.found ? 'lrclib' : 'none', sync: 'line' },
@@ -162,7 +172,14 @@ export class LookupOrchestrator {
       }
     }
     // error !== genuine miss — renderer shows a different message.
-    if (this.deps.isCurrent(key)) this.deps.send({ key, found: false, error: true });
+    if (this.deps.isCurrent(key)) {
+      // Record the empty screen: the network event that timed the server out
+      // usually takes lrclib with it, and that is exactly when a late server
+      // document is worth the most. Without this the probe would find no
+      // 'displayed' state and decline to fill a screen showing an error.
+      this.displayed = { key, state: { source: 'none', sync: 'line' } };
+      this.deps.send({ key, found: false, error: true });
+    }
   }
 
   /**
@@ -189,7 +206,10 @@ export class LookupOrchestrator {
       try {
         result = await getProcessed(track.source.type, track.source.id, abort.signal);
       } catch {
-        continue; // the client swallows its own errors; be defensive anyway
+        // The client swallows its own errors; be defensive anyway. Re-check
+        // cancellation rather than falling straight into the next sleep.
+        if (abort.signal.aborted || !this.deps.isCurrent(key)) return;
+        continue;
       }
       if (abort.signal.aborted || !this.deps.isCurrent(key)) return;
 
@@ -203,8 +223,15 @@ export class LookupOrchestrator {
         return;
       }
 
-      const current = this.displayed?.key === key ? this.displayed.state : null;
-      if (!current || !shouldUpgrade(current, result)) {
+      // No recorded state means nothing useful is on screen yet — the ladder
+      // is still working, or it died without publishing. Either way an empty
+      // screen is the weakest thing the document can be compared against, so
+      // that is the default rather than a reason to decline.
+      const current: DisplayedLyrics =
+        this.displayed?.key === key
+          ? this.displayed.state
+          : { source: 'none', sync: 'line' };
+      if (!shouldUpgrade(current, result)) {
         this.deps.log(`server probe: ${key} recovered but not richer than what is shown`);
         return; // the server answers now; nothing left to heal
       }
