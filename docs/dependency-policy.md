@@ -49,6 +49,23 @@ a manual overlay smoke test on Windows. Known blocks at the time of writing —
 **do not take Electron 43** (one-week-old at pin time) and **do not take
 electron-builder 27** (native ESM major, still beta).
 
+### `pixi.js` majors — same QA surface as an Electron major
+
+The particle layer renders through WebGL inside the transparent overlay, so a
+`pixi.js` major is a **renderer behaviour change**, not a library refresh. Two
+properties the pin protects are invisible to types, tests and lint:
+
+- The strict CSP has no `unsafe-eval`. Pixi generates shader and uniform-sync
+  code at runtime, which is why the app imports the `pixi.js/unsafe-eval` entry
+  point (named for what it avoids). A major may move or drop that entry point,
+  and the failure only appears under the real policy in the real renderer.
+- The package must stay in `devDependencies`; bundling it as a runtime
+  dependency puts ~79 MB into a 240 KB asar.
+
+Before any Pixi major: confirm the CSP-safe entry point still exists, then run
+the overlay pixel-identity and style-contract suites plus a manual WebGL smoke
+test (one burst per archetype, box visible, no context loss).
+
 ---
 
 ## Deliberate cadences

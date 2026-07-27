@@ -154,7 +154,7 @@ file:line and the checklist item it violates.
   `font-variation-settings` are never animated. The one sanctioned exception is STEPPED
   (non-interpolated) color cycling via `steps()` on the LINE container only (`#lyric-line`) —
   it repaints a few times per second instead of every frame (reference: the nightcore shimmer,
-  `apps/overlay/src/renderer/src/style.css:691-737`); continuous color interpolation and
+  `apps/overlay/src/renderer/src/style.css:648-665`); continuous color interpolation and
   per-word color clocks remain violations (the per-word variant was removed in overlay 0.11.0
   because it read as a phase-shifted patchwork).
 - Icons: vendored monochrome Material Symbols (Apache-2.0, license badge in the vendored dir),
