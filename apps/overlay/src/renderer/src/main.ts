@@ -77,6 +77,7 @@ interface KashiBridge {
   adjustTimingOffset: (deltaSteps: number) => void;
   openMenu: () => void;
   log: (line: string) => void;
+  reportAnomaly: (reason: string, deltaMs: number, positionMs: number) => void;
 }
 
 declare global {
@@ -94,7 +95,12 @@ const offsetFlashEl = document.getElementById('offset-flash');
 const stageEl = document.getElementById('fx-stage');
 const parkEl = document.getElementById('fx-park');
 
-const clock = new PositionClock();
+const clock = new PositionClock(undefined, undefined, ({ deltaMs, positionMs }) => {
+  // The clock jumped with no seek to explain it — the signature of the field
+  // timing bug. Logged for the terminal, reported for the server.
+  window.kashi.log(`position snapped ${deltaMs}ms with no seek (pos ${positionMs}ms)`);
+  window.kashi.reportAnomaly('unexplained_snap', deltaMs, positionMs);
+});
 let currentKey: string | null = null;
 let lines: LyricLine[] = [];
 let adActive = false;

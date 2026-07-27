@@ -1,7 +1,8 @@
 """FastAPI application.
 
 v1 surface: /v1/health + /v1/ready (unauthenticated probes), /v1/lyrics,
-/v1/ingest, /v1/jobs (Bearer auth) and /v1/admin/{keys,reprocess} (admin role).
+/v1/ingest, /v1/uploads, /v1/publish-requests, /v1/jobs, /v1/telemetry (Bearer
+auth) and /v1/admin/{keys,reprocess} (admin role).
 Lifespan bootstraps the ADMIN_API_KEY env value as the `bootstrap-admin` key.
 """
 

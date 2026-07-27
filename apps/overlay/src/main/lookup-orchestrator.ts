@@ -35,6 +35,9 @@ export interface LookupDeps {
   log: (line: string) => void;
   /** Retry delays for transient lrclib failures (timeout/network). */
   retryDelaysMs?: number[];
+  /** Optional diagnostics sink (Faz 6.7 P2). Never awaited, never throws —
+   * the ladder's behavior must not depend on whether anyone is listening. */
+  emit?: (kind: 'lyrics_outcome', payload: Record<string, unknown>) => void;
 }
 
 const DEFAULT_RETRY_DELAYS_MS = [0, 2000, 6000];
@@ -81,6 +84,11 @@ export class LookupOrchestrator {
       if (abort.signal.aborted || !this.deps.isCurrent(key)) return; // stale (R-9)
       if ('found' in result && result.found) {
         this.deps.log(`server hit: ${key} sync=${result.sync} quality=${result.qualityScore}`);
+        this.deps.emit?.('lyrics_outcome', {
+          source: 'kashi-server',
+          sync: result.sync,
+          quality: result.qualityScore,
+        });
         if (result.sync === 'word') {
           this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
         }
@@ -94,6 +102,7 @@ export class LookupOrchestrator {
         this.deps.log(`server 404: ${key} — lrclib fallback + enqueue gate armed`);
       } else {
         this.deps.log(`server error for ${key} — lrclib fallback (gate NOT armed)`);
+        this.deps.emit?.('lyrics_outcome', { source: 'server-error' });
       }
     }
 
@@ -122,6 +131,10 @@ export class LookupOrchestrator {
               ` (duration_ms=${track.duration_ms ?? 'yok'})`,
           );
         }
+        this.deps.emit?.('lyrics_outcome', {
+          source: result.found ? 'lrclib' : 'none',
+          attempt: attempt + 1,
+        });
         this.deps.send({ key, ...result });
         return;
       } catch (err) {

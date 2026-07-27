@@ -36,11 +36,17 @@ def ingest_telemetry(
 
     rows: list[Telemetry] = []
     dropped = 0
+    filtered = 0
+    emptied = 0
     for event in body.events:
-        payload = sanitize_payload(event.kind, event.payload)
-        if payload is None:
+        result = sanitize_payload(event.kind, event.payload)
+        if result is None:
             dropped += 1  # unknown kind — older server, newer client
             continue
+        payload, removed = result
+        filtered += removed
+        if removed and not payload:
+            emptied += 1
         rows.append(
             Telemetry(
                 session_id=body.session_id,
@@ -52,6 +58,19 @@ def ingest_telemetry(
         )
     if rows:
         db.add_all(rows)
+        # Flush INSIDE the handler: get_db commits AFTER the response is sent,
+        # so without this a row the database rejects would still be answered
+        # with a cheerful "stored". An ack has to mean something.
+        db.flush()
     if dropped:
         logger.info("telemetry: dropped %d event(s) of unknown kind", dropped)
-    return TelemetryAck(stored=len(rows), dropped=dropped)
+    if emptied:
+        # Every field of a known event was uncontracted: almost certainly a
+        # client whose field NAMES drifted from this server's list. Silence
+        # here means empty rows for a whole retention period.
+        logger.warning(
+            "telemetry: %d event(s) stored with an EMPTY payload — client field names "
+            "may have drifted from TELEMETRY_FIELDS",
+            emptied,
+        )
+    return TelemetryAck(stored=len(rows), dropped=dropped, filtered=filtered)

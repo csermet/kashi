@@ -55,6 +55,13 @@ export class PositionClock {
   constructor(
     private readonly nowMono: () => number = () => performance.now(),
     private readonly nowEpoch: () => number = () => Date.now(),
+    /**
+     * Called when the clock snaps WITHOUT a seek to explain it (Faz 6.7 P2).
+     * That jump is the signature of the timing bug this phase chased: the
+     * position we were told is nowhere near the one we projected. Purely an
+     * observer — the clock behaves identically whether anyone listens.
+     */
+    private readonly onUnexplainedJump?: (info: { deltaMs: number; positionMs: number }) => void,
   ) {}
 
   /** Feed a position/seek/playback_state report. `isSeek` forces a snap. */
@@ -97,6 +104,8 @@ export class PositionClock {
       this.startSlew(delta, mono);
       return;
     }
+    // A jump this large with no seek behind it is worth reporting.
+    this.onUnexplainedJump?.({ deltaMs: Math.round(delta), positionMs: report.position_ms });
     this.setAnchor(compensated, mono, rate, report.is_playing); // real seek → snap
   }
 

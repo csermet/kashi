@@ -55,6 +55,11 @@ export interface KashiMenuOptions {
    * word-sync document is on screen; the server still gates/dry-runs. */
   getCanReportSync: () => boolean;
   onReportSync: () => void;
+  /** Diagnostics opt-out (Faz 6.7 P2). Hidden unless a server is configured:
+   * with nowhere to send, the switch would promise a choice that isn't one. */
+  getTelemetryConfigured: () => boolean;
+  getTelemetryEnabled: () => boolean;
+  onTelemetryToggle: (enabled: boolean) => void;
   onQuit: () => void;
 }
 
@@ -139,6 +144,16 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     // getCanReportSync/onReportSync) stays intact and dormant; only this menu
     // item is gone. To re-surface, restore the spread here.
     { label: 'Server settings…', click: opts.onServerSettings },
+    ...(opts.getTelemetryConfigured()
+      ? [
+          {
+            label: 'Send diagnostics',
+            type: 'checkbox' as const,
+            checked: opts.getTelemetryEnabled(),
+            click: (item: { checked: boolean }) => opts.onTelemetryToggle(item.checked),
+          },
+        ]
+      : []),
     { label: 'Reset position', click: opts.onResetPosition },
     { type: 'separator' },
     { label: 'Quit Kashi', click: opts.onQuit },

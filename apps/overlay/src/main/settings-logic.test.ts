@@ -124,6 +124,24 @@ describe('isPositionVisible', () => {
   });
 });
 
+describe('telemetry_enabled', () => {
+  it('defaults to on — the opt-out lives in the tray, not in a missing key', () => {
+    expect(parseSettings('{}').telemetry_enabled).toBe(true);
+    expect(DEFAULT_SETTINGS.telemetry_enabled).toBe(true);
+  });
+
+  it('honors an explicit opt-out', () => {
+    expect(parseSettings('{"telemetry_enabled":false}').telemetry_enabled).toBe(false);
+  });
+
+  it('treats a corrupt value as consent, not as a silent opt-out', () => {
+    // Losing diagnostics to a garbled settings file is the failure mode that
+    // wastes a debugging session; the user can always uncheck the box.
+    expect(parseSettings('{"telemetry_enabled":"no"}').telemetry_enabled).toBe(true);
+    expect(parseSettings('{"telemetry_enabled":null}').telemetry_enabled).toBe(true);
+  });
+});
+
 describe('parseSettings', () => {
   it('returns defaults for corrupt JSON', () => {
     expect(parseSettings('{oops')).toEqual(DEFAULT_SETTINGS);
@@ -142,6 +160,7 @@ describe('parseSettings', () => {
       effect_level: 'full',
       theme_scope: 'fixed-text',
       fill_style: 'neutral',
+      telemetry_enabled: true,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });

@@ -16,6 +16,8 @@
  * Still TODO (Faz 3+, plan D.7): extension-ID allowlist + optional token UI.
  */
 import { app, BrowserWindow, ipcMain, net, screen } from 'electron';
+import { randomUUID } from 'node:crypto';
+import { release } from 'node:os';
 import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import {
@@ -34,6 +36,8 @@ import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
 import { AnchorGuard } from './position-sanity.js';
+import { TelemetryClient } from './telemetry.js';
+import { sessionEnvelope, serverHostOf } from './telemetry-logic.js';
 import { ReplayStore } from './replay-store.js';
 import {
   applyExtensionMessage,
@@ -121,6 +125,12 @@ const anchorGuard = new AnchorGuard();
 /** Non-null only when settings carry a server_url — otherwise the code path
  * stays byte-for-byte the serverless v0.1.11 behavior (plan R-F3-8). */
 let serverClient: KashiServerClient | null = null;
+/** Non-null only when a server is configured AND diagnostics are on. */
+let telemetry: TelemetryClient | null = null;
+/** Reported extension build (`hello.client`), for the diagnostics envelope. */
+let lastExtensionClient: string | null = null;
+/** One id per app run, so a report's events can be read as one story. */
+const telemetrySessionId = randomUUID();
 const enqueueGate = new EnqueueGate();
 let gateTimer: NodeJS.Timeout | null = null;
 /** Last known playing state (feeds the enqueue gate). */
@@ -171,6 +181,13 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       );
       if (dup) return; // metadata refresh for same track
       lastTrack = { key: decision.key, track: decision.track };
+      telemetry?.record('track_changed', {
+        video_id: decision.track.source.id,
+        title: decision.track.title,
+        artist: decision.track.artist,
+        duration_ms: decision.track.duration_ms,
+        id_source: decision.track.source.type,
+      });
       anchorGuard.arm(Date.now()); // screen the next position — it becomes the anchor
       enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
       send('kashi:track', { key: decision.key, track: decision.track });
@@ -204,6 +221,13 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
           `position ${decision.msg.position_ms}ms is past track end` +
             ` (${lastTrack?.track.duration_ms}ms) — dropped before anchoring`,
         );
+        telemetry?.record('position_anomaly', {
+          reason: 'past_track_end',
+          position_ms: decision.msg.position_ms,
+          duration_ms: lastTrack?.track.duration_ms,
+          action: 'dropped',
+          source: 'overlay_anchor_guard',
+        });
         return;
       }
       send('kashi:playback', decision.msg);
@@ -599,6 +623,25 @@ ipcMain.on('kashi:rlog', (_event, line: unknown) => {
 
 // Right-click on the lyric box pops the same menu the tray serves — the tray
 // icon can be buried in the Windows overflow area, the box is always at hand.
+ipcMain.on('kashi:anomaly', (_event, raw: unknown) => {
+  // Untrusted like every IPC payload (R-7): read the three numbers we expect
+  // and ignore the rest. Nothing here can fail a render.
+  if (typeof raw !== 'object' || raw === null) return;
+  const info = raw as Record<string, unknown>;
+  const reason = typeof info['reason'] === 'string' ? info['reason'].slice(0, 64) : 'unknown';
+  const deltaMs = Number(info['delta_ms']);
+  const positionMs = Number(info['position_ms']);
+  if (!Number.isFinite(deltaMs) || !Number.isFinite(positionMs)) return;
+  telemetry?.record('position_anomaly', {
+    reason,
+    delta_ms: Math.round(deltaMs),
+    position_ms: Math.round(positionMs),
+    duration_ms: lastTrack?.track.duration_ms,
+    action: 'snapped',
+    source: 'position_clock',
+  });
+});
+
 ipcMain.on('kashi:open-menu', () => {
   if (!window || window.isDestroyed() || !menuOptions) return;
   buildKashiMenu(menuOptions).popup({ window });
@@ -662,6 +705,65 @@ ipcMain.on('kashi:drag-start', () => {
 });
 ipcMain.on('kashi:drag-end', stopDrag);
 
+/**
+ * Constructs the diagnostics client when — and only when — a server, a key
+ * and the user's consent are all present. With any of them missing the class
+ * never exists, so the serverless path stays byte-for-byte unchanged.
+ */
+function buildTelemetryClient(): void {
+  stopTelemetry();
+  if (!settings) return;
+  const { server_url: serverUrl, server_api_key: apiKey, telemetry_enabled: on } = settings.get();
+  if (!serverUrl || !apiKey || !on) return;
+  telemetry = new TelemetryClient({
+    baseUrl: serverUrl,
+    apiKey,
+    sessionId: telemetrySessionId,
+    fetchFn: net.fetch.bind(net) as typeof fetch,
+    log: makeLogger('telemetry'),
+  });
+  telemetry.start();
+  sendSessionEnvelope(serverUrl);
+}
+
+/**
+ * The once-per-run header: which build, which machine, which settings. A
+ * field report answers these badly and they explain most of the rest.
+ */
+function sendSessionEnvelope(serverUrl: string): void {
+  if (!telemetry || !settings) return;
+  const current = settings.get();
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay().size;
+  const envelope = sessionEnvelope(
+    {
+      appVersion: KASHI_VERSION,
+      extensionVersion: lastExtensionClient,
+      os: process.platform,
+      osVersion: release(),
+      arch: process.arch,
+      electron: process.versions.electron ?? 'unknown',
+      chromium: process.versions.chrome ?? 'unknown',
+      displayCount: displays.length,
+      displaySize: `${primary.width}x${primary.height}`,
+      effectLevel: current.effect_level,
+      themeScope: current.theme_scope,
+      fillStyle: current.fill_style,
+      timingOffsetMs: current.timing_offset_ms,
+      serverHost: serverHostOf(serverUrl),
+    },
+    new Date().toISOString(),
+  );
+  telemetry.record(envelope.kind, envelope.payload);
+}
+
+/** Tears the client down, flushing whatever is buffered first. */
+function stopTelemetry(): void {
+  const client = telemetry;
+  telemetry = null;
+  void client?.stop();
+}
+
 function buildServerConnections(): void {
   if (!settings) return;
   const { server_url: serverUrl, server_api_key: serverApiKey } = settings.get();
@@ -674,6 +776,7 @@ function buildServerConnections(): void {
       log: makeLogger('server'),
     });
     log(`kashi-server configured: ${serverUrl}`);
+    buildTelemetryClient();
   } else if (serverUrl || serverApiKey) {
     warn('server_url and server_api_key must BOTH be set -> server disabled');
   }
@@ -695,6 +798,7 @@ function buildServerConnections(): void {
       tray?.refresh(); // the Report entry appears while this doc is on screen
     },
     isCurrent: (key) => key === latch.currentTrackKey,
+    emit: (kind, payload) => telemetry?.record(kind, payload),
     log: makeLogger('lookup'),
   });
 }
@@ -706,6 +810,7 @@ function buildServerConnections(): void {
  * "server disabled"/error paths. */
 function reinitServerConnections(): void {
   lookups?.cancel();
+  stopTelemetry(); // the old server's diagnostics do not belong to the new one
   serverClient = null;
   publishable = null; // the old server's word-doc claim is void now
   enqueueGate.trackChanged(); // the OLD server's 404/enqueue state is void too
@@ -757,6 +862,20 @@ app.whenReady().then(async () => {
         log(`publish request outcome: ${outcome}`);
       });
     },
+    getTelemetryConfigured: () => serverClient !== null,
+    getTelemetryEnabled: () => settings?.get().telemetry_enabled ?? true,
+    onTelemetryToggle: (enabled) => {
+      settings?.update({ telemetry_enabled: enabled });
+      log(`diagnostics ${enabled ? 'enabled' : 'disabled'}`);
+      if (enabled) {
+        // Rebuild rather than resume: a session that starts mid-run still
+        // needs its envelope, or its events describe an unknown machine.
+        buildTelemetryClient();
+      } else {
+        stopTelemetry();
+      }
+      tray?.refresh();
+    },
     onQuit: () => app.quit(),
   };
   tray = createTray(menuOptions);
@@ -768,6 +887,9 @@ app.whenReady().then(async () => {
     expectedClient: EXPECTED_EXTENSION, // bump in shared/version.ts with the manifest
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
+    onClientHello: (client) => {
+      lastExtensionClient = client;
+    },
     onClientDisconnected: (count, clientId) => {
       // The latch owner vanished (browser closed / reconnect with a new id):
       // without this, the surviving stream is filtered forever (audit K3).
@@ -788,6 +910,7 @@ app.whenReady().then(async () => {
 
   app.on('before-quit', () => {
     settings?.flush();
+    stopTelemetry(); // best-effort final batch; quitting never waits on it
     void server.stop();
   });
 });

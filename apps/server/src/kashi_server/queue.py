@@ -146,6 +146,11 @@ def purge_expired_uploads(s: Session) -> int:
     return getattr(result, "rowcount", 0) or 0
 
 
+TELEMETRY_SWEEP_BATCH = 10_000
+# Leftovers wait for the next hourly sweep rather than holding the loop.
+TELEMETRY_SWEEP_MAX_BATCHES = 20
+
+
 def purge_old_telemetry(s: Session, retention_days: int) -> int:
     """Retention sweep for field diagnostics (Faz 6.7 P1).
 
@@ -158,8 +163,21 @@ def purge_old_telemetry(s: Session, retention_days: int) -> int:
     from kashi_server.db.models import Telemetry
 
     cutoff = _now() - timedelta(days=retention_days)
-    result = s.execute(delete(Telemetry).where(Telemetry.received_at < cutoff))
-    return getattr(result, "rowcount", 0) or 0
+    # Batched on purpose. This DELETE shares the worker's claim transaction,
+    # and the row count is client-driven (a looping client can write far more
+    # than the steady state) — an unbounded delete would stall job claiming
+    # and bloat the WAL exactly when the queue is busiest.
+    removed = 0
+    for _ in range(TELEMETRY_SWEEP_MAX_BATCHES):
+        victims = select(Telemetry.id).where(Telemetry.received_at < cutoff).limit(
+            TELEMETRY_SWEEP_BATCH
+        )
+        result = s.execute(delete(Telemetry).where(Telemetry.id.in_(victims)))
+        deleted = getattr(result, "rowcount", 0) or 0
+        removed += deleted
+        if deleted < TELEMETRY_SWEEP_BATCH:
+            break
+    return removed
 
 
 def enqueue_reprocess(

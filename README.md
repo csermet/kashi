@@ -158,6 +158,16 @@ challenge and publishes a Lyricsfile. Two server flags guard it:
 `KASHI_LRCLIB_PUBLISH_ENABLED` (endpoint) and `KASHI_LRCLIB_PUBLISH_DRY_RUN`
 (logs the exact YAML instead of publishing until you're sure).
 
+**Field diagnostics** (on by default when a server is configured): the
+overlay batches what it already logs — app/OS/versions, track changes,
+which lyrics source answered, positions that looked impossible — to
+`POST /v1/telemetry` on YOUR server. Nothing is sent without a `server_url`
+and an API key, the tray carries a *Send diagnostics* switch, and the server
+stores only the fields named in `telemetry_contract.py` (API keys and URL
+credentials are scrubbed out of free text). Server flags: `TELEMETRY_ENABLED`
+(set `false` to refuse the endpoint) and `TELEMETRY_RETENTION_DAYS`
+(default 30; rows are deleted on the SERVER's clock).
+
 ## 🧪 Development
 
 ```bash

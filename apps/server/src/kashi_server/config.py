@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     telemetry_enabled: bool = True
     # Retention runs on the SERVER's clock (see purge_old_telemetry): a client
     # with a wrong clock must not be able to pin rows forever or erase them.
-    telemetry_retention_days: int = 30
+    telemetry_retention_days: int = Field(default=30, ge=1)
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]

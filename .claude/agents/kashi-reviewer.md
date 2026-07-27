@@ -161,6 +161,26 @@ file:line and the checklist item it violates.
   built with `createElementNS` + presentation attributes (no `style` attr, no innerHTML);
   fx tag charset gate `/^[a-z0-9][a-z0-9_-]{0,31}$/` before any DOM/class use.
 
+### I. Telemetry (Faz 6.7 baselines)
+
+- Gate: the client is constructed ONLY when `server_url` + `server_api_key` + `telemetry_enabled`
+  are all present. With no server the class never exists and behavior is byte-for-byte the
+  serverless path — the same rule KashiServerClient follows. A diagnostics feature that changes
+  what the app does has already failed.
+- Fire-and-forget, one attempt per batch, no retry queue, bounded buffer (drop-oldest). A failed
+  send is a dropped send. Telemetry must never block, delay or fail playback, lookups or render;
+  nothing on the rAF path may call `record()` — events are edges, not frames.
+- PII: nothing beyond what a lyrics lookup already sends. The server enforces this with a per-kind
+  field allowlist (`telemetry_contract.TELEMETRY_FIELDS`), drops nested values under allowed keys
+  and clips long strings. Adding a field means editing that list — treat it as a review checkpoint,
+  and check the overlay's `sessionEnvelope`/`record` call sites against it (a mismatch is silently
+  dropped server-side, which reads as "telemetry broken").
+- Unknown event kinds are dropped and counted, never 4xx: a newer client must not be punished by an
+  older server. Retention deletes on the SERVER clock (`received_at`), never the client's `ts`.
+- The renderer reaches telemetry through ONE narrow, coerced preload channel; IPC payloads stay
+  untrusted (R-7) and a malformed one is ignored, not reported.
+
+
 ## Output format
 Return a compact report: (1) scope reviewed; (2) findings ranked by severity — each as
 `[violation|risk|nit] file:line — one-sentence defect + checklist item (e.g. C.1)`; (3) a short

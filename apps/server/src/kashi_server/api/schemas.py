@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 class SourceRef(BaseModel):
@@ -107,7 +107,9 @@ class TelemetryEventIn(BaseModel):
     kind is dropped and counted by the handler rather than failing the batch,
     so an overlay newer than its server keeps reporting everything else."""
 
-    ts: datetime
+    # Aware only: the column is timestamptz, so a naive value would be read
+    # in the server's session timezone and silently shift the whole timeline.
+    ts: AwareDatetime
     kind: str = Field(min_length=1, max_length=64)
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -122,3 +124,6 @@ class TelemetryBatchIn(BaseModel):
 class TelemetryAck(BaseModel):
     stored: int
     dropped: int
+    # Values removed by the field contract. A client watching this number
+    # learns its field names drifted before the rows go quiet.
+    filtered: int = 0

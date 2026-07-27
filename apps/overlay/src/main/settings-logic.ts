@@ -68,6 +68,12 @@ export interface StoredSettings {
   /** How much of the album palette themes the box (Faz 4 saha turu). */
   theme_scope: ThemeScope;
   fill_style: FillStyle;
+  /**
+   * Send diagnostics to the configured server (Faz 6.7 P2). Meaningless
+   * without server_url + server_api_key: it is the user's OWN server, so the
+   * default is on and the tray carries the opt-out.
+   */
+  telemetry_enabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: StoredSettings = {
@@ -80,6 +86,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   effect_level: DEFAULT_EFFECT_LEVEL,
   theme_scope: DEFAULT_THEME_SCOPE,
   fill_style: DEFAULT_FILL_STYLE,
+  telemetry_enabled: true,
 };
 
 /** Integer ms in [-500, 500]; garbage → 0 (Off). */
@@ -243,5 +250,8 @@ export function parseSettings(raw: string): StoredSettings {
     effect_level: parseEffectLevel(record['effect_level']),
     theme_scope: parseThemeScope(record['theme_scope']),
     fill_style: parseFillStyle(record['fill_style']),
+    // Only an explicit false opts out — a corrupt or absent value keeps the
+    // default rather than silently disabling the channel we debug with.
+    telemetry_enabled: record['telemetry_enabled'] !== false,
   };
 }

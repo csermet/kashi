@@ -211,5 +211,7 @@ class Telemetry(Base):
     __table_args__ = (
         Index("ix_telemetry_session_ts", "session_id", "ts"),
         Index("ix_telemetry_kind_ts", "kind", "ts"),
+        # Dashboards group by OUR clock when a device's own is wrong.
+        Index("ix_telemetry_kind_received", "kind", "received_at"),
         Index("ix_telemetry_received", "received_at"),
     )

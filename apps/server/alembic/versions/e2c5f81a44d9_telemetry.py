@@ -31,7 +31,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_telemetry_session_ts', 'telemetry', ['session_id', 'ts'])
+    # By the CLIENT clock (display axis) and by OURS (the axis a dashboard
+    # can trust when a device's clock is wrong — which is when it matters).
     op.create_index('ix_telemetry_kind_ts', 'telemetry', ['kind', 'ts'])
+    op.create_index('ix_telemetry_kind_received', 'telemetry', ['kind', 'received_at'])
     # The retention sweep's only index — it deletes by OUR clock, not the
     # client's (a skewed device must not pin rows or lose them early).
     op.create_index('ix_telemetry_received', 'telemetry', ['received_at'])
@@ -39,6 +42,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index('ix_telemetry_received', table_name='telemetry')
+    op.drop_index('ix_telemetry_kind_received', table_name='telemetry')
     op.drop_index('ix_telemetry_kind_ts', table_name='telemetry')
     op.drop_index('ix_telemetry_session_ts', table_name='telemetry')
     op.drop_table('telemetry')

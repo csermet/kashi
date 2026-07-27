@@ -76,7 +76,7 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     from kashi_server.worker.process import HeartbeatThread, process_job
 
     stopping = {"flag": False}
-    last_telemetry_sweep = 0.0
+    last_telemetry_sweep: float | None = None
 
     def _graceful(signum, _frame):
         logger.info("signal %s: finishing the current job, then exiting", signum)
@@ -91,7 +91,10 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
             purged = queue.purge_expired_uploads(session)
             if purged:
                 logger.info("purged %d expired staged upload(s)", purged)
-            if time.monotonic() - last_telemetry_sweep > TELEMETRY_SWEEP_INTERVAL_S:
+            if (
+                last_telemetry_sweep is None
+                or time.monotonic() - last_telemetry_sweep > TELEMETRY_SWEEP_INTERVAL_S
+            ):
                 last_telemetry_sweep = time.monotonic()
                 expired = queue.purge_old_telemetry(session, settings.telemetry_retention_days)
                 if expired:

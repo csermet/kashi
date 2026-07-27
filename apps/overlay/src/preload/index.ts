@@ -48,4 +48,15 @@ contextBridge.exposeInMainWorld('kashi', {
   cancelPrompt: () => ipcRenderer.send('kashi:timing-offset-cancel'),
   /** Diagnostic line, printed to the overlay's terminal. */
   log: (line: string) => ipcRenderer.send('kashi:rlog', String(line)),
+  /**
+   * One narrow diagnostics channel (Faz 6.7 P2): the renderer names an event
+   * kind and hands over numbers, main decides whether anyone is listening.
+   * Coerced here so a renderer bug cannot post arbitrary shapes.
+   */
+  reportAnomaly: (reason: string, deltaMs: number, positionMs: number) =>
+    ipcRenderer.send('kashi:anomaly', {
+      reason: String(reason),
+      delta_ms: Number(deltaMs),
+      position_ms: Number(positionMs),
+    }),
 });

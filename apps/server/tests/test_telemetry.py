@@ -7,9 +7,17 @@ from helpers import auth as _auth
 
 from kashi_server.telemetry_contract import (
     MAX_VALUE_CHARS,
+    REDACTED,
     TELEMETRY_FIELDS,
+    redact_secrets,
     sanitize_payload,
 )
+
+
+def _clean(kind: str, payload: dict) -> dict | None:
+    result = sanitize_payload(kind, payload)
+    return None if result is None else result[0]
+
 
 _SESSION = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
@@ -26,21 +34,52 @@ def test_unknown_kind_is_rejected_not_guessed():
 
 
 def test_uncontracted_keys_are_removed():
-    clean = sanitize_payload(
+    clean = _clean(
         "track_changed",
         {"video_id": "dQw4w9WgXcQ", "title": "Never Gonna Give You Up", "listener_email": "x@y.z"},
     )
     assert clean == {"video_id": "dQw4w9WgXcQ", "title": "Never Gonna Give You Up"}
 
 
+def test_removed_values_are_counted_so_field_drift_is_visible():
+    result = sanitize_payload("error", {"code": "E_X", "nope": 1, "also_nope": 2})
+    assert result == ({"code": "E_X"}, 2)
+
+
+def test_api_keys_and_url_credentials_never_survive_free_text():
+    # An error string built from a failed request is the realistic way a
+    # bearer token ends up in a payload nobody meant to store.
+    key = "ksh_" + "0123456789abcdef" * 2
+    clean = _clean("error", {"message": f"401 from https://u:p@host with key {key}"})
+    assert clean is not None
+    assert key not in clean["message"]
+    assert "u:p@" not in clean["message"]
+    assert REDACTED in clean["message"]
+
+
+def test_redaction_catches_a_bearer_header():
+    assert "Bearer ksh_abc" not in redact_secrets("sent Bearer ksh_abcdef012345 upstream")
+
+
+def test_non_finite_numbers_are_dropped_before_postgres_sees_them():
+    # NaN survives JSON parsing but jsonb rejects it — one bad number would
+    # otherwise fail the INSERT for the whole batch.
+    assert _clean("position_anomaly", {"position_ms": float("nan")}) == {}
+    assert _clean("position_anomaly", {"delta_ms": float("inf")}) == {}
+
+
+def test_millisecond_fields_are_integers_within_a_sane_range():
+    clean = _clean("position_anomaly", {"position_ms": 1234.7, "duration_ms": 10**40})
+    assert clean == {"position_ms": 1234}  # float coerced, absurd value dropped
+
+
 def test_nested_structures_cannot_ride_an_allowed_key():
     # The easy way to smuggle unbounded data is a dict behind a legal name.
-    clean = sanitize_payload("error", {"message": {"nested": "payload"}, "code": "E_X"})
-    assert clean == {"code": "E_X"}
+    assert _clean("error", {"message": {"nested": "payload"}, "code": "E_X"}) == {"code": "E_X"}
 
 
 def test_long_values_are_clipped_not_dropped():
-    clean = sanitize_payload("error", {"message": "x" * (MAX_VALUE_CHARS + 50)})
+    clean = _clean("error", {"message": "x" * (MAX_VALUE_CHARS + 50)})
     assert clean is not None
     assert len(clean["message"]) == MAX_VALUE_CHARS
 
@@ -83,7 +122,7 @@ def test_batch_is_stored_and_counted(client, user_key, db_session):
     }
     resp = client.post("/v1/telemetry", json=body, headers=_auth(user_key))
     assert resp.status_code == 202, resp.text
-    assert resp.json() == {"stored": 2, "dropped": 0}
+    assert resp.json() == {"stored": 2, "dropped": 0, "filtered": 0}
 
     rows = db_session.scalars(select(Telemetry).order_by(Telemetry.ts)).all()
     assert [r.kind for r in rows] == ["session_start", "position_anomaly"]
@@ -101,7 +140,7 @@ def test_unknown_kind_is_dropped_without_failing_the_batch(client, user_key):
     }
     resp = client.post("/v1/telemetry", json=body, headers=_auth(user_key))
     assert resp.status_code == 202
-    assert resp.json() == {"stored": 1, "dropped": 1}
+    assert resp.json() == {"stored": 1, "dropped": 1, "filtered": 0}
 
 
 def test_uncontracted_field_never_reaches_the_database(client, user_key, db_session):
@@ -117,6 +156,35 @@ def test_uncontracted_field_never_reaches_the_database(client, user_key, db_sess
     assert resp.status_code == 202
     stored = db_session.scalars(select(Telemetry)).one()
     assert stored.payload == {"video_id": "abc"}
+
+
+def test_a_rejected_row_cannot_be_acked_as_stored(client, user_key, db_session):
+    from sqlalchemy import select
+
+    from kashi_server.db.models import Telemetry
+
+    # NaN passes JSON parsing; before the flush landed inside the handler the
+    # client got "stored: 1" while PostgreSQL rejected the row after the
+    # response had already gone out.
+    resp = client.post(
+        "/v1/telemetry",
+        content=(
+            f'{{"session_id":"{_SESSION}","events":[{{"ts":"2026-07-26T20:00:00Z",'
+            '"kind":"position_anomaly","payload":{"position_ms":NaN}}]}'
+        ),
+        headers={**_auth(user_key), "content-type": "application/json"},
+    )
+    assert resp.status_code == 202, resp.text
+    stored = db_session.scalars(select(Telemetry)).all()
+    assert len(stored) == 1
+    assert stored[0].payload == {}  # the bad value was dropped, the row is real
+
+
+def test_naive_timestamps_are_rejected(client, user_key):
+    # The column is timestamptz: a naive value would be read in the server's
+    # session timezone and shift the entire timeline of a report.
+    body = _batch("watchdog", {"reason": "stall"}, ts="2026-07-26T20:00:00")
+    assert client.post("/v1/telemetry", json=body, headers=_auth(user_key)).status_code == 422
 
 
 def test_requires_authentication(client):

@@ -46,6 +46,9 @@ export interface OverlayWsServerOptions {
   onMessage: (msg: ExtensionToOverlayMessage, clientId: number) => void;
   /** Both callbacks receive the number of remaining handshaken clients. */
   onClientConnected?: (connectedCount: number) => void;
+  /** The `hello.client` string of the extension that just connected — the
+   * only place its version is known, and diagnostics want it. */
+  onClientHello?: (client: string) => void;
   onClientDisconnected?: (connectedCount: number, clientId: number) => void;
   log?: (line: string) => void;
 }
@@ -299,6 +302,7 @@ export class OverlayWsServer {
     clearTimeout(client.handshakeTimer);
     this.startPinging(client);
     this.opts.onClientConnected?.(this.connectedCount);
+    this.opts.onClientHello?.(hello.client);
     this.log(`client ${client.id} connected: ${hello.client}`);
     if (this.opts.expectedClient && hello.client !== this.opts.expectedClient) {
       this.log(
