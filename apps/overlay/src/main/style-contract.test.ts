@@ -137,3 +137,14 @@ describe('style contract: particles never cover the text (Faz 6.7 P5)', () => {
     expect(box).toContain('z-index: 1');
   });
 });
+
+describe('style contract: no invented hues (Faz 6.7 field bug)', () => {
+  it('never mixes two colours in OKLCH', () => {
+    // OKLCH interpolates the hue ANGLE, so blending distant hues rotates
+    // through colours neither input contains — a green palette mixed with a
+    // pink tint came out gold and stayed there. Oklab has no hue axis to
+    // travel along; sRGB is fine too. This rule only bans the trap.
+    const offenders = css.match(/color-mix\(\s*in\s+oklch[^)]*\)/g) ?? [];
+    expect(offenders).toEqual([]);
+  });
+});
