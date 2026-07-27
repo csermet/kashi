@@ -20,11 +20,13 @@
  */
 import type { Application, Container, Sprite, Texture } from 'pixi.js';
 import {
+  GENERIC_PROFILE,
   insideBox,
   makeRandom,
   particleAlpha,
   planEmission,
   stepParticle,
+  type EmissionProfile,
   type Particle,
   type Rect,
 } from './fx-particles-logic.js';
@@ -67,6 +69,15 @@ function drawDebugBounds(
 /** Give up after this many setup failures (the error will not change). */
 const MAX_SETUP_FAILURES = 2;
 
+/**
+ * Ceiling on live sprites across ALL bursts. The spike measured that count is
+ * nearly free at this scale (300 sprites held the panel's refresh rate), so
+ * this is a runaway guard, not a performance budget — the longest archetypes
+ * now outlive their own burst interval, which the old flat lifetime made
+ * impossible.
+ */
+const MAX_LIVE_PARTICLES = 400;
+
 interface Live {
   particle: Particle;
   sprite: Sprite;
@@ -83,6 +94,7 @@ export class FxCanvas {
   /** Set by destroy(): an in-flight init must not resurrect a dead layer. */
   private disposed = false;
   private loggedFirstBurst = false;
+  private loggedBudget = false;
   private failures = 0;
 
   /**
@@ -135,7 +147,7 @@ export class FxCanvas {
    * Fires one burst at a window-space point. Creates the layer on first use —
    * an overlay that never reaches hype never pays for Pixi at all.
    */
-  async burst(colour: number, box?: Rect): Promise<void> {
+  async burst(colour: number, box?: Rect, profile: EmissionProfile = GENERIC_PROFILE): Promise<void> {
     if (this.disposed) return;
     // One layout read on an edge that fires at most once per line — the same
     // budget the old word-rect read used.
@@ -143,10 +155,23 @@ export class FxCanvas {
     const app = await this.ensureApp();
     if (!app || !this.layer || this.disposed) return;
 
+    // Archetypes made bursts longer-lived (poison lingers over two seconds),
+    // so overlapping ones can now stack in a way the single 1.4s behaviour
+    // never could. The cap trims the new burst rather than the running ones,
+    // and says so once — a silently thinned effect is the harder bug.
+    const room = MAX_LIVE_PARTICLES - this.live.length;
+    if (room <= 0) {
+      if (!this.loggedBudget) {
+        this.loggedBudget = true;
+        this.log(`fx layer: particle budget reached (${MAX_LIVE_PARTICLES}), burst skipped`);
+      }
+      return;
+    }
+
     const random = makeRandom((this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0));
-    for (const particle of planEmission(this.box, random)) {
-      const shape = PARTICLE_SHAPES[Math.floor(random() * PARTICLE_SHAPES.length)] ?? 'spark';
-      const texture = this.textures.get(shape);
+    const planned = planEmission(this.box, random, profile);
+    for (const particle of planned.slice(0, room)) {
+      const texture = this.textures.get(particle.shape);
       if (!texture || !this.pixi) continue;
       const sprite = new this.pixi.Sprite(texture);
       sprite.anchor.set(0.5);

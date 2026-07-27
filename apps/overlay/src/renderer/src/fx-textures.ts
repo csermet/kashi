@@ -12,9 +12,16 @@
  * palette.
  */
 
-export type ParticleShape = 'spark' | 'droplet' | 'star' | 'smoke';
+export type ParticleShape = 'spark' | 'droplet' | 'star' | 'smoke' | 'heart' | 'disc';
 
-export const PARTICLE_SHAPES: readonly ParticleShape[] = ['spark', 'droplet', 'star', 'smoke'];
+export const PARTICLE_SHAPES: readonly ParticleShape[] = [
+  'spark',
+  'droplet',
+  'star',
+  'smoke',
+  'heart',
+  'disc',
+];
 
 /** Texture edge in px. Small: these are scaled down, never up. */
 const SIZE = 64;
@@ -79,11 +86,38 @@ function drawSmoke(ctx: CanvasRenderingContext2D): void {
   ctx.fillRect(0, 0, SIZE, SIZE);
 }
 
+function drawHeart(ctx: CanvasRenderingContext2D): void {
+  // Two lobes over a point. Drawn a touch soft-edged rather than as a crisp
+  // emoji silhouette — at 12-22 px on a transparent overlay a hard outline
+  // reads as clip-art, a slightly diffuse one reads as a mote of light.
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  const c = SIZE / 2;
+  ctx.beginPath();
+  ctx.moveTo(c, SIZE * 0.86);
+  ctx.bezierCurveTo(SIZE * 0.06, SIZE * 0.55, SIZE * 0.16, SIZE * 0.12, c, SIZE * 0.32);
+  ctx.bezierCurveTo(SIZE * 0.84, SIZE * 0.12, SIZE * 0.94, SIZE * 0.55, c, SIZE * 0.86);
+  ctx.fill();
+}
+
+function drawDisc(ctx: CanvasRenderingContext2D): void {
+  // A filled round mote with a soft rim: the general-purpose "solid speck".
+  // Coins read as this plus the tag's own colour, which the tint supplies.
+  ctx.fillStyle = radialAlpha(ctx, [
+    [0, 0.95],
+    [0.62, 0.9],
+    [0.86, 0.45],
+    [1, 0],
+  ]);
+  ctx.fillRect(0, 0, SIZE, SIZE);
+}
+
 const PAINTERS: Record<ParticleShape, (ctx: CanvasRenderingContext2D) => void> = {
   spark: drawSpark,
   droplet: drawDroplet,
   star: drawStar,
   smoke: drawSmoke,
+  heart: drawHeart,
+  disc: drawDisc,
 };
 
 /**

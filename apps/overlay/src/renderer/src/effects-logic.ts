@@ -318,14 +318,53 @@ export class BeatCursor {
 // Semantic word effects (Faz 6 P4) — consuming the server's fx block.
 
 import type { FxData, LyricLine } from '../../shared/lyrics.js';
+import {
+  ARCHETYPE_PROFILES,
+  GENERIC_PROFILE,
+  type ArchetypeName,
+  type EmissionProfile,
+} from './fx-particles-logic.js';
+import type { ParticleShape } from './fx-textures.js';
 
 export interface FxWordEffect {
   tag: string;
   intensity: number;
 }
 
-/** Tags whose activation fires the particle burst (pool in main.ts). */
-export const FX_BURST_TAGS: ReadonlySet<string> = new Set(['explosion', 'electric']);
+/**
+ * Which categories get a behaviour of their own, and which shape carries it.
+ *
+ * Eight hero tags out of the lexicon's 24. The rest keep the generic profile
+ * on purpose: an archetype is only worth having if you can name what it means
+ * ("poison spills and sinks"), and inventing eighteen more meanings would give
+ * the eye nothing to learn. The remaining sixteen get archetypes when the
+ * field tour says which ones are missed.
+ *
+ * `shape` overrides the archetype's default texture where the category and the
+ * motion disagree — money falls like water but should not look like a drop.
+ */
+export const FX_ARCHETYPES: ReadonlyMap<string, { archetype: ArchetypeName; shape?: ParticleShape }> =
+  new Map([
+    ['explosion', { archetype: 'burst' as const }],
+    ['fire', { archetype: 'burst' as const }],
+    ['electric', { archetype: 'spark' as const }],
+    ['money', { archetype: 'fall' as const, shape: 'disc' as const }],
+    ['water', { archetype: 'fall' as const }],
+    ['poison', { archetype: 'smoke' as const }],
+    ['shine', { archetype: 'twinkle' as const }],
+    ['love', { archetype: 'drift' as const }],
+  ]);
+
+/**
+ * The emission profile a tag should burst with. Unknown or unmapped tags get
+ * the generic one, so every category always has an answer.
+ */
+export function resolveFxProfile(tag: string | null | undefined): EmissionProfile {
+  const entry = tag ? FX_ARCHETYPES.get(tag) : undefined;
+  if (!entry) return GENERIC_PROFILE;
+  const profile = ARCHETYPE_PROFILES[entry.archetype];
+  return entry.shape ? { ...profile, shapes: [entry.shape] } : profile;
+}
 
 /**
  * fx.words → per-line winner map (line → word → effect).

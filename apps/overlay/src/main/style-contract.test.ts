@@ -148,3 +148,51 @@ describe('style contract: no invented hues (Faz 6.7 field bug)', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('style contract: the DOM burst pool stays removed (Faz 7 P2)', () => {
+  const rendererSource = ['main.ts', 'effects-logic.ts']
+    .map((file) => readFileSync(fileURLToPath(new URL(`../renderer/src/${file}`, import.meta.url)), 'utf8'))
+    .join('\n');
+
+  it('no CSS rule is left behind from the old pool', () => {
+    // 0.4.0 scattered twelve absolutely-positioned spans INSIDE the box for
+    // explosion and electric. The Pixi layer does that job for all 24
+    // categories now, outside the box, so the pool went. A leftover rule
+    // would still take part in the cascade.
+    const strays = selectorLines(css).filter(
+      (line) => line.includes('fx-burst') || line.includes('bursting') || /\.fx-particle\b/.test(line),
+    );
+    expect(strays).toEqual([]);
+    expect(css).not.toContain('kashi-fx-burst');
+  });
+
+  it('no code path still reaches for it', () => {
+    for (const token of ['FX_BURST_TAGS', 'ensureBurstPool', 'triggerBurst']) {
+      expect(rendererSource, `${token} survived the removal`).not.toContain(token);
+    }
+  });
+});
+
+describe('style contract: every fx archetype is renderable (Faz 7 P2)', () => {
+  it('maps only real categories, and only shapes the atlas can draw', async () => {
+    // The archetype table is the one place where the lexicon, the texture
+    // atlas and the physics have to agree. A tag that is not in the lexicon
+    // would never fire; a shape the atlas cannot draw would silently emit
+    // nothing at all.
+    const { FX_ARCHETYPES, FX_BASE_COLORS, resolveFxProfile } = await import(
+      '../renderer/src/effects-logic.js'
+    );
+    const { PARTICLE_SHAPES } = await import('../renderer/src/fx-textures.js');
+
+    for (const [tag, entry] of FX_ARCHETYPES) {
+      expect(FX_BASE_COLORS, `${tag} is not a lexicon category`).toHaveProperty(tag);
+      if (entry.shape) expect(PARTICLE_SHAPES).toContain(entry.shape);
+    }
+    // And every category — hero or not — resolves to a drawable profile.
+    for (const tag of Object.keys(FX_BASE_COLORS)) {
+      const profile = resolveFxProfile(tag);
+      expect(profile.shapes.length, tag).toBeGreaterThan(0);
+      for (const shape of profile.shapes) expect(PARTICLE_SHAPES, `${tag}/${shape}`).toContain(shape);
+    }
+  });
+});

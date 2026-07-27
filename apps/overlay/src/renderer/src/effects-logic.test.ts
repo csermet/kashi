@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ARCHETYPE_PROFILES, GENERIC_PROFILE } from './fx-particles-logic.js';
 import {
   DEFAULT_EFFECT_LEVEL,
   effectLevelLabel,
@@ -14,7 +15,8 @@ import {
   BG_MAX_LUMINANCE,
   BeatCursor,
   DEFAULT_PALETTE_VARS,
-  FX_BURST_TAGS,
+  FX_ARCHETYPES,
+  resolveFxProfile,
   TEXT_CONTRAST_MIN,
   beatsUsable,
   buildFxIndex,
@@ -334,9 +336,22 @@ describe('buildFxIndex (Faz 6 hype)', () => {
     expect(buildFxIndex(undefined, lines).size).toBe(0);
   });
 
-  it('burst tags are a small fixed set', () => {
-    expect(FX_BURST_TAGS.has('explosion')).toBe(true);
-    expect(FX_BURST_TAGS.has('love')).toBe(false);
+  it('maps the hero categories to archetypes and everything else to generic', () => {
+    // Eight of the lexicon's 24 have a behaviour of their own; the rest keep
+    // the shipped one on purpose (an archetype needs a meaning you can name).
+    expect(FX_ARCHETYPES.size).toBe(8);
+    for (const tag of FX_ARCHETYPES.keys()) {
+      expect(FX_BASE_COLORS, `${tag} is not in the lexicon`).toHaveProperty(tag);
+    }
+    expect(resolveFxProfile('poison')).toBe(ARCHETYPE_PROFILES.smoke);
+    expect(resolveFxProfile('love')).toBe(ARCHETYPE_PROFILES.drift);
+    // Money falls like water but must not look like a drop.
+    expect(resolveFxProfile('money').shapes).toEqual(['disc']);
+    expect(resolveFxProfile('water').shapes).toEqual(ARCHETYPE_PROFILES.fall.shapes);
+    // Unmapped, unknown and absent all land on the same generic answer.
+    expect(resolveFxProfile('crown')).toBe(GENERIC_PROFILE);
+    expect(resolveFxProfile('not-a-tag')).toBe(GENERIC_PROFILE);
+    expect(resolveFxProfile(null)).toBe(GENERIC_PROFILE);
   });
 });
 

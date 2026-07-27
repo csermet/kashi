@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { computeFxTintVars, FX_BASE_COLORS } from './effects-logic.js';
+import { PARTICLE_SHAPES } from './fx-textures.js';
 import {
+  ARCHETYPE_PROFILES,
   BURST_PARTICLES,
   EDGE_FADE_PX,
+  GENERIC_PROFILE,
+  GRAVITY,
   insideBox,
   makeRandom,
+  maxParticleLifetimeMs,
   MAX_LIFE_S,
   parseTintColor,
   particleAlpha,
@@ -31,6 +36,8 @@ const particle = (over: Partial<Particle> = {}): Particle => ({
   size: 8,
   rotation: 0,
   spin: 0,
+  gravity: GRAVITY,
+  shape: 'spark',
   ...over,
 });
 
@@ -240,3 +247,106 @@ describe('parseTintColor — every category wears its own colour', () => {
   });
 });
 
+
+describe('archetype profiles', () => {
+  /** Runs a burst to completion, sampling every particle each frame. */
+  function simulate(profile = GENERIC_PROFILE, seed = 7) {
+    const particles = planEmission(BOX, makeRandom(seed), profile);
+    const samples: Array<{ x: number; y: number; alpha: number }> = [];
+    const live = [...particles];
+    for (let frame = 0; frame < 400 && live.length > 0; frame++) {
+      for (let i = live.length - 1; i >= 0; i--) {
+        const p = live[i]!;
+        if (!stepParticle(p, 1 / 60)) {
+          live.splice(i, 1);
+          continue;
+        }
+        samples.push({ x: p.x, y: p.y, alpha: particleAlpha(p, W, H) });
+      }
+    }
+    return { particles, samples };
+  }
+
+  it('every profile draws only shapes the texture atlas can supply', () => {
+    for (const [name, profile] of Object.entries(ARCHETYPE_PROFILES)) {
+      expect(profile.shapes.length, name).toBeGreaterThan(0);
+      for (const shape of profile.shapes) {
+        expect(PARTICLE_SHAPES, `${name}/${shape}`).toContain(shape);
+      }
+    }
+  });
+
+  it('a particle is never visible outside the window — the boundary stays invisible', () => {
+    // The envelope guard is stated in VISIBILITY, not position: smoke and love
+    // deliberately outlive the old flat lifetime, so "must die before leaving
+    // the margin" would contradict their physics. What must hold is that
+    // anything past the edge has already faded to nothing.
+    for (const profile of [GENERIC_PROFILE, ...Object.values(ARCHETYPE_PROFILES)]) {
+      const { samples } = simulate(profile);
+      const visibleOutside = samples.filter(
+        (s) => s.alpha > 0.01 && (s.x < 0 || s.y < 0 || s.x > W || s.y > H),
+      );
+      expect(visibleOutside).toEqual([]);
+    }
+  });
+
+  it('fall pours down the sides instead of hiding behind the box', () => {
+    // A top-edge fall would spend most of its life inside the box, where the
+    // DG6 mask hides it. The side emission is what keeps the descent on screen.
+    // Birth positions from a fresh plan — simulate() mutates as it runs.
+    for (const p of planEmission(BOX, makeRandom(7), ARCHETYPE_PROFILES.fall)) {
+      const onASide =
+        Math.abs(p.x - BOX.x) < 0.01 || Math.abs(p.x - (BOX.x + BOX.width)) < 0.01;
+      expect(onASide, `born at ${p.x},${p.y}`).toBe(true);
+    }
+    const { samples } = simulate(ARCHETYPE_PROFILES.fall);
+    const hidden = samples.filter((s) => s.alpha > 0.01 && insideBox(s.x, s.y, BOX));
+    expect(hidden.length / samples.length).toBeLessThan(0.05);
+  });
+
+  it('gives each archetype the direction its category means', () => {
+    // Poison sinks, love rises, sparks mostly just leave.
+    const mean = (profile: typeof GENERIC_PROFILE) => {
+      const particles = planEmission(BOX, makeRandom(3), profile);
+      return particles.reduce((sum, p) => sum + p.vy, 0) / particles.length;
+    };
+    expect(mean(ARCHETYPE_PROFILES.smoke)).toBeGreaterThan(0);
+    expect(mean(ARCHETYPE_PROFILES.fall)).toBeGreaterThan(0);
+    expect(mean(ARCHETYPE_PROFILES.drift)).toBeLessThan(0);
+    expect(ARCHETYPE_PROFILES.drift.gravity).toBeLessThan(0);
+  });
+
+  it('staggers births only where a profile asked for it', () => {
+    const staggered = planEmission(BOX, makeRandom(5), ARCHETYPE_PROFILES.smoke);
+    expect(staggered.some((p) => p.age < 0)).toBe(true);
+
+    const instant = planEmission(BOX, makeRandom(5), ARCHETYPE_PROFILES.burst);
+    expect(instant.every((p) => p.age === 0)).toBe(true);
+  });
+
+  it('an unborn particle keeps the ticker alive but draws nothing', () => {
+    const p = particle({ age: -0.2, life: 1, x: 400, y: 60 });
+    expect(particleAlpha(p, W, H)).toBe(0);
+    expect(stepParticle(p, 1 / 60)).toBe(true); // still in the list
+    expect(p.x).toBe(400); // and it has not moved
+  });
+
+  it('bounds how long a burst can linger, stagger included', () => {
+    // The "a stopped song leaves no residue" contract, now profile-aware.
+    const longest = maxParticleLifetimeMs();
+    expect(longest).toBeGreaterThan(MAX_LIFE_S * 1000);
+    expect(longest).toBeLessThan(3200);
+  });
+
+  it('keeps the generic profile exactly as it shipped', () => {
+    // The 16 categories without a hero archetype must not change at all.
+    expect(GENERIC_PROFILE.count).toBe(BURST_PARTICLES);
+    expect(GENERIC_PROFILE.gravity).toBe(GRAVITY);
+    expect(GENERIC_PROFILE.life[1]).toBe(MAX_LIFE_S);
+    expect(GENERIC_PROFILE.emissionSpanMs).toBe(0);
+    expect(GENERIC_PROFILE.direction).toEqual({ normal: 1, down: 0 });
+    // The two archetype-only shapes stay out of the uncategorised look.
+    expect(GENERIC_PROFILE.shapes).not.toContain('heart');
+    expect(GENERIC_PROFILE.shapes).not.toContain('disc');
+  });
+});

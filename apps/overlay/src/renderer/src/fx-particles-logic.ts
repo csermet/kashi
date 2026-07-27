@@ -12,6 +12,8 @@
  * line to say so.
  */
 
+import type { ParticleShape } from './fx-textures.js';
+
 /** Where the box lives inside the window; particles must not cover it (DG6). */
 export interface Rect {
   x: number;
@@ -25,12 +27,20 @@ export interface Particle {
   y: number;
   vx: number;
   vy: number;
-  /** Seconds lived and seconds allotted — alpha is derived from the ratio. */
+  /**
+   * Seconds lived and seconds allotted — alpha is derived from the ratio.
+   * `age` starts NEGATIVE for a staggered emission: the particle exists in the
+   * list (so the ticker keeps running for it) but has not been born yet.
+   */
   age: number;
   life: number;
   size: number;
   rotation: number;
   spin: number;
+  /** px/s². Per particle, because archetypes disagree about which way is down. */
+  gravity: number;
+  /** Which texture to draw. The adapter maps this to a Pixi texture. */
+  shape: ParticleShape;
 }
 
 /**
@@ -72,6 +82,176 @@ export function makeRandom(seed: number): () => number {
   };
 }
 
+export type EdgeName = 'top' | 'right' | 'bottom' | 'left';
+
+export const ALL_EDGES: readonly EdgeName[] = ['top', 'right', 'bottom', 'left'];
+
+/**
+ * What a category's particles DO. Faz 6.7 shipped the engine with one
+ * behaviour for all 24 tags; Caner's note was that the categories should not
+ * all look the same ("poison should spill over the edges and drip"). The
+ * engine did not need replacing — it needed the numbers taken out of it.
+ *
+ * `direction` is a mix, not a mode: `normal` is how much of the launch follows
+ * the edge's outward normal, `down` is how much follows gravity's axis. Poison
+ * leaves the edge and then sinks (0.55 / 0.5); love leaves and rises
+ * (0.3 / -0.75). One formula covers every archetype we wanted.
+ */
+export interface EmissionProfile {
+  /** Which edges of the box emit. Fewer edges = a direction you can read. */
+  edges: readonly EdgeName[];
+  direction: { normal: number; down: number };
+  speed: readonly [min: number, max: number];
+  /** Sideways jitter along the edge, px/s. */
+  drift: number;
+  gravity: number;
+  life: readonly [min: number, max: number];
+  count: number;
+  size: readonly [min: number, max: number];
+  spin: number;
+  /**
+   * Spreads births over this many ms instead of all at once. A puff that
+   * appears whole is an explosion; one that keeps arriving is smoke.
+   */
+  emissionSpanMs: number;
+  shapes: readonly ParticleShape[];
+}
+
+/**
+ * The behaviour every tag had before archetypes, kept exact: the same random
+ * draws in the same order, so the existing bursts are unchanged and the 16
+ * categories without a hero archetype still look like themselves.
+ */
+export const GENERIC_PROFILE: EmissionProfile = {
+  edges: ALL_EDGES,
+  direction: { normal: 1, down: 0 },
+  speed: [22, 70],
+  drift: 30,
+  gravity: GRAVITY,
+  life: [0.6, MAX_LIFE_S],
+  count: BURST_PARTICLES,
+  size: [5, 14],
+  spin: 5,
+  emissionSpanMs: 0,
+  // The four shapes that shipped in 0.16.x, deliberately NOT the two added for
+  // archetypes: the 16 categories without a hero archetype must keep looking
+  // exactly as they do today. Hearts belong to love, not to "uncategorised".
+  shapes: ['spark', 'droplet', 'star', 'smoke'],
+};
+
+export type ArchetypeName = 'burst' | 'spark' | 'fall' | 'smoke' | 'twinkle' | 'drift';
+
+/**
+ * The six hero behaviours. Numbers here are a starting point for Caner's eye
+ * pass, not a result — an archetype he dislikes gets revised or deleted in
+ * this same package (the nightcore prototype set the precedent).
+ */
+export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
+  /** explosion, fire — the whole outline throws itself outward, fast. */
+  burst: {
+    edges: ALL_EDGES,
+    direction: { normal: 1, down: 0.1 },
+    speed: [70, 150],
+    drift: 45,
+    gravity: 60,
+    life: [0.45, 0.95],
+    count: 88,
+    size: [6, 17],
+    spin: 6,
+    emissionSpanMs: 0,
+    shapes: ['spark', 'smoke'],
+  },
+  /** electric — small, very fast, gone almost immediately. */
+  spark: {
+    edges: ALL_EDGES,
+    direction: { normal: 1, down: 0 },
+    speed: [130, 260],
+    drift: 95,
+    gravity: 15,
+    life: [0.22, 0.5],
+    count: 74,
+    size: [3, 9],
+    spin: 14,
+    emissionSpanMs: 60,
+    shapes: ['spark'],
+  },
+  /**
+   * money, water — pours down the SIDES.
+   *
+   * The obvious reading (emit from the top edge, fall past the box) is the one
+   * that cannot work: the box is 180px tall and particles inside it are hidden
+   * by the DG6 mask, so a top-edge fall spends most of its life invisible and
+   * reads as motes blinking out. Leaving from the left and right edges keeps
+   * the whole descent on screen.
+   */
+  fall: {
+    edges: ['left', 'right'],
+    direction: { normal: 0.45, down: 1 },
+    speed: [35, 85],
+    drift: 12,
+    gravity: 240,
+    life: [0.9, 1.7],
+    count: 44,
+    size: [7, 16],
+    spin: 3,
+    emissionSpanMs: 280,
+    shapes: ['droplet'],
+  },
+  /** poison — spills over every edge and sinks slowly. Caner's example. */
+  smoke: {
+    edges: ALL_EDGES,
+    direction: { normal: 0.55, down: 0.5 },
+    speed: [16, 44],
+    drift: 18,
+    gravity: 120,
+    life: [1.2, 2.3],
+    count: 52,
+    size: [15, 32],
+    spin: 1.2,
+    emissionSpanMs: 420,
+    shapes: ['smoke'],
+  },
+  /** shine — barely moves; a scatter of glints that arrive over half a second. */
+  twinkle: {
+    edges: ALL_EDGES,
+    direction: { normal: 0.28, down: 0 },
+    speed: [8, 28],
+    drift: 10,
+    gravity: 6,
+    life: [0.7, 1.5],
+    count: 58,
+    size: [4, 12],
+    spin: 2,
+    emissionSpanMs: 620,
+    shapes: ['star'],
+  },
+  /** love — a few hearts leave the sides and floor, and rise. */
+  drift: {
+    edges: ['left', 'right', 'bottom'],
+    direction: { normal: 0.3, down: -0.8 },
+    speed: [24, 52],
+    drift: 14,
+    gravity: -20,
+    life: [1.4, 2.5],
+    count: 24,
+    size: [12, 24],
+    spin: 1,
+    emissionSpanMs: 520,
+    shapes: ['heart'],
+  },
+};
+
+/**
+ * The longest a particle can still be on screen after its burst started —
+ * emission stagger plus lifetime, over every profile. The old flat MAX_LIFE_S
+ * no longer answers this on its own, and the "a stopped song leaves no
+ * residue" contract is stated in terms of this number.
+ */
+export function maxParticleLifetimeMs(): number {
+  const profiles = [GENERIC_PROFILE, ...Object.values(ARCHETYPE_PROFILES)];
+  return Math.max(...profiles.map((p) => p.emissionSpanMs + p.life[1] * 1000));
+}
+
 /**
  * One activation's worth of particles, emitted from the ENTIRE box edge.
  *
@@ -90,30 +270,72 @@ export function makeRandom(seed: number): () => number {
 export function planEmission(
   box: Rect,
   random: () => number,
-  count: number = BURST_PARTICLES,
+  profile: EmissionProfile = GENERIC_PROFILE,
 ): Particle[] {
-  const perimeter = 2 * (box.width + box.height);
+  const spans = edgeSpans(box, profile.edges);
+  const emitting = spans.reduce((sum, span) => sum + span.length, 0);
   const particles: Particle[] = [];
+  if (emitting <= 0) return particles;
+
+  const { count, direction, drift: driftScale, shapes } = profile;
+  const [speedMin, speedMax] = profile.speed;
+  const [lifeMin, lifeMax] = profile.life;
+  const [sizeMin, sizeMax] = profile.size;
+
   for (let i = 0; i < count; i++) {
     // Stratified: one particle per equal slice, jittered inside its slice.
-    const t = ((i + random()) / count) * perimeter;
-    const [x, y, nx, ny] = pointOnPerimeter(t, box);
-    const speed = 22 + random() * 48;
+    // Slices are cut over the EMITTING edges only, so a two-edge archetype is
+    // as evenly spread along those two as the generic one is around all four.
+    const t = ((i + random()) / count) * emitting;
+    const [x, y, nx, ny] = pointOnPerimeter(distanceOnBox(t, spans), box);
+    const speed = speedMin + random() * (speedMax - speedMin);
     // Tangent = normal rotated 90°, so the jitter slides along the edge.
-    const drift = (random() - 0.5) * 30;
+    const drift = (random() - 0.5) * driftScale;
     particles.push({
       x,
       y,
-      vx: nx * speed + -ny * drift,
-      vy: ny * speed + nx * drift,
-      age: 0,
-      life: 0.6 + random() * (MAX_LIFE_S - 0.6),
-      size: 5 + random() * 9,
+      vx: nx * speed * direction.normal + -ny * drift,
+      vy: ny * speed * direction.normal + nx * drift + speed * direction.down,
+      // Negative age = staggered birth; see Particle.age.
+      age: profile.emissionSpanMs > 0 ? -(random() * profile.emissionSpanMs) / 1000 : 0,
+      life: lifeMin + random() * (lifeMax - lifeMin),
+      size: sizeMin + random() * (sizeMax - sizeMin),
       rotation: random() * Math.PI * 2,
-      spin: (random() - 0.5) * 5,
+      spin: (random() - 0.5) * profile.spin,
+      gravity: profile.gravity,
+      shape: shapes[Math.floor(random() * shapes.length) % shapes.length] ?? shapes[0]!,
     });
   }
   return particles;
+}
+
+interface EdgeSpan {
+  /** Where this edge starts along the full outline walk. */
+  offset: number;
+  length: number;
+}
+
+/** The emitting edges as spans of the full top→right→bottom→left walk. */
+function edgeSpans(box: Rect, edges: readonly EdgeName[]): EdgeSpan[] {
+  const { width: w, height: h } = box;
+  const geometry: Record<EdgeName, EdgeSpan> = {
+    top: { offset: 0, length: w },
+    right: { offset: w, length: h },
+    bottom: { offset: w + h, length: w },
+    left: { offset: 2 * w + h, length: h },
+  };
+  return edges.map((edge) => geometry[edge]).filter((span) => span.length > 0);
+}
+
+/** Maps a distance along the emitting edges to one along the whole outline. */
+function distanceOnBox(t: number, spans: EdgeSpan[]): number {
+  let remaining = t;
+  for (const span of spans) {
+    if (remaining < span.length) return span.offset + remaining;
+    remaining -= span.length;
+  }
+  const last = spans[spans.length - 1]!;
+  return last.offset + last.length;
 }
 
 /**
@@ -142,7 +364,10 @@ export function pointOnPerimeter(
 export function stepParticle(p: Particle, dt: number): boolean {
   p.age += dt;
   if (p.age >= p.life) return false;
-  p.vy += GRAVITY * dt;
+  // Staggered emission: it is in the list, keeping the ticker alive, but it
+  // has not been born yet, so it neither moves nor draws (alpha clamps to 0).
+  if (p.age < 0) return true;
+  p.vy += p.gravity * dt;
   const drag = Math.pow(DRAG, dt);
   p.vx *= drag;
   p.vy *= drag;
@@ -165,6 +390,8 @@ export function particleAlpha(
 ): number {
   const lifeLeft = 1 - p.age / p.life;
   if (lifeLeft <= 0) return 0;
+  // Not born yet (staggered emission) — present in the list, drawing nothing.
+  if (p.age < 0) return 0;
   // Fade in briefly too: particles popping into existence at full opacity
   // read as a glitch rather than a spark.
   const fadeIn = Math.min(1, p.age / 0.08);

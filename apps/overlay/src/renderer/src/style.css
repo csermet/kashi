@@ -489,45 +489,6 @@ body.fx-hype .word.fx-word.word-sung .fx-icon {
   transform: scale(0.85);
 }
 
-/* Particle burst pool (explosion-class tags): FIXED spans, class-toggle
-   trigger, transform/opacity keyframe — will-change confined to the pool. */
-#fx-burst {
-  display: none;
-  position: absolute;
-  left: var(--fx-x, 50%);
-  top: var(--fx-y, 50%);
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-body.fx-hype #fx-burst {
-  display: block;
-}
-.fx-particle {
-  position: absolute;
-  left: -2px;
-  top: -2px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--kashi-accent, #fff);
-  opacity: 0;
-  will-change: transform, opacity;
-}
-#fx-burst.bursting .fx-particle {
-  animation: kashi-fx-burst 480ms ease-out forwards;
-}
-@keyframes kashi-fx-burst {
-  0% {
-    transform: translate(0, 0) scale(1);
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate(var(--fx-dx, 20px), var(--fx-dy, -14px)) scale(0.4);
-    opacity: 0;
-  }
-}
-
 /* Downbeat emphasis: hype leans harder on the existing pre-drawn ring
    (opacity-only, same compositor story as fx-full). */
 body.fx-hype #lyric-box.beat-down::after {
@@ -544,9 +505,6 @@ body.fx-hype #lyric-box.beat-down::after {
   body.fx-hype .word.fx-word.word-sung .fx-icon {
     transform: none;
     transition: opacity 160ms ease-out;
-  }
-  #fx-burst.bursting .fx-particle {
-    animation: none;
   }
 }
 

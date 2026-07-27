@@ -28,7 +28,7 @@ import {
   computeFxTintVars,
   FX_BASE_COLORS,
   fillProgress,
-  FX_BURST_TAGS,
+  resolveFxProfile,
   inRampSection,
   isNightcore,
   paletteToCssVars,
@@ -364,45 +364,6 @@ function buildFxIcon(tag: string, wordText: string): SVGSVGElement | null {
   return svg;
 }
 
-// Particle burst pool (Faz 6 P4): a FIXED set of spans created once and
-// retriggered by class toggle — no allocation on the hot path, transform/
-// opacity-only animation (risk-turu verdict). One layout read per burst
-// (edge-triggered, at most once per line) positions the pool at the word.
-const FX_BURST_COUNT = 12;
-let burstEl: HTMLDivElement | null = null;
-const burstParticles: HTMLSpanElement[] = [];
-
-function ensureBurstPool(): void {
-  if (burstEl || !boxEl) return;
-  burstEl = document.createElement('div');
-  burstEl.id = 'fx-burst';
-  for (let i = 0; i < FX_BURST_COUNT; i += 1) {
-    const particle = document.createElement('span');
-    particle.className = 'fx-particle';
-    // Precomputed scatter vector per particle (deterministic fan) — CSS
-    // consumes it; will-change stays confined to this small pool.
-    const angle = (i / FX_BURST_COUNT) * 2 * Math.PI;
-    const radius = 26 + (i % 3) * 9;
-    particle.style.setProperty('--fx-dx', `${Math.round(Math.cos(angle) * radius)}px`);
-    particle.style.setProperty('--fx-dy', `${Math.round(Math.sin(angle) * radius * 0.6)}px`);
-    burstEl.appendChild(particle);
-    burstParticles.push(particle);
-  }
-  boxEl.appendChild(burstEl);
-}
-
-function triggerBurst(span: HTMLSpanElement): void {
-  if (!burstEl || !boxEl) return;
-  const word = span.getBoundingClientRect(); // one read, edge-triggered
-  const box = boxEl.getBoundingClientRect();
-  burstEl.style.setProperty('--fx-x', `${Math.round(word.left + word.width / 2 - box.left)}px`);
-  burstEl.style.setProperty('--fx-y', `${Math.round(word.top + word.height / 2 - box.top)}px`);
-  burstEl.classList.remove('bursting');
-  // Force the animation restart on consecutive bursts (class re-arm needs a
-  // reflow between remove/add — same one-shot pattern as the line-in fade).
-  void burstEl.offsetWidth;
-  burstEl.classList.add('bursting');
-}
 
 function clearWordSpans(): void {
   wordLineIndex = -1;
@@ -511,15 +472,17 @@ function highlightWord(index: number): void {
   if (index === fxWordIndex && index > activeWordIndex && effectLevel === 'hype') {
     const span = wordSpans[index];
     if (span) {
-      if (FX_BURST_TAGS.has(fxWordTag)) triggerBurst(span);
-      // Particles OUTSIDE the box (P5), radiating from the whole box edge
-      // in the word's category colour. Deliberately not aimed at the word: a
-      // burst from one point read as detached from the line it belonged to.
+      // Particles OUTSIDE the box, radiating from the whole box edge in the
+      // word's category colour. Deliberately not aimed at the word: a burst
+      // from one point read as detached from the line it belonged to.
+      // Which WAY they go is the category's own (Faz 7): poison spills and
+      // sinks, love rises, money pours down the sides.
       if (fxCanvas) {
         const box = boxEl?.getBoundingClientRect();
         void fxCanvas.burst(
           tintOf(fxWordTag),
           box ? { x: box.left, y: box.top, width: box.width, height: box.height } : undefined,
+          resolveFxProfile(fxWordTag),
         );
       }
     }
@@ -986,7 +949,6 @@ function ensureLoop(): void {
 // replay order) corrects it before any lyrics arrive.
 applyEffectLevelClass();
 syncFxLayer(); // no-op at the default level; keeps bootstrap honest if it changes
-ensureBurstPool();
 applyPaletteVars();
 ensureLoop();
 
