@@ -46,6 +46,10 @@ body {
  */
 #lyric-box {
   position: relative; /* anchors the ::after beat ring */
+  /* Above the particle canvas (z-index 0, prepended to body). Tree order
+     would already do it, but DG6 — effects never cover the text — should not
+     rest on a painting-order subtlety. */
+  z-index: 1;
   max-width: 500px;
   padding: 10px 18px;
   border-radius: 14px;

@@ -38,7 +38,9 @@ import {
   type BeatsLike,
   type PaletteLike,
 } from './effects-logic.js';
+import { FxCanvas } from './fx-canvas.js';
 import { FX_ICON_VARIANTS, FX_ICON_VIEWBOX } from './fx-icons.js';
+import { shouldMountLayer, type Rect } from './fx-particles-logic.js';
 import { PositionClock } from './position-clock.js';
 import {
   accumulateWheel,
@@ -142,6 +144,33 @@ let fxIndex: ReturnType<typeof buildFxIndex> = new Map();
 // the word effects use, captured in applyPaletteVars.
 let lineThemeIndex: Map<number, string> = new Map();
 let currentTintVars: Record<string, string> = {};
+
+/**
+ * Particle layer (Faz 6.7 P5). The box zone must match BOX_ZONE in
+ * src/main/index.ts — style-contract.test.ts nails the two together via the
+ * stylesheet, and this is the third reader of the same rect.
+ */
+const BOX_ZONE: Rect = { x: 120, y: 160, width: 560, height: 180 };
+const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+let fxCanvas: FxCanvas | null = null;
+
+/** Creates the layer only where it is allowed to exist, destroys it otherwise. */
+function syncFxLayer(): void {
+  const wanted = shouldMountLayer(effectLevel, prefersReducedMotion);
+  if (wanted && !fxCanvas) {
+    fxCanvas = new FxCanvas(BOX_ZONE, (line) => window.kashi.log(line));
+  } else if (!wanted && fxCanvas) {
+    fxCanvas.destroy();
+    fxCanvas = null;
+  }
+}
+
+/** Parses a CSS colour into the 0xRRGGBB Pixi wants; white when unknown. */
+function tintOf(tag: string): number {
+  const raw = currentTintVars[`--fx-tint-${tag}`];
+  const hex = raw?.match(/#([0-9a-f]{6})/i)?.[1];
+  return hex ? Number.parseInt(hex, 16) : 0xffffff;
+}
 let ambientLineIndex = -1;
 let appliedAmbient: string | null = null;
 let appliedFlash: string | null = null;
@@ -469,7 +498,16 @@ function highlightWord(index: number): void {
     const span = wordSpans[index];
     if (span) {
       if (FX_BURST_TAGS.has(fxWordTag)) triggerBurst(span);
-      // Falling band icon above the word (P2) — every fx tag, not just bursts.
+      // Particles OUTSIDE the box (P5), where the falling icon used to be.
+      // One layout read on an edge that fires at most once per line.
+      if (fxCanvas) {
+        const word = span.getBoundingClientRect();
+        void fxCanvas.burst(
+          Math.round(word.left + word.width / 2),
+          Math.round(word.top + word.height / 2),
+          tintOf(fxWordTag),
+        );
+      }
     }
     // Same edge lights the box halo in the word's category color (P1).
     triggerAmbientFlash();
@@ -744,6 +782,7 @@ window.kashi.onSettings((payload) => {
     applyPaletteVars();
     rebuildBeatCursor();
     rebuildFxIndex(); // hype gates the index; other levels empty it
+    syncFxLayer(); // the particle layer exists only at hype (pixel identity)
     setEnergyState(0, false); // paused level switches must not strand the ramp
     clearRunFill();
     clearWordSpans(); // next frame rebuilds spans + fill plan for the new level

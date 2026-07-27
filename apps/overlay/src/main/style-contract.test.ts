@@ -122,3 +122,13 @@ describe('style contract: the box zone matches the window (Faz 6.7 P4)', () => {
     expect(x * 2 + width).toBe(windowWidth); // the box is horizontally centered
   });
 });
+
+describe('style contract: particles never cover the text (Faz 6.7 P5)', () => {
+  it('the lyric box declares a stacking order above the canvas', () => {
+    // The canvas is prepended to <body> at z-index 0. Tree order alone would
+    // paint the box on top, but DG6 is load-bearing enough to state outright.
+    const box = css.match(/#lyric-box \{[^}]*\}/)?.[0];
+    expect(box, '#lyric-box block').toBeDefined();
+    expect(box).toContain('z-index: 1');
+  });
+});
