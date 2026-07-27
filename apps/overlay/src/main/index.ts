@@ -886,7 +886,16 @@ app.whenReady().then(async () => {
     onMessage: onExtensionMessage,
     onClientConnected: (count) => send('kashi:connection', { connected: count > 0 }),
     onClientHello: (client) => {
+      const firstTime = lastExtensionClient === null;
       lastExtensionClient = client;
+      // The envelope goes out at startup, and the extension connects after —
+      // so it always reported "none" and the panel comparing anomaly rates
+      // BY EXTENSION VERSION could never fill. Re-send once, now that the
+      // answer exists; the dashboard reads the newest envelope per key.
+      if (firstTime) {
+        const url = settings?.get().server_url;
+        if (url) sendSessionEnvelope(url);
+      }
     },
     onClientDisconnected: (count, clientId) => {
       // The latch owner vanished (browser closed / reconnect with a new id):
