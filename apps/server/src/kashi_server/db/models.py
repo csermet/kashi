@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -175,4 +176,40 @@ class LrclibPublish(Base):
             "status IN ('queued','published','dry_run','failed')", name="ck_lrclib_publish_status"
         ),
         UniqueConstraint("source_type", "source_id", "etag", name="uq_lrclib_publish_doc"),
+    )
+
+
+class Telemetry(Base):
+    """Field diagnostics from the overlay (Faz 6.7 P1).
+
+    A soft verbal bug report cannot be debugged: the "wrong timing until a
+    YTM refresh" hunt cost a whole phase. These rows carry what the overlay
+    already knows — which machine, which versions, which track, which lyrics
+    source answered, which position looked impossible — so the next report is
+    a query instead of a repro attempt.
+
+    `ts` is when the CLIENT observed the event; `received_at` is our clock.
+    Retention sweeps on `received_at` deliberately: a device with a skewed
+    clock must not be able to keep rows alive forever, nor lose them early.
+    Payloads are filtered against telemetry_contract.TELEMETRY_FIELDS before
+    they land here, so the column cannot accumulate uncontracted fields."""
+
+    __tablename__ = "telemetry"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    ts: Mapped[datetime]
+    kind: Mapped[str]
+    payload: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
+    received_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    # FK to api_keys also buys test isolation: conftest TRUNCATEs api_keys
+    # CASCADE, so telemetry rows never leak between tests.
+    reported_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_keys.id")
+    )
+
+    __table_args__ = (
+        Index("ix_telemetry_session_ts", "session_id", "ts"),
+        Index("ix_telemetry_kind_ts", "kind", "ts"),
+        Index("ix_telemetry_received", "received_at"),
     )

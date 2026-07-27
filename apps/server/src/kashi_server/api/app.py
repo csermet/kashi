@@ -21,6 +21,7 @@ from kashi_server.api.routers import (
     jobs,
     lyrics,
     publish,
+    telemetry,
     uploads,
 )
 from kashi_server.auth import hash_key, looks_like_key
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(admin_keys.router)
     app.include_router(admin_ops.router)
+    app.include_router(telemetry.router)
 
     @app.get("/v1/health")
     def health() -> dict[str, str]:

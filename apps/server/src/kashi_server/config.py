@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     # deterministic; default off until the canary wave proves it in the
     # field (BAD GIRL is the acceptance case).
     structure_sections: bool = False
+    # Field diagnostics (Faz 6.7 P1). Default ON, unlike the publish flags:
+    # nothing arrives unless a client is configured with this server's URL and
+    # one of its API keys, so the data is the operator's own by construction.
+    # Set false to make the endpoint refuse without redeploying clients.
+    telemetry_enabled: bool = True
+    # Retention runs on the SERVER's clock (see purge_old_telemetry): a client
+    # with a wrong clock must not be able to pin rows forever or erase them.
+    telemetry_retention_days: int = 30
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
     retry_delays_s: list[int] = [60, 300, 900]

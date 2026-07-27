@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -100,3 +100,25 @@ class KeyOut(BaseModel):
 
 class KeyCreatedOut(KeyOut):
     key: str  # plaintext — returned exactly once, at creation
+
+
+class TelemetryEventIn(BaseModel):
+    """One diagnostic event. `kind` is a free string on purpose: an unknown
+    kind is dropped and counted by the handler rather than failing the batch,
+    so an overlay newer than its server keeps reporting everything else."""
+
+    ts: datetime
+    kind: str = Field(min_length=1, max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class TelemetryBatchIn(BaseModel):
+    session_id: uuid.UUID
+    # The 64 KB body cap already bounds this; the count keeps one batch from
+    # becoming thousands of tiny rows in a single transaction.
+    events: list[TelemetryEventIn] = Field(min_length=1, max_length=100)
+
+
+class TelemetryAck(BaseModel):
+    stored: int
+    dropped: int

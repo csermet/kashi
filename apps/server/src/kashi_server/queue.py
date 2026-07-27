@@ -146,6 +146,22 @@ def purge_expired_uploads(s: Session) -> int:
     return getattr(result, "rowcount", 0) or 0
 
 
+def purge_old_telemetry(s: Session, retention_days: int) -> int:
+    """Retention sweep for field diagnostics (Faz 6.7 P1).
+
+    Deletes on `received_at` — OUR clock — never the client-supplied `ts`. A
+    device with a skewed clock would otherwise either keep its rows forever or
+    have them vanish on arrival, and diagnostics from a broken machine are
+    exactly the ones worth keeping."""
+    from sqlalchemy import delete
+
+    from kashi_server.db.models import Telemetry
+
+    cutoff = _now() - timedelta(days=retention_days)
+    result = s.execute(delete(Telemetry).where(Telemetry.received_at < cutoff))
+    return getattr(result, "rowcount", 0) or 0
+
+
 def enqueue_reprocess(
     s: Session,
     *,

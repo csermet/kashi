@@ -33,6 +33,14 @@ def test_fx_defaults():
     assert _default("fx_embeddings") is False
 
 
+def test_telemetry_defaults():
+    # Field diagnostics are ON by default, unlike the publish flags: rows only
+    # appear when a client is pointed at THIS server with one of ITS keys, so
+    # the data is the operator's own. Retention runs on the server clock.
+    assert _default("telemetry_enabled") is True
+    assert _default("telemetry_retention_days") == 30
+
+
 def test_pipeline_major_matches_the_archive_invalidation():
     assert PIPELINE_VERSION.startswith("2.")
     assert PIPELINE_MAJOR == 2

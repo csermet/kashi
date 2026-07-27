@@ -22,6 +22,10 @@ JOB_SECONDS = Histogram(
 QUEUE_DEPTH = Gauge("kashi_queue_depth", "Live jobs (queued + running)")
 
 ORPHAN_MAX_AGE_S = 3600
+# The claim loop spins every couple of seconds; a retention DELETE has no
+# business running that often. Hourly is far finer than a 30-day window needs
+# and survives a worker that restarts before its first sweep.
+TELEMETRY_SWEEP_INTERVAL_S = 3600
 
 
 def sweep_orphans(data_dir: Path) -> int:
@@ -72,6 +76,7 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     from kashi_server.worker.process import HeartbeatThread, process_job
 
     stopping = {"flag": False}
+    last_telemetry_sweep = 0.0
 
     def _graceful(signum, _frame):
         logger.info("signal %s: finishing the current job, then exiting", signum)
@@ -86,6 +91,15 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
             purged = queue.purge_expired_uploads(session)
             if purged:
                 logger.info("purged %d expired staged upload(s)", purged)
+            if time.monotonic() - last_telemetry_sweep > TELEMETRY_SWEEP_INTERVAL_S:
+                last_telemetry_sweep = time.monotonic()
+                expired = queue.purge_old_telemetry(session, settings.telemetry_retention_days)
+                if expired:
+                    logger.info(
+                        "purged %d telemetry row(s) older than %d days",
+                        expired,
+                        settings.telemetry_retention_days,
+                    )
             session.commit()
             job = queue.claim_next(session)
             if job is None:
