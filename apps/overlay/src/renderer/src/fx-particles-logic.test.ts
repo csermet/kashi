@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { computeFxTintVars, FX_BASE_COLORS } from './effects-logic.js';
 import {
   BURST_PARTICLES,
   EDGE_FADE_PX,
   insideBox,
   makeRandom,
   MAX_LIFE_S,
+  parseTintColor,
   particleAlpha,
+  projectOutOfBox,
   planBurst,
   shouldMountLayer,
   stepParticle,
@@ -155,5 +158,75 @@ describe('insideBox (DG6)', () => {
     expect(insideBox(400, 400, BOX)).toBe(false); // below
     expect(insideBox(40, 250, BOX)).toBe(false); // left gutter
     expect(insideBox(760, 250, BOX)).toBe(false); // right gutter
+  });
+});
+
+describe('parseTintColor — every category wears its own colour', () => {
+  it('turns a tint variable into the integer Pixi wants', () => {
+    expect(parseTintColor('#4cd964')).toBe(0x4cd964);
+    expect(parseTintColor('  #FF6FA5  ')).toBe(0xff6fa5);
+  });
+
+  it('falls back to white rather than to nothing', () => {
+    expect(parseTintColor(undefined)).toBe(0xffffff);
+    expect(parseTintColor('oklch(0.8 0.2 140)')).toBe(0xffffff);
+    expect(parseTintColor('')).toBe(0xffffff);
+  });
+
+  it('all 24 lexicon categories resolve to a REAL colour, not the fallback', () => {
+    // The silent failure this guards: if the tint pipeline ever stopped
+    // emitting hex, every particle would quietly turn white and no test or
+    // log would complain — the effect would just look broken to one person.
+    const vars = computeFxTintVars('#3aa0ff', 'full');
+    const tags = Object.keys(FX_BASE_COLORS);
+    expect(tags.length).toBe(24);
+    for (const tag of tags) {
+      expect(parseTintColor(vars[`--fx-tint-${tag}`]), tag).not.toBe(0xffffff);
+    }
+  });
+});
+
+describe('projectOutOfBox — particles are born where they can be seen', () => {
+  it('leaves a point that is already outside alone', () => {
+    expect(projectOutOfBox(400, 40, 0, -1, BOX)).toEqual([400, 40]);
+  });
+
+  it('pushes an inside point out through the nearest wall', () => {
+    // Just above the box centre, heading up: exits through the top edge.
+    const [x, y] = projectOutOfBox(400, 200, 0, -1, BOX);
+    expect(x).toBe(400);
+    expect(y).toBeLessThan(BOX.y);
+    expect(insideBox(x, y, BOX)).toBe(false);
+  });
+
+  it('respects the direction rather than always choosing the top', () => {
+    const [x] = projectOutOfBox(400, 250, 1, 0, BOX);
+    expect(x).toBeGreaterThan(BOX.x + BOX.width);
+  });
+
+  /**
+   * The regression this guards is not a crash — it is an effect that looks
+   * feeble. Bursts are triggered by a word INSIDE the masked box, so spawning
+   * at the word meant most particles lived and died unseen (measured: 22%
+   * visible for a centred word). Anything below this bar means the layer is
+   * paying its battery cost for invisible work.
+   */
+  it('most of a burst is actually visible, wherever the word sits', () => {
+    for (const originX of [400, 520, 600]) {
+      let visible = 0;
+      let total = 0;
+      for (let seed = 1; seed <= 20; seed++) {
+        for (const p of planBurst(originX, 250, BOX, makeRandom(seed))) {
+          total++;
+          while (stepParticle(p, 1 / 60)) {
+            if (!insideBox(p.x, p.y, BOX) && particleAlpha(p, W, H) > 0.05) {
+              visible++;
+              break;
+            }
+          }
+        }
+      }
+      expect(visible / total, `origin x=${originX}`).toBeGreaterThan(0.9);
+    }
   });
 });

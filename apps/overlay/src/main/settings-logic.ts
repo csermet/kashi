@@ -151,10 +151,8 @@ export function nearestPresetIndex(alpha: number): number {
 export const KNOWN_WINDOWS = [
   { width: 560, height: 180, zoneX: 0, zoneY: 0 }, // ≤0.8.x — the box WAS the window
   { width: 640, height: 300, zoneX: 40, zoneY: 120 }, // 0.9.0–0.14.x
+  { width: 800, height: 460, zoneX: 120, zoneY: 160 }, // 0.15.0–
 ] as const;
-
-/** Kept for the 0.9.0 migration tests and readers of the older comment. */
-export const LEGACY_WINDOW = { width: 560, height: 180 } as const;
 
 /**
  * Shifts bounds saved by an older build so the BOX stays put while the window
@@ -166,7 +164,9 @@ export function migrateWindowBounds(
   bounds: WindowBounds,
   windowWidth: number,
   windowHeight: number,
-  zone: { x: number; y: number } = { x: 0, y: 0 },
+  // Mandatory: a forgotten zone would silently shift every migrated box by
+  // the zone offset, and no test would notice.
+  zone: { x: number; y: number },
 ): WindowBounds {
   const previous = KNOWN_WINDOWS.find(
     (w) => w.width === bounds.width && w.height === bounds.height,

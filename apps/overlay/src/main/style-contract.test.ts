@@ -95,16 +95,21 @@ describe('style contract: the removed icon stage stays removed (Faz 6.7 P4)', ()
 });
 
 describe('style contract: the box zone matches the window (Faz 6.7 P4)', () => {
-  const main = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8');
+  const geometry = readFileSync(
+    fileURLToPath(new URL('../shared/box-zone.ts', import.meta.url)),
+    'utf8',
+  );
 
   it('#stage padding is exactly the margin BOX_ZONE leaves around the box', () => {
     // Two files have to agree or the box drifts from where main thinks it is:
     // main hit-tests and migrates positions against BOX_ZONE, the renderer
     // lays the box out with padding. This nails them together.
-    const zone = main.match(
-      /const BOX_ZONE = \{ x: (\d+), y: (\d+), width: (\d+), height: (\d+) \}/,
+    const zone = geometry.match(
+      /BOX_ZONE: BoxRect = \{ x: (\d+), y: (\d+), width: (\d+), height: (\d+) \}/,
     );
-    const size = main.match(/const WINDOW_WIDTH = (\d+);\nconst WINDOW_HEIGHT = (\d+);/);
+    const size = geometry.match(
+      /WINDOW_WIDTH = (\d+);\nexport const WINDOW_HEIGHT = (\d+);/,
+    );
     expect(zone, 'BOX_ZONE literal').not.toBeNull();
     expect(size, 'WINDOW_* literals').not.toBeNull();
     const [x, y, width, height] = zone!.slice(1).map(Number) as [number, number, number, number];

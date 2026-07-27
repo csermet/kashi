@@ -30,8 +30,39 @@ import {
 } from './fx-particles-logic.js';
 import { drawParticleCanvas, PARTICLE_SHAPES, type ParticleShape } from './fx-textures.js';
 
-/** Set KASHI_FX_DEBUG=1 to see the boundary the effect is confined to. */
-const DEBUG = Boolean((globalThis as { KASHI_FX_DEBUG?: unknown }).KASHI_FX_DEBUG);
+/**
+ * Build-time switch (electron.vite.config.ts): `KASHI_FX_DEBUG=1 pnpm dev`
+ * outlines the protected box and the window bounds. A normal build folds the
+ * constant to `false`, so the call becomes `if (false)` and the outline can
+ * never be drawn in a shipped app. The function body still sits in the bundle
+ * — electron-vite does not minify this output — but it is unreachable, which
+ * is the property that matters.
+ */
+declare const __KASHI_FX_DEBUG__: boolean;
+const DEBUG = typeof __KASHI_FX_DEBUG__ !== 'undefined' && __KASHI_FX_DEBUG__;
+
+
+/**
+ * Dev-only: outlines the protected box and the window bounds. Module scope
+ * rather than a method so the class stays about particles; the single call
+ * site is behind a constant the build folds to false.
+ */
+function drawDebugBounds(
+  app: Application,
+  pixi: typeof import('pixi.js'),
+  box: Rect,
+  log: (line: string) => void,
+): void {
+  const g = new pixi.Graphics();
+  g.rect(box.x, box.y, box.width, box.height).stroke({ width: 1, color: 0xff0000, alpha: 0.5 });
+  g.rect(0, 0, app.renderer.width, app.renderer.height).stroke({
+    width: 1,
+    color: 0x00ff00,
+    alpha: 0.4,
+  });
+  app.stage.addChild(g);
+  log('fx layer debug bounds drawn (KASHI_FX_DEBUG)');
+}
 
 interface Live {
   particle: Particle;
@@ -46,6 +77,8 @@ export class FxCanvas {
   private live: Live[] = [];
   private seed = 1;
   private starting = false;
+  /** Set by destroy(): an in-flight init must not resurrect a dead layer. */
+  private disposed = false;
 
   constructor(
     private readonly box: Rect,
@@ -57,8 +90,18 @@ export class FxCanvas {
     return this.live.length === 0 && this.app?.ticker.started !== true;
   }
 
-  /** Tears everything down: level dropped, reduced motion, or shutdown. */
+  /** Tears everything down for good: level dropped, reduced motion, shutdown. */
   destroy(): void {
+    this.disposed = true;
+    this.teardown();
+  }
+
+  /**
+   * Drops the GPU-backed half. Everything here — textures, sprites, the
+   * renderer — belongs to one WebGL context, so when that context goes the
+   * whole set goes with it and the next burst rebuilds from scratch.
+   */
+  private teardown(): void {
     this.live = [];
     const app = this.app;
     this.app = null;
@@ -76,8 +119,9 @@ export class FxCanvas {
    * an overlay that never reaches hype never pays for Pixi at all.
    */
   async burst(x: number, y: number, colour: number): Promise<void> {
+    if (this.disposed) return;
     const app = await this.ensureApp();
-    if (!app || !this.layer) return;
+    if (!app || !this.layer || this.disposed) return;
 
     const random = makeRandom((this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0));
     for (const particle of planBurst(x, y, this.box, random)) {
@@ -101,7 +145,7 @@ export class FxCanvas {
 
   private async ensureApp(): Promise<Application | null> {
     if (this.app) return this.app;
-    if (this.starting) return null; // a second burst during init just misses
+    if (this.starting || this.disposed) return null; // a second burst during init just misses
     this.starting = true;
     try {
       // Loaded HERE, not at module scope: Pixi is over a megabyte, and an
@@ -114,7 +158,19 @@ export class FxCanvas {
         antialias: true,
         resizeTo: window,
         autoStart: false, // idle until something actually moves
+        // Without these the backing store stays at CSS pixels and the sprites
+        // render soft beside crisp DOM text — very visible on a Retina panel
+        // or Windows display scaling.
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
       });
+      // Two awaits happened. The user can have left hype in that time, and
+      // an orphaned canvas at simple level would break pixel identity — the
+      // one contract this layer must never cost anything.
+      if (this.disposed) {
+        app.destroy(true, { children: true, texture: true });
+        return null;
+      }
       app.canvas.id = 'fx-canvas';
       // Under the box in z-order: even if the mask were wrong, the lyrics
       // would still be drawn on top of the particles.
@@ -127,6 +183,17 @@ export class FxCanvas {
       });
       document.body.prepend(app.canvas);
 
+      // A lost context invalidates every texture and sprite we hold. Rather
+      // than nurse a half-dead renderer back to life, drop the whole layer:
+      // the next fx word rebuilds it, textures included, through the same
+      // path that built it the first time. preventDefault() is what makes the
+      // browser willing to hand the context back at all.
+      app.canvas.addEventListener('webglcontextlost', (event) => {
+        event.preventDefault();
+        this.log('fx layer: WebGL context lost — dropping the layer, next burst rebuilds');
+        this.teardown();
+      });
+
       for (const shape of PARTICLE_SHAPES) {
         const canvas = drawParticleCanvas(shape);
         if (canvas) this.textures.set(shape, pixi.Texture.from(canvas));
@@ -134,7 +201,7 @@ export class FxCanvas {
       const layer = new pixi.Container();
       app.stage.addChild(layer);
       app.ticker.add(({ deltaMS }) => this.frame(deltaMS / 1000));
-      if (DEBUG) this.drawDebugBounds(app, pixi);
+      if (DEBUG) drawDebugBounds(app, pixi, this.box, this.log);
 
       this.app = app;
       this.layer = layer;
@@ -180,20 +247,4 @@ export class FxCanvas {
     }
   }
 
-  /** Dev-only: the fade band and the protected box, drawn faintly. */
-  private drawDebugBounds(app: Application, pixi: typeof import('pixi.js')): void {
-    const g = new pixi.Graphics();
-    g.rect(this.box.x, this.box.y, this.box.width, this.box.height).stroke({
-      width: 1,
-      color: 0xff0000,
-      alpha: 0.5,
-    });
-    g.rect(0, 0, app.renderer.width, app.renderer.height).stroke({
-      width: 1,
-      color: 0x00ff00,
-      alpha: 0.4,
-    });
-    app.stage.addChild(g);
-    this.log('fx layer debug bounds drawn (KASHI_FX_DEBUG)');
-  }
 }

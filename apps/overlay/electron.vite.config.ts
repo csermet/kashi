@@ -33,6 +33,14 @@ export default defineConfig({
   },
   renderer: {
     plugins: [tightenCsp()],
+    // Dev-only boundary visualizer for the particle layer (Faz 6.7 P5). The
+    // renderer is sandboxed and has no process.env, so the switch is folded in
+    // at build time: `KASHI_FX_DEBUG=1 pnpm dev` draws the box and window
+    // bounds, and a normal build folds it to `false` so the outline cannot be
+    // drawn in a shipped app.
+    define: {
+      __KASHI_FX_DEBUG__: JSON.stringify(process.env['KASHI_FX_DEBUG'] === '1'),
+    },
     build: {
       rollupOptions: {
         input: {

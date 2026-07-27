@@ -1,3 +1,4 @@
+import { BOX_ZONE, WINDOW_HEIGHT, WINDOW_WIDTH } from '../shared/box-zone.js';
 import { describe, expect, it } from 'vitest';
 import {
   clampTimingOffset,
@@ -17,6 +18,7 @@ import {
   parseSettings,
   presetLabel,
   sanitizeDeltaSteps,
+  KNOWN_WINDOWS,
   migrateWindowBounds,
 } from './settings-logic.js';
 
@@ -271,7 +273,19 @@ describe('TIMING_OFFSET_PRESETS', () => {
 });
 
 describe('migrateWindowBounds (the box stays put while the window grows)', () => {
-  const ZONE_0_15 = { x: 120, y: 160 }; // BOX_ZONE at 800×460
+  const ZONE_0_15 = { x: BOX_ZONE.x, y: BOX_ZONE.y };
+
+  it('the sentinel table knows about the CURRENT window', () => {
+    // The table's whole purpose is that the NEXT growth is a row, not a new
+    // branch. If today's size is missing from it, every 0.15/0.16 user falls
+    // through the unknown-size path at that point and their box shifts by the
+    // zone delta — silently, with no test failing.
+    const current = KNOWN_WINDOWS.find(
+      (w) => w.width === WINDOW_WIDTH && w.height === WINDOW_HEIGHT,
+    );
+    expect(current, 'current window missing from KNOWN_WINDOWS').toBeDefined();
+    expect({ x: current!.zoneX, y: current!.zoneY }).toEqual({ x: BOX_ZONE.x, y: BOX_ZONE.y });
+  });
 
   /** Where the box's top-left lands on screen for a given window origin. */
   const boxOrigin = (b: { x: number; y: number }, zone: { x: number; y: number }) => ({

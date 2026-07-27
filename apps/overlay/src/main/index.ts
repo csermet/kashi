@@ -28,6 +28,7 @@ import {
   parseFillStyle,
   parseThemeScope,
 } from '../shared/effect-level.js';
+import { BOX_ZONE, WINDOW_HEIGHT, WINDOW_WIDTH } from '../shared/box-zone.js';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';
 import { enableUtf8Console, makeLogger, makeWarnLogger } from './log.js';
@@ -61,25 +62,7 @@ const logRenderer = makeLogger('renderer');
 
 /** NOTE: the extension keeps its own announce debounce of the same length. */
 const TRACK_DEBOUNCE_MS = 500;
-/**
- * 0.15.0 window geometry (Faz 6.7 P4): the window grew a second time
- * (640×300 → 800×460) to give effects room on EVERY side of the lyric box.
- * 0.9.0's band was top-only, so anything that fell had nowhere to land and
- * the bottom edge cut it off mid-motion; the margins are now 160 above (a
- * runway), 120 below (somewhere to fade out) and 120 either side (a burst
- * radius).
- *
- * The BOX ZONE stays the original 560×180 rect. `#stage` pads it away and
- * centers the box in what is left, so saved positions migrate by a constant
- * shift (settings-logic migrateWindowBounds) and the box stays exactly where
- * the user parked it — across BOTH growths.
- *
- * Still a FIXED size — transparent windows must never resize (Electron).
- */
-const WINDOW_WIDTH = 800;
-const WINDOW_HEIGHT = 460;
-/** Box zone rect inside the window (must match #stage padding in style.css). */
-const BOX_ZONE = { x: 120, y: 160, width: 560, height: 180 } as const;
+// Window/box geometry: see src/shared/box-zone.ts (the single definition).
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
@@ -316,15 +299,25 @@ function createOverlayWindow(): BrowserWindow {
     // band/gutter so the lyric BOX lands exactly where the user parked it.
     const target = migrateWindowBounds(savedBounds, WINDOW_WIDTH, WINDOW_HEIGHT, BOX_ZONE);
     if (target.x !== savedBounds.x || target.y !== savedBounds.y) {
-      // A box parked <120px from the top edge now puts the band off-screen
-      // (icons drop invisibly; some Linux WMs clamp instead) — log the
-      // shift so a field report is one grep away (reviewer nit).
+      // A box parked <160px from the top edge now puts the window's top
+      // margin off-screen (some Linux WMs clamp instead) — log the shift so a
+      // field report is one grep away.
       log(
-        `window bounds migrated from legacy 560x180: ` +
+        `window bounds migrated from ${savedBounds.width}x${savedBounds.height}: ` +
           `(${savedBounds.x},${savedBounds.y}) -> (${target.x},${target.y})`,
       );
     }
-    if (isPositionVisible(target, screen.getAllDisplays())) {
+    // Validate the BOX, not the window. The window now carries 120-160px of
+    // effect margin on every side, so a window that is "visible enough" can
+    // still have the box entirely off-screen — the user would see nothing and
+    // have to find Reset position.
+    const boxOnScreen = {
+      x: target.x + BOX_ZONE.x,
+      y: target.y + BOX_ZONE.y,
+      width: BOX_ZONE.width,
+      height: BOX_ZONE.height,
+    };
+    if (isPositionVisible(boxOnScreen, screen.getAllDisplays())) {
       win.setBounds(target);
     }
   }

@@ -40,7 +40,8 @@ import {
 } from './effects-logic.js';
 import { FxCanvas } from './fx-canvas.js';
 import { FX_ICON_VARIANTS, FX_ICON_VIEWBOX } from './fx-icons.js';
-import { shouldMountLayer, type Rect } from './fx-particles-logic.js';
+import { parseTintColor, shouldMountLayer } from './fx-particles-logic.js';
+import { BOX_ZONE } from '../../shared/box-zone.js';
 import { PositionClock } from './position-clock.js';
 import {
   accumulateWheel,
@@ -145,13 +146,15 @@ let fxIndex: ReturnType<typeof buildFxIndex> = new Map();
 let lineThemeIndex: Map<number, string> = new Map();
 let currentTintVars: Record<string, string> = {};
 
-/**
- * Particle layer (Faz 6.7 P5). The box zone must match BOX_ZONE in
- * src/main/index.ts — style-contract.test.ts nails the two together via the
- * stylesheet, and this is the third reader of the same rect.
- */
-const BOX_ZONE: Rect = { x: 120, y: 160, width: 560, height: 180 };
-const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+/** Particle layer (Faz 6.7 P5); geometry comes from the shared definition. */
+const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+let prefersReducedMotion = reducedMotionQuery?.matches ?? false;
+// The CSS media query reacts live; the layer must too, or turning the OS
+// setting on would stop every animation EXCEPT the full-window particles.
+reducedMotionQuery?.addEventListener('change', (event) => {
+  prefersReducedMotion = event.matches;
+  syncFxLayer();
+});
 let fxCanvas: FxCanvas | null = null;
 
 /** Creates the layer only where it is allowed to exist, destroys it otherwise. */
@@ -165,11 +168,9 @@ function syncFxLayer(): void {
   }
 }
 
-/** Parses a CSS colour into the 0xRRGGBB Pixi wants; white when unknown. */
+/** The category colour the particles wear, straight from the tint vars. */
 function tintOf(tag: string): number {
-  const raw = currentTintVars[`--fx-tint-${tag}`];
-  const hex = raw?.match(/#([0-9a-f]{6})/i)?.[1];
-  return hex ? Number.parseInt(hex, 16) : 0xffffff;
+  return parseTintColor(currentTintVars[`--fx-tint-${tag}`]);
 }
 let ambientLineIndex = -1;
 let appliedAmbient: string | null = null;
@@ -970,6 +971,7 @@ function ensureLoop(): void {
 // First paint uses the default level; the settings replay (first channel in
 // replay order) corrects it before any lyrics arrive.
 applyEffectLevelClass();
+syncFxLayer(); // no-op at the default level; keeps bootstrap honest if it changes
 ensureBurstPool();
 applyPaletteVars();
 ensureLoop();

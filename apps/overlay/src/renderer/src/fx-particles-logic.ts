@@ -93,6 +93,12 @@ export function planBurst(
     awayY /= length;
   }
   const baseAngle = Math.atan2(awayY, awayX);
+  // The word that triggered this sits INSIDE the box, and the box is masked —
+  // so particles born there would spend their first frames invisible and most
+  // of them would die before ever clearing the edge. Push the origin out to
+  // the boundary along the outward direction: they start where they can
+  // actually be seen, and no motion budget is spent under the mask.
+  const [spawnX, spawnY] = projectOutOfBox(originX, originY, awayX, awayY, box);
 
   const particles: Particle[] = [];
   for (let i = 0; i < count; i++) {
@@ -101,8 +107,8 @@ export function planBurst(
     const angle = baseAngle + (random() - 0.5) * (Math.PI * 2) * (1 / 3);
     const speed = 90 + random() * 210;
     particles.push({
-      x: originX,
-      y: originY,
+      x: spawnX,
+      y: spawnY,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       age: 0,
@@ -113,6 +119,31 @@ export function planBurst(
     });
   }
   return particles;
+}
+
+/**
+ * Walks a point along `(dirX, dirY)` until it leaves the box, plus a small
+ * clearance so the first frame is already outside. A point that starts
+ * outside is returned untouched.
+ */
+export function projectOutOfBox(
+  x: number,
+  y: number,
+  dirX: number,
+  dirY: number,
+  box: Rect,
+  clearance = 4,
+): [number, number] {
+  if (!insideBox(x, y, box)) return [x, y];
+  // Distance to each wall along the direction; the nearest one is the exit.
+  const distances: number[] = [];
+  if (dirX > 0) distances.push((box.x + box.width - x) / dirX);
+  if (dirX < 0) distances.push((box.x - x) / dirX);
+  if (dirY > 0) distances.push((box.y + box.height - y) / dirY);
+  if (dirY < 0) distances.push((box.y - y) / dirY);
+  const exit = distances.filter((d) => d > 0).reduce((a, b) => Math.min(a, b), Infinity);
+  if (!Number.isFinite(exit)) return [x, y]; // no direction to leave by
+  return [x + dirX * (exit + clearance), y + dirY * (exit + clearance)];
 }
 
 /** Advances one particle by `dt` seconds. Returns false once it is spent. */
@@ -157,6 +188,21 @@ export function particleAlpha(
  */
 export function insideBox(x: number, y: number, box: Rect): boolean {
   return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
+}
+
+/**
+ * Reads a `--fx-tint-<tag>` custom property into the 0xRRGGBB integer Pixi
+ * tints with. White on anything unparseable — a particle in the wrong colour
+ * is a smaller loss than no particle, and white reads as "uncategorised"
+ * rather than as a bug.
+ *
+ * It lives here rather than beside the DOM because it is the seam where a
+ * silent failure would hide: if the tint pipeline ever stopped emitting hex,
+ * every particle would quietly turn white and nothing would break loudly.
+ */
+export function parseTintColor(value: string | undefined): number {
+  const hex = value?.match(/#([0-9a-f]{6})/i)?.[1];
+  return hex ? Number.parseInt(hex, 16) : 0xffffff;
 }
 
 /**
