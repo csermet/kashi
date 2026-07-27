@@ -128,11 +128,13 @@ describe('TelemetryClient', () => {
     await client.flush();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
-    const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const call = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call).toBeDefined();
+    const [url, init] = call as [string, RequestInit];
     expect(url).toBe('https://kashi.example.com/v1/telemetry');
-    const headers = (init as RequestInit).headers as Record<string, string>;
+    const headers = init.headers as Record<string, string>;
     expect(headers['Authorization']).toBe('Bearer ksh_test');
-    const body = JSON.parse((init as RequestInit).body as string);
+    const body = JSON.parse(init.body as string);
     expect(body.session_id).toBe('session-1');
     expect(body.events).toEqual([
       { ts: '2026-07-26T20:00:00.000Z', kind: 'watchdog', payload: { reason: 'stall' } },
