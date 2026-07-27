@@ -43,6 +43,7 @@ import { FX_ICON_VARIANTS, FX_ICON_VIEWBOX } from './fx-icons.js';
 import { parseTintColor, shouldMountLayer } from './fx-particles-logic.js';
 import { BOX_ZONE } from '../../shared/box-zone.js';
 import { PositionClock } from './position-clock.js';
+import { SnapClassifier } from './snap-classifier.js';
 import {
   accumulateWheel,
   deriveView,
@@ -96,12 +97,24 @@ const offsetFlashEl = document.getElementById('offset-flash');
 // Outside-the-box effect anchors (Faz 6.5 P2): top icon band + left-gutter
 // park spot. Both pointer-events:none — hover/click-through stays box-only.
 
+// A jump with no seek attached to it is not yet a verdict: while the progress
+// bar is being dragged, the explaining `seeked` always arrives after the jumps
+// it explains. The classifier waits for the stream to go quiet before deciding.
+const snapClassifier = new SnapClassifier();
+
 const clock = new PositionClock(undefined, undefined, ({ deltaMs, positionMs }) => {
-  // The clock jumped with no seek to explain it — the signature of the field
-  // timing bug. Logged for the terminal, reported for the server.
-  window.kashi.log(`position snapped ${deltaMs}ms with no seek (pos ${positionMs}ms)`);
-  window.kashi.reportAnomaly('unexplained_snap', deltaMs, positionMs);
+  window.kashi.log(`position snapped ${deltaMs}ms with no seek yet (pos ${positionMs}ms)`);
+  snapClassifier.onJump(deltaMs, positionMs, performance.now());
 });
+
+/** Drains the classifier off the render path — never per frame. */
+function reportClassifiedSnaps(): void {
+  for (const event of snapClassifier.flush(performance.now())) {
+    const collapsed = event.jumpCount > 1 ? ` (${event.jumpCount} jumps)` : '';
+    window.kashi.log(`snap classified as ${event.reason}${collapsed}: ${event.deltaMs}ms`);
+    window.kashi.reportAnomaly(event.reason, event.deltaMs, event.positionMs);
+  }
+}
 let currentKey: string | null = null;
 let lines: LyricLine[] = [];
 let adActive = false;
@@ -724,6 +737,7 @@ window.kashi.onPlayback((payload) => {
     },
     msg.type === 'seek',
   );
+  if (msg.type === 'seek') snapClassifier.onSeek(performance.now());
   lastPlaybackMono = performance.now();
   ensureLoop();
 });
@@ -979,6 +993,9 @@ ensureLoop();
 // Self-healing repaint: several halt states (stopped loop + stale screen) had
 // no exit path when the position stream dies mid-transition. One cheap frame
 // per second guarantees the display always converges to current state.
-setInterval(() => ensureLoop(), 1000);
+setInterval(() => {
+  ensureLoop();
+  reportClassifiedSnaps();
+}, 1000);
 
 export {};
