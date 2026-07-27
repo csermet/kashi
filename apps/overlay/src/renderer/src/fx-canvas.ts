@@ -23,7 +23,7 @@ import {
   insideBox,
   makeRandom,
   particleAlpha,
-  planBurst,
+  planEmission,
   stepParticle,
   type Particle,
   type Rect,
@@ -123,13 +123,13 @@ export class FxCanvas {
    * Fires one burst at a window-space point. Creates the layer on first use —
    * an overlay that never reaches hype never pays for Pixi at all.
    */
-  async burst(x: number, y: number, colour: number): Promise<void> {
+  async burst(colour: number): Promise<void> {
     if (this.disposed) return;
     const app = await this.ensureApp();
     if (!app || !this.layer || this.disposed) return;
 
     const random = makeRandom((this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0));
-    for (const particle of planBurst(x, y, this.box, random)) {
+    for (const particle of planEmission(this.box, random)) {
       const shape = PARTICLE_SHAPES[Math.floor(random() * PARTICLE_SHAPES.length)] ?? 'spark';
       const texture = this.textures.get(shape);
       if (!texture || !this.pixi) continue;
@@ -149,8 +149,8 @@ export class FxCanvas {
     if (!this.loggedFirstBurst) {
       this.loggedFirstBurst = true;
       this.log(
-        `fx layer: first burst at (${Math.round(x)},${Math.round(y)}) -> ` +
-          `${this.live.length} sprite(s), canvas ${app.canvas.isConnected ? 'in DOM' : 'DETACHED'}`,
+        `fx layer: first emission -> ${this.live.length} sprite(s),` +
+          ` canvas ${app.canvas.isConnected ? 'in DOM' : 'DETACHED'}`,
       );
     }
   }

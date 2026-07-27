@@ -8,8 +8,8 @@ import {
   MAX_LIFE_S,
   parseTintColor,
   particleAlpha,
-  projectOutOfBox,
-  planBurst,
+  pointOnPerimeter,
+  planEmission,
   shouldMountLayer,
   stepParticle,
   type Particle,
@@ -47,40 +47,94 @@ describe('shouldMountLayer', () => {
   });
 });
 
-describe('planBurst', () => {
-  it('aims away from the box, so nothing is launched across the lyrics', () => {
-    const random = makeRandom(7);
-    // Above the box: every particle should be heading upward, away from it.
-    const up = planBurst(400, 80, BOX, random);
-    expect(up).toHaveLength(BURST_PARTICLES);
-    expect(up.every((p) => p.vy < 0)).toBe(true);
-
-    // Below the box: the same rule mirrored.
-    const down = planBurst(400, 400, BOX, makeRandom(7));
-    expect(down.every((p) => p.vy > 0)).toBe(true);
+describe('planEmission — the whole outline, not one spot', () => {
+  it('emits the whole budget from ALL FOUR edges (the field complaint)', () => {
+    expect(planEmission(BOX, makeRandom(9))).toHaveLength(BURST_PARTICLES);
+    // A burst appearing in one arbitrary place reads as detached from the
+    // line that caused it. Every side must be represented in every burst.
+    const sides = { top: 0, right: 0, bottom: 0, left: 0 };
+    for (const p of planEmission(BOX, makeRandom(9))) {
+      if (Math.abs(p.y - BOX.y) < 0.01) sides.top++;
+      else if (Math.abs(p.y - (BOX.y + BOX.height)) < 0.01) sides.bottom++;
+      else if (Math.abs(p.x - BOX.x) < 0.01) sides.left++;
+      else sides.right++;
+    }
+    for (const [side, n] of Object.entries(sides)) {
+      expect(n, `no particles on the ${side} edge`).toBeGreaterThan(0);
+    }
   });
 
-  it('spreads sideways when the origin is beside the box', () => {
-    const left = planBurst(40, 250, BOX, makeRandom(3));
-    expect(left.every((p) => p.vx < 0)).toBe(true);
+  it('starts every particle ON the edge, never inside the box (DG6)', () => {
+    for (const p of planEmission(BOX, makeRandom(2))) {
+      const onEdge =
+        Math.abs(p.x - BOX.x) < 0.01 ||
+        Math.abs(p.x - (BOX.x + BOX.width)) < 0.01 ||
+        Math.abs(p.y - BOX.y) < 0.01 ||
+        Math.abs(p.y - (BOX.y + BOX.height)) < 0.01;
+      expect(onEdge).toBe(true);
+    }
   });
 
-  it('falls back to straight up when the origin IS the box centre', () => {
-    const p = planBurst(BOX.x + BOX.width / 2, BOX.y + BOX.height / 2, BOX, makeRandom(1));
-    expect(p.every((q) => q.vy < 0)).toBe(true);
+  it('pushes outward, so nothing drifts across the lyrics', () => {
+    for (const p of planEmission(BOX, makeRandom(6))) {
+      if (Math.abs(p.y - BOX.y) < 0.01) expect(p.vy).toBeLessThan(0);
+      if (Math.abs(p.y - (BOX.y + BOX.height)) < 0.01) expect(p.vy).toBeGreaterThan(0);
+      if (Math.abs(p.x - BOX.x) < 0.01) expect(p.vx).toBeLessThan(0);
+      if (Math.abs(p.x - (BOX.x + BOX.width)) < 0.01) expect(p.vx).toBeGreaterThan(0);
+    }
+  });
+
+  it('stays NEAR the box — the other half of the complaint', () => {
+    // Particles were landing a long way from the line they belonged to. The
+    // margin is 120-160px; nothing should travel much past it.
+    for (const p of planEmission(BOX, makeRandom(8))) {
+      while (stepParticle(p, 1 / 60)) {
+        /* run it to death */
+      }
+      const dx = Math.max(BOX.x - p.x, p.x - (BOX.x + BOX.width), 0);
+      const dy = Math.max(BOX.y - p.y, p.y - (BOX.y + BOX.height), 0);
+      // 120px is the narrowest margin (sides and bottom): nothing may leave
+      // the band the effect is supposed to live in.
+      expect(Math.max(dx, dy)).toBeLessThan(120);
+    }
   });
 
   it('gives everything a bounded, finite life', () => {
-    for (const p of planBurst(400, 80, BOX, makeRandom(11))) {
+    for (const p of planEmission(BOX, makeRandom(11))) {
       expect(p.life).toBeGreaterThan(0);
       expect(p.life).toBeLessThanOrEqual(MAX_LIFE_S);
     }
   });
 
-  it('is deterministic for a seed — the same burst twice is the same burst', () => {
-    expect(planBurst(400, 80, BOX, makeRandom(42))).toEqual(
-      planBurst(400, 80, BOX, makeRandom(42)),
-    );
+  it('is deterministic for a seed', () => {
+    expect(planEmission(BOX, makeRandom(42))).toEqual(planEmission(BOX, makeRandom(42)));
+  });
+
+  it('almost every particle is actually seen', () => {
+    let visible = 0;
+    let total = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      for (const p of planEmission(BOX, makeRandom(seed))) {
+        total++;
+        while (stepParticle(p, 1 / 60)) {
+          if (!insideBox(p.x, p.y, BOX) && particleAlpha(p, W, H) > 0.05) {
+            visible++;
+            break;
+          }
+        }
+      }
+    }
+    expect(visible / total).toBeGreaterThan(0.9);
+  });
+});
+
+describe('pointOnPerimeter', () => {
+  it('walks top, right, bottom, left and wraps', () => {
+    expect(pointOnPerimeter(0, BOX)).toEqual([BOX.x, BOX.y, 0, -1]);
+    expect(pointOnPerimeter(BOX.width, BOX)).toEqual([BOX.x + BOX.width, BOX.y, 1, 0]);
+    const perimeter = 2 * (BOX.width + BOX.height);
+    expect(pointOnPerimeter(perimeter, BOX)).toEqual(pointOnPerimeter(0, BOX));
+    expect(pointOnPerimeter(-1, BOX)).toEqual(pointOnPerimeter(perimeter - 1, BOX));
   });
 });
 
@@ -92,7 +146,7 @@ describe('stepParticle', () => {
   });
 
   it('every particle dies within MAX_LIFE_S — a paused song leaves no residue', () => {
-    const alive = planBurst(400, 80, BOX, makeRandom(5));
+    const alive = planEmission(BOX, makeRandom(5));
     let steps = 0;
     let remaining = alive;
     while (remaining.length > 0 && steps < 1000) {
@@ -186,47 +240,3 @@ describe('parseTintColor — every category wears its own colour', () => {
   });
 });
 
-describe('projectOutOfBox — particles are born where they can be seen', () => {
-  it('leaves a point that is already outside alone', () => {
-    expect(projectOutOfBox(400, 40, 0, -1, BOX)).toEqual([400, 40]);
-  });
-
-  it('pushes an inside point out through the nearest wall', () => {
-    // Just above the box centre, heading up: exits through the top edge.
-    const [x, y] = projectOutOfBox(400, 200, 0, -1, BOX);
-    expect(x).toBe(400);
-    expect(y).toBeLessThan(BOX.y);
-    expect(insideBox(x, y, BOX)).toBe(false);
-  });
-
-  it('respects the direction rather than always choosing the top', () => {
-    const [x] = projectOutOfBox(400, 250, 1, 0, BOX);
-    expect(x).toBeGreaterThan(BOX.x + BOX.width);
-  });
-
-  /**
-   * The regression this guards is not a crash — it is an effect that looks
-   * feeble. Bursts are triggered by a word INSIDE the masked box, so spawning
-   * at the word meant most particles lived and died unseen (measured: 22%
-   * visible for a centred word). Anything below this bar means the layer is
-   * paying its battery cost for invisible work.
-   */
-  it('most of a burst is actually visible, wherever the word sits', () => {
-    for (const originX of [400, 520, 600]) {
-      let visible = 0;
-      let total = 0;
-      for (let seed = 1; seed <= 20; seed++) {
-        for (const p of planBurst(originX, 250, BOX, makeRandom(seed))) {
-          total++;
-          while (stepParticle(p, 1 / 60)) {
-            if (!insideBox(p.x, p.y, BOX) && particleAlpha(p, W, H) > 0.05) {
-              visible++;
-              break;
-            }
-          }
-        }
-      }
-      expect(visible / total, `origin x=${originX}`).toBeGreaterThan(0.9);
-    }
-  });
-});

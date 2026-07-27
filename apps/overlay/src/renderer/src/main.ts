@@ -499,16 +499,10 @@ function highlightWord(index: number): void {
     const span = wordSpans[index];
     if (span) {
       if (FX_BURST_TAGS.has(fxWordTag)) triggerBurst(span);
-      // Particles OUTSIDE the box (P5), where the falling icon used to be.
-      // One layout read on an edge that fires at most once per line.
-      if (fxCanvas) {
-        const word = span.getBoundingClientRect();
-        void fxCanvas.burst(
-          Math.round(word.left + word.width / 2),
-          Math.round(word.top + word.height / 2),
-          tintOf(fxWordTag),
-        );
-      }
+      // Particles OUTSIDE the box (P5), radiating from the whole box edge
+      // in the word's category colour. Deliberately not aimed at the word: a
+      // burst from one point read as detached from the line it belonged to.
+      fxCanvas?.burst(tintOf(fxWordTag));
     }
     // Same edge lights the box halo in the word's category color (P1).
     triggerAmbientFlash();

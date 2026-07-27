@@ -33,8 +33,13 @@ export interface Particle {
   spin: number;
 }
 
-/** Gravity in px/s², gentle: these are sparks, not falling rocks. */
-export const GRAVITY = 220;
+/**
+ * Gravity in px/s². Deliberately weak: the emission surrounds the box, and
+ * anything stronger drags the whole ring into the bottom margin within a
+ * frame or two — the shape is the point, and the margin below the box is
+ * only 120px deep.
+ */
+export const GRAVITY = 40;
 /** Drag per second — motion settles instead of sliding forever. */
 export const DRAG = 0.86;
 /**
@@ -43,8 +48,12 @@ export const DRAG = 0.86;
  * nothing, so the effect reads as "it lives here" rather than "it is clipped".
  */
 export const EDGE_FADE_PX = 96;
-/** One activation's worth. The cap is per-burst, not per-frame — see above. */
-export const BURST_PARTICLES = 36;
+/**
+ * One activation's worth, spread over the whole outline. Higher than the
+ * point-burst design needed: the same count spread around ~1500px of edge
+ * reads as sparse, and the spike measured that count is nearly free.
+ */
+export const BURST_PARTICLES = 72;
 /** Nothing lives longer than this, so a stopped song cannot leave residue. */
 export const MAX_LIFE_S = 1.4;
 
@@ -64,86 +73,69 @@ export function makeRandom(seed: number): () => number {
 }
 
 /**
- * A burst at (originX, originY), aimed AWAY from the box.
+ * One activation's worth of particles, emitted from the ENTIRE box edge.
  *
- * Aiming matters: a symmetric explosion sends half its particles across the
- * lyrics, which DG6 forbids and the mask would eat anyway — visibly, as
- * particles vanishing mid-flight. Biasing the spread outward means the ones
- * that survive are the ones that were always going to be seen.
+ * The first design fired them from the triggering word, pushed out to the
+ * nearest edge. In the field that read as a puff appearing in one arbitrary
+ * spot, often far from the word that caused it — Caner's verdict was that a
+ * single small origin looks worse than no effect at all. The box radiating
+ * along its whole outline says the same thing without picking a corner: it
+ * belongs to the line, not to one point on it.
+ *
+ * Emission points are STRATIFIED around the perimeter rather than random, so
+ * every burst is evenly distributed instead of clumping by luck. Velocity is
+ * the outward normal plus a little sideways jitter, and slow enough that the
+ * particles live in the margin around the box instead of flying off it.
  */
-export function planBurst(
-  originX: number,
-  originY: number,
+export function planEmission(
   box: Rect,
   random: () => number,
   count: number = BURST_PARTICLES,
 ): Particle[] {
-  const boxCenterX = box.x + box.width / 2;
-  const boxCenterY = box.y + box.height / 2;
-  // Outward = away from the box centre. Degenerate case (origin exactly at
-  // the centre) falls back to straight up, which is never wrong.
-  let awayX = originX - boxCenterX;
-  let awayY = originY - boxCenterY;
-  const length = Math.hypot(awayX, awayY);
-  if (length < 1) {
-    awayX = 0;
-    awayY = -1;
-  } else {
-    awayX /= length;
-    awayY /= length;
-  }
-  const baseAngle = Math.atan2(awayY, awayX);
-  // The word that triggered this sits INSIDE the box, and the box is masked —
-  // so particles born there would spend their first frames invisible and most
-  // of them would die before ever clearing the edge. Push the origin out to
-  // the boundary along the outward direction: they start where they can
-  // actually be seen, and no motion budget is spent under the mask.
-  const [spawnX, spawnY] = projectOutOfBox(originX, originY, awayX, awayY, box);
-
+  const perimeter = 2 * (box.width + box.height);
   const particles: Particle[] = [];
   for (let i = 0; i < count; i++) {
-    // ±60° around the outward direction: wide enough to look like a burst,
-    // narrow enough that nothing is launched into the box.
-    const angle = baseAngle + (random() - 0.5) * (Math.PI * 2) * (1 / 3);
-    const speed = 90 + random() * 210;
+    // Stratified: one particle per equal slice, jittered inside its slice.
+    const t = ((i + random()) / count) * perimeter;
+    const [x, y, nx, ny] = pointOnPerimeter(t, box);
+    const speed = 22 + random() * 48;
+    // Tangent = normal rotated 90°, so the jitter slides along the edge.
+    const drift = (random() - 0.5) * 30;
     particles.push({
-      x: spawnX,
-      y: spawnY,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
+      x,
+      y,
+      vx: nx * speed + -ny * drift,
+      vy: ny * speed + nx * drift,
       age: 0,
       life: 0.6 + random() * (MAX_LIFE_S - 0.6),
-      size: 6 + random() * 10,
+      size: 5 + random() * 9,
       rotation: random() * Math.PI * 2,
-      spin: (random() - 0.5) * 6,
+      spin: (random() - 0.5) * 5,
     });
   }
   return particles;
 }
 
 /**
- * Walks a point along `(dirX, dirY)` until it leaves the box, plus a small
- * clearance so the first frame is already outside. A point that starts
- * outside is returned untouched.
+ * Maps a distance along the box outline to a point and its OUTWARD normal,
+ * walking top → right → bottom → left.
  */
-export function projectOutOfBox(
-  x: number,
-  y: number,
-  dirX: number,
-  dirY: number,
+export function pointOnPerimeter(
+  distance: number,
   box: Rect,
-  clearance = 4,
-): [number, number] {
-  if (!insideBox(x, y, box)) return [x, y];
-  // Distance to each wall along the direction; the nearest one is the exit.
-  const distances: number[] = [];
-  if (dirX > 0) distances.push((box.x + box.width - x) / dirX);
-  if (dirX < 0) distances.push((box.x - x) / dirX);
-  if (dirY > 0) distances.push((box.y + box.height - y) / dirY);
-  if (dirY < 0) distances.push((box.y - y) / dirY);
-  const exit = distances.filter((d) => d > 0).reduce((a, b) => Math.min(a, b), Infinity);
-  if (!Number.isFinite(exit)) return [x, y]; // no direction to leave by
-  return [x + dirX * (exit + clearance), y + dirY * (exit + clearance)];
+): [x: number, y: number, nx: number, ny: number] {
+  const { x, y, width: w, height: h } = box;
+  const perimeter = 2 * (w + h);
+  // Wrap so callers never have to think about it.
+  let t = distance % perimeter;
+  if (t < 0) t += perimeter;
+  if (t < w) return [x + t, y, 0, -1];
+  t -= w;
+  if (t < h) return [x + w, y + t, 1, 0];
+  t -= h;
+  if (t < w) return [x + w - t, y + h, 0, 1];
+  t -= w;
+  return [x, y + h - t, -1, 0];
 }
 
 /** Advances one particle by `dt` seconds. Returns false once it is spent. */
