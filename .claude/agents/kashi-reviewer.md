@@ -180,6 +180,20 @@ file:line and the checklist item it violates.
 - The renderer reaches telemetry through ONE narrow, coerced preload channel; IPC payloads stay
   untrusted (R-7) and a malformed one is ignored, not reported.
 
+### J. Third-party runtime libraries under the strict CSP (Faz 6.7 lesson)
+
+- Any library that reaches the renderer must work under `default-src 'self'` with NO
+  `unsafe-eval` and NO `unsafe-inline`. Loosening the CSP to accommodate a library is not a
+  trade to make quietly — it is a security change that needs its own argument.
+- Watch for runtime CODE GENERATION specifically: `new Function`, `eval`, WebAssembly
+  compilation, blob workers, dynamically built shaders. Types, tests and lint all pass while
+  this fails, because it only breaks when the real policy is applied to the real renderer.
+  PixiJS v8 generates shader/uniform sync code this way and needs its `pixi.js/unsafe-eval`
+  entry point (named for what it avoids) to run under the policy.
+- A library whose setup can fail must fail LOUDLY enough to diagnose and must stop retrying:
+  the fx layer logged one catch line and re-attempted on every fx word, which read as "nothing
+  is triggering" rather than "setup is refused".
+
 
 ## Output format
 Return a compact report: (1) scope reviewed; (2) findings ranked by severity — each as

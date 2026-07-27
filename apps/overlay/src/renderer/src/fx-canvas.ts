@@ -64,6 +64,9 @@ function drawDebugBounds(
   log('fx layer debug bounds drawn (KASHI_FX_DEBUG)');
 }
 
+/** Give up after this many setup failures (the error will not change). */
+const MAX_SETUP_FAILURES = 2;
+
 interface Live {
   particle: Particle;
   sprite: Sprite;
@@ -80,6 +83,7 @@ export class FxCanvas {
   /** Set by destroy(): an in-flight init must not resurrect a dead layer. */
   private disposed = false;
   private loggedFirstBurst = false;
+  private failures = 0;
 
   constructor(
     private readonly box: Rect,
@@ -154,13 +158,22 @@ export class FxCanvas {
   private async ensureApp(): Promise<Application | null> {
     if (this.app) return this.app;
     if (this.starting || this.disposed) return null; // a second burst during init just misses
+    // Setup failed repeatedly: stop rebuilding a renderer this environment
+    // will not give us. One retry covers a transient; a wall of identical
+    // errors helps nobody and costs a module init per fx word.
+    if (this.failures >= MAX_SETUP_FAILURES) return null;
     this.starting = true;
     try {
       // Loaded HERE, not at module scope: Pixi is over a megabyte, and an
       // overlay that never reaches hype should never parse a byte of it.
-      const pixi = this.pixi ?? (await import('pixi.js'));
+      // Pixi generates its shader/uniform sync code with `new Function()`,
+      // which our CSP forbids and should keep forbidding (R-7). The
+      // `unsafe-eval` entry point is named for the thing it AVOIDS: importing
+      // it swaps that codegen for polyfills, so the layer runs under the
+      // strict policy instead of asking for an exception.
+      const [pixi] = await Promise.all([import('pixi.js'), import('pixi.js/unsafe-eval')]);
       this.pixi = pixi;
-      this.log('fx layer: pixi module loaded');
+      this.log('fx layer: pixi module loaded (CSP-safe codegen installed)');
       const app = new pixi.Application();
       await app.init({
         backgroundAlpha: 0,
@@ -224,7 +237,11 @@ export class FxCanvas {
     } catch (err) {
       // No WebGL, a lost context at startup, anything: the overlay is duller
       // and still works. Never let decoration take the app down.
-      this.log(`fx layer unavailable (${String(err).slice(0, 100)})`);
+      this.failures++;
+      this.log(
+        `fx layer unavailable (${String(err).slice(0, 140)})` +
+          (this.failures >= MAX_SETUP_FAILURES ? ' — giving up for this session' : ''),
+      );
       return null;
     } finally {
       this.starting = false;
