@@ -1,0 +1,58 @@
+/**
+ * Self-heal schedule for a server lookup that failed (Faz 6.7 P3).
+ *
+ * The server gets ONE conditional GET per track start — a deliberate rule, so
+ * a slow server never delays lyrics. The cost showed up in the field: when
+ * that attempt timed out, lrclib's plain text stayed on screen for the WHOLE
+ * song even though the server answered fine seconds later, because nothing
+ * ever asked again (the Danza Kuduro case). One attempt is the right rule for
+ * the critical path and the wrong rule for the three minutes after it.
+ *
+ * So the ladder keeps its single blocking attempt and a background probe
+ * retries on a widening schedule. Pure here; the timers live in the
+ * orchestrator, where the track's AbortController already owns cancellation.
+ */
+import type { ServerLyricsResult } from './kashi-server-logic.js';
+
+/**
+ * Widening, and it ends. Five attempts span about three minutes — roughly a
+ * song — after which either the server is genuinely down or this track is
+ * nearly over, and both mean the same thing: stop asking.
+ */
+export const RETRY_DELAYS_MS = [10_000, 20_000, 40_000, 60_000, 60_000] as const;
+
+/** Delay before attempt N (0-based), or null once the schedule is spent. */
+export function retryDelayMs(attempt: number): number | null {
+  return RETRY_DELAYS_MS[attempt] ?? null;
+}
+
+/** What the user is currently reading, as far as the upgrade rule cares. */
+export interface DisplayedLyrics {
+  source: 'kashi-server' | 'lrclib' | 'none';
+  sync: 'word' | 'line';
+  qualityScore?: number;
+}
+
+/**
+ * Should a late server document replace what is already on screen?
+ *
+ * Swapping lyrics mid-song is a visible event, so it has to buy something.
+ * Word timing over line timing always does — that is the whole point of the
+ * server. Past that the bar is "measurably better", never "different":
+ * re-rendering the same lines at the same quality is pure flicker.
+ */
+export function shouldUpgrade(current: DisplayedLyrics, incoming: ServerLyricsResult): boolean {
+  if (!('found' in incoming) || !incoming.found) return false;
+  if (current.source === 'none') return true;
+  if (incoming.sync === 'word' && current.sync === 'line') return true;
+  if (incoming.sync === 'line' && current.sync === 'word') return false;
+  // Same granularity: only a real quality gain justifies the swap, and only
+  // between comparable documents (an lrclib doc carries no quality score).
+  if (current.source !== 'kashi-server' || current.qualityScore === undefined) return false;
+  return incoming.qualityScore > current.qualityScore;
+}
+
+/** Only an error is worth asking again about — a 404 is an answer. */
+export function isRetryable(result: ServerLyricsResult): boolean {
+  return 'error' in result;
+}

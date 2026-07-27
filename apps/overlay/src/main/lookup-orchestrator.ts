@@ -11,6 +11,12 @@
  */
 import type { TrackInfo } from '@kashi/protocol';
 import type { ServerLyricsResult } from './kashi-server-logic.js';
+import {
+  isRetryable,
+  retryDelayMs,
+  shouldUpgrade,
+  type DisplayedLyrics,
+} from './server-retry-logic.js';
 
 export interface LrclibQuery {
   title: string;
@@ -58,6 +64,8 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export class LookupOrchestrator {
   private abort: AbortController | null = null;
+  /** What the current track is showing — the self-heal upgrade rule reads it. */
+  private displayed: { key: string; state: DisplayedLyrics } | null = null;
 
   constructor(private readonly deps: LookupDeps) {}
 
@@ -92,6 +100,10 @@ export class LookupOrchestrator {
         if (result.sync === 'word') {
           this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
         }
+        this.displayed = {
+          key,
+          state: { source: 'kashi-server', sync: result.sync, qualityScore: result.qualityScore },
+        };
         this.deps.send({ key, ...result });
         return;
       }
@@ -101,8 +113,11 @@ export class LookupOrchestrator {
         this.deps.onServerMiss(key, track);
         this.deps.log(`server 404: ${key} — lrclib fallback + enqueue gate armed`);
       } else {
-        this.deps.log(`server error for ${key} — lrclib fallback (gate NOT armed)`);
+        this.deps.log(`server error for ${key} — lrclib fallback, probing in the background`);
         this.deps.emit?.('lyrics_outcome', { source: 'server-error' });
+        // Do NOT await: the ladder must reach lrclib now. The probe rides the
+        // same AbortController, so a track change kills it.
+        void this.selfHeal(key, track, abort);
       }
     }
 
@@ -135,6 +150,10 @@ export class LookupOrchestrator {
           source: result.found ? 'lrclib' : 'none',
           attempt: attempt + 1,
         });
+        this.displayed = {
+          key,
+          state: { source: result.found ? 'lrclib' : 'none', sync: 'line' },
+        };
         this.deps.send({ key, ...result });
         return;
       } catch (err) {
@@ -145,4 +164,72 @@ export class LookupOrchestrator {
     // error !== genuine miss — renderer shows a different message.
     if (this.deps.isCurrent(key)) this.deps.send({ key, found: false, error: true });
   }
+
+  /**
+   * Background probe after a server ERROR (Faz 6.7 P3).
+   *
+   * A timeout used to cost the whole song: lrclib's plain text stayed up
+   * until the next track, because the ladder asks the server exactly once.
+   * This asks again on a widening schedule and swaps the document in only if
+   * it is genuinely richer — a mid-song re-render has to earn itself.
+   */
+  private async selfHeal(key: string, track: TrackInfo, abort: AbortController): Promise<void> {
+    const getProcessed = this.deps.getProcessed;
+    if (!getProcessed) return;
+    for (let attempt = 0; ; attempt++) {
+      const delay = retryDelayMs(attempt);
+      if (delay === null) {
+        this.deps.log(`server probe gave up on ${key} after ${attempt} attempts`);
+        return;
+      }
+      await abortableSleep(delay, abort.signal);
+      if (abort.signal.aborted || !this.deps.isCurrent(key)) return;
+
+      let result: ServerLyricsResult;
+      try {
+        result = await getProcessed(track.source.type, track.source.id, abort.signal);
+      } catch {
+        continue; // the client swallows its own errors; be defensive anyway
+      }
+      if (abort.signal.aborted || !this.deps.isCurrent(key)) return;
+
+      if (isRetryable(result)) continue;
+
+      if ('found' in result && !result.found) {
+        // A 404 is an answer, not a failure: stop probing and arm the gate
+        // the first attempt could not (an error never proves "unprocessed").
+        this.deps.log(`server probe: ${key} genuinely unprocessed — enqueue gate armed`);
+        this.deps.onServerMiss(key, track);
+        return;
+      }
+
+      const current = this.displayed?.key === key ? this.displayed.state : null;
+      if (!current || !shouldUpgrade(current, result)) {
+        this.deps.log(`server probe: ${key} recovered but not richer than what is shown`);
+        return; // the server answers now; nothing left to heal
+      }
+      if ('found' in result && result.found) {
+        this.deps.log(
+          `server probe: upgrading ${key} to sync=${result.sync} on attempt ${attempt + 1}`,
+        );
+        this.deps.emit?.('lyrics_outcome', {
+          source: 'kashi-server',
+          sync: result.sync,
+          quality: result.qualityScore,
+          upgraded: true,
+          attempt: attempt + 1,
+        });
+        if (result.sync === 'word') {
+          this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
+        }
+        this.displayed = {
+          key,
+          state: { source: 'kashi-server', sync: result.sync, qualityScore: result.qualityScore },
+        };
+        this.deps.send({ key, ...result });
+      }
+      return;
+    }
+  }
+
 }

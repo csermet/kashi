@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TrackInfo } from '@kashi/protocol';
 import { LookupOrchestrator, type LookupDeps } from './lookup-orchestrator.js';
 
@@ -94,5 +94,93 @@ describe('LookupOrchestrator', () => {
     );
     await orchestrator.lookup(KEY, TRACK);
     expect(calls).toBe(1); // no second attempt after cancel
+  });
+});
+
+describe('server self-heal (Faz 6.7 P3)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** Runs the ladder to completion under fake timers (lrclib sleeps too). */
+  async function runLadder(d: ReturnType<typeof deps>) {
+    const orch = new LookupOrchestrator(d);
+    const done = orch.lookup(KEY, TRACK);
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    return orch;
+  }
+
+  it('recovers the rich document mid-song after a server timeout', async () => {
+    vi.useFakeTimers();
+    // The first call times out (the Danza Kuduro case), the next one answers.
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({
+        found: true,
+        source: 'kashi-server',
+        sync: 'word',
+        qualityScore: 0.92,
+        lines: [],
+      });
+    const onServerWordHit = vi.fn();
+    const emit = vi.fn();
+    const d = deps({ getProcessed, onServerWordHit, emit });
+
+    await runLadder(d);
+    // lrclib filled the screen immediately — the probe never blocks the ladder.
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true });
+    expect(getProcessed).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(getProcessed).toHaveBeenCalledTimes(2);
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'word', qualityScore: 0.92 });
+    expect(onServerWordHit).toHaveBeenCalledOnce();
+    expect(emit).toHaveBeenCalledWith(
+      'lyrics_outcome',
+      expect.objectContaining({ upgraded: true, attempt: 1 }),
+    );
+  });
+
+  it('a track change kills the probe — no ghost swap on the next song', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi.fn().mockResolvedValue({ error: true });
+    const d = deps({ getProcessed });
+
+    const orch = await runLadder(d);
+    orch.cancel();
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect(getProcessed).toHaveBeenCalledTimes(1); // only the blocking attempt
+  });
+
+  it('a genuine 404 stops the probe and arms the enqueue gate', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({ found: false });
+    const d = deps({ getProcessed });
+
+    await runLadder(d);
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(d.onServerMiss).toHaveBeenCalledWith(KEY, TRACK);
+
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect(getProcessed).toHaveBeenCalledTimes(2); // an answer ends the probe
+  });
+
+  it('a healthy server never arms the probe', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi.fn().mockResolvedValue({
+      found: true,
+      source: 'kashi-server',
+      sync: 'word',
+      qualityScore: 0.9,
+      lines: [],
+    });
+    const d = deps({ getProcessed });
+
+    await runLadder(d);
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect(getProcessed).toHaveBeenCalledTimes(1);
   });
 });
