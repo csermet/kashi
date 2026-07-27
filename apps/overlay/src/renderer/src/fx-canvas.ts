@@ -79,6 +79,7 @@ export class FxCanvas {
   private starting = false;
   /** Set by destroy(): an in-flight init must not resurrect a dead layer. */
   private disposed = false;
+  private loggedFirstBurst = false;
 
   constructor(
     private readonly box: Rect,
@@ -141,6 +142,13 @@ export class FxCanvas {
       app.canvas.style.visibility = 'visible';
       app.ticker.start();
     }
+    if (!this.loggedFirstBurst) {
+      this.loggedFirstBurst = true;
+      this.log(
+        `fx layer: first burst at (${Math.round(x)},${Math.round(y)}) -> ` +
+          `${this.live.length} sprite(s), canvas ${app.canvas.isConnected ? 'in DOM' : 'DETACHED'}`,
+      );
+    }
   }
 
   private async ensureApp(): Promise<Application | null> {
@@ -152,6 +160,7 @@ export class FxCanvas {
       // overlay that never reaches hype should never parse a byte of it.
       const pixi = this.pixi ?? (await import('pixi.js'));
       this.pixi = pixi;
+      this.log('fx layer: pixi module loaded');
       const app = new pixi.Application();
       await app.init({
         backgroundAlpha: 0,
@@ -198,6 +207,12 @@ export class FxCanvas {
         const canvas = drawParticleCanvas(shape);
         if (canvas) this.textures.set(shape, pixi.Texture.from(canvas));
       }
+      // Every step of this path used to fail silently, which is how a layer
+      // that never appears looks exactly like a layer with nothing to do.
+      this.log(
+        `fx layer ready: renderer=${app.renderer.type} ${app.renderer.width}x${app.renderer.height}` +
+          ` textures=${this.textures.size}/${PARTICLE_SHAPES.length}`,
+      );
       const layer = new pixi.Container();
       app.stage.addChild(layer);
       app.ticker.add(({ deltaMS }) => this.frame(deltaMS / 1000));
