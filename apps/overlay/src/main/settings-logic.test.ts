@@ -270,36 +270,48 @@ describe('TIMING_OFFSET_PRESETS', () => {
   });
 });
 
-describe('migrateWindowBounds (Faz 6.5 P2 — the one-time window growth)', () => {
-  it('shifts legacy 560×180 bounds so the BOX stays put (x-40, y-120 @ 640×300)', () => {
-    const migrated = migrateWindowBounds({ x: 1000, y: 500, width: 560, height: 180 }, 640, 300);
-    expect(migrated).toEqual({ x: 960, y: 380, width: 640, height: 300 });
+describe('migrateWindowBounds (the box stays put while the window grows)', () => {
+  const ZONE_0_15 = { x: 120, y: 160 }; // BOX_ZONE at 800×460
+
+  /** Where the box's top-left lands on screen for a given window origin. */
+  const boxOrigin = (b: { x: number; y: number }, zone: { x: number; y: number }) => ({
+    x: b.x + zone.x,
+    y: b.y + zone.y,
   });
 
-  it('passes non-legacy bounds through with only the size pinned (DPI trap)', () => {
-    // Already-migrated bounds round-trip unchanged.
-    expect(migrateWindowBounds({ x: 960, y: 380, width: 640, height: 300 }, 640, 300)).toEqual({
-      x: 960,
-      y: 380,
-      width: 640,
-      height: 300,
-    });
-    // Hand-edited garbage sizes: position kept, size pinned to the real window.
-    expect(migrateWindowBounds({ x: 10, y: 20, width: 9999, height: 1 }, 640, 300)).toEqual({
-      x: 10,
-      y: 20,
-      width: 640,
-      height: 300,
-    });
+  it('migrates ≤0.8.x bounds (the box WAS the window) across both growths', () => {
+    const saved = { x: 200, y: 300, width: 560, height: 180 };
+    const migrated = migrateWindowBounds(saved, 800, 460, ZONE_0_15);
+    expect(migrated).toEqual({ x: 80, y: 140, width: 800, height: 460 });
+    expect(boxOrigin(migrated, ZONE_0_15)).toEqual(boxOrigin(saved, { x: 0, y: 0 }));
   });
 
-  it('box optical position is preserved exactly (zone == old window rect)', () => {
-    // Old box center: window origin + (280, 90). New box zone center:
-    // origin + (40+280, 120+90). The migration must cancel the difference.
-    const old = { x: 200, y: 300, width: 560, height: 180 };
-    const oldBoxCenter = { x: old.x + 280, y: old.y + 90 };
-    const migrated = migrateWindowBounds(old, 640, 300);
-    const newBoxCenter = { x: migrated.x + 40 + 280, y: migrated.y + 120 + 90 };
-    expect(newBoxCenter).toEqual(oldBoxCenter);
+  it('migrates 0.9.0–0.14.x bounds by the difference between the two zones', () => {
+    const saved = { x: 960, y: 380, width: 640, height: 300 };
+    const migrated = migrateWindowBounds(saved, 800, 460, ZONE_0_15);
+    expect(migrated).toEqual({ x: 880, y: 340, width: 800, height: 460 });
+    expect(boxOrigin(migrated, ZONE_0_15)).toEqual(boxOrigin(saved, { x: 40, y: 120 }));
+  });
+
+  it('the 0.9.0 growth still migrates correctly on its own terms', () => {
+    // The older path has to keep working for anyone jumping ≤0.8.x → 0.9.x.
+    expect(
+      migrateWindowBounds({ x: 1000, y: 500, width: 560, height: 180 }, 640, 300, {
+        x: 40,
+        y: 120,
+      }),
+    ).toEqual({ x: 960, y: 380, width: 640, height: 300 });
+  });
+
+  it('already-current bounds round-trip unchanged', () => {
+    // 800×460 is not in the sentinel list, but even if a future size collided
+    // with a past one, matching the CURRENT window means nothing to migrate.
+    expect(migrateWindowBounds({ x: 880, y: 340, width: 800, height: 460 }, 800, 460, ZONE_0_15))
+      .toEqual({ x: 880, y: 340, width: 800, height: 460 });
+  });
+
+  it('passes unknown sizes through with only the size pinned (DPI trap)', () => {
+    expect(migrateWindowBounds({ x: 10, y: 20, width: 9999, height: 1 }, 800, 460, ZONE_0_15))
+      .toEqual({ x: 10, y: 20, width: 800, height: 460 });
   });
 });

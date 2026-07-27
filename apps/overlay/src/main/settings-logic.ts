@@ -139,27 +139,42 @@ export function nearestPresetIndex(alpha: number): number {
 /** The pre-0.9.0 window size — the SENTINEL for legacy saved bounds
  * (persistWindowBounds always writes the real window size, so an exact
  * 560×180 can only come from a ≤0.8.x install). */
+/**
+ * Every window size this app has shipped, with where the BOX ZONE sat inside
+ * it. The zone is the box's real home — the window only ever grew around it —
+ * so a saved position migrates by the difference between two zone origins and
+ * the box lands on the same pixel it was parked on.
+ *
+ * A size is a SENTINEL: persistWindowBounds always writes the real window
+ * size, so an exact match can only come from the build that shipped it.
+ */
+export const KNOWN_WINDOWS = [
+  { width: 560, height: 180, zoneX: 0, zoneY: 0 }, // ≤0.8.x — the box WAS the window
+  { width: 640, height: 300, zoneX: 40, zoneY: 120 }, // 0.9.0–0.14.x
+] as const;
+
+/** Kept for the 0.9.0 migration tests and readers of the older comment. */
 export const LEGACY_WINDOW = { width: 560, height: 180 } as const;
 
 /**
- * 0.9.0 grew the window once (top icon band + side gutters) while keeping
- * the BOX ZONE — the bottom-centered old-window rect — as the box's home.
- * Legacy bounds shift by the band/gutter so the box stays EXACTLY where the
- * user parked it (the zone equals the old window rect, all content heights
- * included). Anything else passes through with the size pinned: stored
- * width/height could be hand-edited, and a position-only move across a
+ * Shifts bounds saved by an older build so the BOX stays put while the window
+ * grows around it. Anything unrecognized passes through with the size pinned:
+ * stored width/height could be hand-edited, and a position-only move across a
  * Windows DPI boundary rescales the window (the drag-path trap).
  */
 export function migrateWindowBounds(
   bounds: WindowBounds,
   windowWidth: number,
   windowHeight: number,
+  zone: { x: number; y: number } = { x: 0, y: 0 },
 ): WindowBounds {
-  const legacy =
-    bounds.width === LEGACY_WINDOW.width && bounds.height === LEGACY_WINDOW.height;
+  const previous = KNOWN_WINDOWS.find(
+    (w) => w.width === bounds.width && w.height === bounds.height,
+  );
+  const known = previous && !(bounds.width === windowWidth && bounds.height === windowHeight);
   return {
-    x: legacy ? bounds.x - Math.round((windowWidth - LEGACY_WINDOW.width) / 2) : bounds.x,
-    y: legacy ? bounds.y - (windowHeight - LEGACY_WINDOW.height) : bounds.y,
+    x: known ? bounds.x - (zone.x - previous.zoneX) : bounds.x,
+    y: known ? bounds.y - (zone.y - previous.zoneY) : bounds.y,
     width: windowWidth,
     height: windowHeight,
   };

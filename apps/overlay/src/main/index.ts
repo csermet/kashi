@@ -62,19 +62,24 @@ const logRenderer = makeLogger('renderer');
 /** NOTE: the extension keeps its own announce debounce of the same length. */
 const TRACK_DEBOUNCE_MS = 500;
 /**
- * 0.9.0 window geometry (Faz 6.5 P2): the window grew ONCE (560×180 →
- * 640×300) to host effects OUTSIDE the lyric box — a 120px top icon stage
- * and 40px side gutters (the ambient ring stops clipping at the edge). The
- * BOX ZONE (bottom 640×… center 560×180) is the old window verbatim:
- * `#stage` pads the band away and centers the box in the remaining area, so
- * saved positions migrate by a constant shift (settings-logic
- * migrateWindowBounds) and the box stays exactly where the user parked it.
+ * 0.15.0 window geometry (Faz 6.7 P4): the window grew a second time
+ * (640×300 → 800×460) to give effects room on EVERY side of the lyric box.
+ * 0.9.0's band was top-only, so anything that fell had nowhere to land and
+ * the bottom edge cut it off mid-motion; the margins are now 160 above (a
+ * runway), 120 below (somewhere to fade out) and 120 either side (a burst
+ * radius).
+ *
+ * The BOX ZONE stays the original 560×180 rect. `#stage` pads it away and
+ * centers the box in what is left, so saved positions migrate by a constant
+ * shift (settings-logic migrateWindowBounds) and the box stays exactly where
+ * the user parked it — across BOTH growths.
+ *
  * Still a FIXED size — transparent windows must never resize (Electron).
  */
-const WINDOW_WIDTH = 640;
-const WINDOW_HEIGHT = 300;
+const WINDOW_WIDTH = 800;
+const WINDOW_HEIGHT = 460;
 /** Box zone rect inside the window (must match #stage padding in style.css). */
-const BOX_ZONE = { x: 40, y: 120, width: 560, height: 180 } as const;
+const BOX_ZONE = { x: 120, y: 160, width: 560, height: 180 } as const;
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
@@ -309,7 +314,7 @@ function createOverlayWindow(): BrowserWindow {
   if (savedBounds) {
     // ≤0.8.x bounds (the legacy 560×180 size is the sentinel) shift by the
     // band/gutter so the lyric BOX lands exactly where the user parked it.
-    const target = migrateWindowBounds(savedBounds, WINDOW_WIDTH, WINDOW_HEIGHT);
+    const target = migrateWindowBounds(savedBounds, WINDOW_WIDTH, WINDOW_HEIGHT, BOX_ZONE);
     if (target.x !== savedBounds.x || target.y !== savedBounds.y) {
       // A box parked <120px from the top edge now puts the band off-screen
       // (icons drop invisibly; some Linux WMs clamp instead) — log the

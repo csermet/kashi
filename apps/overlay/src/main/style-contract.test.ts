@@ -78,27 +78,47 @@ describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
   });
 });
 
-describe('style contract: icon stage / park spot (Faz 6.5 P2)', () => {
-  // Structural shells may exist outside hype ONLY as these invisible base
-  // selectors (position/opacity:0); every visible rule must be hype-scoped.
-  const BASE_SHELLS = new Set(['#fx-stage {', '.stage-slot {', '#fx-park {']);
-
-  it('every stage/park selector is hype-scoped or an invisible base shell', () => {
-    const offenders = selectorLines(css).filter(
+describe('style contract: the removed icon stage stays removed (Faz 6.7 P4)', () => {
+  it('no rule mentions the stage band or the park spot', () => {
+    // 0.9.0 put icons outside the box by dropping them from a top band and
+    // parking one in the left gutter. Caner's field verdict was that both
+    // read as plain, so they were removed rather than tuned — the particle
+    // layer replaces them. A stray rule would be dead weight that still
+    // participates in the cascade.
+    const strays = selectorLines(css).filter(
       (line) =>
-        (line.includes('fx-stage') || line.includes('stage-slot') || line.includes('fx-park')) &&
-        !line.startsWith('body.fx-hype') &&
-        !BASE_SHELLS.has(line),
+        line.includes('fx-stage') || line.includes('stage-slot') || line.includes('fx-park'),
     );
-    expect(offenders).toEqual([]);
+    expect(strays).toEqual([]);
+    expect(css).not.toContain('kashi-stage-drop');
   });
+});
 
-  it('base shells are invisible and click-through (opacity 0 + no pointer events)', () => {
-    for (const shell of ['#fx-stage', '.stage-slot', '#fx-park']) {
-      const block = css.match(new RegExp(`^${shell.replace('.', '\\.')} \\{[^}]*\\}`, 'm'))?.[0];
-      expect(block, shell).toBeDefined();
-      expect(block, shell).toContain('pointer-events: none');
-      if (shell !== '#fx-stage') expect(block, shell).toContain('opacity: 0');
-    }
+describe('style contract: the box zone matches the window (Faz 6.7 P4)', () => {
+  const main = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8');
+
+  it('#stage padding is exactly the margin BOX_ZONE leaves around the box', () => {
+    // Two files have to agree or the box drifts from where main thinks it is:
+    // main hit-tests and migrates positions against BOX_ZONE, the renderer
+    // lays the box out with padding. This nails them together.
+    const zone = main.match(
+      /const BOX_ZONE = \{ x: (\d+), y: (\d+), width: (\d+), height: (\d+) \}/,
+    );
+    const size = main.match(/const WINDOW_WIDTH = (\d+);\nconst WINDOW_HEIGHT = (\d+);/);
+    expect(zone, 'BOX_ZONE literal').not.toBeNull();
+    expect(size, 'WINDOW_* literals').not.toBeNull();
+    const [x, y, width, height] = zone!.slice(1).map(Number) as [number, number, number, number];
+    const [windowWidth, windowHeight] = size!.slice(1).map(Number) as [number, number];
+
+    const padding = css.match(/#stage \{[^}]*padding: (\d+)px (\d+)px (\d+)px;/);
+    expect(padding, '#stage padding').not.toBeNull();
+    const [top, side, bottom] = padding!.slice(1).map(Number) as [number, number, number];
+
+    expect({ top, side, bottom }).toEqual({
+      top: y,
+      side: x,
+      bottom: windowHeight - y - height,
+    });
+    expect(x * 2 + width).toBe(windowWidth); // the box is horizontally centered
   });
 });
