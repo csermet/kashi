@@ -443,15 +443,20 @@ body.fx-hype .word.fx-word.word-active {
     color 120ms ease-out,
     transform 340ms var(--fx-spring);
 }
-/* Sung fx word keeps a whisper of its tint (word-sung pins bright).
-   OKLAB, never OKLCH: OKLCH interpolates the HUE ANGLE along the shorter
-   arc, so mixing two distant hues invents a third one — a green palette with
-   a pink love tint travelled through YELLOW and the word stayed gold after it
-   was sung (field report). Oklab mixes in rectangular coordinates: the blend
-   desaturates toward the primary instead of rotating to a colour neither
-   input had. */
+/* A sung fx word KEEPS its category colour, just calmer (Caner, field round
+   2026-07-27). The previous 70% primary blend was so close to the palette
+   that the category identity vanished the moment the word passed, leaving
+   only the icon to carry it. Now the tint leads and the palette pulls it a
+   little toward the rest of the line, so the word still reads as "the love
+   word" after it is sung.
+
+   OKLAB, never OKLCH: OKLCH interpolates the HUE ANGLE along the shorter arc,
+   so mixing two distant hues invents a third one — a green palette with a
+   pink love tint travelled through YELLOW and the word stayed gold (field
+   report). Oklab mixes in rectangular coordinates, so a blend can only sit
+   between its inputs. */
 body.fx-hype .word.fx-word.word-sung {
-  color: color-mix(in oklab, var(--kashi-primary, #fff) 70%, var(--fx-color));
+  color: color-mix(in oklab, var(--fx-color) 70%, var(--kashi-primary, #fff));
 }
 
 /* Inline category icon: rides INSIDE the word span (wraps with the word,
