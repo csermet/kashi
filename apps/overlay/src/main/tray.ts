@@ -12,6 +12,13 @@ import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'e
 // The PACKAGED app ships the icon via electron-builder extraResources and
 // reads it from process.resourcesPath instead (Faz 5 P5).
 import trayIconPath from '../../resources/tray.png?asset';
+import { BOX_SCALES, type BoxScale } from '../shared/box-zone.js';
+import { TEXT_SCALES, type TextScale } from '../shared/text-scale.js';
+
+/** Shared label for both size presets — they offer the same three steps. */
+function scaleLabel(scale: TextScale | BoxScale): string {
+  return { small: 'Small', medium: 'Medium', large: 'Large' }[scale];
+}
 
 const resolvedTrayIcon = app.isPackaged
   ? join(process.resourcesPath, 'tray.png')
@@ -49,6 +56,10 @@ export interface KashiMenuOptions {
   onThemeScopeSelect: (scope: ThemeScope) => void;
   getFillStyle: () => FillStyle;
   onFillStyleSelect: (style: FillStyle) => void;
+  getTextScale: () => TextScale;
+  onTextScaleSelect: (scale: TextScale) => void;
+  getBoxScale: () => BoxScale;
+  onBoxScaleSelect: (scale: BoxScale) => void;
   onServerSettings: () => void;
   onResetPosition: () => void;
   /** lrclib contribute-back (Faz 5 P6): visible only while a kashi-server
@@ -127,6 +138,20 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     checked: style === fillStyle,
     click: () => opts.onFillStyleSelect(style),
   }));
+  const textScale = opts.getTextScale();
+  const textItems: MenuItemConstructorOptions[] = TEXT_SCALES.map((scale) => ({
+    label: scaleLabel(scale),
+    type: 'radio',
+    checked: scale === textScale,
+    click: () => opts.onTextScaleSelect(scale),
+  }));
+  const boxScale = opts.getBoxScale();
+  const boxItems: MenuItemConstructorOptions[] = BOX_SCALES.map((scale) => ({
+    label: scaleLabel(scale),
+    type: 'radio',
+    checked: scale === boxScale,
+    click: () => opts.onBoxScaleSelect(scale),
+  }));
   // Parent labels carry the live value (retro 4.5): the menu is rebuilt on
   // every settings change anyway, so "— Full" / "— +100 ms" is free and saves
   // a submenu dive just to check the current state.
@@ -136,6 +161,8 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { label: `Effects — ${effectLevelLabel(effectLevel)}`, submenu: effectItems },
     { label: `Theme colors — ${themeScopeLabel(themeScope)}`, submenu: themeItems },
     { label: `Word fill — ${fillStyleLabel(fillStyle)}`, submenu: fillItems },
+    { label: `Text size — ${scaleLabel(textScale)}`, submenu: textItems },
+    { label: `Box size — ${scaleLabel(boxScale)}`, submenu: boxItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },
     { label: `Timing offset — ${shortOffsetLabel(offset)}`, submenu: timingItems },
     // The per-song "Report good sync to LRCLIB" entry was REMOVED from the UI

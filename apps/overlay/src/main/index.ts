@@ -46,7 +46,7 @@ import {
   emptyLatch,
 } from './source-latch-logic.js';
 import { adjustAlpha, adjustTimingOffset, clampAlpha, isPositionVisible, clampTimingOffset,
-  migrateWindowBounds,
+  migrateWindowBounds, parseBoxScale, parseTextScale, DEFAULT_BOX_SCALE, DEFAULT_TEXT_SCALE,
 } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
 import { buildKashiMenu, createTray, type KashiMenuOptions, type TrayHandle } from './tray.js';
@@ -358,6 +358,8 @@ function broadcastSettings(): void {
     effect_level: current.effect_level,
     theme_scope: current.theme_scope,
     fill_style: current.fill_style,
+    text_scale: current.text_scale,
+    box_scale: current.box_scale,
   });
 }
 
@@ -396,6 +398,22 @@ function applyFillStyle(style: unknown): void {
   const parsed = parseFillStyle(style);
   settings?.update({ fill_style: parsed });
   log(`setting: fill style -> ${parsed}`);
+  broadcastSettings();
+  tray?.refresh();
+}
+
+function applyTextScale(scale: unknown): void {
+  const parsed = parseTextScale(scale);
+  settings?.update({ text_scale: parsed });
+  log(`setting: text size -> ${parsed}`);
+  broadcastSettings();
+  tray?.refresh();
+}
+
+function applyBoxScale(scale: unknown): void {
+  const parsed = parseBoxScale(scale);
+  settings?.update({ box_scale: parsed });
+  log(`setting: box size -> ${parsed}`);
   broadcastSettings();
   tray?.refresh();
 }
@@ -846,6 +864,10 @@ app.whenReady().then(async () => {
     onThemeScopeSelect: applyThemeScope,
     getFillStyle: () => settings?.get().fill_style ?? DEFAULT_FILL_STYLE,
     onFillStyleSelect: applyFillStyle,
+    getTextScale: () => settings?.get().text_scale ?? DEFAULT_TEXT_SCALE,
+    onTextScaleSelect: applyTextScale,
+    getBoxScale: () => settings?.get().box_scale ?? DEFAULT_BOX_SCALE,
+    onBoxScaleSelect: applyBoxScale,
     onServerSettings: openServerSettingsPrompt,
     onResetPosition: resetWindowPosition,
     getCanReportSync: () =>

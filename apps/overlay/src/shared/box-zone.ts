@@ -25,5 +25,42 @@ export interface BoxRect {
 export const WINDOW_WIDTH = 800;
 export const WINDOW_HEIGHT = 460;
 
-/** Where the lyric box lives inside the window (must match #stage padding). */
-export const BOX_ZONE: BoxRect = { x: 120, y: 160, width: 560, height: 180 };
+export type BoxScale = 'small' | 'medium' | 'large';
+
+export const BOX_SCALES: readonly BoxScale[] = ['small', 'medium', 'large'];
+
+/**
+ * How big the box is, at the user's choice (Faz 7 P3). The WINDOW never
+ * changes — that constraint above is not negotiable — so the box grows and
+ * shrinks INSIDE it, around a fixed centre. Moving the centre would make a
+ * resize feel like the box jumped somewhere else.
+ *
+ * Every preset keeps at least EDGE_FADE_PX (96) of margin on all four sides,
+ * so particles still have somewhere to fade out and no burst ever gets cut
+ * off against the window edge. That is what caps `large` at 608 wide rather
+ * than a rounder 640.
+ */
+export const BOX_ZONE_PRESETS: Record<BoxScale, BoxRect> = {
+  small: { x: 160, y: 180, width: 480, height: 140 },
+  medium: { x: 120, y: 160, width: 560, height: 180 },
+  large: { x: 96, y: 140, width: 608, height: 220 },
+};
+
+/**
+ * The default geometry, unchanged since 0.15.0. Saved window positions and
+ * the stylesheet's static padding are both anchored to THIS, so a user who
+ * never touches the setting sees exactly what they saw before.
+ */
+export const BOX_ZONE: BoxRect = BOX_ZONE_PRESETS.medium;
+
+/** The size the app has always had. */
+export const DEFAULT_BOX_SCALE: BoxScale = 'medium';
+
+export function parseBoxScale(value: unknown): BoxScale {
+  return BOX_SCALES.includes(value as BoxScale) ? (value as BoxScale) : DEFAULT_BOX_SCALE;
+}
+
+/** The zone for a scale, tolerant of anything unexpected. */
+export function boxZoneFor(scale: BoxScale | string | undefined): BoxRect {
+  return BOX_ZONE_PRESETS[(scale ?? '') as BoxScale] ?? BOX_ZONE;
+}

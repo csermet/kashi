@@ -10,6 +10,15 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import {
+  BOX_SCALES,
+  BOX_ZONE,
+  BOX_ZONE_PRESETS,
+  boxZoneFor,
+  WINDOW_HEIGHT,
+  WINDOW_WIDTH,
+} from '../shared/box-zone.js';
+import { EDGE_FADE_PX } from '../renderer/src/fx-particles-logic.js';
 
 const css = readFileSync(
   fileURLToPath(new URL('../renderer/src/style.css', import.meta.url)),
@@ -94,37 +103,54 @@ describe('style contract: the removed icon stage stays removed (Faz 6.7 P4)', ()
   });
 });
 
-describe('style contract: the box zone matches the window (Faz 6.7 P4)', () => {
-  const geometry = readFileSync(
-    fileURLToPath(new URL('../shared/box-zone.ts', import.meta.url)),
-    'utf8',
-  );
-
-  it('#stage padding is exactly the margin BOX_ZONE leaves around the box', () => {
+describe('style contract: the box zone matches the window (Faz 6.7 P4 / Faz 7 P3)', () => {
+  it('#stage padding is exactly the margin the DEFAULT zone leaves around the box', () => {
     // Two files have to agree or the box drifts from where main thinks it is:
     // main hit-tests and migrates positions against BOX_ZONE, the renderer
-    // lays the box out with padding. This nails them together.
-    const zone = geometry.match(
-      /BOX_ZONE: BoxRect = \{ x: (\d+), y: (\d+), width: (\d+), height: (\d+) \}/,
-    );
-    const size = geometry.match(
-      /WINDOW_WIDTH = (\d+);\nexport const WINDOW_HEIGHT = (\d+);/,
-    );
-    expect(zone, 'BOX_ZONE literal').not.toBeNull();
-    expect(size, 'WINDOW_* literals').not.toBeNull();
-    const [x, y, width, height] = zone!.slice(1).map(Number) as [number, number, number, number];
-    const [windowWidth, windowHeight] = size!.slice(1).map(Number) as [number, number];
-
+    // lays the box out with padding. This nails them together. The stylesheet
+    // states the DEFAULT geometry; the other scales are applied at runtime.
     const padding = css.match(/#stage \{[^}]*padding: (\d+)px (\d+)px (\d+)px;/);
     expect(padding, '#stage padding').not.toBeNull();
     const [top, side, bottom] = padding!.slice(1).map(Number) as [number, number, number];
 
     expect({ top, side, bottom }).toEqual({
-      top: y,
-      side: x,
-      bottom: windowHeight - y - height,
+      top: BOX_ZONE.y,
+      side: BOX_ZONE.x,
+      bottom: WINDOW_HEIGHT - BOX_ZONE.y - BOX_ZONE.height,
     });
-    expect(x * 2 + width).toBe(windowWidth); // the box is horizontally centered
+    expect(BOX_ZONE.x * 2 + BOX_ZONE.width).toBe(WINDOW_WIDTH); // horizontally centered
+  });
+
+  it('every box scale stays centred, inside the window, with room to fade', () => {
+    // A box the user can resize must not push particles against the window
+    // edge: below EDGE_FADE_PX of margin they would be cut off mid-flight
+    // instead of fading, which is exactly the visible boundary Caner ruled out.
+    const centre = { x: BOX_ZONE.x + BOX_ZONE.width / 2, y: BOX_ZONE.y + BOX_ZONE.height / 2 };
+    for (const scale of BOX_SCALES) {
+      const zone = BOX_ZONE_PRESETS[scale];
+      expect(zone.x * 2 + zone.width, `${scale} not centred horizontally`).toBe(WINDOW_WIDTH);
+      expect(
+        { x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 },
+        `${scale} moved the centre`,
+      ).toEqual(centre);
+      const margins = [
+        zone.x,
+        zone.y,
+        WINDOW_WIDTH - zone.x - zone.width,
+        WINDOW_HEIGHT - zone.y - zone.height,
+      ];
+      for (const margin of margins) {
+        expect(margin, `${scale} leaves only ${margin}px of margin`).toBeGreaterThanOrEqual(
+          EDGE_FADE_PX,
+        );
+      }
+    }
+  });
+
+  it('the default scale IS the shipped zone — an untouched install cannot move', () => {
+    expect(boxZoneFor('medium')).toEqual(BOX_ZONE);
+    expect(boxZoneFor(undefined)).toEqual(BOX_ZONE);
+    expect(boxZoneFor('not-a-scale')).toEqual(BOX_ZONE);
   });
 });
 

@@ -14,6 +14,13 @@ import {
   type ThemeScope,
 } from '../shared/effect-level.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
+import { DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from '../shared/box-zone.js';
+import { DEFAULT_TEXT_SCALE, parseTextScale, type TextScale } from '../shared/text-scale.js';
+
+export { DEFAULT_TEXT_SCALE, TEXT_SCALES, TEXT_SCALE_FACTORS, parseTextScale } from '../shared/text-scale.js';
+export type { TextScale } from '../shared/text-scale.js';
+
+export { DEFAULT_BOX_SCALE, parseBoxScale } from '../shared/box-zone.js';
 
 export const OPACITY_PRESETS = [0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9] as const;
 export const OPACITY_MIN = 0;
@@ -74,6 +81,14 @@ export interface StoredSettings {
    * default is on and the tray carries the opt-out.
    */
   telemetry_enabled: boolean;
+  /**
+   * Lyric text size and box size, as three presets each (Faz 7 P3). Presets
+   * rather than free values: every box size has to keep enough margin for the
+   * particle layer to fade out in, and a slider would let a user pick a
+   * geometry where effects get cut off against the window edge.
+   */
+  text_scale: TextScale;
+  box_scale: BoxScale;
 }
 
 export const DEFAULT_SETTINGS: StoredSettings = {
@@ -87,6 +102,8 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   theme_scope: DEFAULT_THEME_SCOPE,
   fill_style: DEFAULT_FILL_STYLE,
   telemetry_enabled: true,
+  text_scale: DEFAULT_TEXT_SCALE,
+  box_scale: DEFAULT_BOX_SCALE,
 };
 
 /** Integer ms in [-500, 500]; garbage → 0 (Off). */
@@ -268,5 +285,7 @@ export function parseSettings(raw: string): StoredSettings {
     // Only an explicit false opts out — a corrupt or absent value keeps the
     // default rather than silently disabling the channel we debug with.
     telemetry_enabled: record['telemetry_enabled'] !== false,
+    text_scale: parseTextScale(record['text_scale']),
+    box_scale: parseBoxScale(record['box_scale']),
   };
 }

@@ -41,7 +41,20 @@ import {
 import { FxCanvas } from './fx-canvas.js';
 import { FX_ICON_VARIANTS, FX_ICON_VIEWBOX } from './fx-icons.js';
 import { parseTintColor, shouldMountLayer } from './fx-particles-logic.js';
-import { BOX_ZONE } from '../../shared/box-zone.js';
+import {
+  BOX_ZONE,
+  boxZoneFor,
+  DEFAULT_BOX_SCALE,
+  parseBoxScale,
+  WINDOW_HEIGHT,
+  type BoxScale,
+} from '../../shared/box-zone.js';
+import {
+  DEFAULT_TEXT_SCALE,
+  parseTextScale,
+  TEXT_SCALE_FACTORS,
+  type TextScale,
+} from '../../shared/text-scale.js';
 import { PositionClock } from './position-clock.js';
 import { SnapClassifier } from './snap-classifier.js';
 import {
@@ -62,7 +75,6 @@ import type {
   SectionData,
 } from '../../shared/lyrics.js';
 import { loadArtworkPalette } from './artwork-palette.js';
-
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
 
@@ -178,6 +190,33 @@ function syncFxLayer(): void {
   } else if (!wanted && fxCanvas) {
     fxCanvas.destroy();
     fxCanvas = null;
+  }
+}
+
+// Text and box size presets (Faz 7 P3). The window never changes size — the
+// box scales INSIDE it around a fixed centre — so this is three CSS variables
+// and nothing else. Defaults reproduce the shipped look exactly.
+let textScale: TextScale = DEFAULT_TEXT_SCALE;
+let boxScale: BoxScale = DEFAULT_BOX_SCALE;
+
+/**
+ * Writes the size presets as CSS variables.
+ *
+ * `#stage` padding is set INLINE rather than in the stylesheet: the static
+ * rule states the default geometry and is pinned to BOX_ZONE by a contract
+ * test, so the runtime override has to live somewhere that cannot drift from
+ * it.
+ */
+function applySizeVars(): void {
+  const root = document.documentElement.style;
+  root.setProperty('--kashi-text-scale', String(TEXT_SCALE_FACTORS[textScale]));
+  const zone = boxZoneFor(boxScale);
+  // The box is content-sized within its zone; 60px is the gutter the shipped
+  // 560px zone left around a 500px box.
+  root.setProperty('--kashi-box-max-width', `${zone.width - 60}px`);
+  const stage = document.getElementById('stage');
+  if (stage) {
+    stage.style.padding = `${zone.y}px ${zone.x}px ${WINDOW_HEIGHT - zone.y - zone.height}px`;
   }
 }
 
@@ -734,13 +773,16 @@ function flashTimingOffset(offsetMs: number): void {
 }
 
 window.kashi.onSettings((payload) => {
-  const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style } = payload as {
-    box_alpha?: unknown;
-    timing_offset_ms?: unknown;
-    effect_level?: unknown;
-    theme_scope?: unknown;
-    fill_style?: unknown;
-  };
+  const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
+    payload as {
+      box_alpha?: unknown;
+      timing_offset_ms?: unknown;
+      effect_level?: unknown;
+      theme_scope?: unknown;
+      fill_style?: unknown;
+      text_scale?: unknown;
+      box_scale?: unknown;
+    };
   if (typeof box_alpha === 'number' && Number.isFinite(box_alpha)) {
     document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
   }
@@ -774,6 +816,18 @@ window.kashi.onSettings((payload) => {
     // Pure CSS dialect switch — the gradient tail and the pre-base both key
     // off this one class; spans and plans stay as they are.
     document.body.classList.toggle('fill-neutral', fillStyle === 'neutral');
+  }
+  if (text_scale !== undefined && parseTextScale(text_scale) !== textScale) {
+    textScale = parseTextScale(text_scale);
+    applySizeVars();
+  }
+  if (box_scale !== undefined && parseBoxScale(box_scale) !== boxScale) {
+    boxScale = parseBoxScale(box_scale);
+    applySizeVars();
+    // The particle layer aims at the box's REAL rect per burst, so it follows
+    // on its own; only the fallback (before anything has been measured) needs
+    // telling that the zone moved.
+    fxCanvas?.setFallbackBox(boxZoneFor(boxScale));
   }
   // Paused screens must repaint NOW, not on the 1 Hz self-heal — the user is
   // looking at the box exactly when they change a setting (retro finding).
@@ -950,6 +1004,7 @@ function ensureLoop(): void {
 applyEffectLevelClass();
 syncFxLayer(); // no-op at the default level; keeps bootstrap honest if it changes
 applyPaletteVars();
+applySizeVars();
 ensureLoop();
 
 // Self-healing repaint: several halt states (stopped loop + stale screen) had

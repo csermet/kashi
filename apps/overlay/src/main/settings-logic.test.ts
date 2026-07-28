@@ -20,6 +20,9 @@ import {
   sanitizeDeltaSteps,
   KNOWN_WINDOWS,
   migrateWindowBounds,
+  parseBoxScale,
+  parseTextScale,
+  TEXT_SCALE_FACTORS,
 } from './settings-logic.js';
 
 describe('clampAlpha', () => {
@@ -163,6 +166,8 @@ describe('parseSettings', () => {
       theme_scope: 'fixed-text',
       fill_style: 'neutral',
       telemetry_enabled: true,
+      text_scale: 'medium',
+      box_scale: 'medium',
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
@@ -327,5 +332,37 @@ describe('migrateWindowBounds (the box stays put while the window grows)', () =>
   it('passes unknown sizes through with only the size pinned (DPI trap)', () => {
     expect(migrateWindowBounds({ x: 10, y: 20, width: 9999, height: 1 }, 800, 460, ZONE_0_15))
       .toEqual({ x: 10, y: 20, width: 800, height: 460 });
+  });
+});
+
+describe('size presets (Faz 7 P3)', () => {
+  it('defaults to the size the app has always had', () => {
+    expect(DEFAULT_SETTINGS.text_scale).toBe('medium');
+    expect(DEFAULT_SETTINGS.box_scale).toBe('medium');
+    expect(TEXT_SCALE_FACTORS.medium).toBe(1);
+  });
+
+  it('an old settings file lands on the default, not on undefined', () => {
+    // Files written before this build have neither key; a missing preset must
+    // reproduce the shipped look rather than collapsing the layout.
+    const migrated = parseSettings(JSON.stringify({ schema_version: 1, box_alpha: 0.5 }));
+    expect(migrated.text_scale).toBe('medium');
+    expect(migrated.box_scale).toBe('medium');
+  });
+
+  it('refuses anything that is not a preset', () => {
+    for (const junk of ['huge', '', 12, null, {}]) {
+      expect(parseTextScale(junk), String(junk)).toBe('medium');
+      expect(parseBoxScale(junk), String(junk)).toBe('medium');
+    }
+  });
+
+  it('keeps a chosen preset across a round trip', () => {
+    const stored = parseSettings(
+      JSON.stringify({ schema_version: 1, text_scale: 'large', box_scale: 'small' }),
+    );
+    expect(stored.text_scale).toBe('large');
+    expect(stored.box_scale).toBe('small');
+    expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
   });
 });
