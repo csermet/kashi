@@ -84,7 +84,10 @@ category, so the effect fires several times per play rather than once.
 
 Two notes from the same query. **`explosion` does not occur anywhere in the
 library** — the burst archetype reaches the screen through `fire` alone, so if
-burst disappoints, that is the tag to judge it by. And `love` dominates
+burst disappoints, that is the tag to judge it by. (The category itself is
+fine: 13 English keywords and the highest intensity in the lexicon, so it wins
+its line whenever it does appear. These songs simply do not sing about
+explosions.) And `love` dominates
 everything at 246 words across the library against `electric`'s 4, so drift is
 the archetype that will be seen most and deserves the strictest eye.
 
