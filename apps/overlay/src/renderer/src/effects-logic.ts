@@ -376,28 +376,84 @@ export function resolveFxProfile(tag: string | null | undefined): EmissionProfil
  * dropped here so the renderer never styles a nonexistent span (DG6: a
  * wrong effect is worse than no effect).
  */
+export interface FxLineHit {
+  word: number;
+  effect: FxWordEffect;
+}
+
+/** Belt against a bad server plan: a line never carries more than this. */
+export const MAX_FX_PER_LINE = 3;
+
 export function buildFxIndex(
   fx: FxData | undefined,
   lines: readonly LyricLine[],
-): Map<number, { word: number; effect: FxWordEffect }> {
-  const index = new Map<number, { word: number; effect: FxWordEffect }>();
+): Map<number, FxLineHit[]> {
+  const index = new Map<number, FxLineHit[]>();
   if (!fx?.words) return index;
+
+  // Which words fire is the SERVER's decision from pipeline 2.13.0 on, and
+  // `select` is how a document says so. Without it these are raw candidates
+  // from an older pipeline — rendering them all would put two or three
+  // effects on lines that carry one today, which is the opposite of why the
+  // selection exists. So an unmarked document keeps the old rule exactly.
+  const serverChose = typeof fx.select === 'string' && fx.select.length > 0;
+
   for (const tag of fx.words) {
     if (!Number.isInteger(tag.line) || !Number.isInteger(tag.word)) continue;
     const words = lines[tag.line]?.words;
     if (!words || tag.word < 0 || tag.word >= words.length) continue;
     if (typeof tag.tag !== 'string' || !tag.tag) continue;
     const intensity = typeof tag.intensity === 'number' ? Math.min(1, Math.max(0, tag.intensity)) : 0;
+    const hit: FxLineHit = { word: tag.word, effect: { tag: tag.tag, intensity } };
     const current = index.get(tag.line);
-    if (
-      !current ||
-      intensity > current.effect.intensity ||
-      (intensity === current.effect.intensity && tag.word < current.word)
-    ) {
-      index.set(tag.line, { word: tag.word, effect: { tag: tag.tag, intensity } });
+
+    if (!serverChose) {
+      // Legacy: one winner per line — strongest, earliest on a tie.
+      if (
+        !current?.[0] ||
+        intensity > current[0].effect.intensity ||
+        (intensity === current[0].effect.intensity && tag.word < current[0].word)
+      ) {
+        index.set(tag.line, [hit]);
+      }
+      continue;
+    }
+
+    if (!current) {
+      index.set(tag.line, [hit]);
+    } else if (!current.some((existing) => existing.word === tag.word)) {
+      current.push(hit);
+    }
+  }
+
+  if (serverChose) {
+    for (const [line, hits] of index) {
+      hits.sort((a, b) => a.word - b.word);
+      if (hits.length > MAX_FX_PER_LINE) index.set(line, hits.slice(0, MAX_FX_PER_LINE));
     }
   }
   return index;
+}
+
+/**
+ * The one hit that speaks for a line — the strongest, earliest on a tie.
+ *
+ * The box halo is a per-LINE colour, so when a line carries two categories it
+ * has to pick one; changing colour mid-line would read as a flicker. The
+ * particles still wear each word's own colour.
+ */
+export function primaryFxHit(hits: readonly FxLineHit[] | undefined): FxLineHit | undefined {
+  let best: FxLineHit | undefined;
+  for (const hit of hits ?? []) {
+    if (
+      !best ||
+      hit.effect.intensity > best.effect.intensity ||
+      (hit.effect.intensity === best.effect.intensity && hit.word < best.word)
+    ) {
+      best = hit;
+    }
+  }
+  return best;
 }
 
 /**
@@ -434,12 +490,14 @@ export function buildLineThemeIndex(
 export function ambientColors(
   lineIndex: number,
   themes: ReadonlyMap<number, string>,
-  fxIndex: ReadonlyMap<number, { word: number; effect: FxWordEffect }>,
+  fxIndex: ReadonlyMap<number, readonly FxLineHit[]>,
   tintVars: Readonly<Record<string, string>>,
 ): { ambient: string | null; flash: string | null } {
   if (lineIndex < 0) return { ambient: null, flash: null };
   const theme = themes.get(lineIndex);
-  const fxTag = fxIndex.get(lineIndex)?.effect.tag;
+  // The line's PRIMARY category: the halo is one colour per line, so a
+  // second effect word never repaints it mid-line.
+  const fxTag = primaryFxHit(fxIndex.get(lineIndex))?.effect.tag;
   const flash = fxTag ? (tintVars[`--fx-tint-${fxTag}`] ?? null) : null;
   // Symmetric fallback (reviewer): an UNKNOWN theme tint falls to the word
   // tint too — the keyword layer is the precision path either way.

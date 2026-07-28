@@ -64,6 +64,13 @@ export interface FxData {
   words?: FxWordTag[];
   /** Line-level THEME tags (embedding layer) — consumed from P5 on. */
   lines?: FxLineTag[];
+  /**
+   * Selection plan that thinned `words` (pipeline 2.13.0+). ANY non-empty
+   * value means the server already decided which words fire, so every entry
+   * renders. ABSENT means these are raw candidates and the client applies its
+   * own legacy rule — one winner per line.
+   */
+  select?: string;
 }
 
 /** Alignment provenance slice the renderer consumes (Faz 6.5 P5): only the

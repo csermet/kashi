@@ -201,6 +201,10 @@ export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
   const f = raw as Record<string, unknown>;
   if (typeof f['lexicon'] !== 'string' || typeof f['engine'] !== 'string') return undefined;
   const out: FxData = { lexicon: f['lexicon'], engine: f['engine'] };
+  // The bit that says "the server already chose which words fire". Only a
+  // non-empty string counts — anything else leaves the renderer on its legacy
+  // one-per-line rule, which is the safe direction to be wrong in.
+  if (typeof f['select'] === 'string' && f['select'].length > 0) out.select = f['select'];
   if (sync === 'word' && Array.isArray(f['words'])) {
     const words: FxWordTag[] = [];
     for (const raw of f['words'] as unknown[]) {

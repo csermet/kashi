@@ -374,8 +374,17 @@ function applyEffectLevelClass(): void {
 let wordLineIndex = -1; // index of the line the spans belong to (-1 = none)
 let wordSpans: HTMLSpanElement[] = [];
 let activeWordIndex = -1;
-let fxWordIndex = -1; // the line's single fx word (hype), -1 = none
-let fxWordTag = '';
+// Which words on the current line carry an effect (hype). From pipeline
+// 2.13.0 a selected document may name more than one; a legacy document still
+// yields exactly one, decided by buildFxIndex.
+let fxWordTags = new Map<number, string>();
+/**
+ * Floor between two particle bursts. A belt over the server's own 700 ms
+ * spacing: a plan that arrives wrong must not be able to stack bursts, since
+ * the budget clips the NEWEST one — the one being looked at.
+ */
+const FX_BURST_COOLDOWN_MS = 450;
+let lastBurstMono = Number.NEGATIVE_INFINITY;
 
 /** Deterministic per-WORD icon pick (field round 2: the same icon repeating
  * across different words read poorly). Same word → same icon, always;
@@ -415,8 +424,7 @@ function clearWordSpans(): void {
   activeWordIndex = -1;
   fillRunStart = -1; // spans are gone — nothing carries .word-fill anymore
   fillActiveIndex = -1;
-  fxWordIndex = -1;
-  fxWordTag = '';
+  fxWordTags = new Map();
 }
 
 // Sustained-fill (Faz 4): a consecutive RUN of planned words sweeps as ONE
@@ -481,21 +489,23 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   // base must never change mid-line (field feedback 2026-07-14: the grey ->
   // dim-theme snap at activation read as a glitch).
   fillPlan = planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
-  const fxHit = fxIndex.get(lineIndex); // ≤1 semantic effect per line (hype)
-  fxWordIndex = fxHit ? fxHit.word : -1;
-  fxWordTag = fxHit ? fxHit.effect.tag : '';
+  const fxHits = fxIndex.get(lineIndex) ?? [];
+  // The halo's colour is NOT chosen here: ambientColors() takes the line's
+  // primary hit itself, so a two-category line cannot repaint it mid-line.
+  fxWordTags = new Map(fxHits.map((hit) => [hit.word, hit.effect.tag]));
   wordSpans = words.map((word, i) => {
     if (i > 0) lineEl.appendChild(document.createTextNode(' '));
     const span = document.createElement('span');
     span.className = 'word';
     span.textContent = word.text;
-    if (fxHit && i === fxHit.word) {
+    const hit = fxHits.find((candidate) => candidate.word === i);
+    if (hit) {
       // Classes at build time; activation stays a class toggle (no per-frame
       // fx work). The inline icon rides INSIDE the span so it wraps with the
       // word — the box clips at the window edge, never past it.
-      span.classList.add('fx-word', `fx-${fxHit.effect.tag}`);
-      span.style.setProperty('--fx-intensity', String(fxHit.effect.intensity));
-      const icon = buildFxIcon(fxHit.effect.tag, word.text);
+      span.classList.add('fx-word', `fx-${hit.effect.tag}`);
+      span.style.setProperty('--fx-intensity', String(hit.effect.intensity));
+      const icon = buildFxIcon(hit.effect.tag, word.text);
       if (icon) span.appendChild(icon);
     }
     lineEl.appendChild(span);
@@ -513,24 +523,30 @@ function highlightWord(index: number): void {
   if (index === activeWordIndex) return;
   // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
   // repaints of an already-passed word).
-  if (index === fxWordIndex && index > activeWordIndex && effectLevel === 'hype') {
-    const span = wordSpans[index];
-    if (span) {
-      // Particles OUTSIDE the box, radiating from the whole box edge in the
-      // word's category colour. Deliberately not aimed at the word: a burst
-      // from one point read as detached from the line it belonged to.
-      // Which WAY they go is the category's own (Faz 7): poison spills and
-      // sinks, love rises, money pours down the sides.
-      if (fxCanvas) {
-        const box = boxEl?.getBoundingClientRect();
-        void fxCanvas.burst(
-          tintOf(fxWordTag),
-          box ? { x: box.left, y: box.top, width: box.width, height: box.height } : undefined,
-          resolveFxProfile(fxWordTag),
-        );
-      }
+  const fxTag = fxWordTags.get(index);
+  if (fxTag && index > activeWordIndex && effectLevel === 'hype') {
+    // Particles OUTSIDE the box, radiating from the whole box edge in the
+    // word's category colour. Deliberately not aimed at the word: a burst
+    // from one point read as detached from the line it belonged to.
+    // Which WAY they go is the category's own (Faz 7): poison spills and
+    // sinks, love rises, money pours down the sides.
+    //
+    // The cooldown is a belt, not the rule: the server already spaces its
+    // choices (700 ms), so this only catches a plan that arrives wrong — two
+    // bursts closer than the eye can separate cost the particle budget twice
+    // and the second one gets clipped, which is the one being watched.
+    const now = performance.now();
+    if (fxCanvas && now - lastBurstMono >= FX_BURST_COOLDOWN_MS) {
+      lastBurstMono = now;
+      const box = boxEl?.getBoundingClientRect();
+      void fxCanvas.burst(
+        tintOf(fxTag),
+        box ? { x: box.left, y: box.top, width: box.width, height: box.height } : undefined,
+        resolveFxProfile(fxTag),
+      );
     }
-    // Same edge lights the box halo in the word's category color (P1).
+    // Same edge lights the box halo — in the LINE's primary category, so a
+    // two-category line does not change the halo colour halfway through.
     triggerAmbientFlash();
   }
   wordSpans[activeWordIndex]?.classList.remove('word-active');

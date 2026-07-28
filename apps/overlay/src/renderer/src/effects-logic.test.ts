@@ -20,6 +20,8 @@ import {
   TEXT_CONTRAST_MIN,
   beatsUsable,
   buildFxIndex,
+  MAX_FX_PER_LINE,
+  primaryFxHit,
   buildLineThemeIndex,
   clampBackground,
   computeFxTintVars,
@@ -302,10 +304,14 @@ describe('buildFxIndex (Faz 6 hype)', () => {
     },
     { start_ms: 2000, end_ms: 4000, text: 'wordless line' },
   ];
-  const fx = (words: unknown[]) =>
-    ({ lexicon: 'kashi-fx/1.0.0', engine: 'keywords', words }) as never;
+  const fx = (words: unknown[], select?: string) =>
+    ({ lexicon: 'kashi-fx/1.0.0', engine: 'keywords', words, select }) as never;
 
-  it('keeps ONE winner per line: highest intensity, earliest word on ties', () => {
+  it('keeps ONE winner per line when the server did NOT choose', () => {
+    // A document from before pipeline 2.13.0 carries raw candidates. Rendering
+    // them all would put three effects on this line where there is one today
+    // — strictly worse than the behaviour the selection exists to fix. The
+    // legacy rule must survive byte-for-byte.
     const index = buildFxIndex(
       fx([
         { line: 0, word: 4, tag: 'love', intensity: 0.6 },
@@ -315,7 +321,91 @@ describe('buildFxIndex (Faz 6 hype)', () => {
       lines,
     );
     expect(index.size).toBe(1);
-    expect(index.get(0)).toEqual({ word: 1, effect: { tag: 'explosion', intensity: 0.9 } });
+    expect(index.get(0)).toEqual([{ word: 1, effect: { tag: 'explosion', intensity: 0.9 } }]);
+  });
+
+  it('keeps every entry of a line when the server DID choose', () => {
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 4, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 0, tag: 'explosion', intensity: 0.9 },
+        ],
+        'density/1.0',
+      ),
+      lines,
+    );
+    // Word order, not score order — they fire as the line is sung.
+    expect(index.get(0)!.map((hit) => hit.word)).toEqual([0, 4]);
+  });
+
+  it('caps a selected line, in case a plan arrives wrong', () => {
+    const index = buildFxIndex(
+      fx(
+        [0, 1, 2, 3, 4].map((word) => ({ line: 0, word, tag: 'love', intensity: 0.6 })),
+        'density/1.0',
+      ),
+      lines,
+    );
+    expect(index.get(0)).toHaveLength(MAX_FX_PER_LINE);
+  });
+
+  it('collapses duplicate word indices in a selected line', () => {
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 2, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 2, tag: 'fire', intensity: 0.8 },
+        ],
+        'density/1.0',
+      ),
+      lines,
+    );
+    expect(index.get(0)).toHaveLength(1);
+  });
+
+  it('still drops unrenderable entries when the server chose', () => {
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 99, tag: 'love', intensity: 0.6 },
+          { line: 1, word: 0, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 1, tag: '', intensity: 0.6 },
+          { line: 0, word: 3, tag: 'fire', intensity: 0.8 },
+        ],
+        'density/1.0',
+      ),
+      lines,
+    );
+    expect(index.get(0)!.map((hit) => hit.word)).toEqual([3]);
+    expect(index.has(1)).toBe(false);
+  });
+
+  it('an empty select string is NOT a choice', () => {
+    // Only a non-empty marker means "already chosen"; anything else must
+    // leave the renderer on the rule that cannot make things worse.
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 0, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 3, tag: 'fire', intensity: 0.8 },
+        ],
+        '',
+      ),
+      lines,
+    );
+    expect(index.get(0)).toHaveLength(1);
+  });
+
+  it('primaryFxHit picks the strongest, earliest on a tie', () => {
+    const hits = [
+      { word: 4, effect: { tag: 'love', intensity: 0.6 } },
+      { word: 0, effect: { tag: 'explosion', intensity: 0.9 } },
+      { word: 2, effect: { tag: 'fire', intensity: 0.9 } },
+    ];
+    expect(primaryFxHit(hits)!.word).toBe(0);
+    expect(primaryFxHit([])).toBeUndefined();
+    expect(primaryFxHit(undefined)).toBeUndefined();
   });
 
   it('drops out-of-range indices and wordless-line tags (quality-gate strips)', () => {
@@ -332,7 +422,7 @@ describe('buildFxIndex (Faz 6 hype)', () => {
 
   it('clamps intensity into [0,1] and tolerates missing fx', () => {
     const index = buildFxIndex(fx([{ line: 0, word: 1, tag: 'fire', intensity: 7 }]), lines);
-    expect(index.get(0)!.effect.intensity).toBe(1);
+    expect(index.get(0)![0]!.effect.intensity).toBe(1);
     expect(buildFxIndex(undefined, lines).size).toBe(0);
   });
 
@@ -446,7 +536,7 @@ describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => 
 
   it('ambientColors: theme drives the ring, fx word drives the flash', () => {
     const themes = new Map([[0, 'poison']]);
-    const fxIndex = new Map([[0, { word: 2, effect: { tag: 'love', intensity: 0.8 } }]]);
+    const fxIndex = new Map([[0, [{ word: 2, effect: { tag: 'love', intensity: 0.8 } }]]]);
     const tints = { '--fx-tint-poison': '#22aa55', '--fx-tint-love': '#dd6699' };
     expect(ambientColors(0, themes, fxIndex, tints)).toEqual({
       ambient: '#22aa55',
@@ -467,7 +557,7 @@ describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => 
     expect(ambientColors(-1, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
     // Symmetric fallback: an unknown THEME with a known word tint still
     // floors on the word tint (reviewer nit).
-    const fxIndex = new Map([[0, { word: 1, effect: { tag: 'poison', intensity: 0.7 } }]]);
+    const fxIndex = new Map([[0, [{ word: 1, effect: { tag: 'poison', intensity: 0.7 } }]]]);
     expect(ambientColors(0, themes, fxIndex, tints)).toEqual({
       ambient: '#22aa55',
       flash: '#22aa55',
