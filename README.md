@@ -42,10 +42,16 @@ self-hosted server and songs get **word-by-word karaoke highlighting**,
   with a CTC-probability gate against wrong-song matches
 - 📝 **Zero-setup fallback** — without a server you still get line-synced lyrics
   from LRCLIB, with polite caching and etiquette
+- ✨ **Particles with a character per category** — at the Hype level the box
+  radiates in the word's own colour, and the categories do not all move alike:
+  poison spills over the edges and sinks, money and water pour down the sides,
+  love drifts upward, electric is gone almost before you see it. Procedurally
+  drawn, never over the text, and completely idle when nothing is happening
 - 🖱️ **Stays out of your way** — transparent, click-through, always-on-top;
   drag it anywhere, it remembers its place across monitors and DPI changes
-- 🎛️ **Tray-tunable** — effect level (Off/Simple/Full), theme scope, box opacity
-  (0–90%), lyric timing offset (presets or exact ms)
+- 🎛️ **Tray-tunable** — effect level (Off/Simple/Full/Hype), theme scope, text
+  size and box size (S/M/L), box opacity (0–90%), lyric timing offset (presets
+  or exact ms)
 
 ## 🏗 How it works
 
