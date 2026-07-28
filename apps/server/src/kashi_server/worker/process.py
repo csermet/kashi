@@ -471,11 +471,19 @@ def resolve_nightcore(
     return NightcorePlan(1.0, plain_lyrics or _plain_lyrics(job), align_wav, "reverted")
 
 
-def _tag_fx(result, lyrics):
+def _tag_fx(result, lyrics, sections=None):
     """FX tagging over the FINAL line/word structure (indices reference what
     the client renders). Best-effort like palette/beats — never fails a job.
-    Tags are (line, word) indices, so the nightcore rescale is irrelevant."""
+    Tags are (line, word) indices, so the nightcore rescale is irrelevant.
+
+    Two stages: `tag_words` finds every candidate, `thin_fx` decides which ones
+    actually fire (density, line quota, chorus, cadence). They are split
+    because they answer different questions — see fx_select.py. `sections`
+    must come from the same played clock as `result`, which is why this runs
+    after the rescale and after sections are extracted.
+    """
     try:
+        from kashi_server.pipeline.fx_select import thin_fx
         from kashi_server.pipeline.semantics import get_embedder, tag_words
 
         embedder = None
@@ -487,12 +495,26 @@ def _tag_fx(result, lyrics):
         language = {"eng": "en", "tur": "tr"}.get(
             detect_language(lyrics.full_text), "default"
         )
-        return tag_words(
+        tags = tag_words(
             [[w.text for w in chunk] for chunk in result.words_per_line],
             [line.text for line in result.lines],
             language=language,
             embedder=embedder,
         )
+        selected, stats = thin_fx(tags, result, sections)
+        logger.info(
+            "fx: %d candidates -> %d kept (cap %d, line %d, density %d, cap-trim %d,"
+            " gap %d, chorus-rescued %d)",
+            stats.candidates,
+            stats.kept,
+            stats.song_cap,
+            stats.dropped_line_rule,
+            stats.dropped_density,
+            stats.dropped_cap,
+            stats.dropped_gap,
+            stats.guard_reinserted,
+        )
+        return selected
     except Exception as exc:  # noqa: BLE001 - enrichment, never a job failure
         logger.warning("fx tagging failed (%s) — document ships without fx", exc)
         return None
@@ -650,7 +672,9 @@ def process_job(s: Session, job: Job) -> None:
                 sections = sorted(
                     (sections or []) + chorus, key=lambda s: (s.start_ms, s.end_ms)
                 )
-        fx = _tag_fx(result, lyrics)  # AFTER QA/rescale: indices must match the doc
+        # AFTER QA/rescale (indices must match the doc) and AFTER sections
+        # (selection ranks lines by the section holding them — same clock).
+        fx = _tag_fx(result, lyrics, sections)
         palette = extract_palette((job.hints or {}).get("artwork_url"))
         doc = build_document(
             job,

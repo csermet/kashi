@@ -107,5 +107,23 @@
 # track in ten). Chorus spans are also bounded: longer than 60 s is a
 # structural block, not a chorus, and a winner still covering >55% of the
 # track is the song's texture and yields nothing at all.
-PIPELINE_VERSION = "2.12.0"
+# 2.13.0: the document now says WHICH tagged words fire, not just which ones
+# mean something (fx_select.py). Field verdict: an effect on every tagged word
+# is exhausting — one library track carries 42 occurrences of the same
+# category, and the archive averages 18.2 tagged words per document against a
+# cap of 60 that was being hit. Selection ranks lines by the section holding
+# them (chorus > loud), keeps all of a rare category but half of a dominant
+# one (spread by even stride, never top-k: intensity is constant per category,
+# so top-k is front-loading in disguise), allows a second effect only on a
+# long line and never adjacent, caps the song by CADENCE rather than a flat
+# count, guarantees a chorus that has something to say is never silent, and
+# sweeps globally so two effects never land within 700 ms.
+# The old 60-tag brake is GONE: it kept the strongest, which deleted weaker
+# categories outright and reported a truncated count for the dominant one, so
+# any ratio computed from it was computed against a lie. What remains is a
+# 400-candidate memory bound in document order.
+# `fx.select` is stamped on the block. It is load-bearing: without it a newer
+# client cannot tell a chosen list from a legacy dense one and would fire
+# every tag on a line.
+PIPELINE_VERSION = "2.13.0"
 PIPELINE_MAJOR = 2

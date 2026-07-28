@@ -39,7 +39,10 @@ MODEL_NAME = "intfloat/multilingual-e5-small"
 MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
 
 MIN_STEM_LEN = 4
-MAX_WORD_TAGS = 60  # per document — the DG6 noise brake starts server-side
+# Memory sanity, not a product decision: the brake that decides what the user
+# actually sees is fx_select.py, which needs the FULL candidate list to compute
+# honest per-category ratios.
+MAX_FX_CANDIDATES = 400
 MAX_LINE_TAGS = 24
 # Calibrated 2026-07-20 (Faz 6.5 P4, 200-line labeled archive sample —
 # docs/research/embed-threshold-calibration-2026-07.md): E5 cosines are so
@@ -90,6 +93,10 @@ class FxTags:
     engine: str  # "keywords" or "keywords+<model>@<rev[:12]>"
     words: list[WordTag]
     lines: list[LineTag]
+    #: Which selection plan thinned `words`, empty when they are raw candidates.
+    #: The client reads this to tell "the server already chose which words fire"
+    #: from "this is a legacy dense list it must still collapse itself".
+    select: str = ""
 
 
 def normalize(text: str) -> str:
@@ -170,10 +177,18 @@ def tag_words(
                 word_tags.append(WordTag(li, wi, cat.id, cat.base_intensity))
                 lines_with_hits.add(li)
 
-    if len(word_tags) > MAX_WORD_TAGS:
-        # Deterministic brake: strongest first, then document order.
-        word_tags.sort(key=lambda t: (-t.intensity, t.line, t.word))
-        word_tags = sorted(word_tags[:MAX_WORD_TAGS], key=lambda t: (t.line, t.word))
+    if len(word_tags) > MAX_FX_CANDIDATES:
+        # Memory sanity only, in DOCUMENT ORDER — never a product decision.
+        #
+        # This used to keep the 60 strongest and was the brake that shaped what
+        # the user saw. It could not do that job honestly: `intensity` is a
+        # constant per category, so ties broke on document order and a category
+        # concentrated in the first verse ate the whole budget, leaving the
+        # chorus with nothing. Worse, it lied to whatever came after — a word
+        # occurring 42 times looked like it occurred fewer, so any ratio
+        # computed downstream was computed against a truncated denominator.
+        # Choosing what fires is now fx_select.py's job, over the full list.
+        word_tags = word_tags[:MAX_FX_CANDIDATES]
 
     line_tags: list[LineTag] = []
     engine = "keywords"

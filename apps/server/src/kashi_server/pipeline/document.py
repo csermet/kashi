@@ -167,6 +167,13 @@ def build_document(
     # without them renders exactly like before (old clients ignore unknowns).
     if fx is not None and (fx.words or fx.lines):
         fx_block: dict = {"lexicon": fx.lexicon_version, "engine": fx.engine}
+        # Which words fire has already been decided (fx_select.py). Without
+        # this marker a newer client cannot tell a chosen list from a legacy
+        # dense one, and would render EVERY tag on a line — on the archive
+        # that means two or three effects where there is one today, which is
+        # the opposite of what the selection exists to do.
+        if fx.select:
+            fx_block["select"] = fx.select
         if fx.words:
             fx_block["words"] = [
                 {"line": t.line, "word": t.word, "tag": t.tag, "intensity": t.intensity}

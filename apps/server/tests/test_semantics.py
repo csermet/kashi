@@ -8,7 +8,7 @@ sentence-transformers is absent.
 import pytest
 
 from kashi_server.pipeline.semantics import (
-    MAX_WORD_TAGS,
+    MAX_FX_CANDIDATES,
     MIN_STEM_LEN,
     load_lexicon,
     normalize,
@@ -201,19 +201,33 @@ def test_keyword_layer_golden_set():
         assert tags.lines == []
 
 
-def test_tagging_is_deterministic_and_capped():
-    words = ["bomb"] * (MAX_WORD_TAGS + 40) + ["love"] * 10
+def test_tagging_is_deterministic_and_returns_candidates_in_document_order():
+    words = ["bomb"] * 100 + ["love"] * 10
     lines = [words[i : i + 10] for i in range(0, len(words), 10)]
     texts = [" ".join(chunk) for chunk in lines]
     first = tag_words(lines, texts)
     second = tag_words(lines, texts)
     assert first == second
-    assert len(first.words) == MAX_WORD_TAGS
-    # The brake keeps the STRONGEST tags (explosion 0.9 > love 0.6) and
-    # re-sorts survivors into document order.
-    assert all(t.tag == "explosion" for t in first.words)
+
+    # Tagging no longer decides what the user sees — it hands over EVERY
+    # candidate, in document order, and fx_select does the choosing. The old
+    # brake kept the 60 strongest, which quietly deleted the weaker category
+    # outright and lied about how often the dominant one occurred; any ratio
+    # computed downstream was then computed against a truncated denominator.
+    assert len(first.words) == 110
+    assert {t.tag for t in first.words} == {"explosion", "love"}
     ordering = [(t.line, t.word) for t in first.words]
     assert ordering == sorted(ordering)
+
+
+def test_candidate_list_has_a_memory_sanity_ceiling():
+    # Not a product decision — just a bound, applied in document order so it
+    # cannot prefer one category over another.
+    words = ["bomb"] * (MAX_FX_CANDIDATES + 50)
+    lines = [words[i : i + 10] for i in range(0, len(words), 10)]
+    tags = tag_words(lines, [" ".join(chunk) for chunk in lines])
+    assert len(tags.words) == MAX_FX_CANDIDATES
+    assert tags.words[0].line == 0
 
 
 def test_intensity_tie_breaks_are_stable():

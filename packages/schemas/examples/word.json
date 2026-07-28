@@ -3,7 +3,10 @@
   "pipeline_version": "1.1.0",
   "generated_at": "2026-07-06T14:30:00Z",
   "track": {
-    "source": { "type": "youtube", "id": "dQw4w9WgXcQ" },
+    "source": {
+      "type": "youtube",
+      "id": "dQw4w9WgXcQ"
+    },
     "title": "Never Gonna Give You Up",
     "artist": "Rick Astley",
     "album": "Whenever You Need Somebody",
@@ -35,11 +38,31 @@
       "text": "We're no strangers to love",
       "score": 0.91,
       "words": [
-        { "start_ms": 18500, "end_ms": 18900, "text": "We're" },
-        { "start_ms": 18900, "end_ms": 19200, "text": "no" },
-        { "start_ms": 19200, "end_ms": 20100, "text": "strangers" },
-        { "start_ms": 20150, "end_ms": 20500, "text": "to" },
-        { "start_ms": 20500, "end_ms": 22100, "text": "love" }
+        {
+          "start_ms": 18500,
+          "end_ms": 18900,
+          "text": "We're"
+        },
+        {
+          "start_ms": 18900,
+          "end_ms": 19200,
+          "text": "no"
+        },
+        {
+          "start_ms": 19200,
+          "end_ms": 20100,
+          "text": "strangers"
+        },
+        {
+          "start_ms": 20150,
+          "end_ms": 20500,
+          "text": "to"
+        },
+        {
+          "start_ms": 20500,
+          "end_ms": 22100,
+          "text": "love"
+        }
       ]
     },
     {
@@ -47,14 +70,46 @@
       "end_ms": 26000,
       "text": "You know the rules and so do I",
       "words": [
-        { "start_ms": 22600, "end_ms": 22850, "text": "You" },
-        { "start_ms": 22850, "end_ms": 23200, "text": "know" },
-        { "start_ms": 23200, "end_ms": 23400, "text": "the" },
-        { "start_ms": 23400, "end_ms": 24000, "text": "rules" },
-        { "start_ms": 24050, "end_ms": 24300, "text": "and" },
-        { "start_ms": 24300, "end_ms": 24700, "text": "so" },
-        { "start_ms": 24700, "end_ms": 25000, "text": "do" },
-        { "start_ms": 25000, "end_ms": 26000, "text": "I" }
+        {
+          "start_ms": 22600,
+          "end_ms": 22850,
+          "text": "You"
+        },
+        {
+          "start_ms": 22850,
+          "end_ms": 23200,
+          "text": "know"
+        },
+        {
+          "start_ms": 23200,
+          "end_ms": 23400,
+          "text": "the"
+        },
+        {
+          "start_ms": 23400,
+          "end_ms": 24000,
+          "text": "rules"
+        },
+        {
+          "start_ms": 24050,
+          "end_ms": 24300,
+          "text": "and"
+        },
+        {
+          "start_ms": 24300,
+          "end_ms": 24700,
+          "text": "so"
+        },
+        {
+          "start_ms": 24700,
+          "end_ms": 25000,
+          "text": "do"
+        },
+        {
+          "start_ms": 25000,
+          "end_ms": 26000,
+          "text": "I"
+        }
       ]
     },
     {
@@ -65,17 +120,36 @@
       "adlib": true,
       "words_derived": true,
       "words": [
-        { "start_ms": 26500, "end_ms": 27500, "text": "Ooh" },
-        { "start_ms": 27500, "end_ms": 28500, "text": "ooh" },
-        { "start_ms": 28500, "end_ms": 29500, "text": "ooh" }
+        {
+          "start_ms": 26500,
+          "end_ms": 27500,
+          "text": "Ooh"
+        },
+        {
+          "start_ms": 27500,
+          "end_ms": 28500,
+          "text": "ooh"
+        },
+        {
+          "start_ms": 28500,
+          "end_ms": 29500,
+          "text": "ooh"
+        }
       ]
     }
   ],
   "beats": {
     "bpm": 113.2,
     "confidence": 0.91,
-    "times_ms": [480, 1010, 1540, 2070],
-    "downbeat_indices": [0]
+    "times_ms": [
+      480,
+      1010,
+      1540,
+      2070
+    ],
+    "downbeat_indices": [
+      0
+    ]
   },
   "palette": {
     "source": "album_art",
@@ -88,9 +162,54 @@
   "fx": {
     "lexicon": "kashi-fx/1.0.0",
     "engine": "keywords+multilingual-e5-small@614241f622f5",
-    "words": [ { "line": 0, "word": 4, "tag": "love", "intensity": 0.6 } ],
-    "lines": [ { "line": 1, "tag": "night" } ]
+    "select": "density/1.0",
+    "words": [
+      {
+        "line": 0,
+        "word": 4,
+        "tag": "love",
+        "intensity": 0.6
+      },
+      {
+        "line": 1,
+        "word": 1,
+        "tag": "night",
+        "intensity": 0.5
+      },
+      {
+        "line": 1,
+        "word": 5,
+        "tag": "fire",
+        "intensity": 0.8
+      }
+    ],
+    "lines": [
+      {
+        "line": 1,
+        "tag": "night"
+      }
+    ]
   },
-  "energy": { "rate_hz": 2, "values": [12, 35, 48, 62, 71, 66, 80, 91, 88, 74] },
-  "sections": [ { "type": "high", "start_ms": 3000, "end_ms": 4500 } ]
+  "energy": {
+    "rate_hz": 2,
+    "values": [
+      12,
+      35,
+      48,
+      62,
+      71,
+      66,
+      80,
+      91,
+      88,
+      74
+    ]
+  },
+  "sections": [
+    {
+      "type": "high",
+      "start_ms": 3000,
+      "end_ms": 4500
+    }
+  ]
 }

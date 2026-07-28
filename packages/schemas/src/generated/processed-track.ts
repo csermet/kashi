@@ -113,7 +113,7 @@ export interface KashiProcessedTrackV1 {
     accent?: Color;
   };
   /**
-   * Semantic effect tags (pipeline 2.6.0+, Faz 6). SPARSE: most words carry no tag; the server caps word tags (~60/doc). Indices reference lines[]/words[] of THIS document. Clients without effect support ignore the whole block.
+   * Semantic effect tags (pipeline 2.6.0+, Faz 6). SPARSE: most words carry no tag. Indices reference lines[]/words[] of THIS document. Clients without effect support ignore the whole block.
    */
   fx?: {
     /**
@@ -124,6 +124,10 @@ export interface KashiProcessedTrackV1 {
      * "keywords" or "keywords+<model>@<revision12>" when the embedding layer also ran.
      */
     engine: string;
+    /**
+     * Selection plan that thinned words[] (pipeline 2.13.0+, e.g. "density/1.0"). ANY non-empty value means the server already chose which words fire — density, per-line quota, spacing, chorus and song cadence are all applied — so a client must render every entry as-is. ABSENT means words[] is a raw candidate list from an older pipeline, and the client must apply its own legacy rule (one winner per line). The specific value is provenance, like lexicon/engine.
+     */
+    select?: string;
     words?: {
       line: number;
       word: number;

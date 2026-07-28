@@ -327,3 +327,46 @@ def test_document_without_qa_omits_the_block_entirely():
     validate_document(doc)
     assert "qa" not in doc["alignment"]
     assert all("words_derived" not in line for line in doc["lines"])
+
+
+def test_fx_select_marker_rides_the_document():
+    """The one bit that tells a client "the server already chose".
+
+    Without it a newer overlay cannot distinguish a selected list from a
+    legacy dense one, and would fire every tag on a line — on the existing
+    archive that is two or three effects where there is one today.
+    """
+    from kashi_server.pipeline.semantics import FxTags, WordTag
+
+    common = dict(beats=_beats(), palette=dict(DEFAULT_PALETTE), vocals_separated=False)
+    selected = build_document(
+        _job(),
+        _lyrics(),
+        _word_result(),
+        **common,
+        fx=FxTags(
+            lexicon_version="kashi-fx/1.0.0",
+            engine="keywords",
+            words=[WordTag(0, 1, "love", 0.6)],
+            lines=[],
+            select="density/1.0",
+        ),
+        energy=None,
+        sections=[],
+    )
+    assert selected["fx"]["select"] == "density/1.0"
+    validate_document(selected)
+
+    # An unselected block must NOT claim to be selected — that is what keeps
+    # the client's legacy path reachable.
+    legacy = build_document(
+        _job(),
+        _lyrics(),
+        _word_result(),
+        **common,
+        fx=FxTags("kashi-fx/1.0.0", "keywords", [WordTag(0, 1, "love", 0.6)], []),
+        energy=None,
+        sections=[],
+    )
+    assert "select" not in legacy["fx"]
+    validate_document(legacy)
