@@ -93,7 +93,12 @@ interface KashiBridge {
   adjustTimingOffset: (deltaSteps: number) => void;
   openMenu: () => void;
   log: (line: string) => void;
-  reportAnomaly: (reason: string, deltaMs: number, positionMs: number) => void;
+  reportAnomaly: (
+    reason: string,
+    deltaMs: number,
+    positionMs: number,
+    trackKey: string | null,
+  ) => void;
 }
 
 declare global {
@@ -116,7 +121,7 @@ const snapClassifier = new SnapClassifier();
 
 const clock = new PositionClock(undefined, undefined, ({ deltaMs, positionMs }) => {
   window.kashi.log(`position snapped ${deltaMs}ms with no seek yet (pos ${positionMs}ms)`);
-  snapClassifier.onJump(deltaMs, positionMs, performance.now());
+  snapClassifier.onJump(deltaMs, positionMs, performance.now(), currentKey);
 });
 
 /** Drains the classifier off the render path — never per frame. */
@@ -124,7 +129,7 @@ function reportClassifiedSnaps(): void {
   for (const event of snapClassifier.flush(performance.now())) {
     const collapsed = event.jumpCount > 1 ? ` (${event.jumpCount} jumps)` : '';
     window.kashi.log(`snap classified as ${event.reason}${collapsed}: ${event.deltaMs}ms`);
-    window.kashi.reportAnomaly(event.reason, event.deltaMs, event.positionMs);
+    window.kashi.reportAnomaly(event.reason, event.deltaMs, event.positionMs, event.trackKey);
   }
 }
 let currentKey: string | null = null;

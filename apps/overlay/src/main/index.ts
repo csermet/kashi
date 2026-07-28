@@ -648,11 +648,19 @@ ipcMain.on('kashi:anomaly', (_event, raw: unknown) => {
   const deltaMs = Number(info['delta_ms']);
   const positionMs = Number(info['position_ms']);
   if (!Number.isFinite(deltaMs) || !Number.isFinite(positionMs)) return;
+  // Snap reports are deferred by a couple of seconds (the classifier waits for
+  // the jumps to stop), so the song can change between the jump and the
+  // report. A position from one track measured against another's duration
+  // would read as "past the end" — or hide a genuine one — and nothing
+  // downstream could tell. Stamp the duration only when the report still
+  // belongs to the track that is playing; otherwise leave it out.
+  const trackKey = typeof info['track_key'] === 'string' ? info['track_key'] : null;
+  const sameTrack = trackKey === null || trackKey === lastTrack?.key;
   telemetry?.record('position_anomaly', {
     reason,
     delta_ms: Math.round(deltaMs),
     position_ms: Math.round(positionMs),
-    duration_ms: lastTrack?.track.duration_ms,
+    duration_ms: sameTrack ? lastTrack?.track.duration_ms : undefined,
     action: 'snapped',
     source: 'position_clock',
   });

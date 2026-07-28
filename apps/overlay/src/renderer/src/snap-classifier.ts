@@ -50,6 +50,13 @@ export interface SnapEvent {
   positionMs: number;
   /** How many raw jumps collapsed into this one event (for the log line). */
   jumpCount: number;
+  /**
+   * Which track the jump belonged to. Reporting is deferred by up to a few
+   * seconds, so by the time an event is sent the song may have changed —
+   * and a position from one track measured against another's duration is
+   * worse than no measurement at all.
+   */
+  trackKey: string | null;
 }
 
 interface Bucket {
@@ -58,6 +65,7 @@ interface Bucket {
   deltaMs: number;
   positionMs: number;
   sawSeek: boolean;
+  trackKey: string | null;
 }
 
 export class SnapClassifier {
@@ -67,11 +75,16 @@ export class SnapClassifier {
   private droppedBuckets = 0;
 
   /** A jump the clock could not explain by itself. */
-  onJump(deltaMs: number, positionMs: number, atMono: number): void {
+  onJump(deltaMs: number, positionMs: number, atMono: number, trackKey: string | null = null): void {
     if (!Number.isFinite(deltaMs) || !Number.isFinite(positionMs)) return;
 
-    // A long enough gap means the previous bucket is a separate incident.
-    if (this.open && atMono - this.open.lastAtMono >= SILENCE_WINDOW_MS) {
+    // A long enough gap means the previous bucket is a separate incident — and
+    // so does a different song: two tracks' jumps must never average into one
+    // event, or the surviving position belongs to a track nobody can name.
+    if (
+      this.open &&
+      (atMono - this.open.lastAtMono >= SILENCE_WINDOW_MS || this.open.trackKey !== trackKey)
+    ) {
       this.seal();
     }
     if (!this.open) {
@@ -81,6 +94,7 @@ export class SnapClassifier {
         deltaMs,
         positionMs,
         sawSeek: atMono - this.lastSeekAtMono < SEEK_GRACE_MS,
+        trackKey,
       };
     }
     this.open.lastAtMono = atMono;
@@ -113,6 +127,7 @@ export class SnapClassifier {
         deltaMs: bucket.deltaMs,
         positionMs: bucket.positionMs,
         jumpCount: bucket.jumpCount,
+        trackKey: bucket.trackKey,
       }),
     );
     this.sealed = [];

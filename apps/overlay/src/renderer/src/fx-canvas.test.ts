@@ -261,22 +261,45 @@ describe('FxCanvas — the adapter, not the physics', () => {
     await layer.burst(0xffffff, undefined, ARCHETYPE_PROFILES.smoke);
     const app = appOf(layer);
 
-    // Walk the whole burst; at every frame, anything the adapter marked
-    // visible has to be clear of the box — by the SPRITE's extent, not its
-    // centre, which is why smoke (32px) forced the inflated mask.
+    // The mask has to be pinned from BOTH sides. Only checking "nothing
+    // visible overlaps the box" is satisfied by a layer that marks nothing
+    // visible at all, or by a mask so large it swallows the whole margin the
+    // effect lives in — two mutations that leave the suite green.
+    let visibleFrames = 0;
+    let liveFrames = 0;
+    let seenJustOutside = false;
+
     for (let frame = 0; frame < 200; frame++) {
       app.ticker.advance(16);
       for (const sprite of stageOf(layer)) {
-        if (!sprite.visible || sprite.destroyed) continue;
+        if (sprite.destroyed) continue;
+        liveFrames += 1;
         const half = sprite.width / 2;
-        const overlapsText =
-          sprite.x >= box.x - half &&
-          sprite.x <= box.x + box.width + half &&
-          sprite.y >= box.y - half &&
-          sprite.y <= box.y + box.height + half;
-        expect(overlapsText, `sprite at ${sprite.x},${sprite.y} is over the lyrics`).toBe(false);
+        const clearOfBox =
+          sprite.x < box.x - half ||
+          sprite.x > box.x + box.width + half ||
+          sprite.y < box.y - half ||
+          sprite.y > box.y + box.height + half;
+
+        if (sprite.visible) {
+          visibleFrames += 1;
+          expect(clearOfBox, `sprite at ${sprite.x},${sprite.y} is over the lyrics`).toBe(true);
+        }
+        // Just outside the mask is exactly where the effect belongs: if a
+        // sprite sits there and is NOT drawn, the mask has eaten the margin.
+        const justOutside = clearOfBox && sprite.y > box.y + box.height + half && sprite.y < box.y + box.height + half + 30;
+        if (justOutside) {
+          expect(sprite.visible, `sprite ${sprite.x},${sprite.y} sits outside but is hidden`).toBe(true);
+          seenJustOutside = true;
+        }
       }
     }
+
+    // Vacuity guards: the assertions above only mean something if particles
+    // lived, were drawn, and at least one passed close by the box.
+    expect(liveFrames).toBeGreaterThan(0);
+    expect(visibleFrames / liveFrames).toBeGreaterThan(0.5);
+    expect(seenJustOutside).toBe(true);
   });
 
   it('says so when the budget trims a burst instead of thinning it quietly', async () => {

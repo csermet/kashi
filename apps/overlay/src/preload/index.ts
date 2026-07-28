@@ -53,10 +53,13 @@ contextBridge.exposeInMainWorld('kashi', {
    * kind and hands over numbers, main decides whether anyone is listening.
    * Coerced here so a renderer bug cannot post arbitrary shapes.
    */
-  reportAnomaly: (reason: string, deltaMs: number, positionMs: number) =>
+  reportAnomaly: (reason: string, deltaMs: number, positionMs: number, trackKey?: string | null) =>
     ipcRenderer.send('kashi:anomaly', {
       reason: String(reason),
       delta_ms: Number(deltaMs),
       position_ms: Number(positionMs),
+      // Which track the jump belonged to. Reporting is deferred, so the song
+      // may have moved on before this is sent.
+      track_key: typeof trackKey === 'string' ? trackKey : null,
     }),
 });

@@ -136,4 +136,26 @@ describe('SnapClassifier', () => {
     expect(classifier.flush(50_000)).toEqual([]);
     expect(classifier.droppedBucketCount()).toBe(0);
   });
+
+  it('never lets two songs share a bucket', () => {
+    // Reporting is deferred, so a jump near the end of one track can still be
+    // waiting when the next begins. Averaging them would leave a position
+    // belonging to a track nobody can name — and downstream that position is
+    // compared against a duration.
+    const classifier = new SnapClassifier();
+    classifier.onJump(3000, 200_000, 1000, 'song-a');
+    classifier.onJump(4000, 2_000, 1100, 'song-b');
+
+    const events = classifier.flush(1100 + SILENCE_WINDOW_MS);
+    expect(events).toHaveLength(2);
+    expect(events.map((e) => e.trackKey)).toEqual(['song-a', 'song-b']);
+    expect(events[0]?.positionMs).toBe(200_000);
+  });
+
+  it('carries the track it belonged to, not the one playing when it drains', () => {
+    const classifier = new SnapClassifier();
+    classifier.onJump(5000, 150_000, 1000, 'song-a');
+    const events = classifier.flush(1000 + SILENCE_WINDOW_MS);
+    expect(events[0]?.trackKey).toBe('song-a');
+  });
 });

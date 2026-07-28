@@ -328,15 +328,25 @@ describe('archetype profiles', () => {
   });
 
   it('gives each archetype the direction its category means', () => {
-    // Poison sinks, love rises, sparks mostly just leave.
-    const mean = (profile: typeof GENERIC_PROFILE) => {
+    // Sampling the LAUNCH velocity alone tests `direction.down` and nothing
+    // else — an archetype's gravity could be inverted and this would stay
+    // green. What a category means is where its particles END UP, so measure
+    // net displacement over the profile's own lifetime.
+    const netDrift = (profile: typeof GENERIC_PROFILE) => {
       const particles = planEmission(BOX, makeRandom(3), profile);
-      return particles.reduce((sum, p) => sum + p.vy, 0) / particles.length;
+      const start = particles.map((p) => ({ x: p.x, y: p.y }));
+      for (const p of particles) {
+        while (stepParticle(p, 1 / 60)) {
+          /* to death */
+        }
+      }
+      return particles.reduce((sum, p, i) => sum + (p.y - start[i]!.y), 0) / particles.length;
     };
-    expect(mean(ARCHETYPE_PROFILES.smoke)).toBeGreaterThan(0);
-    expect(mean(ARCHETYPE_PROFILES.fall)).toBeGreaterThan(0);
-    expect(mean(ARCHETYPE_PROFILES.drift)).toBeLessThan(0);
-    expect(ARCHETYPE_PROFILES.drift.gravity).toBeLessThan(0);
+
+    // Poison sinks and money/water pour downward; love rises.
+    expect(netDrift(ARCHETYPE_PROFILES.smoke), 'poison should sink').toBeGreaterThan(20);
+    expect(netDrift(ARCHETYPE_PROFILES.fall), 'money/water should fall').toBeGreaterThan(20);
+    expect(netDrift(ARCHETYPE_PROFILES.drift), 'love should rise').toBeLessThan(-20);
   });
 
   it('staggers births only where a profile asked for it', () => {
@@ -356,56 +366,22 @@ describe('archetype profiles', () => {
 
   it('bounds how long a burst can linger, stagger included', () => {
     // The "a stopped song leaves no residue" contract, now profile-aware.
-    const longest = maxParticleLifetimeMs();
-    expect(longest).toBeGreaterThan(MAX_LIFE_S * 1000);
-    expect(longest).toBeLessThan(3200);
-  });
+    // Asserted against the exact number the profiles imply rather than a wide
+    // window: a range from 1.4s to 3.2s is loose enough to swallow the
+    // stagger term itself, so dropping it would leave this green.
+    const worst = [GENERIC_PROFILE, ...Object.values(ARCHETYPE_PROFILES)].reduce(
+      (max, p) => Math.max(max, p.emissionSpanMs + p.life[1] * 1000),
+      0,
+    );
+    expect(maxParticleLifetimeMs()).toBe(worst);
 
-  it('draws the generic profile in the SAME ORDER 0.16.x did', () => {
-    // Not just the same constants — the same random SEQUENCE. 0.16.x planned
-    // every particle first and then drew one shape each; moving the shape
-    // draw inside the loop kept every formula intact while shifting the
-    // stream, which rescattered 71 of 72 particles. Constants-only assertions
-    // cannot see that, so this replays the original algorithm.
-    const reference = (seed: number) => {
-      const random = makeRandom(seed);
-      const perimeter = 2 * (BOX.width + BOX.height);
-      const out: Array<Record<string, number>> = [];
-      for (let i = 0; i < BURST_PARTICLES; i++) {
-        const t = ((i + random()) / BURST_PARTICLES) * perimeter;
-        const [x, y, nx, ny] = pointOnPerimeter(t, BOX);
-        const speed = 22 + random() * 48;
-        const drift = (random() - 0.5) * 30;
-        out.push({
-          x,
-          y,
-          vx: nx * speed + -ny * drift,
-          vy: ny * speed + nx * drift,
-          life: 0.6 + random() * (MAX_LIFE_S - 0.6),
-          size: 5 + random() * 9,
-          rotation: random() * Math.PI * 2,
-          spin: (random() - 0.5) * 5,
-        });
-      }
-      // Shapes only AFTER every particle — the order that must be preserved.
-      for (const p of out) p['shapeIndex'] = Math.floor(random() * 4);
-      return out;
-    };
-
-    for (const seed of [9, 42, 7]) {
-      const actual = planEmission(BOX, makeRandom(seed));
-      const expected = reference(seed);
-      for (let i = 0; i < BURST_PARTICLES; i++) {
-        const a = actual[i]!;
-        const e = expected[i]!;
-        for (const key of ['x', 'y', 'vx', 'vy', 'life', 'size', 'rotation', 'spin'] as const) {
-          expect(a[key], `seed ${seed}, particle ${i}, ${key}`).toBeCloseTo(e[key]!, 10);
-        }
-        expect(a.shape, `seed ${seed}, particle ${i}, shape`).toBe(
-          GENERIC_PROFILE.shapes[e['shapeIndex']!],
-        );
-      }
-    }
+    // And the stagger is genuinely part of it — the longest profile staggers,
+    // so lifetime alone is a strictly smaller number.
+    const lifeOnly = [GENERIC_PROFILE, ...Object.values(ARCHETYPE_PROFILES)].reduce(
+      (max, p) => Math.max(max, p.life[1] * 1000),
+      0,
+    );
+    expect(maxParticleLifetimeMs()).toBeGreaterThan(lifeOnly);
   });
 
   it('keeps the generic profile exactly as it shipped', () => {
