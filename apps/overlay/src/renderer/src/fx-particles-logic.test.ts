@@ -276,11 +276,34 @@ describe('archetype profiles', () => {
     }
   });
 
-  it('a particle is never visible outside the window — the boundary stays invisible', () => {
-    // The envelope guard is stated in VISIBILITY, not position: smoke and love
-    // deliberately outlive the old flat lifetime, so "must die before leaving
-    // the margin" would contradict their physics. What must hold is that
-    // anything past the edge has already faded to nothing.
+  it('every archetype is actually SEEN — the mask must not eat a category', () => {
+    // The guard that matters, and the one this package originally lacked.
+    // Three archetypes shipped past review with physics that sent particles
+    // INTO the box, where the DG6 mask hides them: love rose from the floor
+    // through 180px of box, poison sank through it from the top, and shine
+    // hovered on the boundary flickering. Every one of them passed a
+    // "position envelope" test, because the particles went exactly where the
+    // profile said — they just could never be drawn.
+    for (const [name, profile] of Object.entries(ARCHETYPE_PROFILES)) {
+      const particles = planEmission(BOX, makeRandom(7), profile);
+      let neverSeen = 0;
+      for (const p of particles) {
+        let seen = false;
+        while (stepParticle(p, 1 / 60)) {
+          if (!insideBox(p.x, p.y, BOX, p.size / 2) && particleAlpha(p, W, H) > 0.05) {
+            seen = true;
+            break;
+          }
+        }
+        if (!seen) neverSeen += 1;
+      }
+      expect(neverSeen / particles.length, `${name}: particles that are never drawn`).toBeLessThan(
+        0.1,
+      );
+    }
+  });
+
+  it('never draws anything outside the window', () => {
     for (const profile of [GENERIC_PROFILE, ...Object.values(ARCHETYPE_PROFILES)]) {
       const { samples } = simulate(profile);
       const visibleOutside = samples.filter(
@@ -336,6 +359,53 @@ describe('archetype profiles', () => {
     const longest = maxParticleLifetimeMs();
     expect(longest).toBeGreaterThan(MAX_LIFE_S * 1000);
     expect(longest).toBeLessThan(3200);
+  });
+
+  it('draws the generic profile in the SAME ORDER 0.16.x did', () => {
+    // Not just the same constants — the same random SEQUENCE. 0.16.x planned
+    // every particle first and then drew one shape each; moving the shape
+    // draw inside the loop kept every formula intact while shifting the
+    // stream, which rescattered 71 of 72 particles. Constants-only assertions
+    // cannot see that, so this replays the original algorithm.
+    const reference = (seed: number) => {
+      const random = makeRandom(seed);
+      const perimeter = 2 * (BOX.width + BOX.height);
+      const out: Array<Record<string, number>> = [];
+      for (let i = 0; i < BURST_PARTICLES; i++) {
+        const t = ((i + random()) / BURST_PARTICLES) * perimeter;
+        const [x, y, nx, ny] = pointOnPerimeter(t, BOX);
+        const speed = 22 + random() * 48;
+        const drift = (random() - 0.5) * 30;
+        out.push({
+          x,
+          y,
+          vx: nx * speed + -ny * drift,
+          vy: ny * speed + nx * drift,
+          life: 0.6 + random() * (MAX_LIFE_S - 0.6),
+          size: 5 + random() * 9,
+          rotation: random() * Math.PI * 2,
+          spin: (random() - 0.5) * 5,
+        });
+      }
+      // Shapes only AFTER every particle — the order that must be preserved.
+      for (const p of out) p['shapeIndex'] = Math.floor(random() * 4);
+      return out;
+    };
+
+    for (const seed of [9, 42, 7]) {
+      const actual = planEmission(BOX, makeRandom(seed));
+      const expected = reference(seed);
+      for (let i = 0; i < BURST_PARTICLES; i++) {
+        const a = actual[i]!;
+        const e = expected[i]!;
+        for (const key of ['x', 'y', 'vx', 'vy', 'life', 'size', 'rotation', 'spin'] as const) {
+          expect(a[key], `seed ${seed}, particle ${i}, ${key}`).toBeCloseTo(e[key]!, 10);
+        }
+        expect(a.shape, `seed ${seed}, particle ${i}, shape`).toBe(
+          GENERIC_PROFILE.shapes[e['shapeIndex']!],
+        );
+      }
+    }
   });
 
   it('keeps the generic profile exactly as it shipped', () => {

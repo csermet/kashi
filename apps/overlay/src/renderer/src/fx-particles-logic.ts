@@ -64,7 +64,12 @@ export const EDGE_FADE_PX = 96;
  * reads as sparse, and the spike measured that count is nearly free.
  */
 export const BURST_PARTICLES = 72;
-/** Nothing lives longer than this, so a stopped song cannot leave residue. */
+/**
+ * The GENERIC profile's lifetime cap. It used to be the whole story ("nothing
+ * outlives this, so a stopped song leaves no residue"); archetypes broke that
+ * — poison and love deliberately linger, and with their emission stagger the
+ * real worst case is `maxParticleLifetimeMs()`, about 3 s.
+ */
 export const MAX_LIFE_S = 1.4;
 
 /**
@@ -95,7 +100,7 @@ export const ALL_EDGES: readonly EdgeName[] = ['top', 'right', 'bottom', 'left']
  * `direction` is a mix, not a mode: `normal` is how much of the launch follows
  * the edge's outward normal, `down` is how much follows gravity's axis. Poison
  * leaves the edge and then sinks (0.55 / 0.5); love leaves and rises
- * (0.3 / -0.75). One formula covers every archetype we wanted.
+ * (0.3 / -0.8). One formula covers every archetype we wanted.
  */
 export interface EmissionProfile {
   /** Which edges of the box emit. Fewer edges = a direction you can read. */
@@ -197,9 +202,17 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     emissionSpanMs: 280,
     shapes: ['droplet'],
   },
-  /** poison — spills over every edge and sinks slowly. Caner's example. */
+  /**
+   * poison — spills over the edges and sinks. Caner's own example.
+   *
+   * Sides and floor only: a top-edge puff barely rises (0.5 down cancels most
+   * of 0.55 normal) and then sinks through the whole box, so it is hidden for
+   * most of its life and pops back into view underneath — the "motes blinking
+   * out" artifact. Spilling over the sides and dripping off the bottom is
+   * also the closer reading of what was asked for.
+   */
   smoke: {
-    edges: ALL_EDGES,
+    edges: ['left', 'right', 'bottom'],
     direction: { normal: 0.55, down: 0.5 },
     speed: [16, 44],
     drift: 18,
@@ -211,13 +224,20 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     emissionSpanMs: 420,
     shapes: ['smoke'],
   },
-  /** shine — barely moves; a scatter of glints that arrive over half a second. */
+  /**
+   * shine — a scatter of glints that arrive over half a second.
+   *
+   * Slow, but decidedly outward and with NO gravity: at 0.28 normal against
+   * gravity 6 the top-edge glints netted about 4px of travel, which left them
+   * sitting on the mask boundary flickering in and out. They need only a
+   * little authority, as long as it never brings them back.
+   */
   twinkle: {
     edges: ALL_EDGES,
-    direction: { normal: 0.28, down: 0 },
-    speed: [8, 28],
+    direction: { normal: 0.6, down: 0 },
+    speed: [10, 32],
     drift: 10,
-    gravity: 6,
+    gravity: 0,
     life: [0.7, 1.5],
     count: 58,
     size: [4, 12],
@@ -225,9 +245,17 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     emissionSpanMs: 620,
     shapes: ['star'],
   },
-  /** love — a few hearts leave the sides and floor, and rise. */
+  /**
+   * love — a few hearts rise past the box.
+   *
+   * NOT from the bottom edge, however natural that reads: rising from below
+   * means rising THROUGH the box, and the DG6 mask hides every one of those
+   * frames. Measured, a heart climbs ~110px in its longest life against a
+   * 180px box, so it would live and die without ever being drawn. The sides
+   * and the top are the edges where "up" is also "visible".
+   */
   drift: {
-    edges: ['left', 'right', 'bottom'],
+    edges: ['left', 'right', 'top'],
     direction: { normal: 0.3, down: -0.8 },
     speed: [24, 52],
     drift: 14,
@@ -303,8 +331,17 @@ export function planEmission(
       rotation: random() * Math.PI * 2,
       spin: (random() - 0.5) * profile.spin,
       gravity: profile.gravity,
-      shape: shapes[Math.floor(random() * shapes.length) % shapes.length] ?? shapes[0]!,
+      // Assigned in a SECOND pass below, not here.
+      shape: shapes[0]!,
     });
+  }
+  // The shape draw has to come after ALL the particle draws: that is the
+  // order 0.16.x used (planEmission ran to completion, then the adapter drew
+  // one shape per particle). Interleaving it shifts every subsequent random
+  // value, which silently rescatters the 16 categories that are supposed to
+  // look untouched — 71 of 72 particles moved, with every formula intact.
+  for (const particle of particles) {
+    particle.shape = shapes[Math.floor(random() * shapes.length) % shapes.length] ?? shapes[0]!;
   }
   return particles;
 }
@@ -404,9 +441,20 @@ export function particleAlpha(
  * True when the point sits inside the lyric box (DG6): the text is never
  * competed with. The mask is a plain rect test — the box is a rect, and the
  * cheapest correct answer is the right one on a path that runs per particle.
+ *
+ * `inflate` accounts for the SPRITE rather than its centre. That did not
+ * matter while the largest particle was 14px, but smoke is 32px: testing the
+ * centre alone let half a puff bleed over the lyrics, which the z-order hides
+ * only as long as the box background is opaque — and its alpha is the user's
+ * to set.
  */
-export function insideBox(x: number, y: number, box: Rect): boolean {
-  return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
+export function insideBox(x: number, y: number, box: Rect, inflate = 0): boolean {
+  return (
+    x >= box.x - inflate &&
+    x <= box.x + box.width + inflate &&
+    y >= box.y - inflate &&
+    y <= box.y + box.height + inflate
+  );
 }
 
 /**

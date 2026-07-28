@@ -114,6 +114,15 @@ export class FxCanvas {
     this.box = fallbackBox;
   }
 
+  /**
+   * Updates the rect used before a burst has measured the real box. Only the
+   * fallback: every burst still passes the box's actual rect, so this matters
+   * for the very first one after a box-size change.
+   */
+  setFallbackBox(box: Rect): void {
+    this.box = box;
+  }
+
   /** True while anything is animating — the battery contract's test hook. */
   isIdle(): boolean {
     return this.live.length === 0 && this.app?.ticker.started !== true;
@@ -132,6 +141,11 @@ export class FxCanvas {
    */
   private teardown(): void {
     this.live = [];
+    // A rebuild after context loss is a fresh layer: its diagnostics must be
+    // able to speak again, or the one-shot budget line stays suppressed for
+    // the rest of the session on the very path that exists to be noticed.
+    this.loggedBudget = false;
+    this.loggedFirstBurst = false;
     const app = this.app;
     this.app = null;
     this.layer = null;
@@ -159,17 +173,19 @@ export class FxCanvas {
     // so overlapping ones can now stack in a way the single 1.4s behaviour
     // never could. The cap trims the new burst rather than the running ones,
     // and says so once — a silently thinned effect is the harder bug.
-    const room = MAX_LIVE_PARTICLES - this.live.length;
-    if (room <= 0) {
-      if (!this.loggedBudget) {
-        this.loggedBudget = true;
-        this.log(`fx layer: particle budget reached (${MAX_LIVE_PARTICLES}), burst skipped`);
-      }
-      return;
-    }
-
+    const room = Math.max(0, MAX_LIVE_PARTICLES - this.live.length);
     const random = makeRandom((this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0));
     const planned = planEmission(this.box, random, profile);
+    if (room < planned.length && !this.loggedBudget) {
+      // Once per layer: a thinned burst and a skipped one are the same class
+      // of problem, and a quietly thinned effect is the harder one to notice.
+      this.loggedBudget = true;
+      this.log(
+        `fx layer: particle budget ${MAX_LIVE_PARTICLES} reached,` +
+          ` emitting ${room} of ${planned.length}`,
+      );
+    }
+    if (room === 0) return;
     for (const particle of planned.slice(0, room)) {
       const texture = this.textures.get(particle.shape);
       if (!texture || !this.pixi) continue;
@@ -302,7 +318,7 @@ export class FxCanvas {
       const { x, y } = entry.particle;
       // DG6: the box belongs to the text. Skipped, not clipped — a particle
       // crossing it simply is not drawn for those frames.
-      entry.sprite.visible = !insideBox(x, y, this.box);
+      entry.sprite.visible = !insideBox(x, y, this.box, entry.particle.size / 2);
       entry.sprite.position.set(x, y);
       entry.sprite.rotation = entry.particle.rotation;
       entry.sprite.alpha = particleAlpha(entry.particle, width, height);
