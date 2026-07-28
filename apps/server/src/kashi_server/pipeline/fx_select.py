@@ -75,7 +75,10 @@ KEEP_RATIO = 0.5
 #: ceilinged. A flat count would punish long songs and let a two-minute
 #: nightcore edit fire every five seconds — which is the complaint, restated.
 SECONDS_PER_EFFECT = 9
-MIN_SONG_CAP = 12
+#: Only a floor for degenerate snippets. It used to be 12, which OVERRODE the
+#: cadence below ~108 s: a one-minute nightcore edit got an effect every five
+#: seconds — the exact density this cap exists to prevent.
+MIN_SONG_CAP = 4
 MAX_SONG_CAP = 24
 
 #: Two effects closer than this read as one to the eye and cost the particle
@@ -83,10 +86,13 @@ MAX_SONG_CAP = 24
 #: lines were the gap the per-line rule never covered.
 MIN_GAP_MS = 700
 
-#: A section type that covers most of the song carries no information. Mirrors
-#: `structure._MAX_COVERAGE`, and is judged PER TYPE: a sprawling `high` must
-#: not discredit an honest `chorus`.
-MAX_PRIORITY_LINE_SHARE = 0.6
+#: A section type covering most of the song carries no information. Measured in
+#: TIME, exactly as `structure._MAX_COVERAGE` does — NOT as a share of tagged
+#: lines. Hook words live in the chorus, so a line-share denominator would put
+#: a normal chorus over any threshold and switch the rule off on precisely the
+#: songs it exists for. Judged PER TYPE: a sprawling `high` must not discredit
+#: an honest `chorus`.
+MAX_PRIORITY_COVERAGE = 0.6
 
 
 @dataclass(frozen=True)
@@ -205,7 +211,7 @@ def _sanitize(candidates: Sequence[WordTag], lines: Sequence[LineFacts]) -> list
             continue
         seen.add(key)
         out.append(tag)
-    out.sort(key=lambda t: (t.line, t.word))
+    out.sort(key=lambda t: (t.line, t.word, t.tag))
     return out
 
 
@@ -243,11 +249,13 @@ def _rank_lines(
 
     # Per type, not combined: a `high` that covers most of the track says
     # nothing, but that is no reason to throw away an honest `chorus`.
+    track_ms = max((line.end_ms for line in lines), default=0)
     disabled = tuple(
         sorted(
             kind
-            for kind, hit in membership.items()
-            if len(hit) / len(fx_lines) > MAX_PRIORITY_LINE_SHARE
+            for kind, spans in by_type.items()
+            if track_ms > 0
+            and sum(s.end_ms - s.start_ms for s in spans) / track_ms > MAX_PRIORITY_COVERAGE
         )
     )
     ranks: dict[int, int] = {}

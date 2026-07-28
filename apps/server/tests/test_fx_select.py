@@ -135,13 +135,46 @@ def test_a_song_that_is_all_chorus_carries_no_information():
     assert result.words[-1].line >= 20, "still spread over the whole song"
 
 
+def test_a_normal_chorus_survives_even_when_it_holds_most_of_the_tags():
+    """The denominator matters: hook words LIVE in the chorus.
+
+    Coverage is measured in time, like structure.py does. Counting tagged
+    lines instead would put an ordinary chorus over any threshold — it would
+    switch the rule off on exactly the songs it exists for.
+    """
+    song = lines(50)  # 50 lines x 4 s = 200 s
+    chorus_lines = list(range(10, 20)) + list(range(30, 40))  # 80 s = 40% of it
+    cands = [tag(i, 1) for i in chorus_lines] + [tag(i, 1) for i in (0, 3, 45, 48)]
+    sections = [
+        Section("chorus", 10 * LINE_MS, 20 * LINE_MS),
+        Section("chorus", 30 * LINE_MS, 40 * LINE_MS),
+    ]
+    result = select_fx_words(cands, song, sections)
+    assert "chorus" not in result.stats.disabled_types
+    assert any(t.line in chorus_lines for t in result.words)
+
+
+def test_a_short_song_is_not_given_a_dense_cadence():
+    """The floor must not override the cadence.
+
+    A one-minute edit under a flat floor of 12 got an effect every five
+    seconds — the density the cap was introduced to prevent, restated.
+    """
+    minute = [
+        LineFacts(words=6, start_ms=i * 3000, end_ms=i * 3000 + 2800) for i in range(20)
+    ]  # 60 s
+    result = select_fx_words([tag(i, 1, name=f"t{i}") for i in range(20)], minute)
+    seconds_per_effect = 60 / max(1, len(result.words))
+    assert seconds_per_effect >= 7, f"one effect every {seconds_per_effect:.1f}s"
+
+
 def test_a_sprawling_high_does_not_discredit_an_honest_chorus():
     # The correction that mattered: judging coverage over the COMBINED set let
     # a loud master delete a perfectly good chorus signal.
     song = lines(30)
     cands = [tag(i, 1) for i in range(30)]
     sections = [
-        Section(type="high", start_ms=0, end_ms=25 * LINE_MS),
+        Section(type="high", start_ms=0, end_ms=26 * LINE_MS),  # 87% of the track
         Section(type="chorus", start_ms=26 * LINE_MS, end_ms=29 * LINE_MS),
     ]
     result = select_fx_words(cands, song, sections)
