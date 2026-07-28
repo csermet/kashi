@@ -23,6 +23,7 @@ import {
   GENERIC_PROFILE,
   insideBox,
   makeRandom,
+  maxParticleLifetimeMs,
   particleAlpha,
   planEmission,
   stepParticle,
@@ -78,6 +79,22 @@ const MAX_SETUP_FAILURES = 2;
  */
 const MAX_LIVE_PARTICLES = 400;
 
+/**
+ * Longest step a single frame may advance the simulation. Waking from sleep,
+ * or a stalled compositor, hands the ticker a delta measured in seconds; at
+ * 240px/s that is a particle jumping across the screen instead of moving.
+ * Slow motion for one frame is invisible, teleporting is not.
+ */
+const MAX_FRAME_S = 0.1;
+
+/**
+ * Frames after which a burst is definitely over. Derived from the longest
+ * profile (stagger + lifetime) with generous slack, so it can only fire when
+ * something is genuinely wrong — and counted in frames, not seconds, so the
+ * guard survives exactly the bad deltas it guards against.
+ */
+const MAX_BURST_FRAMES = Math.ceil((maxParticleLifetimeMs() / 1000) * 240) * 3;
+
 interface Live {
   particle: Particle;
   sprite: Sprite;
@@ -95,6 +112,8 @@ export class FxCanvas {
   private disposed = false;
   private loggedFirstBurst = false;
   private loggedBudget = false;
+  /** Frames since the last burst — drives the "nothing lives forever" backstop. */
+  private framesSinceBurst = 0;
   private failures = 0;
 
   /**
@@ -186,6 +205,7 @@ export class FxCanvas {
       );
     }
     if (room === 0) return;
+    this.framesSinceBurst = 0;
     for (const particle of planned.slice(0, room)) {
       const texture = this.textures.get(particle.shape);
       if (!texture || !this.pixi) continue;
@@ -304,9 +324,32 @@ export class FxCanvas {
     }
   }
 
-  private frame(dt: number): void {
+  private frame(rawDt: number): void {
     const app = this.app;
     if (!app) return;
+
+    // A frame delta is not to be trusted blindly. Waking from sleep hands the
+    // ticker a gap measured in seconds, which would teleport every live
+    // particle somewhere arbitrary in one step; a non-finite one would poison
+    // `age` permanently, and since death is `age >= life`, a poisoned particle
+    // never dies and the ticker never stops — the battery contract broken in
+    // a way nothing would report.
+    const dt = Number.isFinite(rawDt) ? Math.min(Math.max(rawDt, 0), MAX_FRAME_S) : 0;
+
+    // Backstop for anything the clamp cannot foresee: no burst can still be
+    // running this long after it started. Counted in FRAMES rather than
+    // elapsed time so a bad delta cannot disable the guard that exists to
+    // survive bad deltas.
+    this.framesSinceBurst += 1;
+    if (this.live.length > 0 && this.framesSinceBurst > MAX_BURST_FRAMES) {
+      this.log(
+        `fx layer: particles outlived their bound (${this.live.length} still alive` +
+          ` after ${this.framesSinceBurst} frames) — clearing`,
+      );
+      for (const entry of this.live) entry.sprite.destroy();
+      this.live = [];
+    }
+
     const width = app.renderer.width;
     const height = app.renderer.height;
     const survivors: Live[] = [];

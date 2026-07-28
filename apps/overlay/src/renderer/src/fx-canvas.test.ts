@@ -348,3 +348,60 @@ function stageOf(layer: unknown): FakeSprite[] {
 function texturesOf(layer: unknown): Map<string, unknown> {
   return (layer as { textures: Map<string, unknown> }).textures;
 }
+
+describe('FxCanvas — frame deltas cannot be trusted', () => {
+  it('a stutter must not teleport particles across the box', async () => {
+    // The dangerous delta is not the huge one — a multi-second gap kills the
+    // burst outright, which is fine, the song moved on. It is the half-second
+    // stall (a compositor hiccup, a heavy tab) where particles SURVIVE: at
+    // spark speeds that is over a hundred pixels covered in a single frame,
+    // seen as the whole burst jumping sideways at once.
+    const { layer } = await freshCanvas();
+    await layer.burst(0xffffff, undefined, ARCHETYPE_PROFILES.spark);
+    const app = appOf(layer);
+
+    app.ticker.advance(16);
+    const before = stageOf(layer).map((s) => ({ x: s.x, y: s.y }));
+    app.ticker.advance(500);
+
+    let checked = 0;
+    for (const [i, sprite] of stageOf(layer).entries()) {
+      if (sprite.destroyed) continue;
+      checked += 1;
+      const moved = Math.hypot(sprite.x - before[i]!.x, sprite.y - before[i]!.y);
+      // One clamped step's worth of travel, not half a second of it.
+      expect(moved, `sprite ${i} jumped ${Math.round(moved)}px in one frame`).toBeLessThan(40);
+    }
+    // The assertion above is only worth anything if particles actually lived.
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('a poisoned delta cannot make a particle immortal', async () => {
+    // Death is `age >= life`; NaN makes that comparison false forever, so the
+    // particle never dies and the ticker never stops — an invisible battery
+    // leak. The clamp turns the bad delta into no movement at all.
+    const { layer } = await freshCanvas();
+    await layer.burst(0xffffff, undefined, ARCHETYPE_PROFILES.spark);
+    const app = appOf(layer);
+
+    app.ticker.advance(Number.NaN);
+    app.ticker.advance(Number.POSITIVE_INFINITY);
+    for (let i = 0; i < 200; i++) app.ticker.advance(16);
+
+    expect(layer.isIdle()).toBe(true);
+    expect(app.ticker.started).toBe(false);
+  });
+
+  it('clears a burst that outlived its bound, and says so', async () => {
+    // Backstop for whatever the clamp did not foresee. Driven with a zero
+    // delta so ages never advance: the particles would otherwise live forever.
+    const { layer, log } = await freshCanvas();
+    await layer.burst(0xffffff, undefined, ARCHETYPE_PROFILES.drift);
+    const app = appOf(layer);
+
+    for (let i = 0; i < 3000; i++) app.ticker.advance(0);
+
+    expect(layer.isIdle()).toBe(true);
+    expect(log.some((line) => line.includes('outlived their bound'))).toBe(true);
+  });
+});
