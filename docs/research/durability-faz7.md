@@ -59,13 +59,34 @@ click-through. Both are platform behaviour, not ours.
 
 | # | Cell | What to do | Expect | Result |
 |---|---|---|---|---|
-| D1 | Each archetype, seen | Play songs hitting explosion/fire, electric, money/water, poison, shine, love | Each reads as its own thing. **Say which ones you dislike** — a disliked archetype gets revised or deleted, it does not ship on sufferance | |
+| D1 | Each archetype, seen | Play the songs below — picked from the library because they carry the most words of each category | Each reads as its own thing. **Say which ones you dislike** — a disliked archetype gets revised or deleted, it does not ship on sufferance | |
 | D2 | Box size × particles | Small and Large box, then trigger fx | Particles hug the box at every size; nothing cut off at the window edge | |
 | D3 | Text size | Small and Large text | No overflow; long lines still wrap to at most 3 rows | |
 | D4 | Medium/Medium is unchanged | Compare against 0.16.8 if you still have it | Identical — this is the promise the defaults make | |
 | D5 | Size change mid-song | Change box size while a song plays | Box re-centres, lyrics keep flowing, no restart needed | |
 | D6 | Size setting persists | Change size, quit, restart | Comes back at the chosen size, in a sensible position | |
 | D7 | Size change during a burst | Change box size while particles are in flight | No crash; the next burst aims at the new box | |
+
+### D1 — the shortest route to each archetype
+
+Taken from the processed library: the track carrying the most words of that
+category, so the effect fires several times per play rather than once.
+
+| Archetype | Category | Song | Video id | fx words |
+|---|---|---|---|---|
+| burst | fire | Skillet — Burn It Down | `suk7JSx6qQs` | 32 |
+| spark | electric | Thousand Foot Krutch — Untraveled Road | `JQplqa0z5zY` | 3 |
+| fall | money | Dolly Parton — 9 to 5 | `xIIHdeneqX8` | 4 |
+| fall | water | Hayri Yaşar Karagülle — Selam Trabzonum'a | `q8aKMedTkxg` | 4 |
+| smoke | poison | Ava Max — Sweet but Psycho | `ttznokjeSnw` | 3 |
+| twinkle | shine | Rihanna — Towards The Sun | `G3jq77_P-cA` | 8 |
+| drift | love | Pitbull — Hey Baby (Drop It to the Floor) | `IL74nTSQxds` | 42 |
+
+Two notes from the same query. **`explosion` does not occur anywhere in the
+library** — the burst archetype reaches the screen through `fire` alone, so if
+burst disappoints, that is the tag to judge it by. And `love` dominates
+everything at 246 words across the library against `electric`'s 4, so drift is
+the archetype that will be seen most and deserves the strictest eye.
 
 ## E. Diagnostics (P1 acceptance)
 
