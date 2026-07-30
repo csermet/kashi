@@ -15,6 +15,7 @@ import {
   isRetryable,
   retryDelayMs,
   shouldUpgrade,
+  enrichmentKeys,
   type DisplayedLyrics,
 } from './server-retry-logic.js';
 
@@ -41,6 +42,8 @@ export interface LookupDeps {
   log: (line: string) => void;
   /** Retry delays for transient lrclib failures (timeout/network). */
   retryDelaysMs?: number[];
+  /** Self-heal ladder delays; injectable so a test need not wait ten seconds. */
+  serverRetryDelaysMs?: readonly number[];
   /** Optional diagnostics sink (Faz 6.7 P2). Never awaited, never throws —
    * the ladder's behavior must not depend on whether anyone is listening. */
   emit?: (kind: 'lyrics_outcome', payload: Record<string, unknown>) => void;
@@ -94,11 +97,16 @@ export class LookupOrchestrator {
       const result = await this.deps.getProcessed(track.source.type, track.source.id, abort.signal);
       if (abort.signal.aborted || !this.deps.isCurrent(key)) return; // stale (R-9)
       if ('found' in result && result.found) {
-        this.deps.log(`server hit: ${key} sync=${result.sync} quality=${result.qualityScore}`);
+        const stale = result.stale === true;
+        this.deps.log(
+          `server hit: ${key} sync=${result.sync} quality=${result.qualityScore}` +
+            (stale ? ' (from cache — the live request failed)' : ''),
+        );
         this.deps.emit?.('lyrics_outcome', {
           source: 'kashi-server',
           sync: result.sync,
           quality: result.qualityScore,
+          ...(stale ? { stale: true } : {}),
         });
         if (result.sync === 'word') {
           this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
@@ -108,6 +116,10 @@ export class LookupOrchestrator {
           state: { source: 'kashi-server', sync: result.sync, qualityScore: result.qualityScore },
         };
         this.deps.send({ key, ...result });
+        // A cache fallback filled the screen, but the server was never
+        // actually reached. Keep probing: the document on disk may be several
+        // reprocesses behind, and nothing else will ever ask again.
+        if (stale) void this.selfHeal(key, track, abort).catch(() => {});
         return;
       }
       if ('found' in result && !result.found) {
@@ -193,8 +205,9 @@ export class LookupOrchestrator {
   private async selfHeal(key: string, track: TrackInfo, abort: AbortController): Promise<void> {
     const getProcessed = this.deps.getProcessed;
     if (!getProcessed) return;
+    const ladder = this.deps.serverRetryDelaysMs;
     for (let attempt = 0; ; attempt++) {
-      const delay = retryDelayMs(attempt);
+      const delay = ladder ? (ladder[attempt] ?? null) : retryDelayMs(attempt);
       if (delay === null) {
         this.deps.log(`server probe gave up on ${key} after ${attempt} attempts`);
         return;
@@ -214,6 +227,10 @@ export class LookupOrchestrator {
       if (abort.signal.aborted || !this.deps.isCurrent(key)) return;
 
       if (isRetryable(result)) continue;
+      // A stale answer is the SAME failure wearing the cache's clothes: the
+      // request did not reach the server. Treating it as an answer would end
+      // the ladder on its first rung and leave the old document up for good.
+      if ('found' in result && result.found && result.stale) continue;
 
       if ('found' in result && !result.found) {
         // A 404 is an answer, not a failure: stop probing and arm the gate
@@ -251,7 +268,12 @@ export class LookupOrchestrator {
         }
         this.displayed = {
           key,
-          state: { source: 'kashi-server', sync: result.sync, qualityScore: result.qualityScore },
+          state: {
+            source: 'kashi-server',
+            sync: result.sync,
+            qualityScore: result.qualityScore,
+            enrichment: enrichmentKeys(result),
+          },
         };
         this.deps.send({ key, ...result });
       }

@@ -414,8 +414,15 @@ export interface FxLineHit {
   effect: FxWordEffect;
 }
 
-/** Belt against a bad server plan: a line never carries more than this. */
-export const MAX_FX_PER_LINE = 3;
+/**
+ * Belt against a bad server plan: a line never carries more than this.
+ *
+ * Six rather than three since pipeline 2.14.0: a repeated word is one gesture
+ * that emits one entry per occurrence, so a line can legitimately carry more
+ * entries than it carries effects. The server enforces the real quota; this
+ * only exists so a malformed plan cannot flood one line.
+ */
+export const MAX_FX_PER_LINE = 6;
 
 export function buildFxIndex(
   fx: FxData | undefined,

@@ -27,6 +27,8 @@ export type ServerBeats = BeatsData;
 /** What lookupLyrics forwards to the renderer for a server hit. */
 export interface ServerLyricsFound {
   found: true;
+  /** Served from cache because the live request failed — not a fresh answer. */
+  stale?: boolean;
   source: 'kashi-server';
   sync: 'word' | 'line';
   qualityScore: number;

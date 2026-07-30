@@ -5,6 +5,7 @@ import {
   retryDelayMs,
   shouldUpgrade,
   type DisplayedLyrics,
+  enrichmentKeys,
 } from './server-retry-logic.js';
 
 const serverDoc = (sync: 'word' | 'line', qualityScore = 0.9) =>
@@ -64,5 +65,50 @@ describe('shouldUpgrade', () => {
   it('a miss or an error never replaces anything', () => {
     expect(shouldUpgrade(lrclibLine, { found: false })).toBe(false);
     expect(shouldUpgrade(lrclibLine, { error: true })).toBe(false);
+  });
+});
+
+describe('shouldUpgrade — enrichment, not just quality (P7)', () => {
+  const shown = (over: Partial<DisplayedLyrics> = {}): DisplayedLyrics => ({
+    source: 'kashi-server',
+    sync: 'word',
+    qualityScore: 0.9,
+    ...over,
+  });
+  const doc = (over: Record<string, unknown> = {}) =>
+    ({ found: true, source: 'kashi-server', sync: 'word', qualityScore: 0.9, lines: [], ...over }) as never;
+
+  it('upgrades on equal quality when the incoming document is genuinely richer', () => {
+    // The case that made this rule necessary: a reprocess that adds effects
+    // leaves alignment untouched, so the score is a wash while the document
+    // really is better. Comparing scores alone declined it, and the user kept
+    // an unthemed document for the whole song.
+    const current = shown({ enrichment: ['beats'] });
+    expect(shouldUpgrade(current, doc({ beats: {}, fx: { select: 'density/1.1' } }))).toBe(true);
+  });
+
+  it('declines the identical document — re-rendering it is pure flicker', () => {
+    const current = shown({ enrichment: ['beats', 'fx'] });
+    expect(shouldUpgrade(current, doc({ beats: {}, fx: {} }))).toBe(false);
+  });
+
+  it('declines when each document has something the other lacks', () => {
+    // Otherwise two probes would swap back and forth all song.
+    const current = shown({ enrichment: ['palette'] });
+    expect(shouldUpgrade(current, doc({ beats: {} }))).toBe(false);
+  });
+
+  it('still declines a strictly worse alignment, however rich it is', () => {
+    const current = shown({ qualityScore: 0.9, enrichment: [] });
+    expect(shouldUpgrade(current, doc({ qualityScore: 0.5, fx: {}, beats: {} }))).toBe(false);
+  });
+
+  it('enrichmentKeys names what a document carries, sorted and stable', () => {
+    expect(enrichmentKeys(doc({ fx: { select: 'density/1.1' }, beats: {} }))).toEqual([
+      'beats',
+      'fx',
+      'fx.select',
+    ]);
+    expect(enrichmentKeys({ found: false } as never)).toEqual([]);
   });
 });

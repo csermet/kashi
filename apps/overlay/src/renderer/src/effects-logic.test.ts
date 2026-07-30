@@ -340,12 +340,32 @@ describe('buildFxIndex (Faz 6 hype)', () => {
   });
 
   it('caps a selected line, in case a plan arrives wrong', () => {
+    // The belt only exists for a malformed plan, so the fixture has to exceed
+    // it: a legitimate line can carry several entries now that a repeated word
+    // emits one per occurrence.
+    const wide = [
+      {
+        start_ms: 0,
+        end_ms: 4000,
+        text: 'a'.repeat(8),
+        words: Array.from({ length: 8 }, (_, i) => ({
+          start_ms: i * 400,
+          end_ms: i * 400 + 380,
+          text: `w${i}`,
+        })),
+      },
+    ];
     const index = buildFxIndex(
       fx(
-        [0, 1, 2, 3, 4].map((word) => ({ line: 0, word, tag: 'love', intensity: 0.6 })),
+        Array.from({ length: 8 }, (_, word) => ({
+          line: 0,
+          word,
+          tag: 'love',
+          intensity: 0.6,
+        })),
         'density/1.0',
       ),
-      lines,
+      wide,
     );
     expect(index.get(0)).toHaveLength(MAX_FX_PER_LINE);
   });

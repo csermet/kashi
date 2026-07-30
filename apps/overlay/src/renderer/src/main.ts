@@ -24,6 +24,7 @@ import {
   BeatCursor,
   beatsUsable,
   buildFxIndex,
+  primaryFxHit,
   buildLineThemeIndex,
   computeFxTintVars,
   FX_BASE_COLORS,
@@ -402,8 +403,11 @@ function fxIconPath(tag: string, wordText: string): string | null {
   // non-string into setAttribute (defense in depth over mapFx's charset gate).
   const variants = Object.hasOwn(FX_ICON_VARIANTS, tag) ? FX_ICON_VARIANTS[tag] : undefined;
   if (!Array.isArray(variants) || variants.length === 0) return null;
+  // Normalized: the same sung word must wear the same icon everywhere in a
+  // song, and the transcript is not consistent about case or a trailing comma.
+  const key = wordText.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   let hash = 0;
-  for (let i = 0; i < wordText.length; i += 1) hash = (hash * 31 + wordText.charCodeAt(i)) | 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
   const path = variants[Math.abs(hash) % variants.length];
   return typeof path === 'string' ? path : null;
 }
@@ -501,6 +505,7 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   // The halo's colour is NOT chosen here: ambientColors() takes the line's
   // primary hit itself, so a two-category line cannot repaint it mid-line.
   fxWordTags = new Map(fxHits.map((hit) => [hit.word, hit.effect]));
+  const primary = primaryFxHit(fxHits);
   wordSpans = words.map((word, i) => {
     if (i > 0) lineEl.appendChild(document.createTextNode(' '));
     const span = document.createElement('span');
@@ -508,13 +513,20 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
     span.textContent = word.text;
     const hit = fxHits.find((candidate) => candidate.word === i);
     if (hit) {
+      const isPrimary = hit === primary;
       // Classes at build time; activation stays a class toggle (no per-frame
       // fx work). The inline icon rides INSIDE the span so it wraps with the
       // word — the box clips at the window edge, never past it.
       span.classList.add('fx-word', `fx-${hit.effect.tag}`);
       span.style.setProperty('--fx-intensity', String(hit.effect.intensity));
-      const icon = buildFxIcon(hit.effect.tag, word.text);
-      if (icon) span.appendChild(icon);
+      // ONE icon per line, on the strongest hit. Two icons on one line read as
+      // clutter — the field verdict was blunt about it — and the halo already
+      // follows the same "one identity per line" rule. Secondary hits keep
+      // their colour and their particles; only the glyph is withheld.
+      if (isPrimary) {
+        const icon = buildFxIcon(hit.effect.tag, word.text);
+        if (icon) span.appendChild(icon);
+      }
     }
     lineEl.appendChild(span);
     return span;
@@ -590,6 +602,13 @@ function applyView(view: ViewOutput): void {
     lineEl.classList.toggle('dim', view.lineDim);
     lineEl.classList.toggle('interlude', view.interlude);
     lineEl.classList.toggle('adlib', view.lineAdlib);
+    // A line with no word timings renders as one plain string. It used to sit
+    // at stock white while every timed line around it wore the album's
+    // colours, so a song that opens with an unalignable intro looked broken
+    // for its first few seconds — the field report was "white text for eight
+    // seconds, then it goes normal". It is not broken; it just had nothing to
+    // say. A soft tint says the same thing quietly.
+    lineEl.classList.toggle('plain', wordSpans.length === 0 && !view.interlude);
     // One-shot entrance: unconditional removal first — a stale class must
     // never linger into interlude/status views (its ID selector would
     // out-specificity the ♪ animation).

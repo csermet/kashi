@@ -89,6 +89,14 @@ body {
     opacity 0.2s;
 }
 
+/* Word-timing-less lines (the quality gate rejected their alignment) wear a
+   softened palette tone rather than stock white: the difference between "no
+   karaoke here" and "something is wrong". Applies at every effect level — a
+   deliberate, documented appearance change. */
+.lyric.plain {
+  color: color-mix(in oklab, var(--kashi-primary, #fff) 55%, var(--kashi-text, #fff));
+}
+
 .lyric.dim {
   font-size: calc(14px * var(--kashi-text-scale, 1));
   font-weight: 500;

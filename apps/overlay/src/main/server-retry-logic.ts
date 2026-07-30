@@ -31,6 +31,29 @@ export interface DisplayedLyrics {
   source: 'kashi-server' | 'lrclib' | 'none';
   sync: 'word' | 'line';
   qualityScore?: number;
+  /**
+   * Which enrichment blocks the displayed document actually carries.
+   *
+   * Quality score alone cannot answer "is this one richer?": a reprocess that
+   * adds effects without touching alignment leaves the number identical, so a
+   * server-to-server comparison would decline the upgrade and the user would
+   * keep an unthemed document all song.
+   */
+  enrichment?: readonly string[];
+}
+
+/** The enrichment blocks a result brings, as a stable set of names. */
+export function enrichmentKeys(incoming: ServerLyricsResult): string[] {
+  if (!('found' in incoming) || !incoming.found) return [];
+  const keys: string[] = [];
+  if (incoming.palette) keys.push('palette');
+  if (incoming.beats) keys.push('beats');
+  if (incoming.fx) keys.push('fx');
+  if (incoming.fx?.select) keys.push('fx.select');
+  if (incoming.energy) keys.push('energy');
+  if (incoming.sections?.length) keys.push('sections');
+  if (incoming.alignment) keys.push('alignment');
+  return keys.sort();
 }
 
 /**
@@ -52,9 +75,21 @@ export function shouldUpgrade(current: DisplayedLyrics, incoming: ServerLyricsRe
   // that is not "no difference" at hype level, so the swap is worth it when
   // the enrichment is actually there, and declined when it is not.
   if (current.source === 'lrclib') return carriesEnrichment(incoming);
-  // Same source and granularity: only a real quality gain justifies the swap.
+  // Same source and granularity: a real quality gain justifies the swap...
   if (current.source !== 'kashi-server' || current.qualityScore === undefined) return false;
-  return incoming.qualityScore > current.qualityScore;
+  if (incoming.qualityScore > current.qualityScore) return true;
+  if (incoming.qualityScore < current.qualityScore) return false;
+  // ...and so does the same quality carrying MORE. A reprocess that adds
+  // effects leaves alignment untouched, so the score is a wash while the
+  // document is genuinely richer. Strictly more, never merely different: two
+  // documents that each have something the other lacks would otherwise swap
+  // back and forth on consecutive probes, and re-rendering an identical
+  // document is the flicker this rule exists to prevent.
+  const shown = new Set(current.enrichment ?? []);
+  const arriving = new Set(enrichmentKeys(incoming));
+  const addsSomething = [...arriving].some((key) => !shown.has(key));
+  const losesNothing = [...shown].every((key) => arriving.has(key));
+  return addsSomething && losesNothing;
 }
 
 /** Does this document bring anything lrclib cannot? */

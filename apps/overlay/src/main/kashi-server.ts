@@ -125,7 +125,11 @@ export class KashiServerClient {
       const payload = mapDocument(cached.document);
       if (payload) {
         this.log(`kashi-server: ${reason} — serving the cached document`);
-        return payload;
+        // SAY that it is stale. Without this the caller cannot tell a cache
+        // fallback from a live hit: the screen fills, nothing looks wrong, and
+        // a document that has since been reprocessed never gets re-fetched for
+        // the rest of the song.
+        return { ...payload, stale: true };
       }
     }
     this.log(`kashi-server: ${reason} — falling back`);

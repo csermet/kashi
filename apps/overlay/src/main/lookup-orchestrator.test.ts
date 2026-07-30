@@ -293,3 +293,59 @@ describe('server self-heal (Faz 6.7 P3)', () => {
     expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'line', beats: { bpm: 120 } });
   });
 });
+
+describe('a stale cache hit is not an answer (P7)', () => {
+  const staleDoc = {
+    found: true,
+    source: 'kashi-server',
+    sync: 'word',
+    qualityScore: 0.9,
+    lines: [],
+    stale: true,
+  };
+  const freshDoc = { ...staleDoc, stale: false, qualityScore: 0.95 };
+
+  it('keeps probing while the answers are still coming from the cache', async () => {
+    // Two things have to hold, and they are separate. The screen filling made
+    // this invisible — a cache fallback looked exactly like a live hit, so
+    // nothing ever asked again. And a probe that ALSO gets served from cache
+    // is the same failure wearing the same clothes: if that counts as an
+    // answer, the ladder ends on its first rung and the stale document stays
+    // up even though the server came back.
+    let calls = 0;
+    const d = deps({
+      getProcessed: async () => {
+        calls += 1;
+        return calls <= 2 ? staleDoc : freshDoc;
+      },
+      serverRetryDelaysMs: [0, 0, 0],
+    } as never);
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(calls).toBeGreaterThanOrEqual(3);
+    expect(d.getLyrics).not.toHaveBeenCalled();
+  });
+
+  it('reports staleness so the field data can tell the two apart', async () => {
+    const emit = vi.fn();
+    const d = deps({
+      getProcessed: async () => staleDoc,
+      emit,
+      serverRetryDelaysMs: [],
+    } as never);
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    expect(emit).toHaveBeenCalledWith(
+      'lyrics_outcome',
+      expect.objectContaining({ source: 'kashi-server', stale: true }),
+    );
+  });
+
+  it('a fresh hit is never marked stale', async () => {
+    const emit = vi.fn();
+    const d = deps({ getProcessed: async () => freshDoc, emit } as never);
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    const payload = emit.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('stale');
+  });
+});
