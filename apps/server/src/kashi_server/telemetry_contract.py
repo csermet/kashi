@@ -56,6 +56,11 @@ TELEMETRY_FIELDS: dict[str, frozenset[str]] = {
             "line_count",
             "upgraded",
             "attempt",
+            # Whether the document came from a cache the client fell back to
+            # because the live request failed. Without it a stale hit is
+            # indistinguishable from a fresh one in the field data — the two
+            # look identical at the call site.
+            "stale",
         }
     ),
     # The event the timing work exists for: how far a position report was off
