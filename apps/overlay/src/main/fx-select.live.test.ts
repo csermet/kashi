@@ -58,7 +58,10 @@ describe.skipIf(!LIVE_URL || !LIVE_KEY)('live fx selection', () => {
     // mapFx is deliberately strict about what it forwards; a marker dropped
     // here would silently leave the client on its legacy rule and nobody
     // would see an error — only fewer effects than the server intended.
-    expect(fx?.select).toBe('density/1.0');
+    // ANY non-empty value means "the server already chose" — that is the
+    // whole contract, and pinning one version would break this test on every
+    // plan bump while proving nothing extra.
+    expect(fx?.select).toMatch(/^density\/\d+\.\d+$/);
   });
 
   it('a real selected document produces the effects the server chose', () => {
