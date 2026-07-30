@@ -174,7 +174,7 @@ def select_fx_words(
     after_density = _thin_by_category(after_line, class_lines)
 
     song_cap = _song_cap(lines)
-    after_cap = _apply_cap(after_density, song_cap, class_lines)
+    after_cap = _apply_cap(after_density, song_cap, classes)
     after_guard, reinserted = _guarantee_sections(
         after_cap, valid, lines, sections, ranks, scored, disabled
     )
@@ -540,7 +540,7 @@ NON_CLASS_RESERVE = 0.25
 def _apply_cap(
     candidates: Sequence[WordTag],
     cap: int,
-    class_lines: set[int] | None = None,
+    classes: dict[tuple[str, ...], list[int]] | None = None,
 ) -> list[WordTag]:
     """Trim to the song's cadence, keeping the spread rather than the front.
 
@@ -551,8 +551,9 @@ def _apply_cap(
     if _gestures(candidates) <= cap:
         return list(candidates)
 
-    klass = [t for t in candidates if class_lines and t.line in class_lines]
-    singles = [t for t in candidates if not (class_lines and t.line in class_lines)]
+    class_lines = {li for members in (classes or {}).values() for li in members}
+    klass = [t for t in candidates if t.line in class_lines]
+    singles = [t for t in candidates if t.line not in class_lines]
     if not klass:
         return _stride_to_cap(candidates, cap)
 
@@ -567,23 +568,57 @@ def _apply_cap(
 
     # Still over: thin the PATTERN itself, identically across every repeat, so
     # the chorus stays recognisable while it gets quieter.
-    kept = _thin_class_pattern(klass, trimmed_singles, cap)
+    kept = _thin_class_pattern(klass, trimmed_singles, cap, classes or {})
     if _gestures(kept) <= cap:
         return kept
 
     # Last resort: drop whole repeats. The pattern never changes; some repeats
     # simply stay silent, which reads far better than a different guess each time.
-    klass_now = [t for t in kept if class_lines and t.line in class_lines]
-    singles_now = [t for t in kept if not (class_lines and t.line in class_lines)]
+    # The loss is shared BETWEEN classes in proportion to their size. Striding
+    # over the combined pool let one chorus keep every repeat while another
+    # kept one in eleven — measured in the field — which is the very
+    # inconsistency the class was introduced to remove, wearing a new hat.
+    klass_now = [t for t in kept if t.line in class_lines]
+    singles_now = [t for t in kept if t.line not in class_lines]
+    room = max(1, cap - _gestures(singles_now))
+
+    alive_by_class = [
+        sorted({t.line for t in klass_now} & set(members))
+        for members in (classes or {}).values()
+    ]
+    alive_by_class = [members for members in alive_by_class if members]
+    total = sum(len(members) for members in alive_by_class)
+    if total == 0:
+        return sorted(singles_now, key=lambda t: (t.line, t.word))
+
+    survivors: set[int] = set()
+    for members in alive_by_class:
+        share = max(1, round(room * len(members) / total))
+        survivors.update(_stride_lines(members, min(share, len(members))))
+
     by_line: dict[int, list[WordTag]] = defaultdict(list)
     for tag in klass_now:
         by_line[tag.line].append(tag)
-    order = sorted(by_line)
-    room = max(1, cap - _gestures(singles_now))
-    survivors = _stride_lines(order, room)
-    out = singles_now + [t for li in survivors for t in by_line[li]]
-    out.sort(key=lambda t: (t.line, t.word))
-    return out
+
+    def assemble() -> list[WordTag]:
+        out = singles_now + [t for li in sorted(survivors) for t in by_line[li]]
+        out.sort(key=lambda t: (t.line, t.word))
+        return out
+
+    # Proportional rounding can overshoot; trim from whichever class is
+    # currently largest so the shape of the loss stays even.
+    result = assemble()
+    while _gestures(result) > cap:
+        biggest = max(
+            alive_by_class,
+            key=lambda m: (len([li for li in m if li in survivors]), -m[0]),
+        )
+        alive = sorted(li for li in biggest if li in survivors)
+        if len(alive) <= 1:
+            break
+        survivors.discard(alive[len(alive) // 2])
+        result = assemble()
+    return result
 
 
 def _gestures(candidates: Sequence[WordTag]) -> int:
@@ -622,22 +657,50 @@ def _thin_class_pattern(
     klass: Sequence[WordTag],
     singles: Sequence[WordTag],
     cap: int,
+    classes: dict[tuple[str, ...], list[int]],
 ) -> list[WordTag]:
-    """Drop one word from the pattern, in EVERY repeat, until it fits."""
-    by_line: dict[int, list[WordTag]] = defaultdict(list)
+    """Drop one word from each class's pattern, in every repeat of that class.
+
+    Per class, deliberately. Treating the classes' word indices as one shared
+    pattern deletes whole classes: two choruses that happen to fire on words 4
+    and 3 have a union of {3,4}, and dropping the later one silences every
+    repeat of the first — a class wiped out by a step meant to make it quieter.
+    """
+    line_to_class: dict[int, int] = {}
+    for index, members in enumerate(classes.values()):
+        for li in members:
+            line_to_class[li] = index
+
+    patterns: dict[int, list[int]] = defaultdict(list)
     for tag in klass:
-        by_line[tag.line].append(tag)
-    pattern = sorted({t.word for t in klass})
-    while len(pattern) > 1:
-        pattern = pattern[:-1]  # the later word goes first — the earlier one anchors
-        trimmed = [t for t in klass if t.word in set(pattern)]
-        candidate = sorted(list(singles) + trimmed, key=lambda t: (t.line, t.word))
-        if _gestures(candidate) <= cap:
-            return candidate
-    return sorted(
-        list(singles) + [t for t in klass if t.word in set(pattern)],
-        key=lambda t: (t.line, t.word),
-    )
+        key = line_to_class.get(tag.line, -1)
+        if tag.word not in patterns[key]:
+            patterns[key].append(tag.word)
+    for words in patterns.values():
+        words.sort()
+
+    # Trim the widest patterns first: a class already down to one word has
+    # nothing left to give without falling silent, which is the next step's job.
+    def current() -> list[WordTag]:
+        alive = [t for t in klass if _in_pattern(t, patterns, line_to_class)]
+        return alive + list(singles)
+
+    while _gestures(current()) > cap:
+        widest = max(patterns, key=lambda k: (len(patterns[k]), -k))
+        if len(patterns[widest]) <= 1:
+            break
+        patterns[widest] = patterns[widest][:-1]
+
+    trimmed = [t for t in klass if _in_pattern(t, patterns, line_to_class)]
+    return sorted(list(singles) + trimmed, key=lambda t: (t.line, t.word))
+
+
+def _in_pattern(
+    tag: WordTag,
+    patterns: dict[int, list[int]],
+    line_to_class: dict[int, int],
+) -> bool:
+    return tag.word in patterns.get(line_to_class.get(tag.line, -1), [])
 
 
 def _guarantee_sections(

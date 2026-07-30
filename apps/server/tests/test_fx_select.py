@@ -530,3 +530,61 @@ def test_repeat_classes_are_deterministic_under_input_permutation():
     assert select_fx_words(cands, song).words == select_fx_words(
         list(reversed(cands)), song
     ).words
+
+
+def test_two_classes_share_the_cap_instead_of_one_being_wiped():
+    """The field failure this rule was rewritten for.
+
+    Measured on a real document: 52 candidates, cap 24, density thinning did
+    NOTHING because nearly every line belonged to some class, so the cap had to
+    remove 28 gestures on its own. Striding over the combined pool kept one
+    chorus at six-of-six and cut the other to one-of-eleven — a chorus that
+    fires every time next to a chorus that fires once, which is precisely the
+    inconsistency the class exists to remove.
+    """
+    big = [
+        LineFacts(
+            words=len(CHORUS),
+            start_ms=i * LINE_MS,
+            end_ms=i * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(CHORUS))),
+            norm_tokens=tuple(CHORUS),
+        )
+        for i in range(11)
+    ]
+    small = [
+        LineFacts(
+            words=len(VERSE),
+            start_ms=(11 + i) * LINE_MS,
+            end_ms=(11 + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((11 + i) * LINE_MS + w * WORD_MS for w in range(len(VERSE))),
+            norm_tokens=tuple(VERSE),
+        )
+        for i in range(6)
+    ]
+    singles = [
+        LineFacts(
+            words=6,
+            start_ms=(17 + i) * LINE_MS,
+            end_ms=(17 + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((17 + i) * LINE_MS + w * WORD_MS for w in range(6)),
+            norm_tokens=tuple(f"u{i}{w}" for w in range(6)),
+        )
+        for i in range(10)
+    ]
+    song = big + small + singles
+    cands = [tag(i, 4, "music", 0.6) for i in range(11)]
+    cands += [tag(11 + i, 3, "love", 0.6) for i in range(6)]
+    cands += [tag(17 + i, 2, "fire", 0.8) for i in range(10)]
+
+    result = select_fx_words(cands, song)
+    assert result.stats.kept_gestures <= result.stats.song_cap, "the cap still binds"
+
+    big_alive = len({t.line for t in result.words if t.line < 11})
+    small_alive = len({t.line for t in result.words if 11 <= t.line < 17})
+    assert big_alive >= 2 and small_alive >= 2, (
+        f"neither class may be wiped: big={big_alive}/11 small={small_alive}/6"
+    )
+    # Proportional, not first-come: the larger class keeps more, and the
+    # smaller one does not survive whole while the larger is gutted.
+    assert big_alive >= small_alive, f"big={big_alive} small={small_alive}"

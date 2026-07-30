@@ -141,5 +141,16 @@
 # effects stop gravitating to line starts. A quarter of the cadence is
 # reserved for non-class lines, or a chorus that repeats twenty times would
 # spend the whole budget and silence the verses.
-PIPELINE_VERSION = "2.14.0"
+# 2.14.1: the cap was undoing the consistency 2.14.0 had just bought. Field
+# measurement on the first refreshed document: 52 candidates, cap 24, density
+# thinning removed NOTHING because nearly every line belonged to some class, so
+# the cap alone had to drop 28 gestures. It did that over the classes combined,
+# which kept one chorus at six-of-six while cutting another to one-of-eleven —
+# a chorus that fires every time beside a chorus that fires once, which is the
+# inconsistency the class exists to remove. The loss is now shared between
+# classes in proportion to their size. The pattern-thinning step had the same
+# shape of bug and was worse: it treated every class's word indices as ONE
+# shared pattern, so two choruses firing on words 4 and 3 had a union of {3,4}
+# and dropping the later index silenced every repeat of the first outright.
+PIPELINE_VERSION = "2.14.1"
 PIPELINE_MAJOR = 2
