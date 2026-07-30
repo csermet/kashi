@@ -36,8 +36,10 @@ from kashi_server.pipeline.energy import Section
 from kashi_server.pipeline.semantics import WordTag
 
 # Stamped onto the document so the client can tell "the server already chose"
-# from "this is a legacy dense list". See docs in document.py.
-SELECT_PLAN = "density/1.0"
+# from "this is a legacy dense list". See docs in document.py. The client keys
+# on "any non-empty value", so a plan bump needs no client change; the version
+# is provenance, and 1.1 means repeat-class consistency and gesture accounting.
+SELECT_PLAN = "density/1.1"
 
 #: chorus outranks loud, loud outranks nothing.
 _RANK_CHORUS = 2
@@ -57,6 +59,15 @@ RARE_MAX_COUNT = 6
 
 #: Caner's rule, verbatim: at least two plain words between two effect words.
 MIN_PLAIN_WORDS_BETWEEN = 2
+
+#: What the line's opening word gives up in the per-line contest. Enough to
+#: lose a tie, not enough to beat a genuinely stronger category — and it never
+#: applies when there is nothing to lose to.
+FIRST_WORD_PENALTY = 0.2
+
+#: A gesture never emits more than this many words, so a pathological line of
+#: the same word repeated cannot outrun the client's per-line belt.
+MAX_RUN_WORDS = 6
 
 #: How many effects a line may carry, by how long the line is. Most sung lines
 #: are 5-9 words, so the majority stay at one — "normalde 1, bazen 2".
@@ -106,6 +117,11 @@ class LineFacts:
     end_ms: int
     #: Start time per word, when known — enables the global gap sweep.
     word_starts: tuple[int, ...] = ()
+    #: One normalized token per word, when known. Two lines that sing the same
+    #: words carry the same tuple, which is how a chorus is recognised as a
+    #: chorus — by its LYRIC, not by an audio segment that may or may not have
+    #: survived structure detection.
+    norm_tokens: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -118,8 +134,15 @@ class SelectionStats:
     dropped_cap: int
     dropped_gap: int
     guard_reinserted: int
+    #: What the EYE counts: a repeated word on one line is one effect, so this
+    #: is the number the cadence cap is actually measured against.
+    kept_gestures: int = 0
+    #: Repeat classes found, and pattern words a repeat could not honour
+    #: because it had no such candidate of its own.
+    repeat_classes: int = 0
+    pattern_missing: int = 0
     #: Types whose rank was zeroed for covering too much of the song.
-    disabled_types: tuple[str, ...]
+    disabled_types: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -145,15 +168,18 @@ def select_fx_words(
         (t.line, t.word): _score(t, ranks.get(t.line, 0), counts[t.tag]) for t in valid
     }
 
-    after_line = _thin_within_lines(valid, lines, scored)
-    after_density = _thin_by_category(after_line)
+    classes = _repeat_classes(valid, lines)
+    after_line, pattern_missing = _thin_within_lines(valid, lines, scored, classes)
+    class_lines = {li for members in classes.values() for li in members}
+    after_density = _thin_by_category(after_line, class_lines)
 
     song_cap = _song_cap(lines)
-    after_cap = _apply_cap(after_density, song_cap)
+    after_cap = _apply_cap(after_density, song_cap, class_lines)
     after_guard, reinserted = _guarantee_sections(
         after_cap, valid, lines, sections, ranks, scored, disabled
     )
-    kept, dropped_gap = _sweep_gaps(after_guard, lines, scored, reinserted)
+    protected = reinserted | {(t.line, t.word) for t in after_guard if t.line in class_lines}
+    kept, dropped_gap = _sweep_gaps(after_guard, lines, scored, protected)
 
     kept.sort(key=lambda t: (t.line, t.word))
     stats = SelectionStats(
@@ -165,6 +191,9 @@ def select_fx_words(
         dropped_cap=len(after_density) - len(after_cap),
         dropped_gap=dropped_gap,
         guard_reinserted=len(reinserted),
+        kept_gestures=_gestures(kept),
+        repeat_classes=len(classes),
+        pattern_missing=pattern_missing,
         disabled_types=disabled,
     )
     return Selection(SELECT_PLAN, kept, stats)
@@ -184,6 +213,7 @@ def thin_fx(tags, result, sections):
             start_ms=line.start_ms,
             end_ms=line.end_ms,
             word_starts=tuple(w.start_ms for w in words),
+            norm_tokens=tuple(normalize_token(w.text) for w in words),
         )
         for line, words in zip(result.lines, result.words_per_line, strict=False)
     ]
@@ -191,11 +221,24 @@ def thin_fx(tags, result, sections):
     return replace(tags, words=selection.words, select=selection.plan), selection.stats
 
 
+def normalize_token(text: str) -> str:
+    """A word reduced to what makes two lines "the same line".
+
+    Case and punctuation are noise here: a chorus written once with a comma and
+    once without is the same chorus, and the transcript is not consistent about
+    either. Uses the pipeline's own Turkish-safe normalizer (İ/I before lower)
+    and then keeps only letters and digits.
+    """
+    from kashi_server.pipeline.semantics import normalize
+
+    return "".join(ch for ch in normalize(text) if ch.isalnum())
+
+
 # --- steps ---------------------------------------------------------------
 
 
 def _empty_stats(candidates: int) -> SelectionStats:
-    return SelectionStats(candidates, 0, 0, 0, 0, 0, 0, 0, ())
+    return SelectionStats(candidates, 0, 0, 0, 0, 0, 0, 0)
 
 
 def _sanitize(candidates: Sequence[WordTag], lines: Sequence[LineFacts]) -> list[WordTag]:
@@ -283,30 +326,151 @@ def _score(tag: WordTag, rank: int, occurrences: int) -> float:
     return tag.intensity + PRIORITY_BONUS.get(rank, 0.0) + RARITY_BONUS * rarity
 
 
+def _repeat_classes(
+    candidates: Sequence[WordTag],
+    lines: Sequence[LineFacts],
+) -> dict[tuple[str, ...], list[int]]:
+    """Lines that sing the same words, grouped.
+
+    The field complaint this exists for: a chorus fired on different words each
+    time it came round, and on only some of its repeats. Both followed from
+    treating every repeat as an unrelated line — the thinning steps stride over
+    the whole song in document order and know nothing about a line being the
+    same line again.
+
+    Identity is the LYRIC, deliberately, not the audio section: structure
+    detection drops a repeat whose span is too short or too long, so two
+    identical choruses can land in different ranks for reasons that have
+    nothing to do with the words.
+
+    A class needs a real lyric (at least one sung token — otherwise every
+    glyph-only line joins one meaningless class) and at least one candidate
+    (a class with nothing to fire decides nothing).
+    """
+    with_candidates = {t.line for t in candidates}
+    by_text: dict[tuple[str, ...], list[int]] = defaultdict(list)
+    for li, facts in enumerate(lines):
+        if li not in with_candidates:
+            continue
+        if not any(facts.norm_tokens):
+            continue
+        by_text[facts.norm_tokens].append(li)
+    return {key: members for key, members in by_text.items() if len(members) > 1}
+
+
+def _runs_on_line(line_tags: Sequence[WordTag], facts: LineFacts) -> list[list[WordTag]]:
+    """Group a line's candidates into gestures.
+
+    A repeated word ("music, music, music") is ONE gesture, not three: the ear
+    hears a single insistence. Words with no token of their own — a glyph like
+    a note symbol — do not break it, because they are not sung; a different
+    sung word does.
+
+    Members are emitted together, but the group counts once against the quota
+    and the spacing rule, so a run cannot eat a line's whole budget.
+    """
+    tokens = facts.norm_tokens
+    ordered = sorted(line_tags, key=lambda t: t.word)
+    runs: list[list[WordTag]] = []
+    for tag in ordered:
+        token = tokens[tag.word] if tag.word < len(tokens) else ""
+        previous = runs[-1] if runs else None
+        if previous and token and _same_run(previous[-1], tag, tokens):
+            previous.append(tag)
+        else:
+            runs.append([tag])
+    return runs
+
+
+def _same_run(previous: WordTag, tag: WordTag, tokens: tuple[str, ...]) -> bool:
+    """Same sung word, with nothing sung in between."""
+    if previous.word >= len(tokens) or tag.word >= len(tokens):
+        return False
+    if tokens[previous.word] != tokens[tag.word] or not tokens[tag.word]:
+        return False
+    return all(not tokens[i] for i in range(previous.word + 1, tag.word))
+
+
 def _thin_within_lines(
     candidates: Sequence[WordTag],
     lines: Sequence[LineFacts],
     scored: dict[tuple[int, int], float],
-) -> list[WordTag]:
-    """A quota per line, and never two effects side by side."""
+    classes: dict[tuple[str, ...], list[int]] | None = None,
+) -> tuple[list[WordTag], int]:
+    """A quota per line, and never two effects side by side.
+
+    A repeat class decides ONCE, on its first occurrence, and every later
+    occurrence wears the same pattern — that is what makes a chorus recognisable
+    instead of a different guess each time round.
+    """
     by_line: dict[int, list[WordTag]] = defaultdict(list)
     for tag in candidates:
         by_line[tag.line].append(tag)
 
+    patterned: dict[int, list[WordTag]] = {}
+    missing = 0
+    for members in (classes or {}).values():
+        first = members[0]
+        pattern = [tag.word for tag in _pick_on_line(by_line[first], lines[first], scored)]
+        for li in members:
+            # Intersect with THIS line's own candidates. Transcript variance
+            # ("lo-ve") or the candidate ceiling can leave a repeat without the
+            # word the pattern names; emitting it anyway would invent a tag
+            # that was never a candidate. It stays silent here instead.
+            available = {tag.word: tag for tag in by_line[li]}
+            patterned[li] = [available[w] for w in pattern if w in available]
+            missing += sum(1 for w in pattern if w not in available)
+
     kept: list[WordTag] = []
     for li in sorted(by_line):
-        quota = _line_quota(lines[li].words)
-        chosen: list[WordTag] = []
-        for tag in sorted(by_line[li], key=lambda t: (-scored[(t.line, t.word)], t.word)):
-            if len(chosen) >= quota:
-                break
-            if all(
-                abs(tag.word - other.word) > MIN_PLAIN_WORDS_BETWEEN for other in chosen
-            ):
-                chosen.append(tag)
-        kept.extend(chosen)
+        if li in patterned:
+            kept.extend(patterned[li])
+        else:
+            kept.extend(_pick_on_line(by_line[li], lines[li], scored))
     kept.sort(key=lambda t: (t.line, t.word))
-    return kept
+    return kept, missing
+
+
+def _pick_on_line(
+    line_tags: Sequence[WordTag],
+    facts: LineFacts,
+    scored: dict[tuple[int, int], float],
+) -> list[WordTag]:
+    """The per-line decision, isolated so a repeat class can reuse it once."""
+    quota = _line_quota(facts.words)
+    runs = _runs_on_line(line_tags, facts)
+    chosen: list[list[WordTag]] = []
+    for run in sorted(runs, key=lambda r: _run_sort_key(r, facts, scored)):
+        if len(chosen) >= quota:
+            break
+        # Spacing is measured between gestures, from the run's own extent.
+        if all(_runs_far_enough(run, other) for other in chosen):
+            chosen.append(run)
+    return [tag for run in chosen for tag in run][: MAX_RUN_WORDS * quota]
+
+
+def _run_sort_key(
+    run: Sequence[WordTag],
+    facts: LineFacts,
+    scored: dict[tuple[int, int], float],
+) -> tuple[float, int]:
+    """Best first — and, all else equal, LATER in the line.
+
+    Field feedback: an effect on the line's first word reads as jumping the
+    gun. Scores tie constantly (intensity is a per-category constant), so the
+    tie-break used to hand every contested line to its opening word. A penalty
+    rather than a ban: a line whose only candidate is its first word still
+    fires, because a missing effect is worse than an early one.
+    """
+    best = max(scored[(t.line, t.word)] for t in run)
+    if run[0].word == 0:
+        best -= FIRST_WORD_PENALTY
+    return (-best, -run[-1].word)
+
+
+def _runs_far_enough(run: Sequence[WordTag], other: Sequence[WordTag]) -> bool:
+    first, second = (run, other) if run[0].word < other[0].word else (other, run)
+    return second[0].word - first[-1].word > MIN_PLAIN_WORDS_BETWEEN
 
 
 def _stride(items: list[WordTag], keep: int) -> list[WordTag]:
@@ -324,7 +488,10 @@ def _stride(items: list[WordTag], keep: int) -> list[WordTag]:
     return [items[math.floor(i * len(items) / keep)] for i in range(keep)]
 
 
-def _thin_by_category(candidates: Sequence[WordTag]) -> list[WordTag]:
+def _thin_by_category(
+    candidates: Sequence[WordTag],
+    class_lines: set[int] | None = None,
+) -> list[WordTag]:
     """Keep all of a rare category, half of a dominant one — spread evenly.
 
     The stride runs over the WHOLE category in document order rather than
@@ -332,11 +499,17 @@ def _thin_by_category(candidates: Sequence[WordTag]) -> list[WordTag]:
     chorus would otherwise vanish from the verses entirely. The chorus keeps
     its own protection in the ranking, the cap and the guarantee.
     """
+    # Repeat-class words are exempt: thinning them is what made a chorus fire
+    # on some repeats and not others. Their overall weight is held down by the
+    # song cadence instead, which the class cannot escape.
+    exempt = [t for t in candidates if class_lines and t.line in class_lines]
+    thinnable = [t for t in candidates if not (class_lines and t.line in class_lines)]
+
     by_tag: dict[str, list[WordTag]] = defaultdict(list)
-    for tag in candidates:
+    for tag in thinnable:
         by_tag[tag.tag].append(tag)
 
-    kept: list[WordTag] = []
+    kept: list[WordTag] = list(exempt)
     for name in sorted(by_tag):
         occurrences = by_tag[name]
         total = len(occurrences)
@@ -357,14 +530,114 @@ def _song_cap(lines: Sequence[LineFacts]) -> int:
     return max(MIN_SONG_CAP, min(MAX_SONG_CAP, int(cadence)))
 
 
-def _apply_cap(candidates: Sequence[WordTag], cap: int) -> list[WordTag]:
-    """Trim to the song's cadence, keeping the spread rather than the front."""
-    if len(candidates) <= cap:
+#: Share of the cadence a repeat class may never take from everything else.
+#: Without it a chorus that repeats a dozen times eats the whole budget and the
+#: verses go silent — the same wallpaper problem the module exists to prevent,
+#: wearing the class as a disguise.
+NON_CLASS_RESERVE = 0.25
+
+
+def _apply_cap(
+    candidates: Sequence[WordTag],
+    cap: int,
+    class_lines: set[int] | None = None,
+) -> list[WordTag]:
+    """Trim to the song's cadence, keeping the spread rather than the front.
+
+    Gestures, not words: a repeated word on one line is one effect to the eye,
+    so counting its members separately would make a run look like it blew the
+    budget.
+    """
+    if _gestures(candidates) <= cap:
         return list(candidates)
-    ordered = sorted(candidates, key=lambda t: (t.line, t.word))
-    kept = _stride(ordered, cap)
-    kept.sort(key=lambda t: (t.line, t.word))
-    return kept
+
+    klass = [t for t in candidates if class_lines and t.line in class_lines]
+    singles = [t for t in candidates if not (class_lines and t.line in class_lines)]
+    if not klass:
+        return _stride_to_cap(candidates, cap)
+
+    # Singles first, but never below the reserve — the verses keep a voice.
+    floor = min(_gestures(singles), math.ceil(cap * NON_CLASS_RESERVE))
+    room_for_singles = max(floor, cap - _gestures(klass))
+    trimmed_singles = _stride_to_cap(singles, room_for_singles)
+
+    kept = sorted(klass + trimmed_singles, key=lambda t: (t.line, t.word))
+    if _gestures(kept) <= cap:
+        return kept
+
+    # Still over: thin the PATTERN itself, identically across every repeat, so
+    # the chorus stays recognisable while it gets quieter.
+    kept = _thin_class_pattern(klass, trimmed_singles, cap)
+    if _gestures(kept) <= cap:
+        return kept
+
+    # Last resort: drop whole repeats. The pattern never changes; some repeats
+    # simply stay silent, which reads far better than a different guess each time.
+    klass_now = [t for t in kept if class_lines and t.line in class_lines]
+    singles_now = [t for t in kept if not (class_lines and t.line in class_lines)]
+    by_line: dict[int, list[WordTag]] = defaultdict(list)
+    for tag in klass_now:
+        by_line[tag.line].append(tag)
+    order = sorted(by_line)
+    room = max(1, cap - _gestures(singles_now))
+    survivors = _stride_lines(order, room)
+    out = singles_now + [t for li in survivors for t in by_line[li]]
+    out.sort(key=lambda t: (t.line, t.word))
+    return out
+
+
+def _gestures(candidates: Sequence[WordTag]) -> int:
+    """How many effects the eye counts — a run on one line is one."""
+    seen: set[tuple[int, str]] = set()
+    for tag in candidates:
+        seen.add((tag.line, tag.tag))
+    return len(seen)
+
+
+def _stride_to_cap(candidates: Sequence[WordTag], cap: int) -> list[WordTag]:
+    """Stride over GESTURES, keeping every member of the ones that survive."""
+    groups: dict[tuple[int, str], list[WordTag]] = defaultdict(list)
+    for tag in sorted(candidates, key=lambda t: (t.line, t.word)):
+        groups[(tag.line, tag.tag)].append(tag)
+    keys = list(groups)
+    if len(keys) <= cap:
+        return list(candidates)
+    if cap <= 0:
+        return []
+    chosen = [keys[math.floor(i * len(keys) / cap)] for i in range(cap)]
+    out = [tag for key in chosen for tag in groups[key]]
+    out.sort(key=lambda t: (t.line, t.word))
+    return out
+
+
+def _stride_lines(lines_in_order: list[int], keep: int) -> list[int]:
+    if keep >= len(lines_in_order):
+        return lines_in_order
+    if keep <= 0:
+        return []
+    return [lines_in_order[math.floor(i * len(lines_in_order) / keep)] for i in range(keep)]
+
+
+def _thin_class_pattern(
+    klass: Sequence[WordTag],
+    singles: Sequence[WordTag],
+    cap: int,
+) -> list[WordTag]:
+    """Drop one word from the pattern, in EVERY repeat, until it fits."""
+    by_line: dict[int, list[WordTag]] = defaultdict(list)
+    for tag in klass:
+        by_line[tag.line].append(tag)
+    pattern = sorted({t.word for t in klass})
+    while len(pattern) > 1:
+        pattern = pattern[:-1]  # the later word goes first — the earlier one anchors
+        trimmed = [t for t in klass if t.word in set(pattern)]
+        candidate = sorted(list(singles) + trimmed, key=lambda t: (t.line, t.word))
+        if _gestures(candidate) <= cap:
+            return candidate
+    return sorted(
+        list(singles) + [t for t in klass if t.word in set(pattern)],
+        key=lambda t: (t.line, t.word),
+    )
 
 
 def _guarantee_sections(
@@ -461,32 +734,50 @@ def _sweep_gaps(
 
     The per-line rule cannot see two short lines sung back to back, which is
     exactly where "one every so often" broke down.
+
+    Gestures, not words: a repeated word is deliberately sung fast, so its
+    members sit far closer together than the minimum gap. Timing them
+    individually would have the sweep dismantle the very gesture the line-level
+    rule just decided to keep — it is atomic here, timed at its last member.
     """
-    ordered = sorted(kept, key=lambda t: (_word_time(t, lines), t.line, t.word))
-    out: list[WordTag] = []
+    groups: dict[tuple[int, str], list[WordTag]] = defaultdict(list)
+    for tag in kept:
+        groups[(tag.line, tag.tag)].append(tag)
+    for members in groups.values():
+        members.sort(key=lambda t: t.word)
+
+    def when(key: tuple[int, str]) -> int:
+        return _word_time(groups[key][-1], lines)
+
+    def strength(key: tuple[int, str]) -> float:
+        return max(scored[(t.line, t.word)] for t in groups[key])
+
+    def guarded(key: tuple[int, str]) -> bool:
+        return any((t.line, t.word) in protected for t in groups[key])
+
+    ordered = sorted(groups, key=lambda k: (when(k), k[0], groups[k][0].word))
+    survivors: list[tuple[int, str]] = []
     dropped = 0
-    for tag in ordered:
-        if not out:
-            out.append(tag)
+    for key in ordered:
+        if not survivors:
+            survivors.append(key)
             continue
-        previous = out[-1]
-        if _word_time(tag, lines) - _word_time(previous, lines) >= MIN_GAP_MS:
-            out.append(tag)
+        previous = survivors[-1]
+        if when(key) - when(previous) >= MIN_GAP_MS:
+            survivors.append(key)
             continue
-        # Too close: one of them goes. A word re-inserted by the section
-        # guarantee is never the one dropped.
-        key, prev_key = (tag.line, tag.word), (previous.line, previous.word)
-        if prev_key in protected:
-            # Both rescued and too close together: keep both rather than
-            # silently undoing a guarantee. Two sections each need a voice, and
-            # `guard_reinserted` would otherwise report a rescue that did not
-            # survive.
-            if key in protected:
-                out.append(tag)
+        # Too close: one of them goes. A gesture the section guarantee (or a
+        # repeat class) put there is never the one dropped.
+        if guarded(previous):
+            if guarded(key):
+                survivors.append(key)  # both are owed a voice — keep both
                 continue
             dropped += 1
             continue
-        if key in protected or scored[key] > scored[prev_key]:
-            out[-1] = tag
+        if guarded(key) or strength(key) > strength(previous):
+            survivors[-1] = key
         dropped += 1
+
+    out = [tag for key in survivors for tag in groups[key]]
+    out.sort(key=lambda t: (t.line, t.word))
     return out, dropped

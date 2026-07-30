@@ -125,5 +125,21 @@
 # `fx.select` is stamped on the block. It is load-bearing: without it a newer
 # client cannot tell a chosen list from a legacy dense one and would fire
 # every tag on a line.
-PIPELINE_VERSION = "2.13.0"
+# 2.14.0: a chorus is recognised by its LYRIC, not by an audio section.
+# Field verdict on 2.13.0: repeats of the same line fired on different words
+# and only some repeats fired at all (measured: one line repeated seven times
+# chose word 7 three times, word 4 once, and four of seven stayed silent).
+# Both followed from treating every repeat as an unrelated line. Lines that
+# sing the same words now form a class, the in-line choice is made once and
+# copied to every repeat (intersected with each repeat's own candidates, so a
+# pattern word that is not a candidate there stays silent rather than being
+# invented), and class words are exempt from density thinning.
+# Also: a repeated word on one line ("music, music, music") is ONE gesture —
+# counted once against quota, spacing and the cadence cap, but every member
+# lights up; a glyph between members does not break it, a different sung word
+# does. The line's opening word now takes a scoring penalty (not a ban) so
+# effects stop gravitating to line starts. A quarter of the cadence is
+# reserved for non-class lines, or a chorus that repeats twenty times would
+# spend the whole budget and silence the verses.
+PIPELINE_VERSION = "2.14.0"
 PIPELINE_MAJOR = 2

@@ -319,3 +319,214 @@ def test_keep_all_below_is_honoured_exactly():
     song = lines(30)
     cands = [tag(i * 3, 1) for i in range(KEEP_ALL_BELOW)]
     assert len(select_fx_words(cands, song).words) == KEEP_ALL_BELOW
+
+
+# --- P7: repeat consistency, gestures and position -------------------------
+
+
+def sung(count: int, tokens: list[str], start_at: int = 0) -> list[LineFacts]:
+    """`count` lines that all sing the same `tokens`, evenly spaced."""
+    return [
+        LineFacts(
+            words=len(tokens),
+            start_ms=(start_at + i) * LINE_MS,
+            end_ms=(start_at + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(
+                (start_at + i) * LINE_MS + w * WORD_MS for w in range(len(tokens))
+            ),
+            norm_tokens=tuple(tokens),
+        )
+        for i in range(count)
+    ]
+
+
+# Synthetic tokens: the selector only ever compares them for equality.
+CHORUS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india"]
+VERSE = ["kilo", "lima", "mike", "november", "oscar", "papa", "quebec", "romeo"]
+
+
+def spread(count: int, tokens: list[str], every_ms: int = 30_000) -> list[LineFacts]:
+    """Identical lines spaced widely enough that the cadence cap has room."""
+    return [
+        LineFacts(
+            words=len(tokens),
+            start_ms=i * every_ms,
+            end_ms=i * every_ms + 3000,
+            word_starts=tuple(i * every_ms + w * WORD_MS for w in range(len(tokens))),
+            norm_tokens=tuple(tokens),
+        )
+        for i in range(count)
+    ]
+
+
+def test_every_repeat_of_a_chorus_fires_on_the_SAME_word():
+    """The field complaint, in one assertion.
+
+    Measured on the real archive: one chorus line repeated seven times chose
+    word 7 three times and word 4 once, and only four of the seven fired at
+    all. Both halves of that have to go.
+    """
+    song = spread(7, CHORUS)  # 7 repeats over ~3 minutes
+    cands = [tag(i, 4, "music", 0.6) for i in range(7)]
+    got = select_fx_words(cands, song).words
+
+    assert len(got) == 7, "every repeat fires"
+    assert {t.word for t in got} == {4}, "and always on the same word"
+
+
+def test_a_repeat_that_lost_its_candidate_stays_silent_rather_than_inventing_one():
+    # Transcript variance can leave one repeat without the word the pattern
+    # names. Emitting it anyway would mean a tag that was never a candidate.
+    # Line 2 IS in the class (it has a candidate of its own) but not at the
+    # word the pattern names — transcript variance does this.
+    song = spread(4, CHORUS)
+    cands = [tag(i, 4, "music", 0.6) for i in (0, 1, 3)] + [tag(2, 8, "music", 0.6)]
+    result = select_fx_words(cands, song)
+
+    assert {t.line for t in result.words} == {0, 1, 3}, "the odd repeat stays silent"
+    assert result.stats.pattern_missing == 1
+    assert set(result.words).issubset(set(cands)), "never invents a tag"
+
+
+def test_lines_with_no_sung_token_never_form_a_class():
+    # Glyph-only lines normalize to nothing. Grouping them would put unrelated
+    # lines in one class and exempt the whole song from thinning.
+    song = [
+        LineFacts(words=2, start_ms=i * LINE_MS, end_ms=i * LINE_MS + 2000, norm_tokens=("", ""))
+        for i in range(6)
+    ]
+    result = select_fx_words([tag(i, 0, "music", 0.6) for i in range(6)], song)
+    assert result.stats.repeat_classes == 0
+
+
+def test_a_repeated_word_on_one_line_is_ONE_gesture():
+    # "music, music, music" is a single insistence, not three effects — but
+    # every occurrence still lights up.
+    song = [
+        LineFacts(
+            words=6,
+            start_ms=0,
+            end_ms=6000,
+            word_starts=(0, 400, 800, 1200, 1600, 2000),
+            norm_tokens=("music", "music", "music", "and", "more", "here"),
+        )
+    ]
+    cands = [tag(0, w, "music", 0.6) for w in (0, 1, 2)]
+    got = select_fx_words(cands, song).words
+    assert [t.word for t in got] == [0, 1, 2], "all three light up"
+
+
+def test_a_glyph_between_repeats_does_not_break_the_gesture():
+    # A note symbol is not sung, so it must not split "music ♪ music" into two
+    # gestures that the spacing rule then argues about.
+    song = [
+        LineFacts(
+            words=4,
+            start_ms=0,
+            end_ms=4000,
+            word_starts=(0, 400, 800, 1200),
+            norm_tokens=("music", "music", "", "music"),
+        )
+    ]
+    cands = [tag(0, w, "music", 0.6) for w in (0, 1, 3)]
+    got = select_fx_words(cands, song).words
+    assert [t.word for t in got] == [0, 1, 3], "the fourth music belongs to the run"
+
+
+def test_a_different_word_between_repeats_DOES_break_the_gesture():
+    song = [
+        LineFacts(
+            words=4,
+            start_ms=0,
+            end_ms=4000,
+            word_starts=(0, 400, 800, 1200),
+            norm_tokens=("music", "loud", "music", "here"),
+        )
+    ]
+    cands = [tag(0, 0, "music", 0.6), tag(0, 2, "music", 0.6)]
+    got = select_fx_words(cands, song).words
+    # Two separate gestures on a 4-word line: the quota is 1, so only one wins.
+    assert len(got) == 1
+
+
+def test_the_line_opening_word_loses_a_tie_but_can_still_win_alone():
+    # Field note: an effect on the first word reads as jumping the gun.
+    # A five-word line carries exactly one effect, so the two candidates
+    # genuinely compete.
+    tied = [
+        LineFacts(
+            words=5,
+            start_ms=0,
+            end_ms=5000,
+            word_starts=tuple(w * 400 for w in range(5)),
+            norm_tokens=tuple(VERSE[:5]),
+        )
+    ]
+    contested = select_fx_words(
+        [tag(0, 0, "music", 0.6), tag(0, 4, "dance", 0.6)], tied
+    ).words
+    assert [t.word for t in contested] == [4], "the later word wins a tie"
+
+    alone = select_fx_words([tag(0, 0, "music", 0.6)], tied).words
+    assert [t.word for t in alone] == [0], "a penalty, not a ban"
+
+
+def test_a_chorus_heavy_song_still_leaves_the_verses_a_voice():
+    """The class must not become the wallpaper the module exists to prevent.
+
+    Numbers chosen so the reserve is the ONLY thing keeping the verses alive:
+    40 lines of 4 s is a 160 s song, so the cadence allows 18 effects, and the
+    chorus alone repeats 20 times. Without a floor, "spend the cap on the class
+    first" leaves exactly zero for everything else — a song whose every effect
+    is one repeated word, which is the complaint this module was written for.
+    """
+    chorus_lines = [
+        LineFacts(
+            words=len(CHORUS),
+            start_ms=i * LINE_MS,
+            end_ms=i * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(CHORUS))),
+            norm_tokens=tuple(CHORUS),
+        )
+        for i in range(20)
+    ]
+    verse_lines = [
+        LineFacts(
+            words=len(VERSE),
+            start_ms=(20 + i) * LINE_MS,
+            end_ms=(20 + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((20 + i) * LINE_MS + w * WORD_MS for w in range(len(VERSE))),
+            norm_tokens=tuple(VERSE[:7] + [f"w{i}"]),  # each verse line unique
+        )
+        for i in range(20)
+    ]
+    song = chorus_lines + verse_lines
+    cands = [tag(i, 4, "music", 0.6) for i in range(20)]
+    cands += [tag(20 + i, 3, "love", 0.6) for i in range(20)]
+
+    result = select_fx_words(cands, song)
+    verses = [t for t in result.words if t.line >= 20]
+    assert verses, "the verses are never silenced entirely"
+    assert result.stats.kept_gestures <= result.stats.song_cap
+
+
+def test_the_pattern_stays_identical_even_when_the_cap_thins_it():
+    # Degrading gracefully means the chorus gets quieter, never inconsistent.
+    song = sung(13, CHORUS)
+    cands = [tag(i, 4, "music", 0.6) for i in range(13)]
+    cands += [tag(i, 8, "music", 0.6) for i in range(13)]
+    result = select_fx_words(cands, song)
+
+    by_line: dict[int, set[int]] = {}
+    for t in result.words:
+        by_line.setdefault(t.line, set()).add(t.word)
+    patterns = {frozenset(words) for words in by_line.values()}
+    assert len(patterns) == 1, f"every firing repeat wears one pattern, got {patterns}"
+
+
+def test_repeat_classes_are_deterministic_under_input_permutation():
+    song = sung(5, CHORUS)
+    cands = [tag(i, 4, "music", 0.6) for i in range(5)]
+    assert select_fx_words(cands, song).words == select_fx_words(
+        list(reversed(cands)), song
+    ).words
