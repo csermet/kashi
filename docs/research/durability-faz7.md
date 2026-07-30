@@ -3,9 +3,21 @@
 **Status:** not run yet. Fill the Result column in place and commit; anything
 that fails becomes either a 0.19.x fix or a documented limitation.
 
-**Build under test:** overlay 0.19.0 (archetypes + size presets), extension
-0.1.12, server 0.15.0. Effects must be on **hype** for every particle cell —
-that is the only level where the layer exists at all.
+**Build under test:** overlay **0.21.0**, extension 0.1.12, server **0.16.1**
+(pipeline 2.13.0). Effects must be on **hype** for every particle cell — that
+is the only level where the layer exists at all.
+
+Two things landed after this tour was written, and both change what the
+particle cells will show:
+
+- **Server-side effect selection** (pipeline 2.13.0). Effects fire far less
+  often — a per-song cadence of roughly one per 9 s instead of one per tagged
+  line. Cell B5 ("back-to-back bursts") is therefore much harder to provoke
+  than it was; if you cannot make it pile up, that is the selection working,
+  not the cell failing.
+- **Archetype character** (overlay 0.21.0). Particles now have their own colour
+  band, additive blending where the category is light, size-over-life and a
+  flicker on shine. D1 is judged against these, not the flat pastel version.
 
 ## Why this exists
 
