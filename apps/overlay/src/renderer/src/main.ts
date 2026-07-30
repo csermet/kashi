@@ -225,9 +225,17 @@ function applySizeVars(): void {
   }
 }
 
-/** The category colour the particles wear, straight from the tint vars. */
+/**
+ * The category colour the PARTICLES wear.
+ *
+ * Reads the particle set first and the text set second. The fallback is what
+ * makes this safe: a tag with no particle variable renders exactly as it did
+ * before the two sets existed.
+ */
 function tintOf(tag: string): number {
-  return parseTintColor(currentTintVars[`--fx-tint-${tag}`]);
+  return parseTintColor(
+    currentTintVars[`--fx-pt-${tag}`] ?? currentTintVars[`--fx-tint-${tag}`],
+  );
 }
 let ambientLineIndex = -1;
 let appliedAmbient: string | null = null;
@@ -377,7 +385,7 @@ let activeWordIndex = -1;
 // Which words on the current line carry an effect (hype). From pipeline
 // 2.13.0 a selected document may name more than one; a legacy document still
 // yields exactly one, decided by buildFxIndex.
-let fxWordTags = new Map<number, string>();
+let fxWordTags = new Map<number, { tag: string; intensity: number }>();
 /**
  * Floor between two particle bursts. A belt over the server's own 700 ms
  * spacing: a plan that arrives wrong must not be able to stack bursts, since
@@ -492,7 +500,7 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   const fxHits = fxIndex.get(lineIndex) ?? [];
   // The halo's colour is NOT chosen here: ambientColors() takes the line's
   // primary hit itself, so a two-category line cannot repaint it mid-line.
-  fxWordTags = new Map(fxHits.map((hit) => [hit.word, hit.effect.tag]));
+  fxWordTags = new Map(fxHits.map((hit) => [hit.word, hit.effect]));
   wordSpans = words.map((word, i) => {
     if (i > 0) lineEl.appendChild(document.createTextNode(' '));
     const span = document.createElement('span');
@@ -523,7 +531,8 @@ function highlightWord(index: number): void {
   if (index === activeWordIndex) return;
   // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
   // repaints of an already-passed word).
-  const fxTag = fxWordTags.get(index);
+  const fxHit = fxWordTags.get(index);
+  const fxTag = fxHit?.tag;
   if (fxTag && index > activeWordIndex && effectLevel === 'hype') {
     // Particles OUTSIDE the box, radiating from the whole box edge in the
     // word's category colour. Deliberately not aimed at the word: a burst
@@ -542,7 +551,7 @@ function highlightWord(index: number): void {
       void fxCanvas.burst(
         tintOf(fxTag),
         box ? { x: box.left, y: box.top, width: box.width, height: box.height } : undefined,
-        resolveFxProfile(fxTag),
+        resolveFxProfile(fxTag, fxHit?.intensity),
       );
     }
     // Same edge lights the box halo — in the LINE's primary category, so a

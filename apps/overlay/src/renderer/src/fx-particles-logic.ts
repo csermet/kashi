@@ -41,6 +41,10 @@ export interface Particle {
   gravity: number;
   /** Which texture to draw. The adapter maps this to a Pixi texture. */
   shape: ParticleShape;
+  /** Size at death relative to birth; absent means constant, as before. */
+  growth?: number;
+  /** Alpha flicker in Hz; absent means the plain fade, as before. */
+  flickerHz?: number;
 }
 
 /**
@@ -120,6 +124,18 @@ export interface EmissionProfile {
    */
   emissionSpanMs: number;
   shapes: readonly ParticleShape[];
+  /**
+   * How the sprite composites. `add` makes a particle read as LIGHT rather
+   * than as a coloured dot — fire and electricity glow, smoke must not.
+   */
+  blend?: 'normal' | 'add';
+  /**
+   * Size at death as a multiple of size at birth. Everything used to be
+   * size-constant for its whole life, so nothing ever billowed or burned out.
+   */
+  growth?: number;
+  /** Hz of an alpha flicker. Shine had no twinkle in it at all. */
+  flickerHz?: number;
 }
 
 /**
@@ -165,6 +181,8 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     spin: 6,
     emissionSpanMs: 0,
     shapes: ['spark', 'smoke'],
+    blend: 'add',
+    growth: 1.5, // punches outward and thins as it goes
   },
   /** electric — small, very fast, gone almost immediately. */
   spark: {
@@ -179,6 +197,8 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     spin: 14,
     emissionSpanMs: 60,
     shapes: ['spark'],
+    blend: 'add',
+    growth: 0.4, // burns out rather than fading at full size
   },
   /**
    * money, water — pours down the SIDES.
@@ -223,6 +243,7 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     spin: 1.2,
     emissionSpanMs: 420,
     shapes: ['smoke'],
+    growth: 2.2, // billows as it sinks — normal blend keeps it murky
   },
   /**
    * shine — a scatter of glints that arrive over half a second.
@@ -244,6 +265,8 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
     spin: 2,
     emissionSpanMs: 620,
     shapes: ['star'],
+    blend: 'add',
+    flickerHz: 7, // the twinkle the archetype was named for and did not have
   },
   /**
    * love — a few hearts rise past the box.
@@ -331,6 +354,8 @@ export function planEmission(
       rotation: random() * Math.PI * 2,
       spin: (random() - 0.5) * profile.spin,
       gravity: profile.gravity,
+      ...(profile.growth === undefined ? {} : { growth: profile.growth }),
+      ...(profile.flickerHz === undefined ? {} : { flickerHz: profile.flickerHz }),
       // Assigned in a SECOND pass below, not here.
       shape: shapes[0]!,
     });
@@ -415,6 +440,19 @@ export function stepParticle(p: Particle, dt: number): boolean {
 }
 
 /**
+ * The size a particle is drawn at right now.
+ *
+ * Everything used to be size-constant for its whole life: a spark was as big
+ * on its last frame as its first, and smoke never billowed. `growth` is the
+ * multiple it reaches at death, interpolated linearly.
+ */
+export function particleSize(p: Particle): number {
+  if (p.growth === undefined || p.life <= 0) return p.size;
+  const t = Math.max(0, Math.min(1, p.age / p.life));
+  return p.size * (1 + (p.growth - 1) * t);
+}
+
+/**
  * Alpha from age and distance to the window edge — the two ways a particle
  * disappears. Both are smooth: a particle that reached the boundary has
  * already faded out, so the boundary itself is never visible.
@@ -434,7 +472,11 @@ export function particleAlpha(
   const fadeIn = Math.min(1, p.age / 0.08);
   const edge = Math.min(p.x, p.y, windowWidth - p.x, windowHeight - p.y);
   const edgeFade = fadePx <= 0 ? 1 : Math.max(0, Math.min(1, edge / fadePx));
-  return Math.max(0, Math.min(1, lifeLeft * fadeIn * edgeFade));
+  // A glint that does not glint is just a dot: `twinkle` had the same smooth
+  // fade as every other archetype. Absent flicker leaves the curve untouched.
+  const flicker =
+    p.flickerHz === undefined ? 1 : 0.55 + 0.45 * Math.sin(p.age * p.flickerHz * Math.PI * 2);
+  return Math.max(0, Math.min(1, lifeLeft * fadeIn * edgeFade * flicker));
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   toneAccent,
   toneBackground,
   toneFx,
+  toneFxParticle,
   tonePrimary,
   toneSecondary,
   type Oklch,
@@ -359,11 +360,43 @@ export const FX_ARCHETYPES: ReadonlyMap<string, { archetype: ArchetypeName; shap
  * The emission profile a tag should burst with. Unknown or unmapped tags get
  * the generic one, so every category always has an answer.
  */
-export function resolveFxProfile(tag: string | null | undefined): EmissionProfile {
+export function resolveFxProfile(
+  tag: string | null | undefined,
+  intensity?: number,
+): EmissionProfile {
   const entry = tag ? FX_ARCHETYPES.get(tag) : undefined;
-  if (!entry) return GENERIC_PROFILE;
+  if (!entry) return genericProfileFor(intensity);
   const profile = ARCHETYPE_PROFILES[entry.archetype];
   return entry.shape ? { ...profile, shapes: [entry.shape] } : profile;
+}
+
+/**
+ * The uncategorised sixteen, scaled by how strong the category is.
+ *
+ * They all burst identically today, which makes the least distinctive group
+ * the most uniform one as well. The lexicon already grades them — a category
+ * meaning `death` weighs more than one meaning `phone` — so a thud and a
+ * rattle can differ for free.
+ *
+ * The weight comes from the document's own `intensity`, NOT from a table
+ * copied into the client: duplicating the lexicon here would create a second
+ * source that drifts from the server's the first time a category is retuned.
+ *
+ * Deliberately NOT applied to the hero archetypes: intensity is a constant per
+ * category, so it produces no variety WITHIN one, and the heroes already carry
+ * their character in their own profiles.
+ */
+export function genericProfileFor(intensity?: number): EmissionProfile {
+  if (typeof intensity !== 'number' || !Number.isFinite(intensity)) return GENERIC_PROFILE;
+  const base = Math.max(0.4, Math.min(0.9, intensity));
+  // 0.4 -> 0.8x, 0.9 -> 1.2x. A nudge, not a redesign.
+  const scale = 0.8 + ((base - 0.4) / 0.5) * 0.4;
+  const [minSize, maxSize] = GENERIC_PROFILE.size;
+  return {
+    ...GENERIC_PROFILE,
+    count: Math.round(GENERIC_PROFILE.count * scale),
+    size: [minSize * scale, maxSize * scale],
+  };
 }
 
 /**
@@ -575,7 +608,9 @@ export function isNightcore(alignment: AlignmentData | undefined): boolean {
 export const FX_BASE_COLORS: Readonly<Record<string, string>> = {
   explosion: '#ff8c42',
   fire: '#ff6b35',
-  poison: '#4cd964', // green — the field note's canonical example
+  // Poison used to sit at 130 degrees, seven away from money's clean green —
+  // the same colour to the eye. Toxic reads yellow-green anyway.
+  poison: '#c0d020',
   love: '#ff6fa5',
   heartbreak: '#7f9cf5',
   water: '#4fc3f7',
@@ -585,7 +620,9 @@ export const FX_BASE_COLORS: Readonly<Record<string, string>> = {
   money: '#66bb6a',
   fly: '#81d4fa',
   speed: '#ffab40',
-  electric: '#ffee58',
+  // Electric used to be yellow at 54 degrees, nine away from shine's gold.
+  // Violet is both unoccupied and the better reading for a spark.
+  electric: '#8b5cf6',
   cold: '#80deea',
   dark: '#9575cd',
   death: '#b0bec5',
@@ -617,7 +654,17 @@ export function computeFxTintVars(
       : null;
   const vars: Record<string, string> = {};
   for (const [tag, hex] of Object.entries(FX_BASE_COLORS)) {
-    vars[`--fx-tint-${tag}`] = toneFx(hexToOklch(hex), primary);
+    const category = hexToOklch(hex);
+    // Two sets, deliberately. `--fx-tint-` paints TEXT (the word, its icon,
+    // the box halo) and stays inside the readability window. `--fx-pt-` paints
+    // particles, which are not text and do not need it — that window is what
+    // made every archetype arrive as the same pastel dot.
+    vars[`--fx-tint-${tag}`] = toneFx(category, primary);
+    vars[`--fx-pt-${tag}`] = toneFxParticle(
+      category,
+      primary,
+      FX_ARCHETYPES.get(tag)?.archetype,
+    );
   }
   return vars;
 }

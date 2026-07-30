@@ -25,6 +25,7 @@ import {
   makeRandom,
   maxParticleLifetimeMs,
   particleAlpha,
+  particleSize,
   planEmission,
   stepParticle,
   type EmissionProfile,
@@ -215,6 +216,10 @@ export class FxCanvas {
       sprite.alpha = 0;
       sprite.width = particle.size;
       sprite.height = particle.size;
+      // Additive compositing where the category is LIGHT (fire, electricity).
+      // One GPU state flag per sprite — no shader codegen, so it stays inside
+      // the strict CSP the layer already runs under.
+      if (profile.blend === 'add') sprite.blendMode = 'add';
       this.layer.addChild(sprite);
       this.live.push({ particle, sprite });
     }
@@ -361,9 +366,16 @@ export class FxCanvas {
       const { x, y } = entry.particle;
       // DG6: the box belongs to the text. Skipped, not clipped — a particle
       // crossing it simply is not drawn for those frames.
-      entry.sprite.visible = !insideBox(x, y, this.box, entry.particle.size / 2);
+      // The DRAWN size, not the birth size: smoke grows to over twice its
+      // original width, and measuring the mask against birth let a swollen
+      // puff bleed over the lyrics. The adapter test caught this the moment
+      // growth existed.
+      const drawn = particleSize(entry.particle);
+      entry.sprite.visible = !insideBox(x, y, this.box, drawn / 2);
       entry.sprite.position.set(x, y);
       entry.sprite.rotation = entry.particle.rotation;
+      entry.sprite.width = drawn;
+      entry.sprite.height = drawn;
       entry.sprite.alpha = particleAlpha(entry.particle, width, height);
       survivors.push(entry);
     }

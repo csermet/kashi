@@ -479,11 +479,43 @@ describe('energy/section dynamics (Faz 6 P5)', () => {
 });
 
 describe('computeFxTintVars (Faz 6 field round 2)', () => {
-  it('emits one var per category; scope none emits nothing (stock contract)', () => {
+  it('emits a TEXT and a PARTICLE var per category; scope none emits nothing', () => {
+    // Two sets on purpose: text has to stay legible, particles do not, and
+    // sharing one window is what made every archetype the same pastel dot.
     const vars = computeFxTintVars('#ff847c', 'full');
-    expect(Object.keys(vars).length).toBe(Object.keys(FX_BASE_COLORS).length);
-    expect(vars['--fx-tint-poison']).toMatch(/^#[0-9a-f]{6}$/);
+    const tags = Object.keys(FX_BASE_COLORS);
+    expect(Object.keys(vars).length).toBe(tags.length * 2);
+    for (const tag of tags) {
+      expect(vars[`--fx-tint-${tag}`], tag).toMatch(/^#[0-9a-f]{6}$/);
+      expect(vars[`--fx-pt-${tag}`], tag).toMatch(/^#[0-9a-f]{6}$/);
+    }
     expect(computeFxTintVars('#ff847c', 'none')).toEqual({});
+  });
+
+  it('gives a hero archetype a particle colour outside the text window', () => {
+    const vars = computeFxTintVars(undefined, 'full');
+    // poison -> smoke: deliberately dark and muddy, which the readability
+    // window for text could never allow.
+    const poisonText = hexToOklch(vars['--fx-tint-poison']!);
+    const poisonParticle = hexToOklch(vars['--fx-pt-poison']!);
+    expect(poisonText.L).toBeGreaterThan(0.65);
+    expect(poisonParticle.L).toBeLessThan(0.55);
+
+    // shine -> twinkle: almost white.
+    expect(hexToOklch(vars['--fx-pt-shine']!).L).toBeGreaterThan(0.9);
+
+    // An uncategorised tag keeps exactly the colour it has today.
+    expect(vars['--fx-pt-crown']).toBe(vars['--fx-tint-crown']);
+  });
+
+  it('the colliding category pairs are actually separated now', () => {
+    // Measured before the change: shine/electric 9 degrees apart, money/poison
+    // 7 — the same colour to the eye, on archetypes seen back to back.
+    const hue = (hex: string) => hexToOklch(hex).h;
+    const apart = (a: string, b: string) =>
+      (hueDistance(hue(FX_BASE_COLORS[a]!), hue(FX_BASE_COLORS[b]!)) * 180) / Math.PI;
+    expect(apart('shine', 'electric')).toBeGreaterThan(30);
+    expect(apart('money', 'poison')).toBeGreaterThan(20);
   });
 
   it('tints are valid hex and keep the category hue (0.7.1 own-vividness)', () => {

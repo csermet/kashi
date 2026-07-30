@@ -221,6 +221,48 @@ export const FX_TINT_L = 0.78;
 /** ~40° in radians: closer than this = the tint would vanish into the theme. */
 export const FX_HUE_CLASH_RAD = (40 * Math.PI) / 180;
 
+/**
+ * A particle's colour, which is NOT a text colour.
+ *
+ * `toneFx` below clamps every category into one readability window — L
+ * 0.70-0.84, C 0.14-0.22 — because it paints WORDS, and a word has to stay
+ * legible whatever the album art says. Particles inherited that window and it
+ * flattened them: fire, poison and shine all arrived as light pastel dots
+ * differing only in hue, which is why the archetypes read as one effect.
+ *
+ * Nothing is legible about a spark, so it gets its own band. The archetype
+ * decides the CHARACTER (hot, murky, piercing, soft) and the category still
+ * decides the hue. Text keeps `toneFx` untouched.
+ */
+export const PARTICLE_BANDS: Record<string, { L: number; C: number }> = {
+  // explosion, fire — hot and bright, near the top of the gamut.
+  burst: { L: 0.86, C: 0.24 },
+  // electric — piercing: brighter still, a little less colour so it reads
+  // as a spark rather than a coloured dot.
+  spark: { L: 0.93, C: 0.19 },
+  // money, water — solid and saturated, mid lightness.
+  fall: { L: 0.76, C: 0.21 },
+  // poison — the one that has to look WRONG: dark and muddy, which the text
+  // window could never allow.
+  smoke: { L: 0.44, C: 0.11 },
+  // shine — almost white, barely tinted.
+  twinkle: { L: 0.95, C: 0.07 },
+  // love — soft, quiet, unhurried.
+  drift: { L: 0.82, C: 0.15 },
+};
+
+export function toneFxParticle(
+  category: Oklch,
+  primary: Oklch | null,
+  archetype: string | undefined,
+): string {
+  const band = archetype ? PARTICLE_BANDS[archetype] : undefined;
+  // No archetype: the 16 uncategorised tags keep exactly the colour they have
+  // today. Character is for the categories that mean something specific.
+  if (!band) return toneFx(category, primary);
+  return oklchToHex(band.L, band.C, category.h);
+}
+
 export function toneFx(category: Oklch, primary: Oklch | null): string {
   const c = clamp(category.C < 0.12 ? 0.16 : category.C, 0.14, 0.22);
   // No clash: the category wears ITS OWN color — own lightness too (inside a
