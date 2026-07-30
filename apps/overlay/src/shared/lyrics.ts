@@ -45,7 +45,9 @@ export interface BeatsData {
 }
 
 /** Semantic effect tags (server 2.6.0+, Faz 6). Indices reference lines[]
- * of the SAME payload; sparse by design (server caps ~60 words/doc). */
+ * of the SAME payload; sparse by design. From pipeline 2.13.0 the server also
+ * decides WHICH of them fire (see FxData.select) — the old flat ~60/doc cap is
+ * gone, replaced by a per-song cadence. */
 export interface FxWordTag {
   line: number;
   word: number;

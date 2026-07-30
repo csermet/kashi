@@ -187,9 +187,10 @@ GOLDEN = [
 
 
 def test_keyword_layer_golden_set():
-    # Chunked into separate documents: the golden set outgrew MAX_WORD_TAGS
-    # (v1.1), and the per-document brake dropping low-intensity tags is
-    # correct behavior — tested separately below, not here.
+    # Chunked into separate documents: the golden set is longer than any real
+    # lyric, and chunking keeps each case about MATCHING rather than about the
+    # candidate ceiling (which no longer drops anything by intensity — see
+    # fx_select.py for what actually decides which words fire).
     for start in range(0, len(GOLDEN), 40):
         chunk = GOLDEN[start : start + 40]
         words = [w for w, _ in chunk]

@@ -113,7 +113,7 @@ export interface KashiProcessedTrackV1 {
     accent?: Color;
   };
   /**
-   * Semantic effect tags (pipeline 2.6.0+, Faz 6). SPARSE: most words carry no tag. Indices reference lines[]/words[] of THIS document. Clients without effect support ignore the whole block.
+   * Semantic effect tags (pipeline 2.6.0+, Faz 6). SPARSE: most words carry no tag. From 2.13.0 words[] is a SELECTED set rather than every candidate, bounded by a per-song cadence of roughly one effect per 9 s (12-24 for a normal track) — see the select field. Indices reference lines[]/words[] of THIS document. Clients without effect support ignore the whole block.
    */
   fx?: {
     /**

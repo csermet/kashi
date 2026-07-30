@@ -44,8 +44,10 @@ _RANK_CHORUS = 2
 _RANK_HIGH = 1
 
 #: What a rank is worth against a category's own strength (0.4 … 0.9). Half a
-#: strength-span: a chorus `phone` (0.4 + 0.30) still loses to a verse
-#: `explosion` (0.9). The chorus nudges; it never overrules meaning.
+#: strength-span, so a chorus alone cannot overrule meaning: a chorus `phone`
+#: (0.4 + 0.30) still loses to a verse `explosion` (0.9). Combined with the
+#: rarity bonus it CAN — a once-sung chorus `phone` reaches 0.95 — which is
+#: intended: heard once, in the hook, is worth hearing.
 PRIORITY_BONUS = {_RANK_CHORUS: 0.30, _RANK_HIGH: 0.15, 0: 0.0}
 
 #: A word heard once in the whole song beats the sixth `love` at equal
@@ -144,10 +146,10 @@ def select_fx_words(
     }
 
     after_line = _thin_within_lines(valid, lines, scored)
-    after_density = _thin_by_category(after_line, ranks, scored)
+    after_density = _thin_by_category(after_line)
 
     song_cap = _song_cap(lines)
-    after_cap = _apply_cap(after_density, song_cap, ranks, scored)
+    after_cap = _apply_cap(after_density, song_cap)
     after_guard, reinserted = _guarantee_sections(
         after_cap, valid, lines, sections, ranks, scored, disabled
     )
@@ -322,11 +324,7 @@ def _stride(items: list[WordTag], keep: int) -> list[WordTag]:
     return [items[math.floor(i * len(items) / keep)] for i in range(keep)]
 
 
-def _thin_by_category(
-    candidates: Sequence[WordTag],
-    ranks: dict[int, int],
-    scored: dict[tuple[int, int], float],
-) -> list[WordTag]:
+def _thin_by_category(candidates: Sequence[WordTag]) -> list[WordTag]:
     """Keep all of a rare category, half of a dominant one — spread evenly.
 
     The stride runs over the WHOLE category in document order rather than
@@ -359,12 +357,7 @@ def _song_cap(lines: Sequence[LineFacts]) -> int:
     return max(MIN_SONG_CAP, min(MAX_SONG_CAP, int(cadence)))
 
 
-def _apply_cap(
-    candidates: Sequence[WordTag],
-    cap: int,
-    ranks: dict[int, int],
-    scored: dict[tuple[int, int], float],
-) -> list[WordTag]:
+def _apply_cap(candidates: Sequence[WordTag], cap: int) -> list[WordTag]:
     """Trim to the song's cadence, keeping the spread rather than the front."""
     if len(candidates) <= cap:
         return list(candidates)
@@ -484,6 +477,13 @@ def _sweep_gaps(
         # guarantee is never the one dropped.
         key, prev_key = (tag.line, tag.word), (previous.line, previous.word)
         if prev_key in protected:
+            # Both rescued and too close together: keep both rather than
+            # silently undoing a guarantee. Two sections each need a voice, and
+            # `guard_reinserted` would otherwise report a rescue that did not
+            # survive.
+            if key in protected:
+                out.append(tag)
+                continue
             dropped += 1
             continue
         if key in protected or scored[key] > scored[prev_key]:
