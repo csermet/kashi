@@ -10,6 +10,7 @@ the back half of the song is represented at all.
 from kashi_server.pipeline.energy import Section
 from kashi_server.pipeline.fx_select import (
     KEEP_ALL_BELOW,
+    MAX_RUN_WORDS,
     MAX_SONG_CAP,
     MIN_GAP_MS,
     MIN_PLAIN_WORDS_BETWEEN,
@@ -588,3 +589,140 @@ def test_two_classes_share_the_cap_instead_of_one_being_wiped():
     # Proportional, not first-come: the larger class keeps more, and the
     # smaller one does not survive whole while the larger is gutted.
     assert big_alive >= small_alive, f"big={big_alive} small={small_alive}"
+
+
+#: A chorus that insists on one word — the shape of the field case
+#: ("Please don't stop the music (music, music, music, music)").
+INSIST = ["please", "dont", "stop", "the", "music", "music", "music", "music", "music"]
+
+
+def test_a_run_survives_the_cap_whole_or_not_at_all():
+    """The field failure: not one run survived a capped song.
+
+    Pattern thinning removed one WORD at a time, but the cap counts GESTURES
+    and a repeated word is one gesture — so every removal freed exactly zero
+    budget while dismantling the insistence the run exists to render. The loop
+    ground each run down to a single word and only then gave up. Measured on
+    the first refreshed document: `kept == kept_gestures == 22`, which can only
+    happen if no run kept a second member.
+    """
+    chorus = [
+        LineFacts(
+            words=len(INSIST),
+            start_ms=i * LINE_MS,
+            end_ms=i * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(INSIST))),
+            norm_tokens=tuple(INSIST),
+        )
+        for i in range(16)
+    ]
+    verses = [
+        LineFacts(
+            words=6,
+            start_ms=(16 + i) * LINE_MS,
+            end_ms=(16 + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((16 + i) * LINE_MS + w * WORD_MS for w in range(6)),
+            norm_tokens=tuple(f"v{i}{w}" for w in range(6)),
+        )
+        for i in range(14)
+    ]
+    song = chorus + verses
+    # Every "music" of the run is a candidate, exactly as the tagger emits them.
+    cands = [tag(li, w, "music", 0.6) for li in range(16) for w in range(4, 9)]
+    cands += [tag(16 + i, 2, "fire", 0.8) for i in range(14)]
+
+    result = select_fx_words(cands, song)
+    assert result.stats.kept_gestures <= result.stats.song_cap, "the cap still binds"
+    assert result.stats.dropped_cap > 0, "fixture must actually reach the cap"
+
+    fired = {li: sorted(t.word for t in result.words if t.line == li) for li in range(16)}
+    alive = {li: words for li, words in fired.items() if words}
+    assert alive, "the chorus may not be silenced outright"
+    for li, words in alive.items():
+        assert words == [4, 5, 6, 7, 8], (
+            f"line {li} kept a mutilated run {words}: a run is one gesture and "
+            "must be kept whole or dropped whole"
+        )
+
+
+def test_the_chorus_rescue_trades_a_whole_gesture_for_a_whole_gesture():
+    """The guarantee was word-accounted while the cap counts gestures.
+
+    Invisible until runs began surviving: it reinserted a run's FIRST member
+    only (leaving that repeat firing a different pattern from its siblings) and
+    paid with a single word, which frees no budget when that word belongs to a
+    run — so the song drifted past its own cadence. Measured on the refreshed
+    Rihanna document: 26 gestures against a cap of 24, and one repeat firing
+    (4,) beside siblings firing (4,5,6,7,8).
+    """
+    chorus = [
+        LineFacts(
+            words=len(INSIST),
+            start_ms=i * LINE_MS,
+            end_ms=i * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(INSIST))),
+            norm_tokens=tuple(INSIST),
+        )
+        for i in range(12)
+    ]
+    verses = [
+        LineFacts(
+            words=6,
+            start_ms=(12 + i) * LINE_MS,
+            end_ms=(12 + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((12 + i) * LINE_MS + w * WORD_MS for w in range(6)),
+            norm_tokens=tuple(f"w{i}{w}" for w in range(6)),
+        )
+        for i in range(12)
+    ]
+    song = chorus + verses
+    cands = [tag(li, w, "music", 0.6) for li in range(12) for w in range(4, 9)]
+    cands += [tag(12 + i, 2, "fire", 0.8) for i in range(12)]
+    # One chorus section per repeat, so the cap can strand a whole block and
+    # force the rescue to run.
+    sections = [
+        Section(type="chorus", start_ms=i * LINE_MS, end_ms=(i + 1) * LINE_MS)
+        for i in range(12)
+    ]
+
+    result = select_fx_words(cands, song, sections)
+    assert result.stats.guard_reinserted > 0, "fixture must exercise the rescue"
+    assert result.stats.kept_gestures <= result.stats.song_cap, (
+        f"the rescue blew the cadence: {result.stats.kept_gestures} > "
+        f"{result.stats.song_cap}"
+    )
+    for li in range(12):
+        words = sorted(t.word for t in result.words if t.line == li)
+        assert words in ([], [4, 5, 6, 7, 8]), (
+            f"line {li} fires {words}: a rescued repeat must carry the whole run"
+        )
+
+
+def test_one_gesture_never_outruns_the_client_belt():
+    """`MAX_RUN_WORDS` documents a per-GESTURE limit; enforce it as one.
+
+    The cap was applied to the line's total instead, so a single long run could
+    slip past it — nine "yeah"s on a thirteen-word line is one run under a total
+    of `MAX_RUN_WORDS * quota`. The overlay's own belt would then trim the tail,
+    which means the server would be planning one thing and the screen showing
+    another.
+    """
+    chant = ["yeah"] * 13
+    song = [
+        LineFacts(
+            words=len(chant),
+            start_ms=i * LINE_MS,
+            end_ms=i * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(chant))),
+            norm_tokens=tuple(chant),
+        )
+        for i in range(4)
+    ]
+    cands = [tag(li, w, "music", 0.6) for li in range(4) for w in range(len(chant))]
+
+    result = select_fx_words(cands, song)
+    for li in range(4):
+        words = [t.word for t in result.words if t.line == li]
+        assert len(words) <= MAX_RUN_WORDS, (
+            f"line {li} emitted {len(words)} words for one gesture"
+        )

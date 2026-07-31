@@ -446,7 +446,11 @@ def _pick_on_line(
         # Spacing is measured between gestures, from the run's own extent.
         if all(_runs_far_enough(run, other) for other in chosen):
             chosen.append(run)
-    return [tag for run in chosen for tag in run][: MAX_RUN_WORDS * quota]
+    # Per gesture, not just in total: a line of nine "yeah"s is one run, and a
+    # total-only limit would let it emit all nine — past the client's per-line
+    # belt, which would then trim the tail itself and show a run the server
+    # never planned.
+    return [tag for run in chosen for tag in run[:MAX_RUN_WORDS]]
 
 
 def _run_sort_key(
@@ -659,7 +663,15 @@ def _thin_class_pattern(
     cap: int,
     classes: dict[tuple[str, ...], list[int]],
 ) -> list[WordTag]:
-    """Drop one word from each class's pattern, in every repeat of that class.
+    """Drop one GESTURE from each class's pattern, in every repeat of it.
+
+    A gesture, not a word. "music, music, music" is one insistence to the ear
+    and one entry to `_gestures`, so removing its members one at a time frees
+    exactly zero budget while dismantling the repetition the run exists to
+    render — the loop below would grind a five-word run down to one word, buy
+    nothing for it, and only then move on. Measured on the first refreshed
+    document: `kept == kept_gestures == 22`, which can only happen when no run
+    anywhere kept a second member.
 
     Per class, deliberately. Treating the classes' word indices as one shared
     pattern deletes whole classes: two choruses that happen to fire on words 4
@@ -671,15 +683,25 @@ def _thin_class_pattern(
         for li in members:
             line_to_class[li] = index
 
-    patterns: dict[int, list[int]] = defaultdict(list)
-    for tag in klass:
+    # class -> gesture -> its word indices. Bucketed by tag because that is what
+    # `_gestures` counts: one category on one line is one effect to the eye,
+    # however many words carry it.
+    grouped: dict[int, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    for tag in sorted(klass, key=lambda t: (t.line, t.word)):
         key = line_to_class.get(tag.line, -1)
-        if tag.word not in patterns[key]:
-            patterns[key].append(tag.word)
-    for words in patterns.values():
-        words.sort()
+        words = grouped[key][tag.tag]
+        if tag.word not in words:
+            words.append(tag.word)
 
-    # Trim the widest patterns first: a class already down to one word has
+    patterns: dict[int, list[list[int]]] = {
+        key: [
+            sorted(words)
+            for _, words in sorted(gestures.items(), key=lambda kv: min(kv[1]))
+        ]
+        for key, gestures in grouped.items()
+    }
+
+    # Trim the widest patterns first: a class already down to one gesture has
     # nothing left to give without falling silent, which is the next step's job.
     def current() -> list[WordTag]:
         alive = [t for t in klass if _in_pattern(t, patterns, line_to_class)]
@@ -697,10 +719,11 @@ def _thin_class_pattern(
 
 def _in_pattern(
     tag: WordTag,
-    patterns: dict[int, list[int]],
+    patterns: dict[int, list[list[int]]],
     line_to_class: dict[int, int],
 ) -> bool:
-    return tag.word in patterns.get(line_to_class.get(tag.line, -1), [])
+    gestures = patterns.get(line_to_class.get(tag.line, -1), [])
+    return any(tag.word in words for words in gestures)
 
 
 def _guarantee_sections(
@@ -747,24 +770,54 @@ def _guarantee_sections(
         best = min(pool, key=lambda t: (-scored[(t.line, t.word)], t.line, t.word))
         if (best.line, best.word) in in_kept:
             continue
+        # A whole gesture enters, never a fragment of one: reinserting the first
+        # "music" of "music, music, music" would leave that repeat firing a
+        # different pattern from its siblings — the exact inconsistency the
+        # repeat class exists to remove, reintroduced by the rescue.
+        entering = sorted(
+            (t for t in pool if t.line == best.line and t.tag == best.tag),
+            key=lambda t: t.word,
+        )[:MAX_RUN_WORDS]
 
-        # Pay for it: drop the weakest word that is not itself a section's only
-        # voice. Rank 0 first; a rank-1 outside this section only if we must.
-        evictable = [
-            t
+        # Pay for it: drop the weakest GESTURE that is not itself a section's
+        # only voice. Rank 0 first; a rank-1 outside this section only if we
+        # must. Gestures rather than words, because that is what the cap counts
+        # — evicting one word of a five-word run frees no budget at all, so a
+        # word-for-word trade would quietly push the song past its cadence.
+        evictable = {
+            (t.line, t.word)
             for t in current
             if t.line not in member_lines and (t.line, t.word) not in reinserted
+        }
+        gestures: dict[tuple[int, str], list[WordTag]] = defaultdict(list)
+        for t in current:
+            gestures[(t.line, t.tag)].append(t)
+        whole = [
+            members
+            for members in gestures.values()
+            if all((t.line, t.word) in evictable for t in members)
         ]
-        rank0 = [t for t in evictable if ranks.get(t.line, 0) == 0]
-        pick_from = rank0 or evictable
+        rank0 = [g for g in whole if ranks.get(g[0].line, 0) == 0]
+        pick_from = rank0 or whole
         if not pick_from:
             continue  # never exceed the cap
-        victim = min(pick_from, key=lambda t: (scored[(t.line, t.word)], -t.line, -t.word))
-        current.remove(victim)
-        in_kept.discard((victim.line, victim.word))
-        current.append(best)
-        in_kept.add((best.line, best.word))
-        reinserted.add((best.line, best.word))
+        victims = min(
+            pick_from,
+            key=lambda g: (
+                max(scored[(t.line, t.word)] for t in g),
+                -g[0].line,
+                -g[0].word,
+            ),
+        )
+        for victim in victims:
+            current.remove(victim)
+            in_kept.discard((victim.line, victim.word))
+        for member in entering:
+            if (member.line, member.word) in in_kept:
+                continue
+            current.append(member)
+            in_kept.add((member.line, member.word))
+            reinserted.add((member.line, member.word))
 
     current.sort(key=lambda t: (t.line, t.word))
     return current, reinserted

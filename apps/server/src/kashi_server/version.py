@@ -152,5 +152,26 @@
 # shape of bug and was worse: it treated every class's word indices as ONE
 # shared pattern, so two choruses firing on words 4 and 3 had a union of {3,4}
 # and dropping the later index silenced every repeat of the first outright.
-PIPELINE_VERSION = "2.14.1"
+# 2.14.2: the run gesture reached the field dead — every run in the first
+# refreshed document had been ground down to a single word, so "aynı kelime her
+# geçtiğinde efekt çıksın" was never actually shipping. One root cause with two
+# faces: the selection counts GESTURES (a repeated word is one effect to the
+# eye) while two later steps still counted WORDS.
+#   · Pattern thinning removed one word index at a time. A five-word run is one
+#     gesture, so each removal freed exactly zero budget while dismantling the
+#     insistence — the loop ground the run to one word and only then moved on.
+#     It now thins whole gestures, bucketed by tag exactly as `_gestures` counts.
+#   · The chorus rescue then reinserted a run's FIRST member only and paid with
+#     a single word. Both halves were wrong once runs survived: the repeat fired
+#     a different pattern from its siblings (the inconsistency the class exists
+#     to remove, reintroduced by the rescue), and evicting one word of a run
+#     freed no gesture, so the song drifted past its cadence — measured at 26
+#     gestures against a cap of 24. It now trades a whole gesture for a whole one.
+#   · `MAX_RUN_WORDS` documented a per-gesture limit but was applied to the
+#     line's total, so one long run could outrun the overlay's per-line belt and
+#     be trimmed on the client instead — server planning one thing, screen
+#     showing another. Enforced per gesture now, in the rescue too.
+# Verified against the stored Rihanna document: every repeat class fires ONE
+# pattern, the run survives whole as (4,5,6,7,8), 22 gestures under a cap of 24.
+PIPELINE_VERSION = "2.14.2"
 PIPELINE_MAJOR = 2
