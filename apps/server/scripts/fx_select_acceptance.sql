@@ -76,8 +76,25 @@ WHERE hits > CASE WHEN words <= 5 THEN 1 WHEN words <= 10 THEN 2 ELSE 3 END;
 -- Timed at each gesture's LAST member, the way the sweep does it: a run is
 -- deliberately sung fast, so timing its members individually would report the
 -- gesture as a violation of itself.
-WITH t AS (
+-- Repeat-class members are EXEMPT, exactly as `_sweep_gaps` exempts them: a
+-- chorus sung three times in a row fires three times by design, and the class
+-- protection outranks the gap. Without this the audit reported the rule's
+-- intended behaviour as a breach (measured: three consecutive repeats of "ooh
+-- baby baby la la la" 651 ms apart, which is the class doing its job).
+WITH cls AS (
   SELECT pt.source_id,
+         lower(regexp_replace(l->>'text', '[^[:alnum:] ]', '', 'g')) AS norm,
+         (i - 1) AS li
+  FROM processed_tracks pt,
+       LATERAL jsonb_array_elements(pt.document->'lines') WITH ORDINALITY a(l, i)
+  WHERE pt.document->'fx'->>'select' IS NOT NULL
+), in_class AS (
+  SELECT source_id, li FROM cls c
+  WHERE norm <> ''
+    AND (SELECT count(*) FROM cls c2 WHERE c2.source_id = c.source_id AND c2.norm = c.norm) > 1
+), t AS (
+  SELECT pt.source_id,
+         (e->>'line')::int AS li,
          max(coalesce(
            (pt.document->'lines'->((e->>'line')::int)->'words'->((e->>'word')::int)->>'start_ms')::int,
            (pt.document->'lines'->((e->>'line')::int)->>'start_ms')::int
@@ -86,10 +103,18 @@ WITH t AS (
   WHERE pt.document->'fx'->>'select' IS NOT NULL
   GROUP BY pt.source_id, (e->>'line')::int, e->>'tag'
 ), gaps AS (
-  SELECT source_id, at_ms, at_ms - lag(at_ms) OVER (PARTITION BY source_id ORDER BY at_ms) AS gap
+  SELECT source_id, li, at_ms,
+         at_ms - lag(at_ms) OVER (PARTITION BY source_id ORDER BY at_ms) AS gap,
+         lag(li) OVER (PARTITION BY source_id ORDER BY at_ms) AS prev_li
   FROM t
 )
-SELECT source_id, at_ms, gap FROM gaps WHERE gap IS NOT NULL AND gap < 700;
+SELECT g.source_id, g.at_ms, g.gap
+FROM gaps g
+WHERE g.gap IS NOT NULL AND g.gap < 700
+  AND NOT (
+    EXISTS (SELECT 1 FROM in_class c WHERE c.source_id = g.source_id AND c.li = g.li)
+    AND EXISTS (SELECT 1 FROM in_class c WHERE c.source_id = g.source_id AND c.li = g.prev_li)
+  );
 
 \echo '== summary (informational, not a failure list) ====================='
 -- Chorus coverage cannot be asserted from the document: the candidates that
@@ -113,11 +138,16 @@ ORDER BY 1;
 
 \echo '== 5. every repeat of a line fires the SAME pattern (2.14.0+) ======'
 -- The field complaint density/1.1 exists for: identical lines that chose
--- different words on different repeats. Grouping is by the rendered TEXT,
--- lowercased — close enough for an audit even though the selector normalizes
--- more thoroughly.
+-- different words on different repeats. Grouped by the WHOLE normalized line,
+-- the way the selector keys its classes. It used to group by `left(txt, 30)`
+-- and the truncation invented failures: "Please don't stop the, please don't
+-- stop the music" and "…, please don't stop the, please don't stop the music"
+-- share a 30-character prefix, are different lines of different lengths, and
+-- correctly fire different words — reported as one class with two patterns.
 WITH repeats AS (
-  SELECT pt.source_id, lower(l->>'text') AS txt, (i - 1) AS li
+  SELECT pt.source_id,
+         lower(regexp_replace(l->>'text', '[^[:alnum:] ]', '', 'g')) AS txt,
+         (i - 1) AS li
   FROM processed_tracks pt,
        LATERAL jsonb_array_elements(pt.document->'lines') WITH ORDINALITY a(l, i)
   WHERE pt.document->'fx'->>'select' = 'density/1.1'
@@ -132,5 +162,7 @@ SELECT r.source_id, left(r.txt, 30) AS line_start,
        count(DISTINCT f.pattern) AS distinct_patterns,
        array_agg(DISTINCT f.pattern) AS patterns
 FROM repeats r JOIN fired f ON f.source_id = r.source_id AND f.li = r.li
-GROUP BY 1, 2
+-- The WHOLE line, not the truncated display column: grouping by `left(...)`
+-- was what merged two different lines into one phantom class.
+GROUP BY r.source_id, r.txt
 HAVING count(DISTINCT f.pattern) > 1;
