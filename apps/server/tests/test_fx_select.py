@@ -7,6 +7,8 @@ assertions here are about DISTRIBUTION — how many, how far apart, and whether
 the back half of the song is represented at all.
 """
 
+import math
+
 from kashi_server.pipeline.energy import Section
 from kashi_server.pipeline.fx_select import (
     KEEP_ALL_BELOW,
@@ -14,6 +16,7 @@ from kashi_server.pipeline.fx_select import (
     MAX_SONG_CAP,
     MIN_GAP_MS,
     MIN_PLAIN_WORDS_BETWEEN,
+    NON_CLASS_RESERVE,
     SELECT_PLAN,
     LineFacts,
     select_fx_words,
@@ -513,7 +516,11 @@ def test_a_chorus_heavy_song_still_leaves_the_verses_a_voice():
 
 def test_the_pattern_stays_identical_even_when_the_cap_thins_it():
     # Degrading gracefully means the chorus gets quieter, never inconsistent.
-    song = sung(13, CHORUS)
+    # Spaced wide enough that the cadence can afford the class once thinned:
+    # two words across 13 repeats is 26 gestures, one word is 13, and the cap
+    # here is 15 — so thinning saves the class instead of the packing killing
+    # it, which is the ladder this test is about.
+    song = spread(13, CHORUS, every_ms=11_000)
     cands = [tag(i, 4, "music", 0.6) for i in range(13)]
     cands += [tag(i, 8, "music", 0.6) for i in range(13)]
     result = select_fx_words(cands, song)
@@ -523,25 +530,30 @@ def test_the_pattern_stays_identical_even_when_the_cap_thins_it():
         by_line.setdefault(t.line, set()).add(t.word)
     patterns = {frozenset(words) for words in by_line.values()}
     assert len(patterns) == 1, f"every firing repeat wears one pattern, got {patterns}"
+    assert len(by_line) == 13, "thinning the pattern must save the class, not silence it"
 
 
 def test_repeat_classes_are_deterministic_under_input_permutation():
-    song = sung(5, CHORUS)
+    # `spread`, not `sung`: five repeats packed into 20 s give a cap of 4, the
+    # class costs 5, and both sides would come back empty — a comparison of two
+    # empty lists proves nothing about ordering.
+    song = spread(5, CHORUS)
     cands = [tag(i, 4, "music", 0.6) for i in range(5)]
-    assert select_fx_words(cands, song).words == select_fx_words(
-        list(reversed(cands)), song
-    ).words
+    got = select_fx_words(cands, song).words
+    assert got, "the fixture must actually select something"
+    assert got == select_fx_words(list(reversed(cands)), song).words
 
 
-def test_two_classes_share_the_cap_instead_of_one_being_wiped():
-    """The field failure this rule was rewritten for.
+def test_the_affordable_class_fires_whole_when_both_cannot_fit():
+    """Two choruses, room for one — and the one that gets in gets in WHOLE.
 
-    Measured on a real document: 52 candidates, cap 24, density thinning did
-    NOTHING because nearly every line belonged to some class, so the cap had to
-    remove 28 gestures on its own. Striding over the combined pool kept one
-    chorus at six-of-six and cut the other to one-of-eleven — a chorus that
-    fires every time next to a chorus that fires once, which is precisely the
-    inconsistency the class exists to remove.
+    This fixture used to assert proportional sharing: both classes survive,
+    trimmed in proportion to their size. The field overruled it. Sharing meant
+    "eleven repeats, six of them silent", and the verdict on that was that a
+    line firing on one repeat and not the next reads as broken, not as quiet.
+    So the budget now buys whole classes: the six-repeat hook fires all six
+    times, the eleven-repeat one says nothing at all, and the cadence the dead
+    class was holding goes back to the verses.
     """
     big = [
         LineFacts(
@@ -583,12 +595,15 @@ def test_two_classes_share_the_cap_instead_of_one_being_wiped():
 
     big_alive = len({t.line for t in result.words if t.line < 11})
     small_alive = len({t.line for t in result.words if 11 <= t.line < 17})
-    assert big_alive >= 2 and small_alive >= 2, (
-        f"neither class may be wiped: big={big_alive}/11 small={small_alive}/6"
+    assert (big_alive, small_alive) == (0, 6), (
+        f"whole classes only: big={big_alive}/11 small={small_alive}/6"
     )
-    # Proportional, not first-come: the larger class keeps more, and the
-    # smaller one does not survive whole while the larger is gutted.
-    assert big_alive >= small_alive, f"big={big_alive} small={small_alive}"
+    assert result.stats.classes_kept == 1 and result.stats.classes_dropped == 1
+    # The dead class's budget is not left on the table.
+    singles_alive = len({t.line for t in result.words if t.line >= 17})
+    assert singles_alive > math.ceil(result.stats.song_cap * NON_CLASS_RESERVE), (
+        f"the killed class's cadence should return to the verses, got {singles_alive}"
+    )
 
 
 #: A chorus that insists on one word — the shape of the field case
@@ -614,28 +629,30 @@ def test_a_run_survives_the_cap_whole_or_not_at_all():
             word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(INSIST))),
             norm_tokens=tuple(INSIST),
         )
-        for i in range(16)
+        for i in range(5)
     ]
     verses = [
         LineFacts(
             words=6,
-            start_ms=(16 + i) * LINE_MS,
-            end_ms=(16 + i) * LINE_MS + LINE_MS - 200,
-            word_starts=tuple((16 + i) * LINE_MS + w * WORD_MS for w in range(6)),
+            start_ms=(5 + i) * LINE_MS,
+            end_ms=(5 + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((5 + i) * LINE_MS + w * WORD_MS for w in range(6)),
             norm_tokens=tuple(f"v{i}{w}" for w in range(6)),
         )
-        for i in range(14)
+        for i in range(17)
     ]
     song = chorus + verses
     # Every "music" of the run is a candidate, exactly as the tagger emits them.
-    cands = [tag(li, w, "music", 0.6) for li in range(16) for w in range(4, 9)]
-    cands += [tag(16 + i, 2, "fire", 0.8) for i in range(14)]
+    # Five repeats, so the class is affordable and the run's integrity — not
+    # the all-or-nothing packing — is what this test measures.
+    cands = [tag(li, w, "music", 0.6) for li in range(5) for w in range(4, 9)]
+    cands += [tag(5 + i, 2, "fire", 0.8) for i in range(17)]
 
     result = select_fx_words(cands, song)
     assert result.stats.kept_gestures <= result.stats.song_cap, "the cap still binds"
     assert result.stats.dropped_cap > 0, "fixture must actually reach the cap"
 
-    fired = {li: sorted(t.word for t in result.words if t.line == li) for li in range(16)}
+    fired = {li: sorted(t.word for t in result.words if t.line == li) for li in range(5)}
     alive = {li: words for li, words in fired.items() if words}
     assert alive, "the chorus may not be silenced outright"
     for li, words in alive.items():
@@ -654,36 +671,39 @@ def test_the_chorus_rescue_trades_a_whole_gesture_for_a_whole_gesture():
     run — so the song drifted past its own cadence. Measured on the refreshed
     Rihanna document: 26 gestures against a cap of 24, and one repeat firing
     (4,) beside siblings firing (4,5,6,7,8).
+
+    Built on a UNIQUE line rather than a repeat: class lines are off limits to
+    the rescue now (it may neither resurrect nor evict one), so the whole-gesture
+    trade has to be proved where the rescue can still reach — a one-off line
+    that happens to insist on a word.
     """
-    chorus = [
-        LineFacts(
-            words=len(INSIST),
-            start_ms=i * LINE_MS,
-            end_ms=i * LINE_MS + LINE_MS - 200,
-            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(len(INSIST))),
-            norm_tokens=tuple(INSIST),
-        )
-        for i in range(12)
-    ]
+    chant = ("hey", "now", "you", "go", "go", "go", "tonight")
     verses = [
         LineFacts(
             words=6,
-            start_ms=(12 + i) * LINE_MS,
-            end_ms=(12 + i) * LINE_MS + LINE_MS - 200,
-            word_starts=tuple((12 + i) * LINE_MS + w * WORD_MS for w in range(6)),
+            start_ms=i * LINE_MS,
+            end_ms=i * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(i * LINE_MS + w * WORD_MS for w in range(6)),
             norm_tokens=tuple(f"w{i}{w}" for w in range(6)),
         )
-        for i in range(12)
+        for i in range(20)
     ]
-    song = chorus + verses
-    cands = [tag(li, w, "music", 0.6) for li in range(12) for w in range(4, 9)]
-    cands += [tag(12 + i, 2, "fire", 0.8) for i in range(12)]
-    # One chorus section per repeat, so the cap can strand a whole block and
-    # force the rescue to run.
-    sections = [
-        Section(type="chorus", start_ms=i * LINE_MS, end_ms=(i + 1) * LINE_MS)
-        for i in range(12)
+    hook = [
+        LineFacts(
+            words=len(chant),
+            start_ms=20 * LINE_MS,
+            end_ms=20 * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(20 * LINE_MS + w * WORD_MS for w in range(len(chant))),
+            norm_tokens=chant,
+        )
     ]
+    song = verses + hook
+    cands = [tag(i, 2, "fire", 0.8) for i in range(20)]
+    # "go, go, go" — one gesture, three words.
+    cands += [tag(20, w, "music", 0.4) for w in (3, 4, 5)]
+    # The hook is the last line, which the positional stride drops; the section
+    # over it is then silent and the rescue must buy it back.
+    sections = [Section(type="chorus", start_ms=20 * LINE_MS, end_ms=21 * LINE_MS)]
 
     result = select_fx_words(cands, song, sections)
     assert result.stats.guard_reinserted > 0, "fixture must exercise the rescue"
@@ -691,11 +711,9 @@ def test_the_chorus_rescue_trades_a_whole_gesture_for_a_whole_gesture():
         f"the rescue blew the cadence: {result.stats.kept_gestures} > "
         f"{result.stats.song_cap}"
     )
-    for li in range(12):
-        words = sorted(t.word for t in result.words if t.line == li)
-        assert words in ([], [4, 5, 6, 7, 8]), (
-            f"line {li} fires {words}: a rescued repeat must carry the whole run"
-        )
+    assert sorted(t.word for t in result.words if t.line == 20) == [3, 4, 5], (
+        "a rescued line must carry the whole run, not its first member"
+    )
 
 
 def test_one_gesture_never_outruns_the_client_belt():
@@ -726,3 +744,242 @@ def test_one_gesture_never_outruns_the_client_belt():
         assert len(words) <= MAX_RUN_WORDS, (
             f"line {li} emitted {len(words)} words for one gesture"
         )
+
+
+def _fired_per_class(result, groups: dict[str, range]) -> dict[str, int]:
+    """How many repeats of each named class actually fire."""
+    firing = {t.line for t in result.words}
+    return {name: len(set(rows) & firing) for name, rows in groups.items()}
+
+
+def _class_lines(count: int, tokens: list[str], start_at: int) -> list[LineFacts]:
+    """`count` identical lines beginning at `start_at`, one per LINE_MS slot."""
+    return [
+        LineFacts(
+            words=len(tokens),
+            start_ms=(start_at + i) * LINE_MS,
+            end_ms=(start_at + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple(
+                (start_at + i) * LINE_MS + w * WORD_MS for w in range(len(tokens))
+            ),
+            norm_tokens=tuple(tokens),
+        )
+        for i in range(count)
+    ]
+
+
+def _unique_lines(count: int, start_at: int, mark: str = "u") -> list[LineFacts]:
+    """`count` lines that share no wording with anything — never a class."""
+    return [
+        LineFacts(
+            words=6,
+            start_ms=(start_at + i) * LINE_MS,
+            end_ms=(start_at + i) * LINE_MS + LINE_MS - 200,
+            word_starts=tuple((start_at + i) * LINE_MS + w * WORD_MS for w in range(6)),
+            norm_tokens=tuple(f"{mark}{i}{w}" for w in range(6)),
+        )
+        for i in range(count)
+    ]
+
+
+def test_a_class_the_budget_cannot_afford_goes_entirely_silent():
+    """The decision this rule exists to enforce, in its plainest form.
+
+    Twenty repeats against a budget that cannot seat them: the old policy would
+    have seated as many as fitted and left the rest silent, which is what the
+    field called broken. Now the hook says nothing at all, and the cadence it
+    was holding is spent on the verses instead.
+    """
+    song = _class_lines(20, CHORUS, 0) + _unique_lines(20, 20)
+    cands = [tag(i, 4, "music", 0.6) for i in range(20)]
+    cands += [tag(20 + i, 2, "fire", 0.8) for i in range(20)]
+
+    result = select_fx_words(cands, song)
+    assert not [t for t in result.words if t.line < 20], "the whole class must fall silent"
+    assert result.stats.classes_dropped == 1
+    assert result.stats.classes_kept == 0
+    assert result.words, "the verses must still speak"
+
+
+def test_partial_firing_is_impossible_under_any_pressure():
+    """The invariant, swept rather than sampled.
+
+    Class sizes and song lengths chosen to walk the cap from its floor to its
+    ceiling, so the packing, the pattern thinning and the reserve all take a
+    turn at being the binding constraint.
+    """
+    for class_size in (2, 5, 9, 14):
+        for gap_ms in (2500, LINE_MS, 12_000):
+            chorus = [
+                LineFacts(
+                    words=len(CHORUS),
+                    start_ms=i * gap_ms,
+                    end_ms=i * gap_ms + 2000,
+                    word_starts=tuple(i * gap_ms + w * WORD_MS for w in range(len(CHORUS))),
+                    norm_tokens=tuple(CHORUS),
+                )
+                for i in range(class_size)
+            ]
+            verses = _unique_lines(10, class_size + 2)
+            song = chorus + verses
+            cands = [tag(i, 4, "music", 0.6) for i in range(class_size)]
+            cands += [tag(len(chorus) + i, 2, "fire", 0.8) for i in range(10)]
+
+            result = select_fx_words(cands, song)
+            firing = {t.line for t in result.words if t.line < class_size}
+            assert len(firing) in (0, class_size), (
+                f"class_size={class_size} gap={gap_ms}: {len(firing)} of "
+                f"{class_size} repeats fired — a class fires all or none"
+            )
+
+
+def test_first_fit_lets_small_classes_in_when_the_giant_does_not_fit():
+    """One oversized chant must not starve the hooks that would have fitted.
+
+    First-fit, not first-fail-stop: the giant is skipped and packing carries on
+    down the list.
+    """
+    song = (
+        _class_lines(15, CHORUS, 0)
+        + _class_lines(4, VERSE, 15)
+        + _class_lines(3, ["kilo", "papa", "romeo", "sierra"], 19)
+        + _unique_lines(8, 22)
+    )
+    cands = [tag(i, 4, "music", 0.6) for i in range(15)]
+    cands += [tag(15 + i, 3, "love", 0.6) for i in range(4)]
+    cands += [tag(19 + i, 1, "fire", 0.8) for i in range(3)]
+    cands += [tag(22 + i, 2, "dance", 0.6) for i in range(8)]
+
+    result = select_fx_words(cands, song)
+    fired = _fired_per_class(
+        result, {"giant": range(0, 15), "mid": range(15, 19), "small": range(19, 22)}
+    )
+    assert fired["giant"] == 0, "the giant cannot be afforded"
+    assert fired["mid"] == 4 and fired["small"] == 3, (
+        f"smaller classes must still get in: {fired}"
+    )
+
+
+def test_the_rescue_never_resurrects_a_killed_class():
+    """The rescue may not undo the packing's decision one repeat at a time.
+
+    Its candidate pool is the full tagged list, not the kept one, so without an
+    explicit rule it would happily light up a single repeat of a class that was
+    silenced precisely so it would not flicker.
+    """
+    song = _class_lines(16, CHORUS, 0) + _unique_lines(12, 16)
+    cands = [tag(i, 4, "music", 0.6) for i in range(16)]
+    cands += [tag(16 + i, 2, "fire", 0.8) for i in range(12)]
+    # A chorus section over each repeat: every one of them is a silent section
+    # the rescue would otherwise want to buy back.
+    sections = [
+        Section(type="chorus", start_ms=i * LINE_MS, end_ms=(i + 1) * LINE_MS)
+        for i in range(16)
+    ]
+
+    result = select_fx_words(cands, song, sections)
+    assert not [t for t in result.words if t.line < 16], "the killed class stays killed"
+    assert result.stats.guard_reinserted == 0
+
+
+def test_the_rescue_never_evicts_a_repeat_of_a_class_that_fires():
+    """The other direction: a class may not PAY for someone else's rescue.
+
+    Evicting one repeat as payment would leave the class firing everywhere but
+    there — the same flicker, arrived at from the opposite side.
+    """
+    song = _class_lines(4, CHORUS, 0) + _unique_lines(24, 4)
+    cands = [tag(i, 4, "music", 0.6) for i in range(4)]
+    cands += [tag(4 + i, 2, "fire", 0.8) for i in range(24)]
+    # The last verse line is its own chorus section and will be strided away,
+    # so the rescue has to find payment somewhere.
+    sections = [Section(type="chorus", start_ms=27 * LINE_MS, end_ms=28 * LINE_MS)]
+
+    result = select_fx_words(cands, song, sections)
+    fired = len({t.line for t in result.words if t.line < 4})
+    assert fired in (0, 4), f"the class fired {fired} of 4 repeats"
+
+
+def test_budget_freed_by_a_killed_class_returns_to_the_verses():
+    """A silent chorus must not also cost the verses their cadence.
+
+    The singles are trimmed against the FULL class weight, so leaving them at
+    the reserve floor after the class dies would spend the dead hook's budget
+    on nothing at all.
+    """
+    song = _class_lines(18, CHORUS, 0) + _unique_lines(18, 18)
+    cands = [tag(i, 4, "music", 0.6) for i in range(18)]
+    cands += [tag(18 + i, 2, "fire", 0.8) for i in range(18)]
+
+    result = select_fx_words(cands, song)
+    verses = len({t.line for t in result.words if t.line >= 18})
+    floor = math.ceil(result.stats.song_cap * NON_CLASS_RESERVE)
+    assert verses > floor, (
+        f"the verses stayed at the reserve floor ({verses} <= {floor}) while a "
+        "killed class's budget went unspent"
+    )
+
+
+def test_the_singles_reserve_survives_the_packing():
+    """A class that exactly fits must still leave the verses their reserve."""
+    song = _class_lines(9, CHORUS, 0) + _unique_lines(20, 9)
+    cands = [tag(i, 4, "music", 0.6) for i in range(9)]
+    cands += [tag(9 + i, 2, "fire", 0.8) for i in range(20)]
+
+    result = select_fx_words(cands, song)
+    verses = len({t.line for t in result.words if t.line >= 9})
+    assert verses >= math.ceil(result.stats.song_cap * NON_CLASS_RESERVE)
+
+
+def test_a_stronger_class_wins_the_budget_when_only_one_fits():
+    """Same size, different standing: the chorus one outranks the other."""
+    song = _class_lines(6, CHORUS, 0) + _class_lines(6, VERSE, 6) + _unique_lines(6, 12)
+    cands = [tag(i, 4, "music", 0.6) for i in range(6)]
+    cands += [tag(6 + i, 3, "music", 0.6) for i in range(6)]
+    cands += [tag(12 + i, 2, "fire", 0.8) for i in range(6)]
+    sections = [Section(type="chorus", start_ms=6 * LINE_MS, end_ms=12 * LINE_MS)]
+
+    result = select_fx_words(cands, song, sections)
+    fired = _fired_per_class(result, {"plain": range(0, 6), "ranked": range(6, 12)})
+    assert fired["ranked"] == 6 and fired["plain"] == 0, (
+        f"the ranked class should take the budget: {fired}"
+    )
+
+
+def test_packing_is_deterministic_under_input_permutation():
+    song = _class_lines(12, CHORUS, 0) + _class_lines(5, VERSE, 12) + _unique_lines(8, 17)
+    cands = [tag(i, 4, "music", 0.6) for i in range(12)]
+    cands += [tag(12 + i, 3, "love", 0.6) for i in range(5)]
+    cands += [tag(17 + i, 2, "fire", 0.8) for i in range(8)]
+
+    forward = select_fx_words(cands, song)
+    backward = select_fx_words(list(reversed(cands)), song)
+    assert forward.words == backward.words
+    assert forward.stats.classes_kept == backward.stats.classes_kept
+    assert forward.stats.classes_kept >= 1, "the fixture must seat something"
+
+
+def test_a_song_that_is_only_an_unaffordable_chorus_goes_silent():
+    """The accepted cost, written down so nobody rediscovers it as a bug.
+
+    Cap holds, no partial firing: a short track that is nothing but a chant too
+    long to seat therefore carries no effects at all.
+    """
+    song = _class_lines(6, CHORUS, 0)
+    cands = [tag(i, 4, "music", 0.6) for i in range(6)]
+
+    result = select_fx_words(cands, song)
+    assert result.words == []
+    assert result.stats.classes_dropped == 1
+    assert result.plan == SELECT_PLAN
+
+
+def test_stats_report_which_classes_survived():
+    song = _class_lines(16, CHORUS, 0) + _class_lines(3, VERSE, 16) + _unique_lines(8, 19)
+    cands = [tag(i, 4, "music", 0.6) for i in range(16)]
+    cands += [tag(16 + i, 3, "love", 0.6) for i in range(3)]
+    cands += [tag(19 + i, 2, "fire", 0.8) for i in range(8)]
+
+    result = select_fx_words(cands, song)
+    assert result.stats.repeat_classes == 2
+    assert (result.stats.classes_kept, result.stats.classes_dropped) == (1, 1)

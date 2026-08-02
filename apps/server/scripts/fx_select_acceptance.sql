@@ -150,12 +150,12 @@ WITH repeats AS (
          (i - 1) AS li
   FROM processed_tracks pt,
        LATERAL jsonb_array_elements(pt.document->'lines') WITH ORDINALITY a(l, i)
-  WHERE pt.document->'fx'->>'select' = 'density/1.1'
+  WHERE pt.document->'fx'->>'select' IN ('density/1.1', 'density/1.2')
 ), fired AS (
   SELECT pt.source_id, (e->>'line')::int AS li,
          string_agg(DISTINCT e->>'word', ',' ORDER BY e->>'word') AS pattern
   FROM processed_tracks pt, LATERAL jsonb_array_elements(pt.document->'fx'->'words') e
-  WHERE pt.document->'fx'->>'select' = 'density/1.1'
+  WHERE pt.document->'fx'->>'select' IN ('density/1.1', 'density/1.2')
   GROUP BY 1, 2
 )
 SELECT r.source_id, left(r.txt, 30) AS line_start,
@@ -166,3 +166,33 @@ FROM repeats r JOIN fired f ON f.source_id = r.source_id AND f.li = r.li
 -- was what merged two different lines into one phantom class.
 GROUP BY r.source_id, r.txt
 HAVING count(DISTINCT f.pattern) > 1;
+
+\echo '== 6. a repeat class fires ALL its repeats or none (density/1.2+) =='
+-- The field verdict behind 1.2: a line that fires on one repeat and stays
+-- silent on the next reads as broken, so the cadence now buys whole classes.
+-- Grouped by the WHOLE normalized line, like check 5.
+--
+-- CAVEAT before calling a row here a failure: a repeat whose own transcript
+-- never carried the pattern word is silent BY DESIGN (the selector counts it
+-- in `pattern_missing`), and the document does not store the candidates that
+-- were passed over — so a hit must be cross-checked against the worker's
+-- pattern_missing stat for that job before it means anything.
+WITH lines AS (
+  SELECT pt.source_id,
+         lower(regexp_replace(l->>'text', '[^[:alnum:] ]', '', 'g')) AS txt,
+         (i - 1) AS li
+  FROM processed_tracks pt,
+       LATERAL jsonb_array_elements(pt.document->'lines') WITH ORDINALITY a(l, i)
+  WHERE pt.document->'fx'->>'select' = 'density/1.2'
+), fired AS (
+  SELECT DISTINCT pt.source_id, (e->>'line')::int AS li
+  FROM processed_tracks pt, LATERAL jsonb_array_elements(pt.document->'fx'->'words') e
+  WHERE pt.document->'fx'->>'select' = 'density/1.2'
+)
+SELECT l.source_id, left(l.txt, 30) AS line_start,
+       count(*) AS repeats,
+       count(f.li) AS firing
+FROM lines l LEFT JOIN fired f ON f.source_id = l.source_id AND f.li = l.li
+WHERE l.txt <> ''
+GROUP BY l.source_id, l.txt
+HAVING count(*) > 1 AND count(f.li) NOT IN (0, count(*));

@@ -173,5 +173,34 @@
 #     showing another. Enforced per gesture now, in the rescue too.
 # Verified against the stored Rihanna document: every repeat class fires ONE
 # pattern, the run survives whole as (4,5,6,7,8), 22 gestures under a cap of 24.
-PIPELINE_VERSION = "2.14.2"
+# 2.15.0: a repeat class fires all of its repeats or none of them.
+# 2.14.x degraded a class the cadence could not afford by keeping the pattern
+# and silencing some repeats, on the theory that quieter beats inconsistent.
+# The field measured what that actually looks like: across 23 documents, 238
+# repeat classes split 44 fully firing / 43 PARTIAL / 151 silent, and the
+# verdict on the middle group was blunt — "the same line fires in one repeat and
+# not in another is inconsistent" (Shape of You: "oh im in love with your body"
+# 9 repeats, 3 firing; "come on be my baby" 11 repeats, 5 firing). A hook that
+# stays quiet reads as a decision; a hook that flickers reads as a fault.
+# The ladder is now: trim the singles to their reserve → thin every class's
+# pattern uniformly (unchanged, and it already grinds each class to a one-gesture
+# pattern before anything is dropped, so "make it fit before killing it" is a
+# step that already existed) → pack WHOLE classes first-fit, dropping outright
+# whatever does not fit. First-fit rather than first-fail-stop: one twenty-repeat
+# chant must not starve the three smaller hooks that would have fitted after it.
+# Classes are ordered by score, then by SIZE — score alone decides almost nothing
+# (intensity is a per-category constant, so choruses routinely tie) and document
+# order would let a twice-sung early phrase outrank the eleven-times-sung hook.
+# Budget a killed class hands back is re-spent on the verses instead of
+# evaporating; the non-class reserve is unchanged.
+# The chorus rescue becomes class-atomic on BOTH sides, which also closed two
+# latent defects that predate this change: its candidate pool is drawn from the
+# full tagged list rather than the kept one, so it could resurrect a single
+# repeat of a capped-away class (or place an OFF-pattern word on a repeat that
+# was deliberately silent), and its eviction pool could pay for a rescue by
+# silencing one repeat of a class that was otherwise firing throughout.
+# Accepted costs, stated rather than discovered later: a low-scoring hook can be
+# entirely silent in a dense song, and a short track that is nothing but a chant
+# too long to seat carries no effects at all.
+PIPELINE_VERSION = "2.15.0"
 PIPELINE_MAJOR = 2

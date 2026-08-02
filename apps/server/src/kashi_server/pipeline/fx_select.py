@@ -17,7 +17,8 @@ The rules, in the order they apply:
   2. score each candidate (category strength + that rank + rarity)
   3. thin WITHIN a line: a quota from the line's length, never adjacent
   4. thin PER CATEGORY: keep all of a rare one, half of a dominant one
-  5. cap the song by CADENCE, not by a flat count
+  5. cap the song by CADENCE, not by a flat count — and when a repeat class
+     cannot be afforded whole, silence it whole rather than let it flicker
   6. guarantee the chorus is never left empty
   7. sweep globally so two effects never land within 700 ms of each other
 
@@ -38,8 +39,9 @@ from kashi_server.pipeline.semantics import WordTag
 # Stamped onto the document so the client can tell "the server already chose"
 # from "this is a legacy dense list". See docs in document.py. The client keys
 # on "any non-empty value", so a plan bump needs no client change; the version
-# is provenance, and 1.1 means repeat-class consistency and gesture accounting.
-SELECT_PLAN = "density/1.1"
+# is provenance: 1.1 meant repeat-class consistency and gesture accounting, and
+# 1.2 means a repeat class fires all of its repeats or none of them.
+SELECT_PLAN = "density/1.2"
 
 #: chorus outranks loud, loud outranks nothing.
 _RANK_CHORUS = 2
@@ -141,6 +143,11 @@ class SelectionStats:
     #: because it had no such candidate of its own.
     repeat_classes: int = 0
     pattern_missing: int = 0
+    #: Computed from the FINAL kept list rather than from the packing step, so
+    #: it doubles as an honesty check: a class counted as kept must still be
+    #: firing after the guarantee and the gap sweep have had their turn.
+    classes_kept: int = 0
+    classes_dropped: int = 0
     #: Types whose rank was zeroed for covering too much of the song.
     disabled_types: tuple[str, ...] = ()
 
@@ -174,14 +181,18 @@ def select_fx_words(
     after_density = _thin_by_category(after_line, class_lines)
 
     song_cap = _song_cap(lines)
-    after_cap = _apply_cap(after_density, song_cap, classes)
+    after_cap = _apply_cap(after_density, song_cap, classes, scored)
     after_guard, reinserted = _guarantee_sections(
-        after_cap, valid, lines, sections, ranks, scored, disabled
+        after_cap, valid, lines, sections, ranks, scored, disabled, class_lines
     )
     protected = reinserted | {(t.line, t.word) for t in after_guard if t.line in class_lines}
     kept, dropped_gap = _sweep_gaps(after_guard, lines, scored, protected)
 
     kept.sort(key=lambda t: (t.line, t.word))
+    fired_lines = {t.line for t in kept}
+    classes_kept = sum(
+        1 for members in classes.values() if any(li in fired_lines for li in members)
+    )
     stats = SelectionStats(
         candidates=len(candidates),
         kept=len(kept),
@@ -194,6 +205,8 @@ def select_fx_words(
         kept_gestures=_gestures(kept),
         repeat_classes=len(classes),
         pattern_missing=pattern_missing,
+        classes_kept=classes_kept,
+        classes_dropped=len(classes) - classes_kept,
         disabled_types=disabled,
     )
     return Selection(SELECT_PLAN, kept, stats)
@@ -545,6 +558,7 @@ def _apply_cap(
     candidates: Sequence[WordTag],
     cap: int,
     classes: dict[tuple[str, ...], list[int]] | None = None,
+    scored: dict[tuple[int, int], float] | None = None,
 ) -> list[WordTag]:
     """Trim to the song's cadence, keeping the spread rather than the front.
 
@@ -576,53 +590,75 @@ def _apply_cap(
     if _gestures(kept) <= cap:
         return kept
 
-    # Last resort: drop whole repeats. The pattern never changes; some repeats
-    # simply stay silent, which reads far better than a different guess each time.
-    # The loss is shared BETWEEN classes in proportion to their size. Striding
-    # over the combined pool let one chorus keep every repeat while another
-    # kept one in eleven — measured in the field — which is the very
-    # inconsistency the class was introduced to remove, wearing a new hat.
+    # Last resort: a class the budget cannot afford WHOLE goes entirely silent.
+    #
+    # This used to drop repeats one at a time, sharing the loss between classes
+    # in proportion to their size, on the theory that "same pattern, some
+    # repeats silent" degrades gracefully. The field disagreed: measured across
+    # 23 documents, 43 of 238 classes fired partially, and the verdict was that
+    # a line firing on one repeat and not on the next reads as broken — the
+    # inconsistency the class was introduced to remove, wearing yet another hat.
+    # A hook that stays quiet reads as a choice; a hook that flickers does not.
     klass_now = [t for t in kept if t.line in class_lines]
     singles_now = [t for t in kept if t.line not in class_lines]
-    room = max(1, cap - _gestures(singles_now))
+    packed = _pack_classes(klass_now, classes or {}, scored or {}, cap - _gestures(singles_now))
 
-    alive_by_class = [
-        sorted({t.line for t in klass_now} & set(members))
-        for members in (classes or {}).values()
-    ]
-    alive_by_class = [members for members in alive_by_class if members]
-    total = sum(len(members) for members in alive_by_class)
-    if total == 0:
-        return sorted(singles_now, key=lambda t: (t.line, t.word))
+    # Budget a killed class hands back belongs to the verses: the singles were
+    # trimmed against the FULL class weight, so leaving them at the reserve
+    # floor would spend a silent chorus's cadence on nothing at all.
+    out = packed + _stride_to_cap(singles, cap - _gestures(packed))
+    out.sort(key=lambda t: (t.line, t.word))
+    return out
 
-    survivors: set[int] = set()
-    for members in alive_by_class:
-        share = max(1, round(room * len(members) / total))
-        survivors.update(_stride_lines(members, min(share, len(members))))
 
-    by_line: dict[int, list[WordTag]] = defaultdict(list)
-    for tag in klass_now:
-        by_line[tag.line].append(tag)
+def _pack_classes(
+    klass: Sequence[WordTag],
+    classes: dict[tuple[str, ...], list[int]],
+    scored: dict[tuple[int, int], float],
+    budget: int,
+) -> list[WordTag]:
+    """Fit whole classes into the budget; anything that does not fit is dropped.
 
-    def assemble() -> list[WordTag]:
-        out = singles_now + [t for li in sorted(survivors) for t in by_line[li]]
-        out.sort(key=lambda t: (t.line, t.word))
-        return out
+    First-fit rather than first-fail-stop: a class too big for what is left is
+    skipped and packing continues, so one twenty-repeat chant cannot starve the
+    three smaller hooks that would have fitted after it.
 
-    # Proportional rounding can overshoot; trim from whichever class is
-    # currently largest so the shape of the loss stays even.
-    result = assemble()
-    while _gestures(result) > cap:
-        biggest = max(
-            alive_by_class,
-            key=lambda m: (len([li for li in m if li in survivors]), -m[0]),
-        )
-        alive = sorted(li for li in biggest if li in survivors)
-        if len(alive) <= 1:
-            break
-        survivors.discard(alive[len(alive) // 2])
-        result = assemble()
-    return result
+    Weights are exact, not approximate: `_gestures` counts (line, tag) pairs and
+    class lines are disjoint from each other and from the singles, so the parts
+    sum to the whole and no overshoot trim is needed.
+    """
+    line_to_class: dict[int, int] = {}
+    for index, members in enumerate(classes.values()):
+        for li in members:
+            line_to_class[li] = index
+
+    by_class: dict[int, list[WordTag]] = defaultdict(list)
+    for tag in klass:
+        by_class[line_to_class.get(tag.line, -1)].append(tag)
+
+    # Weight is what a class actually costs — alive repeats, not declared ones:
+    # a repeat whose own candidates never included the pattern word is already
+    # silent and must not be charged for.
+    #
+    # Ordered by score, then by SIZE. Score alone decides almost nothing here
+    # (intensity is a constant per category, so two choruses routinely tie) and
+    # a pure document-order tie-break would let a twice-sung early phrase
+    # outrank the eleven-times-sung hook simply for being first.
+    entries = []
+    for index in sorted(by_class):
+        tags = by_class[index]
+        weight = _gestures(tags)
+        best = max(scored.get((t.line, t.word), 0.0) for t in tags)
+        entries.append((-best, -weight, min(t.line for t in tags), weight, tags))
+    entries.sort()
+
+    out: list[WordTag] = []
+    remaining = budget
+    for *_, weight, tags in entries:
+        if weight <= remaining:
+            out.extend(tags)
+            remaining -= weight
+    return out
 
 
 def _gestures(candidates: Sequence[WordTag]) -> int:
@@ -648,13 +684,6 @@ def _stride_to_cap(candidates: Sequence[WordTag], cap: int) -> list[WordTag]:
     out.sort(key=lambda t: (t.line, t.word))
     return out
 
-
-def _stride_lines(lines_in_order: list[int], keep: int) -> list[int]:
-    if keep >= len(lines_in_order):
-        return lines_in_order
-    if keep <= 0:
-        return []
-    return [lines_in_order[math.floor(i * len(lines_in_order) / keep)] for i in range(keep)]
 
 
 def _thin_class_pattern(
@@ -734,8 +763,26 @@ def _guarantee_sections(
     ranks: dict[int, int],
     scored: dict[tuple[int, int], float],
     disabled: tuple[str, ...],
+    class_lines: set[int] | None = None,
 ) -> tuple[list[WordTag], set[tuple[int, int]]]:
-    """No chorus that HAS something to say is left silent. Cap-neutral."""
+    """No chorus that HAS something to say is left silent. Cap-neutral.
+
+    Class lines are off limits on BOTH sides of the trade, and the reason is
+    the same in each direction: a class fires all its repeats or none.
+
+    An alive class already fires every repeat that has the pattern word, so a
+    silent line belonging to a class is either a member of a class the budget
+    killed or a repeat whose own transcript never carried that candidate. Both
+    must stay silent — rescuing one would recreate the flicker exactly. And a
+    class member may never be the payment either, or the rescue would silence
+    one repeat of a chorus that is otherwise firing throughout.
+
+    (Both directions were reachable before the pool was filtered: the candidate
+    pool is drawn from the full sanitized list, not the kept one, so it could
+    resurrect a capped-away repeat — or place an OFF-pattern word on a repeat
+    that had been left silent on purpose.)
+    """
+    forbidden = class_lines or set()
     guard_type = None
     for kind in ("chorus", "high"):
         if kind in disabled:
@@ -764,9 +811,9 @@ def _guarantee_sections(
             continue
         if any(t.line in member_lines for t in current):
             continue  # already speaks
-        pool = [t for t in candidates if t.line in member_lines]
+        pool = [t for t in candidates if t.line in member_lines and t.line not in forbidden]
         if not pool:
-            continue  # nothing to say here
+            continue  # nothing to say here that may be said
         best = min(pool, key=lambda t: (-scored[(t.line, t.word)], t.line, t.word))
         if (best.line, best.word) in in_kept:
             continue
@@ -787,7 +834,9 @@ def _guarantee_sections(
         evictable = {
             (t.line, t.word)
             for t in current
-            if t.line not in member_lines and (t.line, t.word) not in reinserted
+            if t.line not in member_lines
+            and t.line not in forbidden
+            and (t.line, t.word) not in reinserted
         }
         gestures: dict[tuple[int, str], list[WordTag]] = defaultdict(list)
         for t in current:
