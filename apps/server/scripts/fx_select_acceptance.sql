@@ -172,6 +172,16 @@ HAVING count(DISTINCT f.pattern) > 1;
 -- silent on the next reads as broken, so the cadence now buys whole classes.
 -- Grouped by the WHOLE normalized line, like check 5.
 --
+-- Only WORD-TIMED repeats are judged. A line the aligner left without word
+-- timings carries no word positions at all, so it cannot hold an effect and
+-- the selector never even forms a class from it (`_repeat_classes` skips a
+-- line whose norm_tokens are all empty). Counting those as members reported
+-- the aligner's coverage as a breach of the class rule: measured on the first
+-- 1.2 wave, all 13 "partial" classes were exactly this — the same lyric,
+-- word-timed in some repeats and not in others — and ZERO were the packing
+-- rule misbehaving. That is a real defect, but it belongs to lyric timing,
+-- not to effect selection, and it needs its own measurement.
+--
 -- CAVEAT before calling a row here a failure: a repeat whose own transcript
 -- never carried the pattern word is silent BY DESIGN (the selector counts it
 -- in `pattern_missing`), and the document does not store the candidates that
@@ -184,6 +194,7 @@ WITH lines AS (
   FROM processed_tracks pt,
        LATERAL jsonb_array_elements(pt.document->'lines') WITH ORDINALITY a(l, i)
   WHERE pt.document->'fx'->>'select' = 'density/1.2'
+    AND coalesce(jsonb_array_length(l->'words'), 0) > 0
 ), fired AS (
   SELECT DISTINCT pt.source_id, (e->>'line')::int AS li
   FROM processed_tracks pt, LATERAL jsonb_array_elements(pt.document->'fx'->'words') e
