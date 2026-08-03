@@ -222,3 +222,54 @@ describe('style contract: every fx archetype is renderable (Faz 7 P2)', () => {
     }
   });
 });
+
+describe('style contract: an untimed line wears the theme (Faz 7 P8b)', () => {
+  const mainSource = readFileSync(
+    fileURLToPath(new URL('../renderer/src/main.ts', import.meta.url)),
+    'utf8',
+  );
+
+  it('the plain class is decided by the view, never by the span cache', () => {
+    // The regression this locks: `wordSpans` describes the line painted LAST
+    // time — it is cleared further down the same function and rebuilt later in
+    // the frame — so keying the class off it meant a plain line following a
+    // word-synced one never got the class and rendered stock white.
+    expect(mainSource).toContain("classList.toggle('plain', view.linePlain)");
+    expect(mainSource, 'the stale-span condition came back').not.toMatch(
+      /toggle\(\s*'plain',\s*wordSpans/,
+    );
+  });
+
+  it('the rule reads its own variable, not a mix that resolves to white', () => {
+    // `color-mix(in oklab, --kashi-primary 55%, --kashi-text)` was the old
+    // tint. `--kashi-text` is pinned white by design, so the mix landed at
+    // L≈0.89 with a tenth of the chroma — and on every path where the primary
+    // itself falls back to white (no palette, fx off, theme none, neutral art,
+    // WCAG backstop) it WAS white.
+    const start = css.indexOf('.lyric.plain');
+    expect(start, '.lyric.plain rule is missing').toBeGreaterThan(-1);
+    // Bounded at the closing brace: a fixed-width slice spills into the NEXT
+    // rule and would assert against whatever happens to follow.
+    const block = css.slice(start, css.indexOf('}', start) + 1);
+    expect(block).toContain('var(--kashi-plain');
+    expect(block).not.toContain('--kashi-text');
+  });
+});
+
+describe('style contract: particle alphas have one source (Faz 7 P8b)', () => {
+  const textures = readFileSync(
+    fileURLToPath(new URL('../renderer/src/fx-textures.ts', import.meta.url)),
+    'utf8',
+  );
+
+  it('the painters draw the declared peak, not a copy of it', () => {
+    // The visibility guard in fx-particles-logic.test.ts multiplies each
+    // archetype's band by its texture's peak alpha. That only means anything
+    // if the painter uses the same number — a hardcoded literal would let the
+    // guard certify a value nothing draws.
+    expect(textures).toContain('SHAPE_PEAK_ALPHA.smoke');
+    expect(textures, 'a painter hardcoded its alpha again').not.toMatch(
+      /rgba\(255,\s*255,\s*255,\s*0\.\d+\)/,
+    );
+  });
+});

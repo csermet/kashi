@@ -19,6 +19,14 @@ export interface ViewState {
   searching: boolean;
   /** The active line is a nonlexical ad-lib (server flag, Faz 4 styling). */
   activeAdlib?: boolean;
+  /**
+   * The active line carries word timings. Read from the CURRENT line, which is
+   * the whole point: the renderer used to answer this by looking at the word
+   * spans it had built, and at repaint time those still belonged to the
+   * PREVIOUS line — so a plain line following a word-synced one was never
+   * recognised as plain and sat at stock white.
+   */
+  activeHasWords?: boolean;
 }
 
 export interface ViewOutput {
@@ -30,6 +38,12 @@ export interface ViewOutput {
   interlude: boolean;
   /** Style the line as an ad-lib (italic/faded — Faz 4). */
   lineAdlib: boolean;
+  /**
+   * The line renders as one plain string because it has no word timings, and
+   * should wear the theme's quiet tone rather than stock white. Interludes are
+   * excluded: the ♪ owns its own styling.
+   */
+  linePlain: boolean;
 }
 
 export function deriveView(state: ViewState): ViewOutput {
@@ -41,6 +55,7 @@ export function deriveView(state: ViewState): ViewOutput {
       searchVisible: false,
       interlude: false,
       lineAdlib: false,
+      linePlain: false,
     };
   }
   if (state.hasLines) {
@@ -53,6 +68,7 @@ export function deriveView(state: ViewState): ViewOutput {
       searchVisible: false,
       interlude: state.activeText === null,
       lineAdlib: state.activeText !== null && state.activeAdlib === true,
+      linePlain: state.activeText !== null && state.activeHasWords !== true,
     };
   }
   return {
@@ -62,7 +78,31 @@ export function deriveView(state: ViewState): ViewOutput {
     searchVisible: state.searching,
     interlude: false,
     lineAdlib: false,
+    // Status and idle text are plain by definition — no word clock stands
+    // behind them, so they wear the same quiet tone as an untimed lyric.
+    linePlain: true,
   };
+}
+
+/**
+ * Whether two views would paint the same thing.
+ *
+ * Exhaustive on purpose. The repaint guard used to compare a hand-written
+ * subset of the fields, which meant every field added afterwards was silently
+ * exempt: a view that differed ONLY in the new field returned early and left
+ * the previous line's classes on screen.
+ */
+export function viewsEqual(a: ViewOutput | null, b: ViewOutput): boolean {
+  return (
+    a !== null &&
+    a.boxVisible === b.boxVisible &&
+    a.lineText === b.lineText &&
+    a.lineDim === b.lineDim &&
+    a.searchVisible === b.searchVisible &&
+    a.interlude === b.interlude &&
+    a.lineAdlib === b.lineAdlib &&
+    a.linePlain === b.linePlain
+  );
 }
 
 /**

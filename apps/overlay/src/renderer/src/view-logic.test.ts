@@ -7,6 +7,7 @@ import {
   findActiveWord,
   findDisplayLine,
   shouldAnimateLineChange,
+  viewsEqual,
   watchdogShouldReset,
 } from './view-logic.js';
 
@@ -28,7 +29,7 @@ describe('deriveView', () => {
       activeText: 'la la',
       searching: true,
     });
-    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false, lineAdlib: false });
+    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false, lineAdlib: false, linePlain: false });
   });
 
   it('shows the active lyric line bright', () => {
@@ -40,6 +41,7 @@ describe('deriveView', () => {
       searchVisible: false,
       interlude: false,
       lineAdlib: false,
+      linePlain: true,
     });
   });
 
@@ -78,6 +80,7 @@ describe('deriveView', () => {
       searchVisible: false,
       interlude: false,
       lineAdlib: false,
+      linePlain: true,
     });
   });
 
@@ -95,6 +98,7 @@ describe('deriveView', () => {
       searchVisible: true,
       interlude: false,
       lineAdlib: false,
+      linePlain: true,
     });
   });
 });
@@ -107,6 +111,7 @@ describe('shouldAnimateLineChange', () => {
     searchVisible: false,
     interlude: false,
     lineAdlib: false,
+    linePlain: true,
     ...over,
   });
 
@@ -263,5 +268,58 @@ describe('findDisplayLine', () => {
 
   it('handles empty input', () => {
     expect(findDisplayLine([], 1000)).toBe(-1);
+  });
+});
+
+describe('plain lines wear the theme, and know it from their own data', () => {
+  const base = {
+    adActive: false,
+    hasLines: true,
+    statusText: '',
+    statusDim: false,
+    searching: false,
+  };
+
+  it('marks a line plain exactly when it has no word clock', () => {
+    expect(deriveView({ ...base, activeText: 'sung', activeHasWords: true }).linePlain).toBe(false);
+    expect(deriveView({ ...base, activeText: 'unsung', activeHasWords: false }).linePlain).toBe(
+      true,
+    );
+    // Absent flag = no word clock known = plain (serverless/lrclib documents).
+    expect(deriveView({ ...base, activeText: 'unsung' }).linePlain).toBe(true);
+    // The ♪ owns its own styling; an ad shows nothing at all.
+    expect(deriveView({ ...base, activeText: null }).linePlain).toBe(false);
+    expect(deriveView({ ...base, adActive: true, activeText: 'x' }).linePlain).toBe(false);
+  });
+
+  it('answers for the CURRENT line, not the one painted before it', () => {
+    // THE field bug: the renderer asked its word-span array, which at repaint
+    // time still described the PREVIOUS line. A plain line arriving after a
+    // word-synced one was therefore never marked plain and stayed stock white
+    // — measured across the archive as half the visual surface on some songs.
+    const sung = deriveView({ ...base, activeText: 'sung', activeHasWords: true });
+    const plainAfterSung = deriveView({ ...base, activeText: 'spoken', activeHasWords: false });
+    const sungAfterPlain = deriveView({ ...base, activeText: 'sung again', activeHasWords: true });
+    expect(sung.linePlain).toBe(false);
+    expect(plainAfterSung.linePlain).toBe(true);
+    expect(sungAfterPlain.linePlain).toBe(false);
+    // Stateless: the same input twice must answer the same, or the derivation
+    // is carrying exactly the memory that caused the bug.
+    expect(deriveView({ ...base, activeText: 'spoken', activeHasWords: false })).toEqual(
+      plainAfterSung,
+    );
+  });
+
+  it('compares every field, so no future one is silently exempt', () => {
+    const view = deriveView({ ...base, activeText: 'sung', activeHasWords: true });
+    expect(viewsEqual(view, { ...view })).toBe(true);
+    expect(viewsEqual(null, view)).toBe(false);
+    for (const key of Object.keys(view) as (keyof typeof view)[]) {
+      const flipped = {
+        ...view,
+        [key]: typeof view[key] === 'boolean' ? !view[key] : 'other',
+      } as typeof view;
+      expect(viewsEqual(view, flipped)).toBe(false);
+    }
   });
 });

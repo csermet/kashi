@@ -123,6 +123,14 @@ export interface EmissionProfile {
    * appears whole is an explosion; one that keeps arriving is smoke.
    */
   emissionSpanMs: number;
+  /**
+   * Born this many px OUTSIDE the box edge. The DG6 mask hides any sprite
+   * overlapping the lyric box, inflated by half its DRAWN size, so a large
+   * slow archetype spends most of its life invisible. A head start costs no
+   * random draws — deliberately, because interleaving one here would shift
+   * the whole stream and silently rescatter every other archetype.
+   */
+  spawnOffsetPx?: number;
   shapes: readonly ParticleShape[];
   /**
    * How the sprite composites. `add` makes a particle read as LIGHT rather
@@ -233,17 +241,26 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
    */
   smoke: {
     edges: ['left', 'right', 'bottom'],
-    direction: { normal: 0.55, down: 0.5 },
+    // Field verdict: poison read as absent next to love. Its colour and
+    // texture were the bulk of it, but the geometry hid what was left — a puff
+    // grows past 60px while the DG6 mask inflates by half its DRAWN size, and
+    // at 0.55 normal it only crept outward at 9-24 px/s, so most of its life
+    // played out underneath the lyric box. More outward authority, less sink,
+    // a smaller final size, and a head start clear of the mask.
+    direction: { normal: 0.7, down: 0.5 },
     speed: [16, 44],
     drift: 18,
-    gravity: 120,
+    // 120 drove it straight into the 96px bottom fade band; 70 still sinks
+    // (the character) but lingers where it can be seen.
+    gravity: 70,
     life: [1.2, 2.3],
     count: 52,
     size: [15, 32],
     spin: 1.2,
     emissionSpanMs: 420,
     shapes: ['smoke'],
-    growth: 2.2, // billows as it sinks — normal blend keeps it murky
+    growth: 1.8, // billows as it sinks — normal blend keeps it murky
+    spawnOffsetPx: 14,
   },
   /**
    * shine — a scatter of glints that arrive over half a second.
@@ -342,9 +359,10 @@ export function planEmission(
     const speed = speedMin + random() * (speedMax - speedMin);
     // Tangent = normal rotated 90°, so the jitter slides along the edge.
     const drift = (random() - 0.5) * driftScale;
+    const offset = profile.spawnOffsetPx ?? 0;
     particles.push({
-      x,
-      y,
+      x: x + nx * offset,
+      y: y + ny * offset,
       vx: nx * speed * direction.normal + -ny * drift,
       vy: ny * speed * direction.normal + nx * drift + speed * direction.down,
       // Negative age = staggered birth; see Particle.age.

@@ -14,6 +14,7 @@ import {
   toneFx,
   toneFxParticle,
   tonePrimary,
+  tonePlain,
   toneSecondary,
   type Oklch,
 } from './color-tone.js';
@@ -46,6 +47,7 @@ export const DEFAULT_PALETTE_VARS: Readonly<Record<string, string>> = {
   '--kashi-secondary': '#ffffff',
   '--kashi-bg-rgb': '8, 10, 18',
   '--kashi-text': '#ffffff',
+  '--kashi-plain': '#ffffff',
   '--kashi-accent': '#ffffff',
 };
 
@@ -169,6 +171,7 @@ export function paletteToCssVars(
     const primary = tonePrimary(primarySource);
     vars['--kashi-primary'] = primary.hex;
     vars['--kashi-secondary'] = toneSecondary(primary.c, primary.h);
+    vars['--kashi-plain'] = tonePlain(primary.c, primary.h);
   }
   const accentSource = resolve(slots.accent);
   if (accentSource) vars['--kashi-accent'] = toneAccent(accentSource);
@@ -178,6 +181,7 @@ export function paletteToCssVars(
   if (bgHex && contrastRatio(vars['--kashi-primary']!, bgHex) < TEXT_CONTRAST_MIN) {
     vars['--kashi-primary'] = DEFAULT_PALETTE_VARS['--kashi-primary']!;
     vars['--kashi-secondary'] = DEFAULT_PALETTE_VARS['--kashi-secondary']!;
+    vars['--kashi-plain'] = DEFAULT_PALETTE_VARS['--kashi-plain']!;
   }
   return vars;
 }

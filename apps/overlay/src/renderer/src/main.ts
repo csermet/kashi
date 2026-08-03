@@ -64,6 +64,7 @@ import {
   findActiveWord,
   findDisplayLine,
   shouldAnimateLineChange,
+  viewsEqual,
   watchdogShouldReset,
   type ViewOutput,
   type WordTiming,
@@ -582,17 +583,7 @@ function highlightWord(index: number): void {
 }
 
 function applyView(view: ViewOutput): void {
-  if (
-    appliedView &&
-    appliedView.boxVisible === view.boxVisible &&
-    appliedView.lineText === view.lineText &&
-    appliedView.lineDim === view.lineDim &&
-    appliedView.searchVisible === view.searchVisible &&
-    appliedView.interlude === view.interlude &&
-    appliedView.lineAdlib === view.lineAdlib
-  ) {
-    return;
-  }
+  if (viewsEqual(appliedView, view)) return;
   const prev = appliedView;
   appliedView = view;
   boxEl?.classList.toggle('hidden', !view.boxVisible);
@@ -608,7 +599,13 @@ function applyView(view: ViewOutput): void {
     // for its first few seconds — the field report was "white text for eight
     // seconds, then it goes normal". It is not broken; it just had nothing to
     // say. A soft tint says the same thing quietly.
-    lineEl.classList.toggle('plain', wordSpans.length === 0 && !view.interlude);
+    //
+    // The answer comes from the VIEW, not from `wordSpans`. Reading the span
+    // array here asked "did the line I painted LAST time have words?" — the
+    // spans are cleared further down and rebuilt later in the frame — so a
+    // plain line arriving after a word-synced one never got the class at all,
+    // and a word-synced line arriving after a plain one kept it.
+    lineEl.classList.toggle('plain', view.linePlain);
     // One-shot entrance: unconditional removal first — a stale class must
     // never linger into interlude/status views (its ID selector would
     // out-specificity the ♪ animation).
@@ -989,6 +986,9 @@ function frame(): void {
     activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   }
   const activeAdlib = lineIndex >= 0 && lines[lineIndex]?.adlib === true;
+  // Read BEFORE applyView: whether this line has a word clock decides how it
+  // is painted, and asking after the fact is what made the plain tint miss.
+  const words = lineIndex >= 0 ? lines[lineIndex]?.words : undefined;
   // Ambient ring follows the DISPLAY line (line cadence; the call is an int
   // compare on quiet frames). Ads/idle pass -1 and clear it.
   applyAmbient(lineIndex);
@@ -1001,6 +1001,7 @@ function frame(): void {
       statusDim,
       searching,
       activeAdlib,
+      activeHasWords: (words?.length ?? 0) > 0,
     }),
   );
 
@@ -1019,7 +1020,6 @@ function frame(): void {
   // Word karaoke (kashi-server word-sync documents): applyView's change
   // detection leaves the spans alone on quiet frames; a line change repaints
   // the text and clears the span cache, and they are rebuilt here once.
-  const words = lineIndex >= 0 ? lines[lineIndex]?.words : undefined;
   if (words && words.length > 0 && activeText !== null && !adActive) {
     if (wordLineIndex !== lineIndex) buildWordSpans(lineIndex, words);
     const wordIndex = findActiveWord(words, pos);

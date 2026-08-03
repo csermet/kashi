@@ -14,6 +14,20 @@
 
 export type ParticleShape = 'spark' | 'droplet' | 'star' | 'smoke' | 'heart' | 'disc';
 
+/**
+ * Peak alpha each shape paints at its centre. Declared once and consumed by
+ * the painters below, so a visibility guard can assert against the number that
+ * is actually drawn rather than a copy that drifts away from it.
+ */
+export const SHAPE_PEAK_ALPHA: Record<ParticleShape, number> = {
+  spark: 1,
+  droplet: 0.92,
+  star: 0.95,
+  smoke: 0.55,
+  heart: 0.9,
+  disc: 0.95,
+};
+
 export const PARTICLE_SHAPES: readonly ParticleShape[] = [
   'spark',
   'droplet',
@@ -48,7 +62,7 @@ function drawSpark(ctx: CanvasRenderingContext2D): void {
 }
 
 function drawDroplet(ctx: CanvasRenderingContext2D): void {
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.fillStyle = `rgba(255,255,255,${SHAPE_PEAK_ALPHA.droplet})`;
   ctx.beginPath();
   // Teardrop: a circle with a point pulled up out of it.
   ctx.moveTo(SIZE / 2, 6);
@@ -59,7 +73,7 @@ function drawDroplet(ctx: CanvasRenderingContext2D): void {
 
 function drawStar(ctx: CanvasRenderingContext2D): void {
   // Four-point sparkle — two crossed lens flares, not a five-point cartoon.
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.fillStyle = `rgba(255,255,255,${SHAPE_PEAK_ALPHA.star})`;
   const c = SIZE / 2;
   ctx.beginPath();
   for (let i = 0; i < 4; i++) {
@@ -78,9 +92,14 @@ function drawStar(ctx: CanvasRenderingContext2D): void {
 
 function drawSmoke(ctx: CanvasRenderingContext2D): void {
   // Soft and hollow, so overlapping puffs build up instead of flat-filling.
+  // The peak used to be 0.35, which multiplied against poison's dark band and
+  // normal compositing put it an order of magnitude under every other
+  // archetype — the field verdict was that poison simply is not there. Same
+  // gradient shape, both stops scaled together: still the faintest texture by
+  // a wide margin, which is the matte character, but present.
   ctx.fillStyle = radialAlpha(ctx, [
-    [0, 0.35],
-    [0.5, 0.22],
+    [0, SHAPE_PEAK_ALPHA.smoke],
+    [0.5, SHAPE_PEAK_ALPHA.smoke * 0.62],
     [1, 0],
   ]);
   ctx.fillRect(0, 0, SIZE, SIZE);
@@ -90,7 +109,7 @@ function drawHeart(ctx: CanvasRenderingContext2D): void {
   // Two lobes over a point. Drawn a touch soft-edged rather than as a crisp
   // emoji silhouette — at 12-22 px on a transparent overlay a hard outline
   // reads as clip-art, a slightly diffuse one reads as a mote of light.
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillStyle = `rgba(255,255,255,${SHAPE_PEAK_ALPHA.heart})`;
   const c = SIZE / 2;
   ctx.beginPath();
   ctx.moveTo(c, SIZE * 0.86);

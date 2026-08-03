@@ -43,6 +43,19 @@ export const ACCENT_C_MAX = 0.24;
 export const SECONDARY_L = 0.74;
 /** The tail keeps the hue but recedes (× the primary's achieved chroma). */
 export const SECONDARY_C_FACTOR = 0.85;
+/**
+ * A line with no word clock behind it — half the visual surface on a song the
+ * aligner only partly cracked. It used to be 55% of the primary mixed with
+ * pinned-white text, which lands at L≈0.89 with barely a tenth of the chroma
+ * and reads as white; on the several paths where the primary itself falls back
+ * to white it WAS white. Its own band instead: dimmer than an active word so
+ * the two never compete, but unmistakably the album's colour.
+ */
+export const PLAIN_L = 0.76;
+/** Slightly richer than the sweep tail — plain lines carry the whole line. */
+export const PLAIN_C_FACTOR = 0.9;
+/** Belt: a washed-out source can never drag the tone back to grey. */
+export const PLAIN_C_MIN = 0.08;
 /** Dark but hue-visible; WCAG luminance ≈ 0.008, far under the 0.1 clamp. */
 export const BG_L = 0.2;
 /** A tint, never a colored box. */
@@ -192,6 +205,11 @@ export function toneSecondary(primaryC: number, h: number): string {
   return oklchToHex(SECONDARY_L, primaryC * SECONDARY_C_FACTOR, h);
 }
 
+/** Untimed lines and status text: the album's colour, held quiet. */
+export function tonePlain(primaryC: number, h: number): string {
+  return oklchToHex(PLAIN_L, Math.max(primaryC * PLAIN_C_FACTOR, PLAIN_C_MIN), h);
+}
+
 export function toneAccent(c: Oklch): string {
   return oklchToHex(ACCENT_L, clamp(c.C, ACCENT_C_MIN, ACCENT_C_MAX), c.h);
 }
@@ -244,7 +262,7 @@ export const PARTICLE_BANDS: Record<string, { L: number; C: number }> = {
   fall: { L: 0.76, C: 0.21 },
   // poison — the one that has to look WRONG: dark and muddy, which the text
   // window could never allow.
-  smoke: { L: 0.44, C: 0.11 },
+  smoke: { L: 0.6, C: 0.14 },
   // shine — almost white, barely tinted.
   twinkle: { L: 0.95, C: 0.07 },
   // love — soft, quiet, unhurried.

@@ -94,7 +94,7 @@ body {
    karaoke here" and "something is wrong". Applies at every effect level — a
    deliberate, documented appearance change. */
 .lyric.plain {
-  color: color-mix(in oklab, var(--kashi-primary, #fff) 55%, var(--kashi-text, #fff));
+  color: var(--kashi-plain, #fff);
 }
 
 .lyric.dim {

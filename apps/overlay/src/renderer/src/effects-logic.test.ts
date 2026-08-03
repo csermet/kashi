@@ -37,7 +37,7 @@ import {
   planWordFills,
   relativeLuminance,
 } from './effects-logic.js';
-import { NEUTRAL_BG_TRIPLET, hexToOklch, hueDistance } from './color-tone.js';
+import { NEUTRAL_BG_TRIPLET, PARTICLE_BANDS, hexToOklch, hueDistance } from './color-tone.js';
 
 describe('parseEffectLevel', () => {
   it('accepts the four levels and defaults everything else', () => {
@@ -519,7 +519,15 @@ describe('computeFxTintVars (Faz 6 field round 2)', () => {
     const poisonText = hexToOklch(vars['--fx-tint-poison']!);
     const poisonParticle = hexToOklch(vars['--fx-pt-poison']!);
     expect(poisonText.L).toBeGreaterThan(0.65);
-    expect(poisonParticle.L).toBeLessThan(0.55);
+    // A window, not a ceiling. It used to be `< 0.55`, and 0.44 satisfied that
+    // while being invisible on screen — dark is the character, absent is not.
+    // The relative pin below is the one that carries the meaning: whatever the
+    // number, poison stays the darkest thing the layer draws.
+    expect(poisonParticle.L).toBeGreaterThan(0.55);
+    expect(poisonParticle.L).toBeLessThan(0.65);
+    expect(poisonParticle.L).toBeLessThan(poisonText.L);
+    const bands = Object.values(PARTICLE_BANDS).map((b) => b.L);
+    expect(Math.min(...bands)).toBe(PARTICLE_BANDS.smoke!.L);
 
     // shine -> twinkle: almost white.
     expect(hexToOklch(vars['--fx-pt-shine']!).L).toBeGreaterThan(0.9);

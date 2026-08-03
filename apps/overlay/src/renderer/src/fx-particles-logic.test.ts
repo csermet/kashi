@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { PARTICLE_BANDS } from './color-tone.js';
+import { FX_ARCHETYPES, resolveFxProfile } from './effects-logic.js';
+import { SHAPE_PEAK_ALPHA } from './fx-textures.js';
 import { computeFxTintVars, FX_BASE_COLORS } from './effects-logic.js';
 import { PARTICLE_SHAPES } from './fx-textures.js';
 import {
@@ -13,6 +16,7 @@ import {
   MAX_LIFE_S,
   parseTintColor,
   particleAlpha,
+  particleSize,
   pointOnPerimeter,
   planEmission,
   shouldMountLayer,
@@ -290,7 +294,11 @@ describe('archetype profiles', () => {
       for (const p of particles) {
         let seen = false;
         while (stepParticle(p, 1 / 60)) {
-          if (!insideBox(p.x, p.y, BOX, p.size / 2) && particleAlpha(p, W, H) > 0.05) {
+          // Inflate by the DRAWN size, exactly as fx-canvas does. Measuring
+          // birth size let a growing archetype pass the guard while spending
+          // most of its life hidden under the box — the geometric half of the
+          // poison bug walked straight through this line.
+          if (!insideBox(p.x, p.y, BOX, particleSize(p) / 2) && particleAlpha(p, W, H) > 0.05) {
             seen = true;
             break;
           }
@@ -395,4 +403,41 @@ describe('archetype profiles', () => {
     expect(GENERIC_PROFILE.shapes).not.toContain('heart');
     expect(GENERIC_PROFILE.shapes).not.toContain('disc');
   });
+});
+
+describe('no archetype is an order of magnitude fainter than the rest', () => {
+  /**
+   * What a particle actually puts on screen is roughly its band's lightness
+   * times its texture's peak alpha. Poison shipped at 0.44 × 0.35 = 0.154
+   * against spark's 0.93 — a sixth — and the field verdict was that it simply
+   * is not there, while every existing guard stayed green: they check hue
+   * separation, position envelopes and DG6, none of which can see "too faint".
+   *
+   * HONEST LIMITS: this is a proxy. It ignores blend mode, overlap build-up,
+   * particle count, motion, edge fade and whatever desktop shows through a
+   * transparent overlay. It catches order-of-magnitude washouts, which is the
+   * failure that reached the user; it does not certify that anything looks
+   * good. The eye pass remains the judge, and any of these numbers may be
+   * revised in the same package that changes them.
+   */
+  const FAINTEST_ALLOWED_RATIO = 0.3;
+
+  const effectivePeak = (tag: string): number => {
+    const profile = resolveFxProfile(tag);
+    const band = PARTICLE_BANDS[FX_ARCHETYPES.get(tag)!.archetype]!;
+    const alpha = Math.max(...profile.shapes.map((shape) => SHAPE_PEAK_ALPHA[shape]));
+    return band.L * alpha;
+  };
+
+  it('every hero archetype clears a fraction of the brightest one', () => {
+    const peaks = new Map([...FX_ARCHETYPES.keys()].map((tag) => [tag, effectivePeak(tag)]));
+    const brightest = Math.max(...peaks.values());
+    for (const [tag, peak] of peaks) {
+      expect(
+        peak / brightest,
+        `${tag} draws at ${peak.toFixed(3)} against ${brightest.toFixed(3)}`,
+      ).toBeGreaterThanOrEqual(FAINTEST_ALLOWED_RATIO);
+    }
+  });
+
 });
