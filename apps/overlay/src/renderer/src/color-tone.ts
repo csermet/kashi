@@ -262,7 +262,7 @@ export const PARTICLE_BANDS: Record<string, { L: number; C: number }> = {
   fall: { L: 0.76, C: 0.21 },
   // poison — the one that has to look WRONG: dark and muddy, which the text
   // window could never allow.
-  smoke: { L: 0.6, C: 0.14 },
+  smoke: { L: 0.66, C: 0.16 },
   // shine — almost white, barely tinted.
   twinkle: { L: 0.95, C: 0.07 },
   // love — soft, quiet, unhurried.

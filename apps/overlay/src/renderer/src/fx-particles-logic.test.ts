@@ -429,6 +429,20 @@ describe('no archetype is an order of magnitude fainter than the rest', () => {
     return band.L * alpha;
   };
 
+  it('poison is drawn mostly from a shape with an actual silhouette', () => {
+    // The brightness floor above cannot see this, and said so: it multiplies
+    // lightness by alpha and knows nothing about edges. Round one raised
+    // poison's brightness and the field verdict came back "the greens sit too
+    // far back and BLURRY" — fifty soft radial gradients at up to 58px read as
+    // fog whatever their luminance. The ask was never fog; it was "kenarlardan
+    // taşarak düşse", liquid spilling over the edge. This locks the decision,
+    // not a look: poison may be retuned freely, but not back to being drawn
+    // only from the softest texture we have.
+    const pool = ARCHETYPE_PROFILES.smoke.shapes;
+    const defined = pool.filter((shape) => shape !== 'smoke').length;
+    expect(defined / pool.length, `poison pool is ${pool.join('+')}`).toBeGreaterThan(0.5);
+  });
+
   it('every hero archetype clears a fraction of the brightest one', () => {
     const peaks = new Map([...FX_ARCHETYPES.keys()].map((tag) => [tag, effectivePeak(tag)]));
     const brightest = Math.max(...peaks.values());

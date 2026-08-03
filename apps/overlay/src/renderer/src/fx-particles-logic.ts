@@ -241,25 +241,28 @@ export const ARCHETYPE_PROFILES: Record<ArchetypeName, EmissionProfile> = {
    */
   smoke: {
     edges: ['left', 'right', 'bottom'],
-    // Field verdict: poison read as absent next to love. Its colour and
-    // texture were the bulk of it, but the geometry hid what was left — a puff
-    // grows past 60px while the DG6 mask inflates by half its DRAWN size, and
-    // at 0.55 normal it only crept outward at 9-24 px/s, so most of its life
-    // played out underneath the lyric box. More outward authority, less sink,
-    // a smaller final size, and a head start clear of the mask.
+    // Field verdict, round two: brightening it was not enough — "the greens
+    // sit too far back and blurry". They did. A soft radial texture at 15-32px
+    // growing 1.8x draws a 58px smudge, and fifty of those read as fog, not as
+    // poison. The original ask was never fog: "kenarlardan taşarak düşse" —
+    // spill over the edges and fall. That is liquid.
+    //
+    // So: mostly droplets, which have an actual silhouette and nearly twice
+    // the peak alpha, with some smoke left in the pool for haze. Smaller, and
+    // it swells rather than billows. What separates it from `fall` (water) is
+    // that poison OOZES — a third of water's gravity, half its speed — and
+    // that it is sickly green.
     direction: { normal: 0.7, down: 0.5 },
     speed: [16, 44],
     drift: 18,
-    // 120 drove it straight into the 96px bottom fade band; 70 still sinks
-    // (the character) but lingers where it can be seen.
     gravity: 70,
     life: [1.2, 2.3],
-    count: 52,
-    size: [15, 32],
+    count: 44,
+    size: [9, 20],
     spin: 1.2,
     emissionSpanMs: 420,
-    shapes: ['smoke'],
-    growth: 1.8, // billows as it sinks — normal blend keeps it murky
+    shapes: ['droplet', 'droplet', 'smoke'],
+    growth: 1.25, // thickens as it runs, nothing like a cloud
     spawnOffsetPx: 14,
   },
   /**

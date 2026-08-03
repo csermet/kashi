@@ -523,8 +523,8 @@ describe('computeFxTintVars (Faz 6 field round 2)', () => {
     // while being invisible on screen — dark is the character, absent is not.
     // The relative pin below is the one that carries the meaning: whatever the
     // number, poison stays the darkest thing the layer draws.
-    expect(poisonParticle.L).toBeGreaterThan(0.55);
-    expect(poisonParticle.L).toBeLessThan(0.65);
+    expect(poisonParticle.L).toBeGreaterThan(0.6);
+    expect(poisonParticle.L).toBeLessThan(0.72);
     expect(poisonParticle.L).toBeLessThan(poisonText.L);
     const bands = Object.values(PARTICLE_BANDS).map((b) => b.L);
     expect(Math.min(...bands)).toBe(PARTICLE_BANDS.smoke!.L);

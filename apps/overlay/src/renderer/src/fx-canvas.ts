@@ -78,7 +78,7 @@ const MAX_SETUP_FAILURES = 2;
  * now outlive their own burst interval, which the old flat lifetime made
  * impossible.
  */
-const MAX_LIVE_PARTICLES = 400;
+export const MAX_LIVE_PARTICLES = 400;
 
 /**
  * Longest step a single frame may advance the simulation. Waking from sleep,

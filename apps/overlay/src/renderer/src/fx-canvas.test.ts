@@ -304,8 +304,16 @@ describe('FxCanvas — the adapter, not the physics', () => {
 
   it('says so when the budget trims a burst instead of thinning it quietly', async () => {
     const { layer, log } = await freshCanvas();
-    // Fill the layer well past the ceiling with long-lived particles.
-    for (let i = 0; i < 8; i++) await layer.burst(0xffffff, undefined, ARCHETYPE_PROFILES.smoke);
+    // Fill the layer until the NEXT burst cannot fit whole. Derived from the
+    // budget and the profile rather than hardcoded: this used to say "8
+    // bursts", which silently stopped trimming the moment poison's particle
+    // count was retuned — the test kept passing while asserting nothing.
+    const { MAX_LIVE_PARTICLES } = await import('./fx-canvas.js');
+    const perBurst = ARCHETYPE_PROFILES.smoke.count;
+    const bursts = Math.floor(MAX_LIVE_PARTICLES / perBurst) + 1;
+    for (let i = 0; i < bursts; i++) {
+      await layer.burst(0xffffff, undefined, ARCHETYPE_PROFILES.smoke);
+    }
 
     const budgetLines = log.filter((line) => line.includes('budget'));
     expect(budgetLines).toHaveLength(1);
