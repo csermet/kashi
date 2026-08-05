@@ -118,19 +118,19 @@ def _segments(texts, step_ms=300):
     ]
 
 
-def test_japanese_line_is_counted_in_morae_and_displayed_in_kanji():
-    """Faz 8 P-B3 end to end through the pure path. The aligner is given morae
-    (because uroman reads kanji as Chinese and would hand the model pinyin),
-    but the document must still display what was written."""
+def test_japanese_line_is_counted_in_characters_and_displayed_in_kanji():
+    """Faz 8 P-B3 end to end through the pure path. The aligner is given the
+    kana reading (uroman reads kanji as Chinese and would hand the model
+    pinyin), but the document must still display what was written."""
     from kashi_server.pipeline.alignment import regroup_words_into_lines
     from kashi_server.pipeline.japanese import prepare_line
 
     line = "宇宙を駆ける"
     plan = prepare_line(line)
     assert plan is not None
-    # 7 morae -> 7 segments; the whitespace path would have expected 1 and
-    # bailed out to line mode, which is exactly today's Japanese failure.
-    assert len(line.split()) == 1 and len(plan.units) == 7
+    # 8 characters -> 8 segments. The whitespace path expected 1 and bailed to
+    # line mode, which is exactly today's Japanese failure.
+    assert len(line.split()) == 1 and len(plan.units) == 8
 
     regrouped = regroup_words_into_lines([line], _segments(plan.units), [plan])
     assert regrouped is not None
@@ -139,10 +139,10 @@ def test_japanese_line_is_counted_in_morae_and_displayed_in_kanji():
 
     # Displayed as written, timed as sung.
     assert [w.text for w in words] == ["宇宙", "を", "駆ける"]
-    assert words[0].start_ms == 0  # 宇宙 starts at its first mora
-    assert words[0].end_ms == 850  # …and ends at its third (う ちゅ ー)
-    assert words[1].start_ms == 900  # を picks up at mora 4
-    assert words[2].start_ms == 1200  # 駆ける at mora 5
+    assert words[0].start_ms == 0  # 宇宙 starts at う
+    assert words[0].end_ms == 1150  # …and ends at ー, its fourth character
+    assert words[1].start_ms == 1200  # を picks up at character 5
+    assert words[2].start_ms == 1500  # 駆ける at character 6
     assert lines[0].text == line
     starts = [w.start_ms for w in words]
     assert starts == sorted(starts)
@@ -154,11 +154,12 @@ def test_a_surface_is_only_as_trustworthy_as_its_weakest_mora():
     from kashi_server.pipeline.alignment import AlignedWord, _fold_units_onto_surfaces
     from kashi_server.pipeline.japanese import PreparedLine
 
-    plan = PreparedLine(surfaces=["宇宙"], units=["う", "ちゅ", "ー"], units_per_surface=[3])
+    plan = PreparedLine(surfaces=["宇宙"], units=list("うちゅー"), units_per_surface=[4])
     chunk = [
         AlignedWord(0, 300, "う", 0.9),
-        AlignedWord(300, 600, "ちゅ", 0.02),  # the aligner lost this one
-        AlignedWord(600, 900, "ー", 0.9),
+        AlignedWord(300, 600, "ち", 0.02),  # the aligner lost this one
+        AlignedWord(600, 750, "ゅ", 0.9),
+        AlignedWord(750, 900, "ー", 0.9),
     ]
     folded = _fold_units_onto_surfaces(chunk, plan)
     assert len(folded) == 1
@@ -166,17 +167,21 @@ def test_a_surface_is_only_as_trustworthy_as_its_weakest_mora():
     assert (folded[0].start_ms, folded[0].end_ms) == (0, 900)
 
 
-def test_mixed_language_document_counts_each_line_its_own_way():
-    """A Japanese line and an English line in one document: morae for one,
-    whitespace for the other, and the totals still have to line up."""
+def test_english_line_inside_a_japanese_job_is_also_split_per_character():
+    """The guess that was wrong, pinned. A Japanese job splits EVERYTHING per
+    character — measured: language="jpn", "hello world" -> ['h','e','l',…].
+    So the English line in a J-pop document takes the character path too, and
+    routing per line would have desynchronised exactly these documents."""
     from kashi_server.pipeline.alignment import regroup_words_into_lines
     from kashi_server.pipeline.japanese import prepare_line
 
     ja, en = "紅蓮華", "burning bright"
     plans = [prepare_line(ja), prepare_line(en)]
-    assert plans[0] is not None and plans[1] is None  # English is left alone
+    assert plans[0] is not None and plans[1] is not None
+    assert plans[1].units == list("burningbright")  # per character, no space
+    assert plans[1].surfaces == ["burning", "bright"]  # …still displayed whole
 
-    tokens = plans[0].units + en.split()
+    tokens = plans[0].units + plans[1].units
     regrouped = regroup_words_into_lines([ja, en], _segments(tokens), plans)
     assert regrouped is not None
     _, words_per_line = regrouped
@@ -185,6 +190,18 @@ def test_mixed_language_document_counts_each_line_its_own_way():
     # the surfaces reassemble the line with nothing invented or lost.
     assert "".join(w.text for w in words_per_line[0]) == ja
     assert [w.text for w in words_per_line[1]] == ["burning", "bright"]
+
+
+def test_blank_segments_are_dropped_like_stars():
+    """A Japanese job splits per character, so the space that " ".join puts
+    between lines becomes a segment of its own with an empty romanization.
+    An English job never produces one — measured on the worker — so filtering
+    them is a no-op outside Japanese and load-bearing inside it."""
+    from kashi_server.pipeline.alignment import regroup_words_into_lines
+
+    texts = ["hello world"]
+    with_blanks = _segments(["hello", " ", "world"])
+    assert regroup_words_into_lines(texts, with_blanks) is not None
 
 
 def test_plans_are_optional_and_the_default_path_is_untouched():

@@ -16,6 +16,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from kashi_server.pipeline import japanese
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
 from kashi_server.pipeline.windows import plan_windows, reconcile_seams
 from kashi_server.vdl_kit.errors import PipelineError
@@ -169,7 +170,11 @@ def regroup_words_into_lines(
     and its word spans are folded back onto the surfaces that own them; a line
     without one takes the whitespace path unchanged.
     """
-    words = [r for r in results if r.get("text") != STAR_TOKEN]
+    # Blank segments as well as stars. A Japanese job splits per character, so
+    # the space `" ".join(texts)` puts between lines becomes a segment of its
+    # own with an empty romanization; an English job never produces one, so
+    # this is a no-op there (measured on the worker, 2026-08-05).
+    words = [r for r in results if r.get("text") != STAR_TOKEN and str(r.get("text", "")).strip()]
     expected = [
         len(plan.units) if plan else len(line.split())
         for line, plan in zip(line_texts, plans or [None] * len(line_texts), strict=True)
@@ -315,14 +320,16 @@ def align(
     # through uroman and uroman reads kanji as Chinese — the model was being
     # shown pinyin for text that is sung in Japanese. Every other line is its
     # own alignment text, so this is a no-op outside Japanese.
-    plans = [prepare_line(text) for text in line_texts]
+    plans: list[PreparedLine | None] = (
+        [prepare_line(text) for text in line_texts] if japanese.handles(language) else
+        [None] * len(line_texts)
+    )
     align_texts = [
-        " ".join(p.units) if p else text
-        for text, p in zip(line_texts, plans, strict=True)
+        p.align_text if p else text for text, p in zip(line_texts, plans, strict=True)
     ]
     if any(plans):
         logger.info(
-            "japanese mora path: %d of %d lines converted to kana",
+            "japanese kana path: %d of %d lines rewritten to their readings",
             sum(1 for p in plans if p),
             len(plans),
         )

@@ -321,5 +321,26 @@
 # idea only — it is GPL-3 and no code was taken.
 # NOT YET MEASURED on real audio: the acceptance case is the archive's
 # BABYMETAL and ヤラララ documents leaving line mode.
-PIPELINE_VERSION = "2.18.0"
+#
+# 2.18.1: 2.18.0 was built on two guesses and BOTH were wrong. Measured against
+# the shipped aligner in the worker pod before it ever left main:
+#   · The split granularity is decided by the `language` ARGUMENT, not by the
+#     text. `language="jpn"` splits EVERYTHING per character — including a line
+#     of pure English — while `language="eng"` splits on whitespace. So the
+#     decision is per JOB, not per line; routing line by line would have
+#     desynchronised exactly the mixed-script documents J-pop is full of.
+#   · The unit the aligner emits is the CHARACTER, not the mora. 2.18.0 fed it
+#     space-joined morae, which would have produced empty segments for the
+#     separators and a count that could never match. Morae stay the right unit
+#     for a human reading kana; they are not the unit of this contract.
+# Also: blank segments are now dropped alongside stars. A Japanese job turns
+# the space `" ".join(texts)` puts between lines into a segment of its own with
+# an empty romanization; an English job never produces one, so the filter is a
+# no-op there and load-bearing here.
+# What 2.18.0 got right stands: uroman really does read 空 as "kong" (verified
+# directly — ['k o n g', 'n i', 'g u a n g', 'r u'] for 空に光る), and the fix
+# is still to hand the aligner the kana reading. Had 2.18.0 shipped it would
+# have failed safe to line mode rather than misaligned, but it would have
+# fixed nothing.
+PIPELINE_VERSION = "2.18.1"
 PIPELINE_MAJOR = 2

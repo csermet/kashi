@@ -1,21 +1,32 @@
-"""Japanese lyrics -> kana morae, so the aligner is fed text it can hear.
+"""Japanese lyrics -> their kana reading, so the aligner is fed what is sung.
 
-The problem this exists for (Faz 8 P-B3, measured 2026-08-05). Two failures
-stack on Japanese documents:
+The problem this exists for (Faz 8 P-B3). Two failures stack on Japanese
+documents, and the second one is the real damage:
 
-1. `regroup_words_into_lines` requires `sum(len(line.split())) == len(segments)`.
-   Japanese does not delimit words with spaces, so that identity cannot hold
-   and every document takes the line-mode exit — nine of the ten line-mode
-   documents in the archive are non-Latin.
-2. The deeper one: MMS romanizes through **uroman**, which reads kanji as
-   CHINESE and emits pinyin. 空 becomes "kong", not "sora". So even with the
-   token counts fixed, Japanese was being aligned against text that does not
-   sound like the audio. It is a documented uroman limitation, not a bug.
+1. `regroup_words_into_lines` requires the text token count to match the
+   segment count. In a Japanese job the aligner emits ONE SEGMENT PER
+   CHARACTER, while `line.split()` sees a line with no spaces as a single
+   token — so the identity could never hold and every document took the
+   line-mode exit. Nine of the ten line-mode documents in the archive are
+   non-Latin.
+2. MMS romanizes through **uroman**, which reads kanji as CHINESE. Measured
+   directly against the shipped aligner (worker pod, 2026-08-05):
 
-Both dissolve at the same point: convert each morpheme to its **kana reading**
-and hand the aligner morae. uroman romanizes kana correctly, so the acoustic
-side becomes right, and one mora per token makes the count identity hold by
-construction.
+       空に光る  ->  ['k o n g', 'n i', 'g u a n g', 'r u']
+
+   "kong", "guang" — Mandarin. The model was being asked to find Chinese in
+   audio sung in Japanese. Fixing the counts alone would have produced
+   confidently wrong timings instead of no timings, which is worse.
+
+Both dissolve at one point: replace each morpheme with its **kana reading**
+before the text ever reaches the aligner. uroman romanizes kana correctly, so
+the acoustic side becomes true, and the character count becomes predictable.
+
+Everything here was measured rather than assumed, because the obvious guesses
+were wrong twice: the split granularity is set by the `language` ARGUMENT and
+not by the text (see `handles`), and the unit is the CHARACTER and not the
+mora. Morae are the right unit for a human reading kana; they are not what
+this aligner emits.
 
 The pattern is Nightingale's (GPL-3 — read for the idea, no code taken).
 Dictionary segmentation rather than an LLM on purpose: it is deterministic,
@@ -34,14 +45,6 @@ logger = logging.getLogger(__name__)
 
 _tagger = None
 
-# Kana that cannot stand alone as a mora: they fuse with the kana before them.
-# きゃ is one mora, not two — feeding the aligner two would desynchronise every
-# count downstream. The small vowels matter for loanwords (ファ, ティ), which
-# J-pop is full of.
-_SMALL_KANA = "ゃゅょぁぃぅぇぉゎ"
-# The long-vowel mark and the geminate stop DO stand alone (ラーメン is 4).
-_STANDALONE = "ーっ"
-
 _KATAKANA = re.compile(r"[ァ-ヶ]")
 _KANA_ONLY = re.compile(r"^[ぁ-ゟ゠-ヿー]+$")
 # A line worth routing through this module at all: contains kana or kanji.
@@ -56,24 +59,6 @@ def looks_japanese(text: str) -> bool:
 def katakana_to_hiragana(text: str) -> str:
     """Readings come out of UniDic in katakana; the aligner sees one script."""
     return _KATAKANA.sub(lambda m: chr(ord(m.group()) - 0x60), text)
-
-
-def split_morae(kana: str) -> list[str]:
-    """Kana string -> morae.
-
-    Pure. The rule that matters: small ya/yu/yo and the small vowels attach to
-    the kana before them, while the long mark and the small tsu stand alone.
-    A leading small kana has nothing to attach to and is kept as its own mora
-    rather than dropped — losing a character would desynchronise the count
-    this whole module exists to keep.
-    """
-    morae: list[str] = []
-    for char in kana:
-        if char in _SMALL_KANA and morae and morae[-1] not in _STANDALONE:
-            morae[-1] += char
-        else:
-            morae.append(char)
-    return morae
 
 
 def _reading(word) -> str | None:
@@ -92,15 +77,41 @@ def _reading(word) -> str | None:
     return surface if _KANA_ONLY.match(surface) else None
 
 
+# Languages whose lines this module rewrites. `langid` reports ISO 639-3.
+JAPANESE_LANGUAGES = frozenset({"jpn", "ja"})
+
+
+def handles(language: str) -> bool:
+    """Is this a job we rewrite? The decision is per JOB, not per line.
+
+    MEASURED against the shipped aligner (worker pod, 2026-08-05), because the
+    obvious guess was wrong. `preprocess_text`'s split granularity is decided
+    by the `language` argument, not by what the text contains:
+
+        language="eng", "hello world"        -> ['hello', 'world']
+        language="jpn", "hello world"        -> ['h','e','l','l','o',' ','w',…]
+
+    So in a Japanese job EVERY line is split per character — including a line
+    of pure English — and the spaces become segments of their own. Routing
+    line by line would have desynchronised the count on exactly the mixed
+    documents J-pop is full of.
+    """
+    return language.lower() in JAPANESE_LANGUAGES
+
+
 @dataclass(frozen=True)
 class PreparedLine:
     """What the SCREEN shows against what the ALIGNER hears.
 
     These are different things in Japanese and conflating them is the whole
-    trap: the listener reads 宇宙, the model hears うちゅー. So the surfaces
-    stay as written and the units carry the sound, with `units_per_surface`
-    holding them together — the aligner times the units, and those times fold
-    back onto the surfaces that own them.
+    trap: the listener reads 宇宙, the model hears うちゅー. The surfaces stay
+    as written, the units carry the sound, and `units_per_surface` holds them
+    together — the aligner times the units, those times fold back onto the
+    surfaces that own them.
+
+    A unit is one CHARACTER, not one mora, because that is what the aligner
+    actually emits for Japanese (measured, above). Morae remain the right
+    reading unit for a human; they are not the unit of this contract.
     """
 
     surfaces: list[str]  # what the document displays
@@ -111,19 +122,26 @@ class PreparedLine:
         assert len(self.surfaces) == len(self.units_per_surface)
         assert sum(self.units_per_surface) == len(self.units)
 
+    @property
+    def align_text(self) -> str:
+        """The string to hand the aligner. No separators: each character is
+        already its own segment, so a space would only add an empty one."""
+        return "".join(self.units)
+
 
 def prepare_line(text: str) -> PreparedLine | None:
-    """Japanese line -> (display surfaces, alignment units), or None to leave
-    the line to the default whitespace path.
+    """Line -> (display surfaces, alignment units), or None to leave it be.
 
-    None when the line is not Japanese, or when any morpheme has no reading we
-    can trust. Partial conversion is deliberately NOT attempted: half-converted
-    text is worse than the honest fallback, because the caller can no longer
-    tell which units correspond to which surface — and a desynchronised
-    mapping produces confident nonsense rather than a visible failure.
+    None when nothing sounded (punctuation only) or when a Japanese morpheme
+    has no reading we can trust. Partial conversion is deliberately NOT
+    attempted: half-converted text is worse than the honest fallback, because
+    the caller can no longer tell which units belong to which surface — and a
+    desynchronised mapping produces confident nonsense rather than a visible
+    failure.
+
+    Latin words are kept as written and contribute their own characters, since
+    a Japanese job splits them per character too.
     """
-    if not looks_japanese(text):
-        return None
     surfaces: list[str] = []
     units: list[str] = []
     counts: list[int] = []
@@ -131,24 +149,19 @@ def prepare_line(text: str) -> PreparedLine | None:
         surface = word.surface
         if not surface.strip() or not re.search(r"\w", surface, re.UNICODE):
             continue  # whitespace and punctuation carry no sound
-        if not looks_japanese(surface):
-            # A Latin word inside a Japanese line (very common in J-pop). It
-            # already survives whitespace tokenisation, so it passes through
-            # whole rather than being forced into morae it does not have.
-            surfaces.append(surface)
-            units.append(surface)
-            counts.append(1)
-            continue
-        reading = _reading(word)
-        if reading is None:
-            logger.debug("no reading for %r — leaving the line to the caller", surface)
-            return None
-        morae = split_morae(katakana_to_hiragana(reading))
-        if not morae:
+        if looks_japanese(surface):
+            reading = _reading(word)
+            if reading is None:
+                logger.debug("no reading for %r — leaving the line alone", surface)
+                return None
+            sound = katakana_to_hiragana(reading)
+        else:
+            sound = surface  # a Latin word inside a Japanese line
+        if not sound:
             continue
         surfaces.append(surface)
-        units.extend(morae)
-        counts.append(len(morae))
+        units.extend(sound)
+        counts.append(len(sound))
     if not units:
         return None
     return PreparedLine(surfaces=surfaces, units=units, units_per_surface=counts)
