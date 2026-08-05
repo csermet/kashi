@@ -62,9 +62,16 @@ def build_document(
     sections: list[Section] | None = None,
 ) -> dict:
     hints = job.hints or {}
-    # track.duration_ms is REQUIRED by the schema; ingest hints may omit it,
-    # but the worker always knows the real duration from the downloaded audio.
-    duration_ms = hints.get("duration_ms") or fallback_duration_ms
+    # track.duration_ms is REQUIRED by the schema. The MEASURED audio wins:
+    # the worker ffprobes what it actually aligned, while the hint is the
+    # client's claim about what it is playing. Where the two can disagree the
+    # worker has already ruled (CLIENT_EDIT_MISMATCH_S), so preferring the
+    # hint only ever imported client noise — 47 archived documents carry an
+    # impossible duration this way (LMFAO "Hot Dog": 3279s stored against
+    # lyrics that end at 121s), which then propagates into canonical_group's
+    # 5s buckets and the processed_tracks column. The hint stays as the
+    # fallback for callers that build a document without downloaded audio.
+    duration_ms = fallback_duration_ms or hints.get("duration_ms")
     # Line indexes whose word spans are synthetic (rederived across the line,
     # not aligner-measured). Downstream consumers that treat word boundaries
     # as evidence — the Faz 5 lrclib publish gate above all — must not present

@@ -113,6 +113,45 @@ LYRICSFILE_DOCS = Counter(
     "kashi_lyricsfile_docs_total",
     "Documents built from human word-sync Lyricsfile data (CTC skipped)",
 )
+IMPLAUSIBLE_DURATION_HINTS = Counter(
+    "kashi_implausible_duration_hints_total",
+    "Client duration_ms hints discarded as impossible for a track (Faz 8 P4)",
+)
+
+
+def credible_duration_hint(hints: dict | None) -> int | None:
+    """The client's `duration_ms`, or None when it cannot describe a TRACK.
+
+    A hint above the pipeline's own track ceiling is not a claim about an
+    *edit* — ingest refuses to create a job for such a duration at all
+    (`api/routers/ingest.py`, `max_track_duration_s`) and download refuses
+    audio that long. Treating it as edit evidence turns noise into a
+    permanent failure.
+
+    Field (2026-08-05 archive audit, `docs/research/hizalama-zinciri-durum-
+    2026-08.md`): all 76 client-edit failures ran 1.15x-22x the real audio
+    (LMFAO "Hot Dog": 3279s claimed against 147s), while 236 telemetry
+    `track_changed` events from the CURRENT extension never once report
+    above 900s. Those hints come from the extension generation that predates
+    the Faz 6.7 P0 position/duration guards; because `admin_ops` reprocess
+    replays `latest.hints` verbatim, each retry re-earned the 7-day
+    permanent-fail block and 29 songs stayed unreachable.
+
+    The Sinsirella gate itself is untouched: every hint that could describe
+    a real track is still compared against the downloaded audio.
+    """
+    value = (hints or {}).get("duration_ms")
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return None
+    if value > settings.max_track_duration_s * 1000:
+        IMPLAUSIBLE_DURATION_HINTS.inc()
+        logger.warning(
+            "discarding impossible duration hint: %dms exceeds the %ds track ceiling",
+            value,
+            settings.max_track_duration_s,
+        )
+        return None
+    return value
 
 
 def _drop_staged_upload(s: Session, job: Job) -> None:
@@ -339,6 +378,12 @@ def _plain_lyrics(job: Job) -> LyricsText:
     if caller is not None:
         return caller
     hints = dict(job.hints or {})
+    if credible_duration_hint(hints) is None:
+        # An impossible duration would otherwise reach every lrclib rung as
+        # `?duration=`, and choose_record's ±3s filter would reject the right
+        # record for the wrong reason (Faz 8 P4). Searching without a duration
+        # is the honest degradation.
+        hints.pop("duration_ms", None)
     original = (job.options or {}).get("original_title")
     if isinstance(original, str) and original.strip():
         hints["title"] = original.strip()
@@ -530,12 +575,9 @@ def process_job(s: Session, job: Job) -> None:
         # youtube_fetch is passed from THIS module so the download_audio
         # monkeypatch seam survives the source dispatch (Faz 5 P4).
         download: DownloadResult = fetch_audio(job, tmp, s, youtube_fetch=download_audio)
-        hinted_ms = (job.hints or {}).get("duration_ms")
-        if (
-            isinstance(hinted_ms, int)
-            and not isinstance(hinted_ms, bool)
-            and hinted_ms > 0
-            and abs(hinted_ms / 1000 - download.duration_s) > CLIENT_EDIT_MISMATCH_S
+        hinted_ms = credible_duration_hint(job.hints)
+        if hinted_ms is not None and (
+            abs(hinted_ms / 1000 - download.duration_s) > CLIENT_EDIT_MISMATCH_S
         ):
             raise PipelineError(
                 "alignment_failed",

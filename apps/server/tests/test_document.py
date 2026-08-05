@@ -175,6 +175,29 @@ def test_duration_falls_back_to_downloaded_audio():
     assert doc["track"]["duration_ms"] == 201_500
 
 
+def test_measured_audio_duration_beats_the_client_hint():
+    # Faz 8 P4: the hint used to win, which imported client noise into
+    # track.duration_ms (47 archived documents carry an impossible value —
+    # LMFAO "Hot Dog" stored 3279s for a 147s song). The worker ffprobes what
+    # it actually aligned; that is the number the document must carry.
+    job = _job()
+    job.hints = {"title": "Song", "artist": "Artist", "duration_ms": 3_279_000}
+    doc = build_document(
+        job,
+        _lyrics(),
+        _word_result(),
+        None,
+        dict(DEFAULT_PALETTE),
+        vocals_separated=False,
+        fallback_duration_ms=147_000,
+    )
+    validate_document(doc)
+    assert doc["track"]["duration_ms"] == 147_000
+    # canonical_group buckets the duration in 5s steps — it must follow the
+    # measured value too, or discovery groups on a number no audio has.
+    assert doc["track"]["canonical_group"].endswith("|145")
+
+
 def test_invalid_document_is_rejected_by_the_gate():
     doc = build_document(
         _job(), _lyrics(), _word_result(), None, dict(DEFAULT_PALETTE), vocals_separated=False

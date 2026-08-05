@@ -952,3 +952,110 @@ def test_client_edit_mismatch_fails_honest(db_session, scratch, monkeypatch):
     assert "different" in (claimed.error_message or "")
     # A few seconds of stale-hint jitter must NOT trip the gate: the standard
     # fixture (200s hint vs 200s download) still completes end to end.
+
+
+def test_impossible_duration_hint_is_ignored_not_failed(db_session, scratch, monkeypatch):
+    # Faz 8 P4 (archive audit 2026-08-05): all 76 client-edit failures carried
+    # a hint 1.15x-22x the real audio, and no current-extension telemetry event
+    # reports above 900s at all — they are stale readings from the pre-6.7
+    # extension, not a different edit. A hint that exceeds the pipeline's own
+    # track ceiling cannot describe ANY track, so it is discarded rather than
+    # believed. LMFAO "Hot Dog": 3279s claimed against 147s of audio.
+    from kashi_server.version import PIPELINE_MAJOR
+
+    _happy_stages(monkeypatch, scratch)  # download stub returns 200s audio
+    queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="staleHint01",
+        pipeline_major=PIPELINE_MAJOR,
+        hints={"title": "T", "artist": "A", "duration_ms": 3_279_000},
+        options={},
+        requested_by=None,
+    )
+    db_session.commit()
+    claimed = queue.claim_next(db_session)
+    assert claimed is not None
+    wp.process_job(db_session, claimed)
+    db_session.refresh(claimed)
+    assert claimed.status == "completed", claimed.error_message
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    # …and the impossible number must not survive into the served document.
+    track = db_session.scalars(
+        select(ProcessedTrack).where(ProcessedTrack.source_id == "staleHint01")
+    ).first()
+    assert track is not None
+    assert track.duration_ms == 200_000
+
+
+def test_impossible_duration_hint_never_reaches_lrclib(db_session, scratch, monkeypatch):
+    # The same hint would otherwise ride every lrclib rung as `?duration=`,
+    # and choose_record's ±3s filter would reject the right record for the
+    # wrong reason. Searching without a duration is the honest degradation.
+    from kashi_server.version import PIPELINE_MAJOR
+
+    _happy_stages(monkeypatch, scratch)
+    seen: list[dict] = []
+
+    def capturing_fetch(hints, base_url):
+        seen.append(dict(hints))
+        return LyricsText(["hello world"], "hello world", 5, True)
+
+    monkeypatch.setattr(wp, "fetch_lyrics", capturing_fetch)
+    queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="staleHint02",
+        pipeline_major=PIPELINE_MAJOR,
+        hints={"title": "T", "artist": "A", "duration_ms": 3_279_000},
+        options={},
+        requested_by=None,
+    )
+    db_session.commit()
+    claimed = queue.claim_next(db_session)
+    assert claimed is not None
+    wp.process_job(db_session, claimed)
+    assert seen and "duration_ms" not in seen[0]
+
+
+def test_plausible_hints_still_reach_lrclib(db_session, scratch, monkeypatch):
+    # Guard the guard: only IMPOSSIBLE hints are dropped. A normal hint is the
+    # lrclib ladder's best filter and must survive untouched.
+    from kashi_server.version import PIPELINE_MAJOR
+
+    _happy_stages(monkeypatch, scratch)
+    seen: list[dict] = []
+
+    def capturing_fetch(hints, base_url):
+        seen.append(dict(hints))
+        return LyricsText(["hello world"], "hello world", 5, True)
+
+    monkeypatch.setattr(wp, "fetch_lyrics", capturing_fetch)
+    queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="goodHint01",
+        pipeline_major=PIPELINE_MAJOR,
+        hints={"title": "T", "artist": "A", "duration_ms": 200_000},
+        options={},
+        requested_by=None,
+    )
+    db_session.commit()
+    claimed = queue.claim_next(db_session)
+    assert claimed is not None
+    wp.process_job(db_session, claimed)
+    assert seen and seen[0]["duration_ms"] == 200_000
+
+
+def test_credible_duration_hint_rejects_junk():
+    assert wp.credible_duration_hint(None) is None
+    assert wp.credible_duration_hint({}) is None
+    assert wp.credible_duration_hint({"duration_ms": 0}) is None
+    assert wp.credible_duration_hint({"duration_ms": -5}) is None
+    assert wp.credible_duration_hint({"duration_ms": True}) is None  # bool is an int
+    assert wp.credible_duration_hint({"duration_ms": "200000"}) is None
+    assert wp.credible_duration_hint({"duration_ms": 200_000}) == 200_000

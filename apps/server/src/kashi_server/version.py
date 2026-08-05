@@ -202,5 +202,25 @@
 # Accepted costs, stated rather than discovered later: a low-scoring hook can be
 # entirely silent in a dense song, and a short track that is nothing but a chant
 # too long to seat carries no effects at all.
-PIPELINE_VERSION = "2.15.0"
+# 2.15.1: an impossible duration hint is discarded, not believed (Faz 8 P4).
+# The 2.4.2 client-edit gate assumed "stale-hint jitter is seconds, a different
+# edit is minutes". The archive says otherwise: all 76 client-edit failures ran
+# 1.15x-22x the real audio (LMFAO "Hot Dog" claimed 3279s against 147s), and
+# across 236 track_changed telemetry events the CURRENT extension never once
+# reports above 900s — those hints are stale readings from the generation
+# before the Faz 6.7 P0 position/duration guards. Because admin reprocess
+# replays latest.hints verbatim, every retry re-earned the 7-day permanent-fail
+# block and 29 songs stayed permanently unreachable. A hint above the
+# pipeline's own track ceiling (max_track_duration_s — ingest will not even
+# create a job for one, and download refuses audio that long) cannot describe
+# any track, so it is now dropped with a warning + counter instead of being
+# read as evidence of a different edit. The Sinsirella gate is untouched for
+# every hint that could describe a real track.
+# The same hint no longer rides the lrclib ladder as ?duration= (choose_record
+# would reject the right record on a ±3s filter it can never satisfy), and
+# track.duration_ms now comes from the MEASURED audio rather than the client's
+# claim — 47 archived documents carry an impossible duration this way, which
+# then propagates into canonical_group's 5s buckets and the processed_tracks
+# column. Full audit: docs/research/hizalama-zinciri-durum-2026-08.md.
+PIPELINE_VERSION = "2.15.1"
 PIPELINE_MAJOR = 2
