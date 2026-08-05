@@ -719,3 +719,55 @@ def test_line_mode_document_can_never_claim_word_evidence():
     assert outcome.result.words_per_line == []
     assert outcome.result.quality_basis == "line-anchors"
     assert outcome.result.quality_basis != "anchors"  # the label that misled
+
+
+def test_video_intro_shift_survives_the_degrade():
+    """Faz 8 P-B0, the field case: a YouTube VIDEO edit opens with an intro the
+    song release does not have, so lrclib's stamps describe audio that begins
+    seconds earlier. The intro also pushes the durations apart, which drops the
+    anchors and leaves whole-audio alignment. The degrade path used to write
+    RAW lrclib starts, throwing away the very shift the aligner had measured —
+    three of the ten line-mode documents in the archive carry an |offset| above
+    3 s, the largest 16.9 s. Every line moved by the same amount, so it is a
+    clock difference and it has to survive."""
+    intro_ms = 20_000
+    refs = [1000, 5000, 9000, 13_000]
+    # sync="line" forces the degrade path; every line sits one intro late.
+    specs = [(ref + intro_ms, f"line{i} w") for i, ref in enumerate(refs)]
+    outcome = apply_line_qa(_result(specs, sync="line"), [s[1] for s in specs], refs)
+
+    assert outcome.degraded_to_line
+    assert outcome.offset_ms == intro_ms
+    assert [line.start_ms for line in outcome.result.lines] == [r + intro_ms for r in refs]
+    # …and nothing is flagged: a uniform shift is not drift.
+    assert outcome.flagged == []
+
+
+def test_scattered_alignment_still_falls_back_to_the_raw_lrclib_clock():
+    """The other half of the same decision. When the aligner simply lost the
+    song the deviations scatter, the median means nothing, and lrclib's raw
+    clock really is the better guess — that behaviour must NOT change."""
+    refs = [1000, 5000, 9000, 13_000]
+    specs = [(0, "one a"), (2000, "two b"), (4000, "three c"), (6000, "four d")]
+    outcome = apply_line_qa(_result(specs, sync="line"), [s[1] for s in specs], refs)
+    assert outcome.degraded_to_line
+    assert [line.start_ms for line in outcome.result.lines] == refs  # raw, unshifted
+
+
+def test_offset_trust_is_a_pure_median_absolute_deviation():
+    from kashi_server.pipeline.line_qa import (
+        OFFSET_TRUST_MAD_MS,
+        _offset_is_a_clock_difference,
+    )
+
+    assert _offset_is_a_clock_difference([20_000] * 5, 20_000)  # perfect shift
+    assert _offset_is_a_clock_difference([19_000, 20_000, 21_000], 20_000)  # tight
+    assert not _offset_is_a_clock_difference([0, 20_000, 40_000], 20_000)  # scatter
+    assert not _offset_is_a_clock_difference([], 20_000)
+    assert not _offset_is_a_clock_difference(None, 20_000)
+    # A minority of genuinely lost lines cannot veto a shift the rest agree on
+    # — the whole reason this is a MEDIAN absolute deviation and not a mean.
+    assert _offset_is_a_clock_difference([20_000, 20_000, 20_000, 90_000], 20_000)
+    edge = OFFSET_TRUST_MAD_MS
+    assert _offset_is_a_clock_difference([-edge, 0, edge], 0)
+    assert not _offset_is_a_clock_difference([-edge - 1, -edge - 1, edge + 1, edge + 1], 0)

@@ -36,6 +36,14 @@ MIN_REFERENCE_LINES = 3
 # If more than this fraction of referenced lines is flagged, the alignment is
 # wholesale garbage: fall back to lrclib line timings for the whole document.
 MAX_FLAGGED_FRACTION = 0.5
+# On that fallback, is the measured offset a CLOCK DIFFERENCE or just noise?
+# A real one (a video edit's intro that the song release lacks) shifts every
+# line by the same amount, so the deviations sit tightly around their median.
+# An aligner that simply lost the song scatters them, and there the median is
+# meaningless. Median absolute deviation is the test; the bound is comfortably
+# under DRIFT_THRESHOLD_MS, because a spread that wide would have flagged the
+# lines individually rather than looked like one shift.
+OFFSET_TRUST_MAD_MS = 1500
 # QA v2 border-case gate (field case: TiK ToK line 10 "fast flow then stall").
 # A lock loss rarely ends EXACTLY at the flagged lines: their neighbours often
 # carry damaged word timings that stayed just under the drift threshold. Both
@@ -251,15 +259,45 @@ def _recompute_ends(
     return out
 
 
+def _offset_is_a_clock_difference(deviations: list[int] | None, offset_ms: int) -> bool:
+    """Did every line move by the same amount, or did the aligner just scatter?
+
+    Pure. Uses median absolute deviation rather than the mean so a couple of
+    genuinely lost lines cannot veto a shift the rest of the document agrees
+    on — the same reason the offset itself is a median.
+    """
+    if not deviations:
+        return False
+    mad = median([abs(d - offset_ms) for d in deviations])
+    return mad <= OFFSET_TRUST_MAD_MS
+
+
 def _degrade_to_line(
     result: AlignResult,
     refs: list[int | None],
     flagged: list[int],
     offset_ms: int,
+    deviations: list[int] | None = None,
 ) -> LineQAOutcome:
-    """Whole-document fallback: raw lrclib starts (the entire doc moves onto the
-    lrclib clock, so no offset mixing), ends chained to the next start. A rare
-    stampless line is shifted by -offset so it lands on the same clock.
+    """Whole-document fallback: lrclib's line spacing, ends chained to the next
+    start. A rare stampless line is shifted by -offset so it lands on the same
+    clock.
+
+    lrclib's clock is NOT assumed to be the audio's clock (Faz 8 P-B0). The
+    field case: a YouTube *video* edit opens with an intro the song release
+    does not have, so lrclib's stamps describe an audio that starts minutes
+    of nothing earlier. The intro also pushes the durations apart, which drops
+    the anchors (ANCHOR_CLOCK_TOLERANCE_S) and leaves whole-audio alignment —
+    whose measured mean offset is 2000 ms against 282 ms on the anchored path.
+    This function then used raw `ref`, discarding the very shift the aligner
+    had just measured. Three of the ten line-mode documents in the archive
+    carry an |offset| above 3 s, the largest 16.9 s, all of it thrown away.
+
+    So the offset is applied — but only when it is a CLOCK DIFFERENCE rather
+    than noise. A consistent shift shows up as deviations clustered tightly
+    around their median; a document the aligner simply got wrong shows up as
+    scatter, and there the median means nothing and lrclib's raw clock really
+    is the better guess. `OFFSET_TRUST_MAD_MS` is that test.
 
     The score is RECOMPUTED as line-anchor agreement (Faz 8 P-B2). It used to
     be inherited untouched from the pre-QA result, so a document that lost
@@ -267,8 +305,9 @@ def _degrade_to_line(
     "BxMxC" flagged 32 of its 42 lines and still shipped a 1.00. There is no
     word evidence left here by construction, and `line-anchors` says exactly
     that."""
+    shift = offset_ms if _offset_is_a_clock_difference(deviations, offset_ms) else 0
     starts = [
-        ref if ref is not None else max(0, line.start_ms - offset_ms)
+        max(0, ref + shift) if ref is not None else max(0, line.start_ms - offset_ms + shift)
         for line, ref in zip(result.lines, refs, strict=True)
     ]
     lines: list[LineTiming] = []
@@ -346,7 +385,8 @@ def apply_line_qa(
     referenced = sum(ref is not None for ref in refs)
     if result.sync == "line" or len(flagged) > MAX_FLAGGED_FRACTION * referenced:
         return replace(
-            _degrade_to_line(result, refs, flagged, offset_ms), adlib_shifted=adlib_shifted
+            _degrade_to_line(result, refs, flagged, offset_ms, deviations),
+            adlib_shifted=adlib_shifted,
         )
 
     if not flagged:
@@ -404,7 +444,7 @@ def apply_line_qa(
 
     surviving_probs = [w.prob for chunk in words_per_line for w in chunk]
     if not surviving_probs:  # flag + border drops emptied every word-bearing line
-        return _degrade_to_line(result, refs, flagged, offset_ms)
+        return _degrade_to_line(result, refs, flagged, offset_ms, deviations)
 
     score, basis = _quality(result, refs, flagged_set | density_dropped, surviving_probs)
     snapped = AlignResult(

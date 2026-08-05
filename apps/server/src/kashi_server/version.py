@@ -253,5 +253,25 @@
 # while every document is now aligned on separated vocals, which is the third
 # saturation source. Recalibrating needs a measured benchmark run, not a
 # guess at a constant. Audit: docs/research/hizalama-zinciri-durum-2026-08.md.
-PIPELINE_VERSION = "2.16.0"
+# 2.16.1: lrclib's clock is not assumed to be the audio's clock (Faz 8 P-B0).
+# Caner's field report: on YouTube Music a song often exists as both a music
+# entry and a VIDEO, and the video edit opens with an intro the song release
+# does not have — "the lyrics start straight away and that is what makes it
+# drift". The mechanism checks out. The intro also pushes the durations apart,
+# which drops the lrclib anchors (ANCHOR_CLOCK_TOLERANCE_S) and leaves
+# whole-audio alignment, whose measured mean offset is 2000 ms against 282 ms
+# on the anchored path. If the document then degrades to line mode,
+# _degrade_to_line wrote RAW lrclib starts — discarding the very shift the
+# aligner had just measured and stored in qa.offset_ms. Three of the ten
+# line-mode documents in the archive carry an |offset| above 3 s, the largest
+# 16.9 s, every millisecond of it thrown away.
+# The offset is now applied on that path, but only when it is a CLOCK
+# DIFFERENCE rather than noise: a real one shifts every line by the same
+# amount, so the deviations cluster tightly around their median, while an
+# aligner that simply lost the song scatters them — and there lrclib's raw
+# clock really is the better guess. Median absolute deviation is the test
+# (OFFSET_TRUST_MAD_MS), median rather than mean so a couple of genuinely
+# lost lines cannot veto a shift the rest of the document agrees on.
+# Both halves are pinned, and the scatter case is the OLD behaviour unchanged.
+PIPELINE_VERSION = "2.16.1"
 PIPELINE_MAJOR = 2
