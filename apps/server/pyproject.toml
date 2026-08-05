@@ -22,6 +22,8 @@ dependencies = [
     # BYO-audio multipart parsing (Faz 5 P4); >=0.0.18 fixes CVE-2024-53981,
     # pinned to the current release.
     "python-multipart==0.0.32",
+    "fugashi>=1.5.2",
+    "unidic-lite>=1.0.8",
 ]
 
 [project.optional-dependencies]
