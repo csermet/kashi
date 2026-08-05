@@ -160,3 +160,127 @@ Open questions that need a live probe rather than more research:
 - Does YTM's DRM allow `tabCapture` today? (one test)
 - Is Qwen3's CJK "sub-optimal" caveat serious on *our* songs? (one A/B on two
   tracks — one Japanese, one Latin)
+
+---
+
+# Round 2 (same day) — GPU, CJK, and the arbiter layer
+
+Three further research rounds, run after the first decision pass. Each one
+changed something material.
+
+## 4. We are closer to the state of the art than the field reports suggest
+
+Published JamendoLyrics numbers: Spotify's contrastive M6 reaches **AAE 0.15 s
+/ PCO@0.3 92** (English); the previous generation (GYL/HBE) sits at 0.22–0.23 s.
+**Kashi measures 191 ms MAE / PCO@0.3 91.5 %** — behind the published best,
+ahead of 2022-class systems.
+
+That reframes the whole phase. **The aligner is not the problem.** The loss is
+in `line_qa.py`'s blind thresholds and the tail cases, which is exactly the
+layer we own. Swapping models is a licence necessity, not a quality strategy.
+
+Metric note: the field standard is AAE + PCO@0.3, where 0.3 s was chosen as a
+human-perception tolerance. No karaoke-specific perception study was found
+(UNVERIFIED); adjacent numbers — AV sync detection thresholds around 45–125 ms
+(ITU BT.1359 / NTIA TM-11-474) — suggest **also reporting PCO@0.1** if we care
+about *felt* sync rather than passable sync.
+
+## 5. The CJK gap is deeper than `line.split()`
+
+`alignment.py:214` calls `preprocess_text(..., romanize=True)`, and uroman —
+MMS's romanizer — **treats kanji as Chinese and emits pinyin**: 空 becomes
+"kong", not "sora". It is a documented uroman limitation, not a bug.
+
+**So fixing the token-count identity alone would not fix Japanese.** The
+document would still be aligned against acoustically wrong text. This also
+explains why the Japanese documents' line-mode scores look the way they do.
+
+Two corrections to earlier notes follow from this:
+
+- **Yohane does not solve kanji.** Reading its source: `lyrics.py` uses neither
+  MeCab nor pykakasi — it splits *romaji* with vowel/consonant rules and
+  **expects the user to supply romaji lyrics**. That is the anime-karaoke
+  convention (a human provides romaji/furigana). lrclib gives us kanji, so
+  Yohane is not the cheap drop-in it looked like — independently of its
+  inherited CC-BY-NC licence.
+- **The pattern that does work** is Nightingale's (GPL-3 — *ideas only, no code
+  copied*): segment with fugashi → pull each morpheme's **UniDic kana reading**
+  → align at kana/mora level. uroman romanizes *kana* correctly, so the
+  existing MMS chain stays usable once the reading layer exists.
+
+### Recommended shape: (a)+(c) hybrid
+
+1. **Reading/segmentation layer** — JA: `fugashi`+`unidic-lite` or `SudachiPy`
+   (both commercially safe; Sudachi's dictionary is more actively maintained,
+   fugashi's reading fields more established — compare in the PoC).
+   ZH: `jieba` + `pypinyin`. KO: today's `split()` already works (hangul is
+   space-delimited).
+2. **Emit `(surface, alignment_units)` pairs**, where the Japanese alignment
+   unit is the kana **mora**. Feed morae as one space-separated stream: uroman
+   is then in safe territory and `regroup_words_into_lines`' identity holds
+   with the mora count as the expected number.
+3. **Fallback** when the identity still fails: split by character proportion
+   rather than dropping the whole document to line mode.
+
+**Excluded on licence:** `pykakasi` (GPL-3), `KoNLPy` (GPL-3), `LTP`
+(commercial use requires a paid licence).
+
+**Gikun/ateji** — the anime convention of writing 宇宙 and singing "sora" — is
+unsolvable by any dictionary, and is precisely why the karaoke world asks a
+human for romaji. Frequency in lyrics is UNVERIFIED. Mitigation: a wrong
+reading depresses the CTC score, so the existing quality gate and line-mode
+fallback already act as the safety net.
+
+**LLM segmentation: not needed.** Supervised segmenters reach ~97 % F1 on
+Chinese word segmentation while LLMs trail badly zero-shot, and an LLM call
+cannot be made bit-identical even at temperature 0 (batch-invariance breaks
+it) — which the document contract requires. A dictionary segmenter is
+deterministic by construction.
+
+## 6. The arbiter layer has prior art, and one of it is ready to use
+
+- **BEACON** (Apache-2.0, 2026) — merges word timings from several
+  aligners/ASRs by **IoU ≥ 0.9 consensus voting**, rejecting spans without a
+  strict majority. Model-agnostic: it eats standard word-timestamp files, so
+  MMS and Qwen3-FA outputs feed it directly. Written for speech, not singing —
+  the architecture transfers, the singing-specific rules are ours.
+- **No singing-specific multi-aligner fusion paper exists** (searched). That
+  part is genuinely ours to write.
+- **Vowel alignment — the load-bearing detail.** In singing, a note onset
+  aligns with the syllable's **vowel**, not its leading consonant. So snapping
+  a word start to the nearest onset shifts it systematically *late* by the
+  consonant's duration. Any snap must be vowel-aware. (The ms-level published
+  measurement is UNVERIFIED; measurable on our own benchmark set.)
+- **Onset tooling licence trap:** `madmom` has the best onset models but ships
+  them **CC BY-NC-SA** — commercially barred. `basic-pitch` (Apache-2.0) is the
+  clean alternative.
+- **Training-data licence trap (F11):** **DALI is CC BY-NC-SA and MTG-Jamendo
+  bars commercial use.** Evaluating on them is fine; **training a model on them
+  is not.** A learned arbiter would have to be trained on features derived from
+  our own archive and our own labels — the features are signal-level (aligner
+  disagreement, onset distance, VAD coverage, lrclib deviation), so no licensed
+  audio is needed.
+- **Qwen3-FA caveat:** it quantises to **80 ms time bins** (±40 ms), which is
+  material at our 191 ms MAE scale — and its language list **does not include
+  Turkish**.
+
+**Honest verdict from the round:** the arbiter is not over-engineering, but
+order matters. Cheapest-largest first: (1) VAD mask + the score fix, (2) add
+Qwen3-FA as a second opinion and treat disagreement as low confidence — this
+replaces the blind 2.5 s threshold with evidence, and marks lines "uncertain"
+instead of deleting their words, (3) vowel-aware onset snap. A learned arbiter
+is step 4 and cannot be trained before the first three produce telemetry.
+
+## 7. GPU — verdicts
+
+| Card | Production | Experiments | Why |
+|---|---|---|---|
+| RX 480 8 GB | **NO-GO** | **NO-GO** | ROCm dropped gfx803 in 4.5 (2021); the liveliest community fork reaches torch **2.6**, we pin 2.9.1. No Vulkan path exists for CTC alignment at all |
+| RTX 3060 Ti 8 GB | **CONDITIONAL GO** | unnecessary | 8 GB fits every model when the stages run sequentially; ~8–12× over CPU. Conditions: the card is in use elsewhere, ~10 kWh/month idle, and a driver/kernel pinning discipline (`apt-mark hold`, DKMS) added to the upgrade checklist |
+| RTX 5070 Ti 16 GB | NO-GO (not 24/7) | **GO** | torch 2.9.1 + cu128 supports sm_120 since PyTorch 2.7 stable. A 79-song benchmark run lands at **~2–3 hours** against ~13 on CPU. Traps: the default pip index (cu126) has no sm_120, and Windows-native Triton is broken on sm_120 — use WSL2 and eager mode |
+
+Putting a GPU into the cluster is **medium** ongoing maintenance: half a day to
+install, then one more verification step at every kernel and K8s upgrade. Only
+`cnr-intel` can host one physically (the DeskMini has no PCIe slot), and that
+is the storage node — so a GPU there also makes it the compute single point of
+failure.
