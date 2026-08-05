@@ -236,6 +236,49 @@ sticky: `admin_ops.py:29-42` reuses `latest.hints` verbatim on reprocess, so
 every retry replays the same stale number and re-earns the 7-day block
 (`queue.py:20`).
 
+### ⚠️ Correction (2026-08-05, same day — measured after the fix shipped)
+
+**The paragraph above generalises from the wrong half of the population.** A
+reprocess wave over all 29 document-less songs was run on pipeline 2.15.1 and
+**28 of 29 failed again on the same gate**. Cross-checking each failure against
+current-extension telemetry settles it:
+
+| Class | Count | What it means |
+|---|---|---|
+| Genuine edit mismatch | **18** | fresh telemetry agrees with the *hint*, not with the download — the browser really is playing a longer edit |
+| Stale hint only | **2** | fresh telemetry agrees with the *download*; the failure was a replayed old hint |
+| No telemetry | 8 | undecidable from here |
+| Removed from YouTube | 1 | `video_unavailable` |
+
+Worked example: `OeuD4xuUzdg` "Another Love x Infinity" — job hint 192 s,
+**current telemetry 192 s**, downloaded audio 69 s. The client is right and the
+download is a different, shorter stream. The titles of the 18 are decisive on
+their own: "Another Love **x** Infinity", "Love Story **x** Golden Brown",
+"shameless **x** royalty", "LUNA BALA (Slowed)", "Him & I (slowed to
+perfection)" — mashups and slowed edits, precisely the content class where
+YouTube substitutes an ATV song stream for the video being played.
+
+**So the gate was right, and the honest-fail verdict of
+`video-song-substitution-memo.md` stands.** What the 2.15.1 change actually
+buys is narrower than the paragraph above claims:
+
+- it stops an *impossible* hint (above the track ceiling) from being read as
+  edit evidence — real, but **none of the 29 had one**; that population is the
+  43 songs that already have documents, whose hints run to 3279 s;
+- it stops such a hint from poisoning the lrclib duration filter;
+- it puts the **measured** duration in `track.duration_ms`, which is what fixes
+  the 47 documents carrying an impossible value. **This is the change's real
+  field effect.**
+
+The two stale-hint songs need *fresh* hints on reprocess, not a weaker gate —
+`admin_ops` replaying `latest.hints` is the actual defect there, and passing
+corrected hints explicitly works today.
+
+One case deserves its own note: `7A-MmDSSxxM` "Ara Ara" reports **both** 73 s
+and 184 s from the current extension for the same video id at different times.
+That is the extension's stale-duration bug caught in the wild, and it is why
+"trust the client" cannot be the rule either.
+
 **This does not retire the 2.4.2 gate.** The Sinsirella class
 (`video-song-substitution-memo.md`) is real and the memo's verdict — honest
 fail plus the upload escape — stands for genuine stream substitution. What the
