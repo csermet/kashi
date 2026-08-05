@@ -292,5 +292,34 @@
 #     forks of one name stay distinct.
 # The human lyricsfile path is untouched: its method describes the LYRICS, not
 # an aligner, and must not start advertising a model that never ran.
-PIPELINE_VERSION = "2.17.0"
+# 2.18.0: Japanese lyrics reach the aligner as kana morae (Faz 8 P-B3).
+# Two failures stacked on every Japanese document, both measured on the
+# archive: nine of the ten line-mode documents are non-Latin.
+#   · regroup_words_into_lines needs sum(len(line.split())) == len(segments).
+#     A script without word delimiters cannot satisfy that, so Japanese always
+#     took the line-mode exit and shipped with no word timings at all.
+#   · The deeper one: MMS romanizes through uroman, and uroman reads kanji as
+#     CHINESE — 空 becomes "kong", not "sora". Even with the counts fixed, the
+#     model was being shown text that does not sound like the audio. It is a
+#     documented uroman limitation, not a bug.
+# Both dissolve at the same point. Each morpheme is converted to its UniDic
+# kana reading and the aligner is handed morae: uroman romanizes kana
+# correctly, and one mora per token makes the identity hold by construction.
+# `pron` wins over `kana` because it writes long vowels as ー, which is what
+# is actually sung.
+# What the SCREEN shows and what the ALIGNER hears are now separate things —
+# PreparedLine carries both plus the ownership counts, and the mora spans fold
+# back onto the surfaces that own them, so the document still displays 宇宙
+# over the span of うちゅー. A surface takes the WEAKEST prob of its morae:
+# averaging would let one confident kana hide a lost one.
+# Non-Japanese lines are untouched — prepare_line returns None and the
+# whitespace path runs exactly as before, which the tests pin explicitly.
+# Dictionary segmentation rather than an LLM on purpose: deterministic (the
+# document contract promises byte-identical output) and measurably more
+# accurate. fugashi (MIT) + unidic-lite (BSD-selectable) are commercially
+# clean, unlike pykakasi (GPL-3). The pattern is Nightingale's, read for the
+# idea only — it is GPL-3 and no code was taken.
+# NOT YET MEASURED on real audio: the acceptance case is the archive's
+# BABYMETAL and ヤラララ documents leaving line mode.
+PIPELINE_VERSION = "2.18.0"
 PIPELINE_MAJOR = 2

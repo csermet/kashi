@@ -16,6 +16,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from kashi_server.pipeline.japanese import PreparedLine, prepare_line
 from kashi_server.pipeline.windows import plan_windows, reconcile_seams
 from kashi_server.vdl_kit.errors import PipelineError
 
@@ -124,16 +125,55 @@ def quality_from_probs(probs: list[float]) -> float:
     return min(1.0, max(0.0, ramp))
 
 
+def _fold_units_onto_surfaces(chunk: list[AlignedWord], plan: PreparedLine) -> list[AlignedWord]:
+    """Mora spans -> surface spans (Faz 8 P-B3). Pure.
+
+    The aligner timed what it heard (morae); the document has to display what
+    was written (宇宙). Each surface takes the start of its first mora and the
+    end of its last, and the WEAKEST prob of the group — a surface is only as
+    trustworthy as its shakiest mora, and averaging would let one confident
+    kana hide a lost one.
+    """
+    folded: list[AlignedWord] = []
+    cursor = 0
+    for surface, count in zip(plan.surfaces, plan.units_per_surface, strict=True):
+        owned = chunk[cursor : cursor + count]
+        cursor += count
+        if not owned:
+            continue
+        folded.append(
+            AlignedWord(
+                start_ms=owned[0].start_ms,
+                end_ms=max(owned[-1].end_ms, owned[0].start_ms),
+                text=surface,
+                prob=min(w.prob for w in owned),
+            )
+        )
+    return folded
+
+
 def regroup_words_into_lines(
-    line_texts: list[str], results: list[dict]
+    line_texts: list[str],
+    results: list[dict],
+    plans: list["PreparedLine | None"] | None = None,
 ) -> tuple[list[LineTiming], list[list[AlignedWord]]] | None:
     """Walk per-word segments back into the original lines.
 
     Returns None when the token accounting disagrees with the text — the caller
     then degrades to line-level output rather than emitting bogus word timings.
+
+    `plans` (Faz 8 P-B3) carries, per line, the split between what the SCREEN
+    shows and what the ALIGNER was given. They are the same thing in English
+    and different in Japanese, where the aligner is fed kana morae while the
+    document must still display 宇宙. A line with a plan is counted in units
+    and its word spans are folded back onto the surfaces that own them; a line
+    without one takes the whitespace path unchanged.
     """
     words = [r for r in results if r.get("text") != STAR_TOKEN]
-    expected = [len(line.split()) for line in line_texts]
+    expected = [
+        len(plan.units) if plan else len(line.split())
+        for line, plan in zip(line_texts, plans or [None] * len(line_texts), strict=True)
+    ]
     if sum(expected) != len(words):
         logger.warning(
             "alignment token mismatch: %d text words vs %d aligned segments",
@@ -164,11 +204,18 @@ def regroup_words_into_lines(
     lines: list[LineTiming] = []
     words_per_line: list[list[AlignedWord]] = []
     cursor = 0
-    for text, count in zip(line_texts, expected, strict=True):
+    for text, count, plan in zip(
+        line_texts, expected, plans or [None] * len(line_texts), strict=True
+    ):
         chunk = aligned[cursor : cursor + count]
         cursor += count
         if not chunk:  # a line of pure punctuation; keep the text, borrow no time
             continue
+        if plan is not None:
+            # Fold the mora spans back onto the surfaces that own them, so the
+            # document displays 宇宙 over the span of うちゅー rather than
+            # three kana the listener never sees written.
+            chunk = _fold_units_onto_surfaces(chunk, plan)
         score = quality_from_probs([w.prob for w in chunk])
         lines.append(
             LineTiming(
@@ -263,13 +310,30 @@ def align(
     model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
 
+    # What the aligner is GIVEN can differ from what the document displays
+    # (Faz 8 P-B3). Japanese lines become kana morae, because MMS romanizes
+    # through uroman and uroman reads kanji as Chinese — the model was being
+    # shown pinyin for text that is sung in Japanese. Every other line is its
+    # own alignment text, so this is a no-op outside Japanese.
+    plans = [prepare_line(text) for text in line_texts]
+    align_texts = [
+        " ".join(p.units) if p else text
+        for text, p in zip(line_texts, plans, strict=True)
+    ]
+    if any(plans):
+        logger.info(
+            "japanese mora path: %d of %d lines converted to kana",
+            sum(1 for p in plans if p),
+            len(plans),
+        )
+
     plan = None
     if synced_starts_ms is not None:
         total_ms = audio.shape[-1] // SAMPLES_PER_MS
         plan = plan_windows(line_texts, synced_starts_ms, total_ms)
 
     if plan is None:
-        results = _align_texts(model, tokenizer, audio, line_texts, language)
+        results = _align_texts(model, tokenizer, audio, align_texts, language)
     else:
         logger.info("windowed alignment: %d windows over %d lines", len(plan), len(line_texts))
         merged: list[dict] = []
@@ -277,7 +341,7 @@ def align(
             piece = audio[
                 ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
             ]
-            texts = [line_texts[i] for i in window.line_indices]
+            texts = [align_texts[i] for i in window.line_indices]
             offset_s = window.slice_start_ms / 1000
             # "edges": star tokens at BOTH slice edges absorb the pad and the
             # inter-line gap, so forced alignment doesn't stretch real words
@@ -290,7 +354,7 @@ def align(
                 )
         results = reconcile_seams(merged)
 
-    regrouped = regroup_words_into_lines(line_texts, results)
+    regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:
         return _line_only_fallback(line_texts, results, plan is not None, model_name)
 

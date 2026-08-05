@@ -100,3 +100,47 @@ def test_every_unit_is_a_single_mora_worth_of_kana():
         assert len(unit) <= 2, unit  # base kana + at most one small kana
         if len(unit) == 2:
             assert unit[1] in "ゃゅょぁぃぅぇぉゎ", unit
+
+
+def test_surface_and_sound_stay_paired():
+    """The trap this exists to avoid: the listener READS 宇宙 while the model
+    HEARS うちゅー. Both have to survive, held together by the ownership
+    counts — the aligner times the units and those times fold back onto the
+    surfaces that own them."""
+    from kashi_server.pipeline.japanese import prepare_line
+
+    prepared = prepare_line("宇宙を駆ける")
+    assert prepared is not None
+    # What the screen shows is still the written form, not kana.
+    assert "宇宙" in prepared.surfaces
+    assert prepared.surfaces == ["宇宙", "を", "駆ける"]
+    # What the aligner hears is the reading.
+    assert prepared.units[:3] == ["う", "ちゅ", "ー"]
+    # …and the two are held together: 宇宙 owns exactly its three morae.
+    assert prepared.units_per_surface == [3, 1, 3]
+    assert sum(prepared.units_per_surface) == len(prepared.units)
+
+
+def test_latin_inside_japanese_owns_exactly_one_unit():
+    from kashi_server.pipeline.japanese import prepare_line
+
+    prepared = prepare_line("空 forever 光る")
+    assert prepared is not None
+    index = prepared.surfaces.index("forever")
+    assert prepared.units_per_surface[index] == 1
+    start = sum(prepared.units_per_surface[:index])
+    assert prepared.units[start] == "forever"
+
+
+def test_ownership_invariant_holds_on_every_prepared_line():
+    """A desynchronised mapping produces confident nonsense rather than a
+    visible failure, so the invariant is asserted in the type itself and
+    pinned here across the shapes that actually occur."""
+    from kashi_server.pipeline.japanese import prepare_line
+
+    for line in ["ギミチョコ", "空に光る星", "紅蓮華", "空 forever 光る", "ヤラララ！！"]:
+        prepared = prepare_line(line)
+        assert prepared is not None, line
+        assert len(prepared.surfaces) == len(prepared.units_per_surface)
+        assert sum(prepared.units_per_surface) == len(prepared.units)
+        assert all(count > 0 for count in prepared.units_per_surface)

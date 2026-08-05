@@ -28,6 +28,7 @@ dependency and it is loaded lazily so importing this costs nothing.
 
 import logging
 import re
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -91,36 +92,72 @@ def _reading(word) -> str | None:
     return surface if _KANA_ONLY.match(surface) else None
 
 
-def to_alignment_units(text: str) -> list[str] | None:
-    """Japanese line -> the units to hand the aligner, or None to leave it be.
+@dataclass(frozen=True)
+class PreparedLine:
+    """What the SCREEN shows against what the ALIGNER hears.
 
-    Returns None when the line is not Japanese, or when any morpheme has no
-    reading we can trust (a bare Latin word, an unknown kanji). Partial
-    conversion is deliberately NOT attempted: half-converted text is worse
-    than the honest fallback, because the caller can no longer tell which
-    units correspond to which surface.
+    These are different things in Japanese and conflating them is the whole
+    trap: the listener reads 宇宙, the model hears うちゅー. So the surfaces
+    stay as written and the units carry the sound, with `units_per_surface`
+    holding them together — the aligner times the units, and those times fold
+    back onto the surfaces that own them.
+    """
+
+    surfaces: list[str]  # what the document displays
+    units: list[str]  # what the aligner is given, flattened
+    units_per_surface: list[int]  # units[i] ownership, sums to len(units)
+
+    def __post_init__(self) -> None:
+        assert len(self.surfaces) == len(self.units_per_surface)
+        assert sum(self.units_per_surface) == len(self.units)
+
+
+def prepare_line(text: str) -> PreparedLine | None:
+    """Japanese line -> (display surfaces, alignment units), or None to leave
+    the line to the default whitespace path.
+
+    None when the line is not Japanese, or when any morpheme has no reading we
+    can trust. Partial conversion is deliberately NOT attempted: half-converted
+    text is worse than the honest fallback, because the caller can no longer
+    tell which units correspond to which surface — and a desynchronised
+    mapping produces confident nonsense rather than a visible failure.
     """
     if not looks_japanese(text):
         return None
+    surfaces: list[str] = []
     units: list[str] = []
+    counts: list[int] = []
     for word in _tagger_instance()(text):
         surface = word.surface
-        if not surface.strip():
-            continue
-        if not re.search(r"\w", surface, re.UNICODE):
-            continue  # punctuation carries no sound
+        if not surface.strip() or not re.search(r"\w", surface, re.UNICODE):
+            continue  # whitespace and punctuation carry no sound
         if not looks_japanese(surface):
             # A Latin word inside a Japanese line (very common in J-pop). It
             # already survives whitespace tokenisation, so it passes through
-            # whole rather than being forced into morae.
+            # whole rather than being forced into morae it does not have.
+            surfaces.append(surface)
             units.append(surface)
+            counts.append(1)
             continue
         reading = _reading(word)
         if reading is None:
             logger.debug("no reading for %r — leaving the line to the caller", surface)
             return None
-        units.extend(split_morae(katakana_to_hiragana(reading)))
-    return units or None
+        morae = split_morae(katakana_to_hiragana(reading))
+        if not morae:
+            continue
+        surfaces.append(surface)
+        units.extend(morae)
+        counts.append(len(morae))
+    if not units:
+        return None
+    return PreparedLine(surfaces=surfaces, units=units, units_per_surface=counts)
+
+
+def to_alignment_units(text: str) -> list[str] | None:
+    """Flattened view of `prepare_line` — the units alone."""
+    prepared = prepare_line(text)
+    return prepared.units if prepared else None
 
 
 def _tagger_instance():
