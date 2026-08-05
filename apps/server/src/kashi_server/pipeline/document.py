@@ -136,14 +136,14 @@ def build_document(
             "lyrics_source": lyrics.source,
             "vocals_separated": vocals_separated,
             "quality_score": round(align_result.quality_score, 4),
-            # What quality_score actually MEASURED (Faz 6 P1) — the honest
-            # answer to "quality 1.0 but the words drift": "anchors" means
-            # line-anchor agreement only, word-level feel is not measured.
+            # What quality_score actually MEASURED (Faz 6 P1). Read from the
+            # producer rather than derived from `windowed` (Faz 8 P-B2): the
+            # proxy mislabelled every line-mode document as "anchors" while
+            # the number was prob-based. Only the human path is decided here,
+            # because it is a property of the LYRICS, not of the aligner.
             "quality_basis": "human"
             if lyrics.source == "lyricsfile"
-            else "anchors"
-            if align_result.windowed
-            else "ctc-probs",
+            else align_result.quality_basis,
             "speed_factor": speed_factor,
         },
         "lines": lines,

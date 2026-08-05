@@ -58,8 +58,8 @@
         },
         "quality_basis": {
           "type": "string",
-          "enum": ["ctc-probs", "anchors", "human"],
-          "description": "What quality_score actually measured (pipeline 2.5.0+). \"ctc-probs\": calibrated CTC probability ramp (whole-audio path). \"anchors\": line-anchor agreement on the windowed path — word-level precision is NOT measured, so a 1.0 can still drift at word granularity. \"human\": human word data consumed as-is (lyricsfile), fixed 1.0. Absent on older documents."
+          "enum": ["ctc-probs", "anchors", "probs+anchors", "line-anchors", "human"],
+          "description": "Which FORMULA produced quality_score (pipeline 2.5.0+; the last two added in 2.16.0). \"ctc-probs\": calibrated CTC probability ramp alone — no reference stamps were available. \"anchors\": line-anchor agreement on the windowed path. \"probs+anchors\": the ramp over surviving words, scaled by the fraction of referenced lines that survived QA. \"line-anchors\": line-anchor agreement on a document that has NO word timings at all (sync=\"line\"). \"human\": human word data consumed as-is (lyricsfile), fixed 1.0. In every case except \"human\", word-level precision is NOT measured — a 1.0 can still drift at word granularity. Absent on documents older than 2.5.0."
         },
         "speed_factor": {
           "type": "number",

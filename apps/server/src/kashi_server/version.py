@@ -222,5 +222,36 @@
 # claim — 47 archived documents carry an impossible duration this way, which
 # then propagates into canonical_group's 5s buckets and the processed_tracks
 # column. Full audit: docs/research/hizalama-zinciri-durum-2026-08.md.
-PIPELINE_VERSION = "2.15.1"
+# 2.16.0: quality_score stops flattering itself (Faz 8 P-B2). The Faz 8 field
+# audit found the number wrong in three separate ways, and 130 of 253 archived
+# documents (51.4%) scored exactly 1.00 — a metric with half its population on
+# the ceiling cannot rank anything, which is why "quality 1.0 but the words
+# drift" kept being the honest field report.
+#   · THE BASIS WAS A GUESS. document.py derived quality_basis from
+#     `windowed`, but BOTH line-mode exits preserve that flag while returning
+#     a prob-based score: _line_only_fallback (regroup token mismatch) and
+#     _degrade_to_line (majority flagged). So documents with NO word timings
+#     at all shipped stamped "anchors" — nine of the ten in the archive at
+#     >= 0.94, five at exactly 1.00, BABYMETAL "BxMxC" with 32 of its 42 lines
+#     flagged. The basis now travels on AlignResult, set where the number is
+#     computed. A proxy that is right most of the time is the bug.
+#   · THE SCORE ROSE WITH DAMAGE. _quality drew its ramp from surviving_probs
+#     — the words QA had NOT deleted — so every dropped line pruned the pool
+#     toward its most confident members. Tarkan "Op": 1.00 with 19 of 40 lines
+#     flagged and an 11 s global offset. The ramp is now multiplied by the
+#     fraction of referenced lines that survived intact, so damage can only
+#     ever cost. Pinned as a property test, not one example.
+#   · THE DEGRADE PATH NEVER RECOMPUTED. _degrade_to_line carried the pre-QA
+#     number through untouched. It now reports line-anchor agreement under a
+#     new basis, "line-anchors", which says in the name that no word evidence
+#     exists.
+# Two additive enum values in the schema ("probs+anchors", "line-anchors");
+# the overlay never reads quality_basis, and old documents stay valid — this
+# is a MINOR bump on purpose. Scores WILL move on reprocess, downward, and
+# that is the point: the ones that fall are the ones that were damaged.
+# NOT fixed here: the 0.02/0.15 prob ramp is still calibrated on FULL MIXES
+# while every document is now aligned on separated vocals, which is the third
+# saturation source. Recalibrating needs a measured benchmark run, not a
+# guess at a constant. Audit: docs/research/hizalama-zinciri-durum-2026-08.md.
+PIPELINE_VERSION = "2.16.0"
 PIPELINE_MAJOR = 2

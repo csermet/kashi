@@ -210,9 +210,10 @@ def test_invalid_document_is_rejected_by_the_gate():
 
 
 def test_quality_basis_names_what_the_number_measured():
-    """Faz 6 P1: the number is unchanged; the document now says what it
-    measured. anchors = line-anchor agreement (word feel NOT measured) —
-    the honest label behind the "quality 1.0 but drifting words" class."""
+    """Faz 6 P1: the document says what its number measured. Faz 8 P-B2: it
+    READS that from the producer instead of inferring it from `windowed` —
+    the inference was wrong for every line-mode document, which kept a
+    prob-based score under an "anchors" label."""
     from dataclasses import replace
 
     common = dict(beats=_beats(), palette=dict(DEFAULT_PALETTE), vocals_separated=False)
@@ -220,16 +221,31 @@ def test_quality_basis_names_what_the_number_measured():
     plain = build_document(_job(), _lyrics(), _word_result(), **common)
     assert plain["alignment"]["quality_basis"] == "ctc-probs"
 
-    windowed = build_document(_job(), _lyrics(), replace(_word_result(), windowed=True), **common)
-    assert windowed["alignment"]["quality_basis"] == "anchors"
-    assert windowed["alignment"]["method"].endswith("+line-windowed")
+    anchored = build_document(
+        _job(), _lyrics(), replace(_word_result(), windowed=True, quality_basis="anchors"), **common
+    )
+    assert anchored["alignment"]["quality_basis"] == "anchors"
+    # `method` still keys off `windowed` — that is a fact about how alignment
+    # RAN, which is a different question from which formula scored it.
+    assert anchored["alignment"]["method"].endswith("+line-windowed")
+
+    # The defect this replaced: windowed alignment that fell back to a
+    # prob-based score must NOT be stamped "anchors" any more.
+    fallback = build_document(
+        _job(),
+        _lyrics(),
+        replace(_word_result(), windowed=True, quality_basis="ctc-probs"),
+        **common,
+    )
+    assert fallback["alignment"]["quality_basis"] == "ctc-probs"
+    assert fallback["alignment"]["method"].endswith("+line-windowed")
 
     human_lyrics = replace(_lyrics(), source="lyricsfile")
     human = build_document(_job(), human_lyrics, _word_result(), **common)
     assert human["alignment"]["quality_basis"] == "human"
     assert human["alignment"]["method"] == "lrclib-lyricsfile/1.0"
 
-    for doc in (plain, windowed, human):
+    for doc in (plain, anchored, fallback, human):
         validate_document(doc)  # additive field passes the hard schema gate
 
 

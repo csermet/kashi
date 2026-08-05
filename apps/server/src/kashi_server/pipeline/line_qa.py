@@ -259,7 +259,14 @@ def _degrade_to_line(
 ) -> LineQAOutcome:
     """Whole-document fallback: raw lrclib starts (the entire doc moves onto the
     lrclib clock, so no offset mixing), ends chained to the next start. A rare
-    stampless line is shifted by -offset so it lands on the same clock."""
+    stampless line is shifted by -offset so it lands on the same clock.
+
+    The score is RECOMPUTED as line-anchor agreement (Faz 8 P-B2). It used to
+    be inherited untouched from the pre-QA result, so a document that lost
+    every word timing kept whatever the aligner had claimed — BABYMETAL
+    "BxMxC" flagged 32 of its 42 lines and still shipped a 1.00. There is no
+    word evidence left here by construction, and `line-anchors` says exactly
+    that."""
     starts = [
         ref if ref is not None else max(0, line.start_ms - offset_ms)
         for line, ref in zip(result.lines, refs, strict=True)
@@ -271,13 +278,18 @@ def _degrade_to_line(
         else:
             end = starts[i] + max(0, line.end_ms - line.start_ms)
         lines.append(replace(line, start_ms=starts[i], end_ms=max(end, starts[i])))
+    referenced = sum(ref is not None for ref in refs)
+    agreement = (
+        round(1 - len(set(flagged)) / referenced, 4) if referenced else result.quality_score
+    )
     return LineQAOutcome(
         result=AlignResult(
             sync="line",
             lines=_clamp_monotonic(lines),
             words_per_line=[],
-            quality_score=result.quality_score,
+            quality_score=agreement,
             windowed=result.windowed,
+            quality_basis="line-anchors" if referenced else result.quality_basis,
         ),
         flagged=flagged,
         offset_ms=offset_ms,
@@ -339,9 +351,12 @@ def apply_line_qa(
 
     if not flagged:
         clean = replace(result, lines=_clamp_monotonic(result.lines))
-        if result.windowed:  # prob quality is invalid on the windowed path
-            all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
-            clean = replace(clean, quality_score=_quality(result, refs, set(), all_probs))
+        all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
+        # Undamaged, but the basis still has to name the formula: an unflagged
+        # non-windowed document is "probs+anchors" with an agreement of 1.0,
+        # not the bare ramp it used to be labelled as.
+        score, basis = _quality(result, refs, set(), all_probs)
+        clean = replace(clean, quality_score=score, quality_basis=basis)
         clean, trimmed = trim_word_ends(clean)
         clean, rederived = rederive_adlib_words(clean)
         return LineQAOutcome(
@@ -391,12 +406,14 @@ def apply_line_qa(
     if not surviving_probs:  # flag + border drops emptied every word-bearing line
         return _degrade_to_line(result, refs, flagged, offset_ms)
 
+    score, basis = _quality(result, refs, flagged_set | density_dropped, surviving_probs)
     snapped = AlignResult(
         sync="word",
         lines=lines,
         words_per_line=words_per_line,
-        quality_score=_quality(result, refs, flagged_set | density_dropped, surviving_probs),
+        quality_score=score,
         windowed=result.windowed,
+        quality_basis=basis,
     )
     snapped, trimmed = trim_word_ends(snapped)
     snapped, rederived = rederive_adlib_words(snapped)
@@ -417,19 +434,32 @@ def _quality(
     refs: list[int | None],
     damaged: set[int],
     surviving_probs: list[float],
-) -> float:
-    """Whole-audio path: the calibrated CTC-prob ramp. Windowed path: anchor
-    agreement — measured (79 songs, 2026-07-12) the per-window probs do NOT
-    track true accuracy (r=0.36; 10 of 13 sub-gate scores had PCO>=0.88),
-    which would wrongly push good documents under the client's 0.5 word-mode
-    gate. Lines that stayed within the drift threshold of their lrclib anchor
-    ARE the windowed path's accuracy evidence."""
-    if not result.windowed:
-        return quality_from_probs(surviving_probs)
+) -> tuple[float, str]:
+    """Returns (score, basis) — the basis names the formula that produced it.
+
+    Windowed path: anchor agreement alone. Measured (79 songs, 2026-07-12) the
+    per-window probs do NOT track true accuracy (r=0.36; 10 of 13 sub-gate
+    scores had PCO>=0.88), which would wrongly push good documents under the
+    client's 0.5 word-mode gate. Lines that stayed within the drift threshold
+    of their lrclib anchor ARE the windowed path's accuracy evidence.
+
+    Otherwise the prob ramp — but SCALED BY the same agreement whenever
+    reference stamps exist (Faz 8 P-B2). `surviving_probs` is drawn from the
+    words QA did not delete, so the pool improves every time a line is
+    damaged: the worse the document, the more confident its remainder looks.
+    Tarkan "Op" shipped a 1.00 with 19 of 40 lines flagged and an 11 s global
+    offset. Confidence in what survived is not confidence in the document, so
+    the surviving-word ramp is multiplied by the fraction of referenced lines
+    that came through intact. With no references there is no damage measure
+    and the ramp alone is the honest answer.
+    """
     referenced = [i for i, ref in enumerate(refs) if ref is not None]
-    if not referenced:  # windowed implies anchors; defensive
-        return quality_from_probs(surviving_probs)
-    return round(1 - len(damaged & set(referenced)) / len(referenced), 4)
+    if not referenced:
+        return quality_from_probs(surviving_probs), "ctc-probs"
+    agreement = 1 - len(damaged & set(referenced)) / len(referenced)
+    if result.windowed:
+        return round(agreement, 4), "anchors"
+    return round(quality_from_probs(surviving_probs) * agreement, 4), "probs+anchors"
 
 
 def _shift_adlibs(

@@ -53,6 +53,13 @@ class AlignResult:
     # True only when window-anchored alignment ACTUALLY ran (plan_windows can
     # decline and fall back to whole-audio) — document provenance keys off it.
     windowed: bool = False
+    # WHICH FORMULA produced quality_score. Carried here, next to the number,
+    # rather than derived downstream: `windowed` was standing in for it in
+    # document.py, and both line-mode exits preserve `windowed` while returning
+    # a prob-based score — so word-less documents shipped stamped "anchors"
+    # with a 1.0 (Faz 8 audit: nine of ten such documents scored >= 0.94).
+    # A proxy that is right most of the time is the bug; the producer knows.
+    quality_basis: str = "ctc-probs"
 
 
 def _load_model():

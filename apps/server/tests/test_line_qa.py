@@ -104,7 +104,14 @@ def test_line_sync_input_with_synced_reference_moves_to_lrclib_times():
     outcome = apply_line_qa(_result(specs, sync="line"), [s[1] for s in specs], refs)
     assert outcome.degraded_to_line
     assert [line.start_ms for line in outcome.result.lines] == refs
-    assert outcome.result.quality_score == 0.8  # untouched on the degrade path
+    # Faz 8 P-B2: the degrade path used to carry the pre-QA number through
+    # untouched, so a document with NO word timings kept the aligner's claim
+    # (field: BABYMETAL "BxMxC", 32 of 42 lines flagged, shipped 1.00). It is
+    # now line-anchor agreement, and the basis says there is no word evidence.
+    assert outcome.flagged == [0, 3]
+    assert outcome.result.quality_score == 0.5  # 1 - 2/4 lines off their anchor
+    assert outcome.result.quality_basis == "line-anchors"
+    assert outcome.result.words_per_line == []
 
 
 def test_no_reference_only_clamps_monotonicity():
@@ -139,16 +146,32 @@ def test_quality_score_recomputed_from_surviving_words():
     outcome = apply_line_qa(result, [s[1] for s in specs], refs)
 
     assert outcome.flagged == [3]
-    expected = quality_from_probs([0.05] * 6)  # survivors only
-    assert abs(outcome.result.quality_score - expected) < 1e-9
-    assert outcome.result.quality_score < 1.0
+    # The ramp still sees survivors only — dropped words must not leak in.
+    ramp = quality_from_probs([0.05] * 6)
+    # …but Faz 8 P-B2: confidence in what SURVIVED is not confidence in the
+    # document. Damaging a line used to raise the score by removing its weak
+    # words from the pool (field: Tarkan "Op", 1.00 with 19 of 40 lines
+    # flagged). The ramp is now scaled by the fraction of referenced lines
+    # that came through intact — here 3 of 4.
+    expected = round(ramp * 0.75, 4)
+    assert outcome.result.quality_score == expected
+    assert outcome.result.quality_score < ramp  # damage costs, never pays
+    assert outcome.result.quality_basis == "probs+anchors"
 
 
-def test_unflagged_document_keeps_its_original_quality_score():
+def test_unflagged_document_scores_the_full_ramp_at_perfect_agreement():
+    from kashi_server.pipeline.alignment import quality_from_probs
+
     specs = [(1000, "one a"), (5000, "two b"), (9000, "three c")]
-    outcome = apply_line_qa(_result(specs), [s[1] for s in specs], [1000, 5000, 9000])
+    base = _result(specs)
+    outcome = apply_line_qa(base, [s[1] for s in specs], [1000, 5000, 9000])
     assert outcome.flagged == []
-    assert outcome.result.quality_score == 0.8  # no drop -> no recompute
+    # Faz 8 P-B2: an undamaged document is recomputed too, so the basis names
+    # the formula honestly. Agreement is 1.0, so the score IS the ramp over
+    # every word — nothing is lost by recomputing, only the label gained.
+    all_probs = [w.prob for chunk in base.words_per_line for w in chunk]
+    assert outcome.result.quality_score == round(quality_from_probs(all_probs), 4)
+    assert outcome.result.quality_basis == "probs+anchors"
 
 
 def test_snapped_line_end_chains_to_next_start_and_last_keeps_duration():
@@ -341,7 +364,11 @@ def test_quality_recompute_excludes_border_dropped_words():
     refs = [1000, 5000, 9000, 13_000, 17_500]
     outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
     assert outcome.density_dropped == [2]
-    assert abs(outcome.result.quality_score - quality_from_probs([0.05] * 6)) < 1e-9
+    # Border-dropped words stay out of the ramp (their 1.0 probs must not
+    # leak) AND the drop itself costs: 2 of 5 referenced lines are damaged
+    # (border drop + the flagged one), so agreement is 3/5.
+    expected = round(quality_from_probs([0.05] * 6) * 0.6, 4)
+    assert outcome.result.quality_score == expected
 
 
 def test_density_skips_implausibly_long_reference_windows():
@@ -643,3 +670,52 @@ def test_apply_line_qa_trims_before_rederive_and_reports_the_count():
     hook_words = outcome.result.words_per_line[4]
     assert hook_words[0].start_ms == 30_000
     assert hook_words[-1].end_ms == 31_000  # rederived span survived the trim pass
+
+
+def test_damage_never_raises_the_score():
+    """Faz 8 P-B2, the survivor-bias property. The score is drawn from the
+    words QA did NOT delete, so damaging a line used to shrink the pool toward
+    its most confident members — the worse the document, the better it looked.
+    Field: Tarkan "Op" reported 1.00 with 19 of 40 lines flagged and an 11 s
+    global offset. Same document, progressively more drift: the score must be
+    monotonically non-increasing."""
+    from kashi_server.pipeline.alignment import AlignResult
+
+    # Eight lines, and never more than three dragged: the median offset must
+    # stay pinned to the undrifted majority. (Drift most of a short document
+    # and the median follows THEM — the minority becomes the outlier and
+    # damage goes down again. Correct behaviour, wrong experiment.)
+    specs = [(1000 + 4000 * i, f"line{i} w") for i in range(8)]
+    texts = [s[1] for s in specs]
+    refs = [s[0] for s in specs]
+
+    scores = []
+    for drifted in range(4):  # 0..3 lines dragged far past the drift threshold
+        starts = [s[0] + (60_000 if i < drifted else 0) for i, s in enumerate(specs)]
+        base = _result([(start, text) for start, text in zip(starts, texts)])
+        # The drifted lines carry CONFIDENT words: under the old formula their
+        # removal pulled the mean UP. Survivors stay mid-ramp.
+        words = [
+            _words(start, text.split(), prob=1.0 if i < drifted else 0.05)
+            for i, (start, text) in enumerate(zip(starts, texts))
+        ]
+        outcome = apply_line_qa(AlignResult("word", base.lines, words, 0.8), texts, refs)
+        scores.append(outcome.result.quality_score)
+
+    assert scores == sorted(scores, reverse=True), scores
+    assert scores[0] > scores[-1]  # not merely flat — damage has to cost
+
+
+def test_line_mode_document_can_never_claim_word_evidence():
+    """A document with no words must not present itself as anchor-verified
+    word timing. Nine of the ten line-mode documents in the archive shipped at
+    >= 0.94 under an "anchors" basis; the client's 0.5 gate waved them all
+    through as word-sync material."""
+    specs = [(0, "one a"), (2000, "two b"), (4000, "three c"), (6000, "four d")]
+    outcome = apply_line_qa(
+        _result(specs, sync="line"), [s[1] for s in specs], [1000, 5000, 9000, 13_000]
+    )
+    assert outcome.result.sync == "line"
+    assert outcome.result.words_per_line == []
+    assert outcome.result.quality_basis == "line-anchors"
+    assert outcome.result.quality_basis != "anchors"  # the label that misled
