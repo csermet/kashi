@@ -273,5 +273,24 @@
 # (OFFSET_TRUST_MAD_MS), median rather than mean so a couple of genuinely
 # lost lines cannot veto a shift the rest of the document agrees on.
 # Both halves are pinned, and the scatter case is the OLD behaviour unchanged.
-PIPELINE_VERSION = "2.16.1"
+# 2.17.0: the aligner becomes a seam instead of a constant (Faz 8 P-B1).
+# Swapping it is now a certainty rather than a maybe: the MMS-300m checkpoint
+# and facebook/mms-300m under it are BOTH CC-BY-NC-4.0, and the wrapper's own
+# README says to use a different model commercially — so the shipped chain
+# cannot go into a paid product no matter how good it is. A certainty does not
+# belong in a constant buried in a module.
+#   · `align_model` in settings picks the checkpoint; it defaults to today's,
+#     so this release changes NO timings. The model cache is keyed by name
+#     rather than a pair of module globals, which is what per-language routing
+#     will need — the Japanese gap is closed by pointing one language at a
+#     different checkpoint, not by rewriting the chain.
+#   · AlignResult carries `model_name`, and `alignment.method` is BUILT from
+#     it. It used to be a literal, so a swapped checkpoint would have entered
+#     the archive still claiming mms-300m and a later comparison would have
+#     had nothing to group by. Bare ids keep today's shape
+#     (ctc-forced-aligner/mms-300m…); an org-qualified id keeps its org so two
+#     forks of one name stay distinct.
+# The human lyricsfile path is untouched: its method describes the LYRICS, not
+# an aligner, and must not start advertising a model that never ran.
+PIPELINE_VERSION = "2.17.0"
 PIPELINE_MAJOR = 2

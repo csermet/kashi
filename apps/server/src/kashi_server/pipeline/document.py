@@ -31,6 +31,29 @@ logger = logging.getLogger(__name__)
 _WHITESPACE = re.compile(r"\s+")
 
 
+def alignment_method(align_result: AlignResult) -> str:
+    """Provenance string for `alignment.method`: which aligner ran, and whether
+    it ran windowed.
+
+    Built from the result rather than hardcoded (Faz 8 P-B1). The model used to
+    be spelled out as a literal here, so a swapped checkpoint would have gone
+    into the archive still claiming mms-300m — and a swap is now a certainty,
+    not a maybe: the default weights are CC-BY-NC-4.0 and cannot ship in a paid
+    product. The archive has to be able to say which documents came from which
+    aligner, or a later comparison has nothing to group by.
+
+    Bare model ids keep today's shape (`ctc-forced-aligner/mms-300m…`); an
+    org-qualified id keeps its org so two forks of one name stay distinct.
+    """
+    short = align_result.model_name.rsplit("/", 1)[-1]
+    for prefix in ("mms-300m-1130-forced-aligner", "mms-300m"):
+        if short.startswith(prefix):
+            short = "mms-300m" + short[len(prefix) :]
+            break
+    suffix = "+line-windowed" if align_result.windowed else ""
+    return f"ctc-forced-aligner/{short}{suffix}"
+
+
 def canonical_group(artist: str, title: str, duration_s: float) -> str:
     """Discovery index ONLY — never a cache key (plan R-2)."""
 
@@ -127,9 +150,7 @@ def build_document(
             # method string — consumers distinguish it from aligner output.
             "method": "lrclib-lyricsfile/1.0"
             if lyrics.source == "lyricsfile"
-            else "ctc-forced-aligner/mms-300m+line-windowed"
-            if align_result.windowed
-            else "ctc-forced-aligner/mms-300m",
+            else alignment_method(align_result),
             # Provenance must be honest: caller-supplied lyrics_text is NOT an
             # lrclib record, and a fake id 0 would poison R-8's "source
             # changed → offer reprocess" future (reviewer, Faz 4).

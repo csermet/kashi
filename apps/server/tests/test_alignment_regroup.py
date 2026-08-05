@@ -90,3 +90,16 @@ def test_quality_mapping_matches_calibration_anchors():
 def test_line_end_never_precedes_its_start():
     timings, _ = regroup_words_into_lines(["solo"], [_seg("solo", 1.5, 1.5)])
     assert timings[0].end_ms == timings[0].start_ms == 1500
+
+
+def test_resolve_model_name_prefers_the_explicit_override():
+    """The seam's contract: an explicit argument wins, otherwise config, and
+    config defaults to today's model so nothing changes by accident."""
+    from kashi_server.config import settings
+    from kashi_server.pipeline.alignment import MODEL_NAME, resolve_model_name
+
+    assert resolve_model_name("Qwen/Qwen3-ForcedAligner-0.6B") == "Qwen/Qwen3-ForcedAligner-0.6B"
+    assert resolve_model_name() == settings.align_model
+    assert settings.align_model == MODEL_NAME  # default is a no-op swap
+    assert resolve_model_name(None) == MODEL_NAME
+    assert resolve_model_name("") == MODEL_NAME  # empty is not a selection

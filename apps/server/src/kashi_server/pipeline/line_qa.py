@@ -328,6 +328,7 @@ def _degrade_to_line(
             words_per_line=[],
             quality_score=agreement,
             windowed=result.windowed,
+            model_name=result.model_name,
             quality_basis="line-anchors" if referenced else result.quality_basis,
         ),
         flagged=flagged,
@@ -453,6 +454,7 @@ def apply_line_qa(
         words_per_line=words_per_line,
         quality_score=score,
         windowed=result.windowed,
+        model_name=result.model_name,
         quality_basis=basis,
     )
     snapped, trimmed = trim_word_ends(snapped)

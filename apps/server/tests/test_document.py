@@ -409,3 +409,45 @@ def test_fx_select_marker_rides_the_document():
     )
     assert "select" not in legacy["fx"]
     validate_document(legacy)
+
+
+def test_alignment_method_reports_the_model_that_actually_ran():
+    """Faz 8 P-B1: the model used to be a literal in the document builder, so
+    a swapped checkpoint would have gone into the archive still claiming
+    mms-300m. A swap is now a certainty — the default weights are CC-BY-NC-4.0
+    and cannot ship in a paid product — so the archive has to be able to say
+    which documents came from which aligner."""
+    from dataclasses import replace
+
+    from kashi_server.pipeline.document import alignment_method
+
+    default = _word_result()
+    assert alignment_method(default) == "ctc-forced-aligner/mms-300m"
+    assert (
+        alignment_method(replace(default, windowed=True))
+        == "ctc-forced-aligner/mms-300m+line-windowed"
+    )
+    # A different checkpoint must be visible, not silently absorbed.
+    swapped = replace(default, model_name="Qwen/Qwen3-ForcedAligner-0.6B")
+    assert alignment_method(swapped) == "ctc-forced-aligner/Qwen3-ForcedAligner-0.6B"
+    assert alignment_method(swapped) != alignment_method(default)
+    # A fine-tune of the same family keeps its own identity.
+    ja = replace(default, model_name="NextFire/mms-300m-ForcedAligner-karaoke-ja-Latn")
+    assert ja.model_name not in alignment_method(default)
+    assert alignment_method(ja) != alignment_method(default)
+
+
+def test_swapped_aligner_reaches_the_document():
+    from dataclasses import replace
+
+    common = dict(beats=_beats(), palette=dict(DEFAULT_PALETTE), vocals_separated=False)
+    swapped = replace(_word_result(), model_name="Qwen/Qwen3-ForcedAligner-0.6B")
+    doc = build_document(_job(), _lyrics(), swapped, **common)
+    validate_document(doc)
+    assert "Qwen3-ForcedAligner-0.6B" in doc["alignment"]["method"]
+    # The human path is about the LYRICS, not the aligner — it must not start
+    # advertising a model that never ran.
+    human = build_document(
+        _job(), replace(_lyrics(), source="lyricsfile"), swapped, **common
+    )
+    assert human["alignment"]["method"] == "lrclib-lyricsfile/1.0"

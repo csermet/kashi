@@ -24,8 +24,10 @@ logger = logging.getLogger(__name__)
 MODEL_NAME = "MahmoudAshraf/mms-300m-1130-forced-aligner"
 STAR_TOKEN = "<star>"
 
-_model = None
-_tokenizer = None
+# Model name -> (model, tokenizer). Keyed rather than a pair of globals so the
+# seam can route per language later without reloading on every job (Faz 8
+# P-B1); today exactly one entry is ever populated.
+_loaded: dict[str, tuple] = {}
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,9 @@ class AlignResult:
     # True only when window-anchored alignment ACTUALLY ran (plan_windows can
     # decline and fall back to whole-audio) — document provenance keys off it.
     windowed: bool = False
+    # WHICH aligner produced these timings — carried so the document records
+    # what actually ran rather than a hardcoded guess (Faz 8 P-B1).
+    model_name: str = MODEL_NAME
     # WHICH FORMULA produced quality_score. Carried here, next to the number,
     # rather than derived downstream: `windowed` was standing in for it in
     # document.py, and both line-mode exits preserve `windowed` while returning
@@ -62,10 +67,18 @@ class AlignResult:
     quality_basis: str = "ctc-probs"
 
 
-def _load_model():
-    """Loaded once per worker process; the weights are ~1.2 GB on disk."""
-    global _model, _tokenizer
-    if _model is None:
+def resolve_model_name(override: str | None = None) -> str:
+    """Which aligner this run uses. Pure; the single place that answers it."""
+    if override:
+        return override
+    from kashi_server.config import settings
+
+    return settings.align_model or MODEL_NAME
+
+
+def _load_model(model_name: str):
+    """Loaded once per worker process per model; the weights are ~1.2 GB."""
+    if model_name not in _loaded:
         # The [align] extra — absent in plain dev installs, present in the image.
         import torch  # pyright: ignore[reportMissingImports]
         from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
@@ -73,11 +86,11 @@ def _load_model():
         # Prod images ship CPU torch, so the default never changes behaviour;
         # the GPU benchmark image opts in with KASHI_ALIGN_DEVICE=cuda.
         device = os.environ.get("KASHI_ALIGN_DEVICE", "cpu")
-        logger.info("loading alignment model %s (%s)", MODEL_NAME, device)
-        _model, _tokenizer = load_alignment_model(
-            device=device, model_path=MODEL_NAME, dtype=torch.float32
+        logger.info("loading alignment model %s (%s)", model_name, device)
+        _loaded[model_name] = load_alignment_model(
+            device=device, model_path=model_name, dtype=torch.float32
         )
-    return _model, _tokenizer
+    return _loaded[model_name]
 
 
 def _word_prob(score: float) -> float:
@@ -170,7 +183,7 @@ def regroup_words_into_lines(
 
 
 def _line_only_fallback(
-    line_texts: list[str], results: list[dict], windowed: bool
+    line_texts: list[str], results: list[dict], windowed: bool, model_name: str = MODEL_NAME
 ) -> AlignResult:
     """Spread whatever segments we got across the lines, proportionally."""
     words = [r for r in results if r.get("text") != STAR_TOKEN]
@@ -199,6 +212,7 @@ def _line_only_fallback(
         words_per_line=[],
         quality_score=quality_from_probs(all_probs),
         windowed=windowed,
+        model_name=model_name,
     )
 
 
@@ -236,6 +250,7 @@ def align(
     line_texts: list[str],
     language: str,
     synced_starts_ms: list[int | None] | None = None,
+    model_name: str | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -244,7 +259,8 @@ def align(
     as the whole-audio mode."""
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
-    model, tokenizer = _load_model()
+    model_name = resolve_model_name(model_name)
+    model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
 
     plan = None
@@ -276,7 +292,7 @@ def align(
 
     regrouped = regroup_words_into_lines(line_texts, results)
     if regrouped is None:
-        return _line_only_fallback(line_texts, results, windowed=plan is not None)
+        return _line_only_fallback(line_texts, results, plan is not None, model_name)
 
     lines, words_per_line = regrouped
     all_words = [word for chunk in words_per_line for word in chunk]
@@ -289,4 +305,5 @@ def align(
         words_per_line=words_per_line,
         quality_score=quality,
         windowed=plan is not None,
+        model_name=model_name,
     )

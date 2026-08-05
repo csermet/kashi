@@ -35,6 +35,25 @@ class Settings(BaseSettings):
     # lrclib-anchored windowed alignment (P3): a CTC lock loss cannot
     # propagate past a window edge (the dominant field failure mode).
     windowed_alignment: bool = True
+    # WHICH forced aligner. A seam, not a knob to turn casually — every value
+    # here changes word timings wholesale (Faz 8 P-B1).
+    #
+    # It exists because the default is a licence dead end: the MMS-300m
+    # checkpoint and Meta's facebook/mms-300m under it are BOTH CC-BY-NC-4.0,
+    # so the shipped chain cannot go into a paid product at all — the
+    # wrapper's own README says to use a different model commercially. That
+    # makes swapping the aligner a certainty rather than a maybe, and a
+    # constant buried in a module is the wrong place for a certainty.
+    #
+    # It also unlocks per-language routing, which is how the CJK gap gets
+    # closed: a Japanese karaoke fine-tune is usable at home while the
+    # commercial build runs something permissive.
+    #
+    # Anything Hugging Face's `load_alignment_model` accepts. The document
+    # records what actually ran in `alignment.method`, so a swap is visible
+    # in the archive rather than silent.
+    # Detail: docs/research/hizalama-yontem-adaylari-2026-08.md
+    align_model: str = "MahmoudAshraf/mms-300m-1130-forced-aligner"
     # audio-separator registry filename. Kim MelBand: best measured PCO/MAE of
     # all candidates at ~2.1x realtime on the worker (BS-RoFormer quality at a
     # third of its cost); higher-SDR models measured WORSE for alignment.
