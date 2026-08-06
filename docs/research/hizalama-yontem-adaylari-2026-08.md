@@ -434,3 +434,76 @@ this family cannot supply it.** Cross-model disagreement at *word* level may
 still carry signal the song aggregate hides — that measurement is still owed —
 but the song-level evidence says a same-family second opinion is a weak
 foundation for the arbiter.
+
+---
+
+# Round 4 (2026-08-06 evening) — the frame changes: EN+TR primary, compute unconstrained
+
+Caner's redirection: English + Turkish are the targets (Japanese a bonus, 56
+languages never needed), compute cost is explicitly not a filter (5070 Ti
+available, 3060 Ti possible), and quality is the only goal. Licence remains
+binding. Two research rounds under the new frame.
+
+## Architecturally diverse second opinion (the arbiter's missing piece)
+
+Measured context: wav2vec2-family models correlate +0.92/+0.945 with MMS at
+song level — same-family second opinions are structurally useless.
+
+| Candidate | Architecture | Verdict |
+|---|---|---|
+| **Qwen3-ForcedAligner-0.6B** | LLM slot-filling, **no CTC/Viterbi at all** | **The pick for EN/JA.** Apache-2.0, measured 32.4 ms AAS on human-labelled speech (2-4× ahead of NFA/MFA-class), adapter 1–2 days (its API is nearly our `align()` contract). 80 ms bins are noise at our marking thresholds. Caveats: **no Turkish** (and it degrades *silently* on unknown languages), no per-word score (arbiter must use time-delta only), 5-min limit, never evaluated on singing — the ASR sibling officially supports singing, the aligner hasn't been measured there |
+| **faster-whisper ASR path** | encoder-decoder cross-attention | **The only clean TR second opinion.** MIT; word MAE 68–71 ms on speech (beats MFA/wav2vec2). Must run on the **mix**, not separated vocals (isolated vocals measurably hurt Whisper) — which also makes it input-independent from MMS. 3–5 days (free transcription → lrclib text matching). **Do not use `whisper-timestamped`: AGPL-3 + GPL dtw** |
+| MFA 3.x | Kaldi GMM-HMM | **Rejected**: Qwen3-FA was trained on MFA pseudo-labels, so they are not independent witnesses; plus conda+PostgreSQL ops burden |
+| NeMo Parakeet/Canary | FastConformer CTC | Rejected: no TR, still CTC family |
+
+Literature agrees with the design: BEACON (arXiv 2607.03670) ensembles
+architecturally diverse aligners precisely to "reduce model-specific bias",
+marking majority-less units *Unresolved* — our "suspect line" verdict.
+
+## Quality ceiling per language
+
+- **EN**: no better ready-made permissive CTC than jg-1B was found. The two
+  levers above it: **singing-adapt fine-tuning** (below) and
+  **facebook/omniASR-CTC 1B/3B/7B** (Nov 2025, Apache, scale ceiling —
+  but fairseq2 stack, not AutoModelForCTC; needs a 1-hour logit-access
+  pre-check before any backend work; unmeasured on singing).
+- **TR**: **no usable 1B exists** (the one candidate, Baybars 1B, measures
+  WER 0.46 — five times worse than mpoyraz 300M). The real path is
+  **w2v-bert-2.0 (MIT) fine-tuned on Common Voice TR (CC0, ~130 h)** —
+  1–2 GPU-days on the 5070 Ti. The true cost of the TR track is the **eval
+  set**: JamendoLyrics has no Turkish, so measuring TR at all needs a small
+  hand-labelled set first.
+- **JA (bonus)**: `sakasegawa/japanese-wav2vec2-large-hiragana-ctc` (Apache,
+  modern 35kh reazon base) likely beats ttop324 — half-day check; the
+  dual-head detail needs verifying.
+- **Singing-specific aligners: the category is licence-dead.** STARS
+  (GTSinger NC), VocalParse (NC corpora, and not even word timestamps),
+  LyricsAlignment-MTL (DALI NC weights), SOFA (undocumented data). All RED
+  for commercial lineage.
+
+## Self-training is now the strongest arm
+
+Commercially clean data actually exists:
+- **Common Voice TR: CC0, ~130 h** — the TR base, fully clean.
+- **Jamendo's own CC-BY subset** (per-track licence metadata, filterable by
+  API) + lrclib lyrics + our pipeline as pseudo-labeller with a confidence
+  filter → **singing-adapt fine-tune of jg-1B**. Licence chain Apache +
+  CC-BY = clean, with attribution records.
+- Vocadito (CC-BY-4.0, 40 clips) as a sanity/eval set, not training.
+- RED and out: DAMP (research-only), DALI, MTG-Jamendo, OpenSinger, M4Singer,
+  GTSinger, Opencpop.
+
+Estimated (marked as such): 600M w2v-bert CTC fine-tune ≈ 1–2 GPU-days;
+XLS-R 1B ≈ 2–4 GPU-days with 8-bit optimizer in 16 GB. All feasible on the
+5070 Ti.
+
+## ⚠️ New licence alarm: the separator
+
+**`kim-melband` — the production default — has NO licence file at all**
+(GitHub API: license=null), training data undocumented. For commercial
+shipping that reads as all-rights-reserved. Clean fallback measured in the
+July matrix: **htdemucs_ft (MIT, weights included)**. Cheap action: open a
+licence question issue on the checkpoint repo; decision note for F11 either
+way. New 2026 separators (Deux 17.55 SDR etc.) are NC or unlicensed — and the
+July finding stands that SDR does not predict alignment quality, so no
+re-benchmark is warranted.
