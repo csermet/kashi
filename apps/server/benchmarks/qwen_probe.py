@@ -30,6 +30,7 @@ import json
 import logging
 import time
 import unicodedata
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from benchmarks import datasets, metrics
@@ -106,9 +107,15 @@ def _align_windowed(aligner, audio_path, song) -> list:
     for window, result in zip(plan, results, strict=True):
         offset_s = window.slice_start_ms / 1000
         for item in result.items:
-            item.start_time += offset_s
-            item.end_time += offset_s
-            items.append(item)
+            # ForcedAlignItem is frozen — build the shifted copy instead of
+            # mutating (the first windowed run failed 20/20 on exactly this).
+            items.append(
+                replace(
+                    item,
+                    start_time=item.start_time + offset_s,
+                    end_time=item.end_time + offset_s,
+                )
+            )
     return items
 
 
