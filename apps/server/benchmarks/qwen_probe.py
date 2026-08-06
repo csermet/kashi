@@ -33,7 +33,7 @@ import unicodedata
 from datetime import UTC, datetime
 
 from benchmarks import datasets, metrics
-from benchmarks.run import DATA_DIR, RESULTS_DIR, _separated_audio
+from benchmarks.run import DATA_DIR, RESULTS_DIR
 
 logger = logging.getLogger("benchmarks.qwen_probe")
 
@@ -113,11 +113,22 @@ def main() -> int:
             entry["error"] = f"skipped: {song.duration_hint_s:.0f}s exceeds Qwen's 5-minute cap"
             continue
         try:
-            audio = (
-                song.audio_path
-                if args.full_mix
-                else _separated_audio(song.audio_path, song.stem, args.separation, 0.0)[0]
-            )
+            if args.full_mix:
+                audio = song.audio_path
+            else:
+                # Cached stem read DIRECTLY — importing the separation
+                # machinery pulls in the worker module, whose dependencies the
+                # ephemeral qwen-asr install can clobber (measured: the first
+                # vocals run lost prometheus_client and all 20 songs errored).
+                # The probe reads what previous sweeps cached and refuses
+                # honestly when nothing is there.
+                audio = DATA_DIR / "stems" / args.separation / f"{song.stem}.wav"
+                if not audio.exists():
+                    entry["error"] = (
+                        f"stem not cached ({args.separation}) — run one "
+                        "kim-melband sweep first; the probe never separates"
+                    )
+                    continue
             # The annotation's own token stream, so the counting matches the
             # ground truth by construction — the same trick the harness uses.
             text = " ".join(token for _, token in song.words)
