@@ -345,3 +345,44 @@ marked as such).
 - No permissive romaji-vocab Japanese model exists (searched); the JA route is
   either voidful's romanized path or the hiragana model with kana input, and
   both need measuring.
+
+## Round 3 first measurement — jg-EN head-to-head (2026-08-06)
+
+`2026-08-06-jg-xlsr53-en.json`: the first non-MMS aligner ever to run through
+the whole harness. 20 English songs, identical config to the baseline.
+
+**The seam works end-to-end.** Zero failures, zero line-mode collapses, all 20
+songs scored — the silent-drop trap did not fire on a lowercase-latin vocab.
+The escape route from CC-BY-NC is real and its cost is now a number:
+
+| (eng subset) | MMS (NC) | jg-EN (Apache) | gap |
+|---|---|---|---|
+| PCO@0.1 | 0.481 | 0.448 | −0.033 |
+| PCO@0.3 | 0.875 | 0.842 | −0.033 |
+| PCO@0.5 | 0.934 | 0.907 | −0.027 |
+| MAE median | 160 ms | 171 ms | +11 ms |
+| MAE mean | 252 ms | 345 ms | +93 ms (heavier tail) |
+
+A flat ~3-point PCO gap at every tolerance, medians nearly touching, the mean
+dragged by a fatter tail. For an ASR fine-tune against an alignment-specific
+model, that is closer than expected — per-song, MMS wins 14 / loses 3.
+
+**The warning: they fail on the same songs.** Song-level PCO correlation
+between the two models is **+0.920**. On MMS's worst English song (Avercage,
+0.61) jg lands 0.42 — the second opinion agrees, including agreeing to be
+wrong. Same architecture family, same separated vocals, same windows: the
+hard songs are hard for acoustic reasons that hit both.
+
+What this does and does not kill:
+
+- It **weakens** cross-model disagreement as a *song-level* signal — a second
+  opinion that always concurs adds nothing there.
+- It does **not** yet answer the *line/word-level* question, which is the one
+  the arbiter actually needs: two models can both find a song hard while
+  disagreeing about *which words* are wrong. The result files only carry
+  aggregates, so this needs the harness to dump per-word timings and a
+  two-run disagreement analysis against ground truth. That is the next
+  measurement, and the arbiter's fate hangs on it.
+
+Also still open: voidful (the multilingual primary candidate) has not run yet
+— the per-language ladder's ceiling is measured, the single-model route is not.
