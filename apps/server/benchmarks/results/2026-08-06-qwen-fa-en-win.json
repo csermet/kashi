@@ -1,0 +1,200 @@
+{
+ "meta": {
+  "generated_at": "2026-08-06T19:51:28+00:00",
+  "label": "qwen-fa-en-win",
+  "alignment_model": "Qwen/Qwen3-ForcedAligner-0.6B",
+  "separation": "kim-melband",
+  "note": "standalone probe — no windowing, no line QA, no star tokens; NOT comparable to windowed sweeps except per-song vs the same ground truth",
+  "wall_s": 414.4
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 20,
+   "scored": 0,
+   "errors": [
+    {
+     "stem": "HILA_-_Give_Me_the_Same",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Quentin_Hannappe_-_Keep_On",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Songwriterz_-_Back_In_Time",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Kinematic_-_Peyote",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Avercage_-_Embers",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Color_Out_-_Falling_Star",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "The.madpix.project_-_One_Way_Street",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Wordsmith_-_The_Statement",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "JASON_MILLER_-_CROWD_PLEASER",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Lower_Loveday_-_Is_It_Right_",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Pure_Mids_-_The_Leader",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Ridgway_-_Fire_Inside",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Moon_I_Mean_-_Wrong_Concept",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Slingshot_Miracle_-_Whistler",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "The_Rinn_-_Voices__2017_Version_",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Rxbyn_-_Bad_Side",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Tom_Orlando_-_The_One__feat._Tina_G_",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "LUNABLIND_-_Vision__Radio_Edit_",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Explosive_Ear_Candy_-_Like_The_Sun",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    },
+    {
+     "stem": "Cortez_-_Feel__Stripped_",
+     "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+    }
+   ]
+  },
+  "songs": [
+   {
+    "stem": "HILA_-_Give_Me_the_Same",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Quentin_Hannappe_-_Keep_On",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Songwriterz_-_Back_In_Time",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Kinematic_-_Peyote",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Avercage_-_Embers",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Color_Out_-_Falling_Star",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "The.madpix.project_-_One_Way_Street",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Wordsmith_-_The_Statement",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "JASON_MILLER_-_CROWD_PLEASER",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Lower_Loveday_-_Is_It_Right_",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Pure_Mids_-_The_Leader",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Ridgway_-_Fire_Inside",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Moon_I_Mean_-_Wrong_Concept",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Slingshot_Miracle_-_Whistler",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "The_Rinn_-_Voices__2017_Version_",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Rxbyn_-_Bad_Side",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Tom_Orlando_-_The_One__feat._Tina_G_",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "LUNABLIND_-_Vision__Radio_Edit_",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Explosive_Ear_Candy_-_Like_The_Sun",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   },
+   {
+    "stem": "Cortez_-_Feel__Stripped_",
+    "language": "eng",
+    "error": "FrozenInstanceError: cannot assign to field 'start_time'"
+   }
+  ]
+ }
+}
