@@ -692,12 +692,12 @@ def test_damage_never_raises_the_score():
     scores = []
     for drifted in range(4):  # 0..3 lines dragged far past the drift threshold
         starts = [s[0] + (60_000 if i < drifted else 0) for i, s in enumerate(specs)]
-        base = _result([(start, text) for start, text in zip(starts, texts)])
+        base = _result([(start, text) for start, text in zip(starts, texts, strict=True)])
         # The drifted lines carry CONFIDENT words: under the old formula their
         # removal pulled the mean UP. Survivors stay mid-ramp.
         words = [
             _words(start, text.split(), prob=1.0 if i < drifted else 0.05)
-            for i, (start, text) in enumerate(zip(starts, texts))
+            for i, (start, text) in enumerate(zip(starts, texts, strict=True))
         ]
         outcome = apply_line_qa(AlignResult("word", base.lines, words, 0.8), texts, refs)
         scores.append(outcome.result.quality_score)
