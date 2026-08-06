@@ -403,3 +403,102 @@ opposite of a tuning task:
 Scope note: this measures the whole-audio path. Windowed documents recompute
 to anchor agreement in line QA, so the 14 % figure bounds the `ctc-probs`
 population, not the whole archive.
+
+---
+
+# Signal hunt (2026-08-06) — no single signal is the answer; their independence is
+
+`benchmarks/results/2026-08-06-pc-signals.json`, same 79 songs, candidates
+written next to the ground-truth error and ranked by `benchmarks/correlate.py`.
+
+## Ranking
+
+| signal | Spearman → PCO@0.3 | verdict |
+|---|---|---|
+| `onset_within_200` | **+0.579** | more than double the incumbent |
+| `onset_within_50` / `_100` | +0.533 / +0.525 | strong |
+| `onset_median_ms` | +0.508 | strong |
+| `duration_outlier_frac` | **+0.455** | strong, and free of audio |
+| `prob_frac_below_01` | +0.306 | marginal |
+| `prob_mean` | +0.296 | **beats the shipped score** |
+| **`quality_score` (shipped)** | **+0.264** | the bar |
+| `prob_p10` | +0.142 | knows almost nothing |
+
+Two results worth stating on their own:
+
+- **The ramp destroys information.** Raw `prob_mean` (+0.296) outranks the
+  ramped `quality_score` (+0.264) built from the very same numbers. Clamping
+  at a 0.15 mean throws away the ordering — which is why 43 of 79 songs share
+  an identical 1.00.
+- **The tail hypothesis failed.** `prob_p10` was the guess that the
+  distribution knows more than its mean; at +0.142 it knows *less*. Measured,
+  discarded.
+
+## The confound, checked
+
+`onset_within_200` correlates +0.738 with onset DENSITY, and density itself
+predicts accuracy (+0.389) — dense songs are easier to land on by chance. So
+the raw +0.579 is partly a genre effect. Removing density:
+
+| | Spearman |
+|---|---|
+| raw | +0.579 |
+| partial, density removed | **+0.469** |
+| partial, onset count removed | +0.491 |
+
+The signal survives its own confound and still beats the incumbent by a wide
+margin. Worth remembering when it is eventually normalised: **per-song onset
+density belongs in the denominator.**
+
+## …and then the gate test inverted the ranking
+
+Cheapest threshold that catches every genuinely bad song, counting the good
+documents destroyed to get there:
+
+| signal | PCO<0.7 (2 bad) | PCO<0.8 (6 bad) |
+|---|---|---|
+| `quality_score` | 7 | **cannot catch them at all** |
+| `onset_within_200` | **11** | 39 |
+| `duration_outlier_frac` | 3 | 64 |
+| **onset + duration** | **1** | 28 |
+| onset + duration + quality | **0** | 37 |
+
+**The best-correlating signal is a worse gate than the incumbent.** Ranking
+well on average and isolating the worst cases are different jobs, and the
+first does not imply the second. Building the arbiter on "highest correlation
+wins" would have been a mistake — the same shape of mistake as shipping an
+unvalidated ramp.
+
+## Why the combination works: they are blind to different songs
+
+Rank of the six worst documents under each signal (0 = flagged worst, 79 =
+looks perfect):
+
+| song | real PCO | quality | onset | duration |
+|---|---|---|---|---|
+| Avercage — Embers | 0.61 | **0** | 12 | **2** |
+| Pure Mids — The Leader | 0.66 | 8 | **0** | 4 |
+| Ridgway — Fire Inside | 0.73 | 14 | 44 | **1** |
+| Pluie d'entre deux saisons | 0.75 | 57 | **1** | 69 |
+| Fantasma — Los Rombos | 0.77 | 57 | 26 | 21 |
+
+*Pluie* is invisible to the shipped score (57/79) and to duration (69/79),
+and the onset signal ranks it the second worst document in the set. *Ridgway*
+is the mirror image. **The signals fail independently**, which is exactly the
+property an arbiter needs and exactly what a single number cannot have.
+
+Combined ranking reaches **Spearman +0.644**, against +0.264 today.
+
+## Honest limits
+
+- **Two bad songs is not a validation set.** "Zero false positives" at
+  PCO<0.7 is a fact about n=2 and must not be quoted as a rate.
+- **At PCO<0.8 nothing works**: 28 good documents destroyed at best. That is
+  not a tuning failure, it is a sign that **document-level gating is the wrong
+  frame**. A document is not uniformly good or bad — the archive's own damage
+  is concentrated in a tail of lines, and 49 % of documents carry at least one
+  stripped line while the median document is clean.
+- The next measurement is therefore **per line**, not per song: mark uncertain
+  lines instead of killing documents. That is also the only version that helps
+  the field, where the complaint was never "this song is bad" but "these words
+  drift".
