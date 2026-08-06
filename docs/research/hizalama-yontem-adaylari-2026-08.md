@@ -284,3 +284,64 @@ install, then one more verification step at every kernel and K8s upgrade. Only
 `cnr-intel` can host one physically (the DeskMini has no PCIe slot), and that
 is the storage node — so a GPU there also makes it the compute single point of
 failure.
+
+---
+
+# Round 3 (2026-08-06) — the permissive CTC checkpoint search
+
+The line-level signal hunt ended with one lever left: a second aligner. The
+seam takes CTC checkpoints, so a single permissively licensed CTC checkpoint
+is both the commercial escape from CC-BY-NC and the cross-model second
+opinion the arbiter needs. This round searched for it.
+
+## Wrapper compatibility — measured from source, and it widens the field
+
+Three findings from reading `ctc-forced-aligner`'s code change who qualifies:
+
+1. **`<star>` does not need to be in the tokenizer.** `get_alignments` extends
+   the dictionary itself and `generate_emissions` appends the star column to
+   the emissions after log-softmax. Every `AutoModelForCTC` checkpoint gets it
+   for free — not an elimination criterion after all.
+2. **Vocab keys are lowercased by the wrapper**, so uppercase-letter models
+   (`facebook/wav2vec2-large-960h-lv60-self`) work unchanged.
+3. **The trap: out-of-vocab tokens are dropped silently** (`if c in
+   dictionary` — no UNK, no error). A phoneme-vocab model fed latin text
+   loses nearly every token without raising. Any candidate run must watch
+   **PCO and the line-mode rate together**; either alone can hide this.
+
+Also verified: `uroman` is MIT (the licence file, not hearsay), and the
+wrapper has a sound `romanize=False` path that preserves Turkish diacritics —
+Kashi hardcodes `romanize=True` in `_align_texts`, so a per-model flag is a
+small change when a native-vocab model is adopted.
+
+## Candidates (licence lineage verified)
+
+| Model | Lineage | Vocab | Languages | Verdict |
+|---|---|---|---|---|
+| **voidful/wav2vec2-xlsr-multilingual-56** | XLSR-53 (Apache-2.0) → Apache-2.0 | char-level multilingual (**unverified** — repo is `gated:auto`, needs any HF token) | 56 incl. **TR + JA** | **prime candidate** — the only multilingual permissive option found |
+| **jonatasgrosman/wav2vec2-large-xlsr-53-english** (+de/fr/es siblings) | XLSR-53 → Apache-2.0 | lowercase latin, 26 letters — **verified from vocab.json, not gated** | one per language, no TR | **drops straight in**, zero prerequisites |
+| **mpoyraz/wav2vec2-xls-r-300m-cv8-turkish** | XLS-R-300m → Apache-2.0 | latin + ç ğ ı ö ş ü — **verified** | TR (WER 10.6 CV8) | works today under romanize; full quality wants `romanize=False` |
+| ttop324/wav2vec2-live-japanese | XLSR-53 → Apache-2.0 | hiragana | JA | pairs with the P-B3 kana path (`romanize=False`, feed kana) — needs its own benchmark |
+| facebook/wav2vec2-lv-60-espeak-cv-ft | Apache-2.0 | **IPA phonemes** | many | silent-drop failure class + espeak-ng is GPL-3 — low priority |
+| w2v-bert-2.0 fine-tunes | base is MIT | — | no multilingual CTC fine-tune exists | adapter needed (mel features, not raw waves) — self-train base, plan B |
+
+**Self-training, honestly assessed:** not fantasy, last resort. Yohane's
+training notebook is public and swaps to an Apache base with one line; the
+real cost is data (its own dataset is gated and rights-murky; commercial
+training needs CommonVoice/MLS-class corpora, which are *speech*, not
+singing) plus ~30–100 GPU-hours and a week of engineering (rough estimate,
+marked as such).
+
+## Risks before reading any candidate's numbers
+
+- All candidates are **ASR fine-tunes**; the incumbent is alignment-specific.
+  The likely outcome is "works, lower PCO" — fine for a second opinion,
+  insufficient (unmeasured) as the primary commercial model.
+- The quality-ramp constants are MMS-calibrated; a different model's prob
+  distribution shifts them, so cross-model disagreement needs its own
+  calibration before it can be trusted as an arbiter signal.
+- voidful is untouched since 2023 and gated — if adopted, mirror the files
+  locally.
+- No permissive romaji-vocab Japanese model exists (searched); the JA route is
+  either voidful's romanized path or the hiragana model with kana input, and
+  both need measuring.
