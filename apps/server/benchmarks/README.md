@@ -40,6 +40,28 @@ docker run --rm -v "$PWD/apps/server:/repo" -w /repo -e PYTHONPATH=/repo/src \
 weights, separator checkpoints, yt-dlp EJS cache) — first-run downloads land
 there and survive. Use the actual volume name from `docker volume ls`.
 
+### Aligner bake-off (Faz 8 P-B1/A2)
+
+`--align-model` selects the checkpoint, so comparing two aligners is a flag
+rather than a code change. This is not optional curiosity: the default weights
+(`MahmoudAshraf/mms-300m-1130-forced-aligner`, and `facebook/mms-300m` under
+it) are **CC-BY-NC-4.0** and cannot ship in a paid product, so a replacement
+has to be measurable against the incumbent on the same 79 songs.
+
+```bash
+# incumbent
+python -m benchmarks.run --dataset jamendo --separation kim-melband --windowed \
+  --label mms-baseline
+# the only candidate that is Apache-2.0 on BOTH code and weights
+python -m benchmarks.run --dataset jamendo --separation kim-melband --windowed \
+  --align-model Qwen/Qwen3-ForcedAligner-0.6B --label qwen3-fa
+```
+
+`meta.alignment_model` records the model that actually ran, so two result
+files can never claim the same aligner. Known caveats before reading the
+numbers: Qwen3-FA quantises to 80 ms bins (±40 ms, material against our
+191 ms MAE) and its language list does **not** include Turkish.
+
 One invocation = one configuration. The matrix:
 
 | flag | values |

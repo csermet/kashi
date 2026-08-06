@@ -102,13 +102,14 @@ def _align_song(
     line_texts: list[str],
     language: str,
     anchors: list[int | None] | None = None,
+    model_name: str | None = None,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
     with tempfile.TemporaryDirectory(prefix="kashi-bench-dec-") as tmp:
         wav = _decode_16k(audio, Path(tmp) / "align.wav")
         started = time.monotonic()
-        result = align(wav, line_texts, language, synced_starts_ms=anchors)
+        result = align(wav, line_texts, language, anchors, model_name)
     return result, time.monotonic() - started
 
 
@@ -162,7 +163,9 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 if args.windowed
                 else None
             )
-            result, align_s = _align_song(audio, song.line_texts, song.language, anchors)
+            result, align_s = _align_song(
+                audio, song.line_texts, song.language, anchors, args.align_model
+            )
         except Exception as exc:  # keep sweeping; a broken song is a data point
             logger.exception("%s failed", song.stem)
             entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -337,7 +340,9 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
                 else _separated_audio(audio, case.id, args.separation, args.mixback)
             )
             anchors = [start for start, _ in reference] if args.windowed else None
-            result, align_s = _align_song(source, line_texts, case.language, anchors)
+            result, align_s = _align_song(
+                source, line_texts, case.language, anchors, args.align_model
+            )
         except Exception as exc:
             logger.exception("case %s failed", case.id)
             entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -400,6 +405,15 @@ def main() -> int:
     parser.add_argument("--tolerances", default="0.1,0.2,0.3,0.5", help="PCO tolerances, seconds")
     parser.add_argument("--windowed", action="store_true", help="line-anchored windowed alignment")
     parser.add_argument(
+        "--align-model",
+        help=(
+            "forced aligner checkpoint (default: settings.align_model). The "
+            "point of the Faz 8 P-B1 seam: a bake-off is a flag, not a code "
+            "change. The default weights are CC-BY-NC-4.0, so the commercial "
+            "candidates have to be measurable side by side."
+        ),
+    )
+    parser.add_argument(
         "--line-postprocess",
         choices=("none", "soft-median", "soft-pl"),
         default="none",
@@ -437,7 +451,7 @@ def main() -> int:
         config_name += "-notrim"
     started = time.monotonic()
 
-    from kashi_server.pipeline.alignment import MODEL_NAME
+    from kashi_server.pipeline.alignment import resolve_model_name
     from kashi_server.version import PIPELINE_VERSION
 
     report: dict = {
@@ -445,7 +459,9 @@ def main() -> int:
             "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "label": args.label or config_name,
             "pipeline_version": PIPELINE_VERSION,
-            "alignment_model": MODEL_NAME,
+            # The model that ACTUALLY ran, not the module default — otherwise
+            # a bake-off's two result files would claim the same aligner.
+            "alignment_model": resolve_model_name(args.align_model),
             "separation": args.separation,
             "mixback": args.mixback if args.separation != "full-mix" else None,
             "windowed": args.windowed,
