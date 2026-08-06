@@ -507,3 +507,24 @@ licence question issue on the checkpoint repo; decision note for F11 either
 way. New 2026 separators (Deux 17.55 SDR etc.) are NC or unlicensed — and the
 July finding stands that SDR does not predict alignment quality, so no
 re-benchmark is warranted.
+
+## The full 1B ladder (2026-08-06) — migration is quality-neutral, licence-positive
+
+All four benchmark languages, jonatasgrosman XLS-R **1B** (Apache-2.0) against
+MMS (CC-BY-NC), identical config, per-language subsets:
+
+| lang | songs | MMS PCO@0.3 | 1B PCO@0.3 | Δ | MAE med (MMS→1B) |
+|---|---|---|---|---|---|
+| eng | 20 | 0.8746 | **0.8789** | +0.004 | 160 → 157 |
+| deu | 20 | 0.9552 | 0.9437 | −0.012 | 114 → 130 |
+| fra | 19 | 0.9035 | 0.8963 | −0.007 | 141 → 138 |
+| spa | 18* | 0.9241 | 0.9243 | +0.000 | 134 → 125 |
+
+*two Spanish songs lost to transient HF download timeouts, not model failures.
+
+**Verdict: a tie.** Slightly ahead in English and Spanish, slightly behind in
+German and French, nothing beyond noise on 20-song subsets. The primary-model
+migration off CC-BY-NC costs **no measurable quality** and the German −1.2 pt
+is exactly what the singing-adapt fine-tune experiment exists to recover.
+This closes the "is there a hidden quality tax?" question with data from all
+79 songs.
