@@ -321,3 +321,85 @@ belongs in the same conversation as "the lyrics feel late".
 Method-candidate research (STT/ASR, rhythm- and onset-based placement, hybrid
 onset-snapping, and the MMS-300m licence question) is the second half of Faz 8
 and is recorded separately.
+
+---
+
+# Addendum (2026-08-06) — the benchmark answers §3.3, and the answer is worse
+
+A full 79-song JamendoLyrics sweep on pipeline **2.18.1**, identical config to
+the 2026-07-12 reference (`kim-melband`, mixback 0, windowed, 400 ms anchor
+jitter, RTX 5070 Ti):
+`benchmarks/results/2026-08-06-pc-2.18.1-kim-win-j400.json`.
+
+## No regression — to the decimal
+
+| metric | 2.0.0 (07-12) | 2.18.1 (08-06) |
+|---|---|---|
+| word MAE mean | 191.2 ms | **191.2 ms** |
+| word MAE median | 131.1 ms | **131.1 ms** |
+| word MedAE mean | 89.2 ms | **89.2 ms** |
+| PCO@0.1 / 0.2 / 0.3 / 0.5 | .5668 / .8168 / .9150 / .9554 | **identical** |
+| failures | 0 | **0** |
+
+Everything shipped between those versions — the duration-hint fix, the metric
+honesty work, the video-intro offset, the aligner seam, the Japanese path — is
+byte-neutral on Latin-language word accuracy. That is the intended result: the
+Japanese routing is gated on the detected language, the seam defaults to the
+same checkpoint, and the metric changes live in line QA, which this harness
+does not run by default.
+
+## §3.3 measured: the prob ramp does not predict accuracy
+
+The benchmark bypasses line QA, so its `quality_score` is exactly the raw CTC
+prob ramp — the third defect, the one left unfixed because recalibrating a
+constant without measurement would have been a guess. Now there is a
+measurement, 79 songs against ground truth:
+
+| correlation | Pearson | Spearman |
+|---|---|---|
+| `quality_score` vs PCO@0.3 | **+0.364** | +0.285 |
+| `quality_score` vs word MAE | −0.222 | −0.322 |
+
+**43 of 79 songs score exactly 1.00**, and inside that group the real PCO@0.3
+runs from 0.746 to 1.000 — one of them is 1045 ms off on average. Meanwhile 13
+songs score **below the client's 0.5 word-mode gate** while their median real
+PCO@0.3 is **0.907**. The worst case cuts both ways at once:
+
+| song | score | real PCO@0.3 | real MAE |
+|---|---|---|---|
+| Die_Revolution_gehört_Dir! | **0.26** | 0.942 | 119 ms |
+| 1_Freak_-_Automatisch_Gekommen | 0.43 | 0.970 | 106 ms |
+| Fantasma_-_Los_Rombos | **1.00** | 0.773 | **1045 ms** |
+
+### The gate's actual trade
+
+Only **2 of 79** songs are genuinely bad (PCO@0.3 < 0.70), and one of them
+already scores 0.00 — any threshold catches it. Scanning the threshold:
+
+| gate | good documents destroyed | bad caught | bad escaping |
+|---|---|---|---|
+| 0.3 | 3 | 1 | 1 |
+| **0.5 (shipped)** | **11** | 2 | 0 |
+| 0.7 | 17 | 2 | 0 |
+
+**The shipped gate sacrifices 5.5 good documents per bad one it catches**, and
+14 % of accurate documents lose their word sync in the field for no reason.
+
+### What follows
+
+Recalibrating the 0.02/0.15 anchors would not fix this. A metric correlating
+at r = 0.36 with the truth does not have a constant problem — the CTC mean
+probability simply does not carry the information. The conclusion is the
+opposite of a tuning task:
+
+- On the `ctc-probs` path the score should stop acting as a gate. It is
+  measurement-grade honest about *confidence* and useless about *accuracy*.
+- The `anchors` path is better founded (it compares against an independent
+  clock) and is what the archive mostly uses — 154 documents against 14.
+- The real replacement is the arbiter layer: cross-model agreement, onset
+  distance, VAD coverage. Those are independent evidence; the prob ramp is
+  the model grading its own homework.
+
+Scope note: this measures the whole-audio path. Windowed documents recompute
+to anchor agreement in line QA, so the 14 % figure bounds the `ctc-probs`
+population, not the whole archive.
