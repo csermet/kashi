@@ -183,6 +183,15 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
         entry["align_s"] = round(align_s, 1)
         entry["sync"] = result.sync
         entry["quality_score"] = round(result.quality_score, 4)
+        if args.signals:
+            # Candidate confidence signals, written NEXT TO the ground-truth
+            # error below so "does this signal know anything?" is a
+            # correlation rather than an opinion (Faz 8).
+            from benchmarks import signals as signal_probes
+
+            entry["signals"] = signal_probes.collect(
+                result, audio, round(song.duration_hint_s * 1000)
+            )
         deviations = metrics.word_start_deviations(_hyp_words(result), song.words)
         if deviations is None:
             entry["error"] = "word count mismatch (sync degraded or token drift)"
@@ -433,6 +442,16 @@ def main() -> int:
         default=400,
         help="jamendo only: simulate lrclib stamp noise on the anchors (0 = ground-truth anchors)",
     )
+    parser.add_argument(
+        "--signals",
+        action="store_true",
+        help=(
+            "also emit candidate confidence signals per song (benchmarks/"
+            "signals.py). The shipped quality_score correlates at r=0.36 with "
+            "real accuracy; this is the rig for finding something that does "
+            "better. Adds an audio pass per song for onset detection."
+        ),
+    )
     parser.add_argument("--label", help="results filename label (default: config name)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -466,6 +485,7 @@ def main() -> int:
             "mixback": args.mixback if args.separation != "full-mix" else None,
             "windowed": args.windowed,
             "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
+            "signals": args.signals,
             "line_postprocess": args.line_postprocess,
             "trim_ends": args.trim_ends,
             "host": platform.node(),
