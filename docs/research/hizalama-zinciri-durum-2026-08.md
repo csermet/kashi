@@ -502,3 +502,79 @@ Combined ranking reaches **Spearman +0.644**, against +0.264 today.
   lines instead of killing documents. That is also the only version that helps
   the field, where the complaint was never "this song is bad" but "these words
   drift".
+
+---
+
+# Per-line signals (2026-08-06) — real, but not a gate
+
+`benchmarks/results/2026-08-06-pc-lines.json`: the same sweep at line scale.
+**3383 lines**, of which **162 (4.8 %) are genuinely bad** (PCO@0.3 < 0.5).
+A real population, unlike the two bad songs the document-level test rested on.
+
+## Ranking
+
+| signal | Spearman → line PCO@0.3 |
+|---|---|
+| `onset_within_200` | **+0.399** |
+| `onset_within_100` | +0.350 |
+| `silence_frac` | **+0.345** |
+| `onset_median_ms` | +0.302 |
+| `prob_mean` | +0.183 |
+| `line_score` | +0.173 |
+| `duration_outlier_frac` | +0.165 |
+
+Two notes on reading this. The +0.285 "bar" printed by the tool is a
+**song-level** number and does not transfer — at line scale there is no
+incumbent to beat, because the shipped pipeline uses no per-line quality
+signal at all. And correlations are lower everywhere simply because a line
+holds a handful of words; less data per unit, more noise.
+
+**`line_score` at +0.173 vindicates an inherited decision.** Line QA
+deliberately does not flag on it ("measured docs contain lines with perfect
+timing and a 0.00 score"). That was recorded as a field observation; it is now
+a measurement against ground truth, and it holds.
+
+Also: `duration_outlier_frac` was the strong second at song level (+0.455) and
+collapses here (+0.165). It is a property of a document's overall shape, not
+of one line — worth keeping at the scale where it works rather than assuming
+signals transfer between scopes.
+
+## Detection curve — the honest limit
+
+Flagging the worst X % of lines by signal, what fraction of the 162 bad lines
+does it catch?
+
+| signal | worst 5 % | 10 % | 20 % | 30 % |
+|---|---|---|---|---|
+| `onset_within_200` | **35 %** | 48 % | 58 % | 65 % |
+| `onset_median_ms` | 35 % | 48 % | 62 % | 69 % |
+| `silence_frac` | 26 % | 41 % | 56 % | 64 % |
+| onset + silence | 28 % | 41 % | 61 % | **81 %** |
+| `line_score` | 17 % | 33 % | 55 % | 74 % |
+| *random* | *5 %* | *10 %* | *20 %* | *30 %* |
+
+**Seven times better than chance at the top** — the signals genuinely know
+something. And nowhere near a separator: catching 80 % of bad lines costs
+flagging 30 % of every line in the archive.
+
+## What this settles
+
+**The arbiter must MARK, not DELETE.** That was a design preference three days
+ago; it is now the only reading the data supports. A signal that is 7× better
+than chance is worth acting on softly — de-emphasise, defer to the line clock,
+raise the bar for effects — and is nowhere near good enough to justify
+destroying word timings, which is what today's threshold does on the lines it
+flags.
+
+**The free signals are now exhausted.** Everything measurable from librosa and
+the aligner's own output has been measured. The remaining untested lever is
+the one that was always theoretically strongest: **a second aligner**.
+Cross-model disagreement is the only evidence that is independent of *both*
+the audio heuristics and the incumbent model, and it is the one candidate this
+rig has not yet been able to score.
+
+That converges with the licence problem rather than competing with it. The
+seam takes CTC checkpoints (`AutoModelForCTC`), so **one permissively licensed
+CTC checkpoint would serve both purposes at once** — the commercial escape
+from CC-BY-NC, and the second opinion the arbiter needs. Finding it is the
+next concrete task, and it is a search, not a build.
