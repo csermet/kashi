@@ -386,3 +386,51 @@ What this does and does not kill:
 
 Also still open: voidful (the multilingual primary candidate) has not run yet
 — the per-language ladder's ceiling is measured, the single-model route is not.
+
+## The 1B run — a permissive model matches the CC-BY-NC incumbent (2026-08-06)
+
+`2026-08-06-jg-xlsr1b-en.json`. Same author, same 33-token vocab, same config;
+the only variable is 300M → 1B parameters. 20 English songs.
+
+| | MMS (CC-BY-NC) | jg 300M | **jg 1B (Apache-2.0)** |
+|---|---|---|---|
+| PCO@0.1 | 0.4808 | 0.4476 | 0.4783 |
+| PCO@0.2 | 0.7458 | 0.7161 | **0.7460** |
+| PCO@0.3 | 0.8746 | 0.8416 | **0.8789** |
+| PCO@0.5 | 0.9340 | 0.9066 | **0.9400** |
+| MAE median | 160 ms | 171 ms | **157 ms** |
+| align seconds (GPU) | — | 47 | 110 |
+
+**At the tolerances that matter the permissive model is now ahead**, and
+per-song it is 8 wins / 7 losses / 5 ties — a coin flip, not a compromise.
+Scaling recovered the whole three-point gap and a little more, for 2.3× the
+alignment time on GPU.
+
+This is the licence question answered with a measurement rather than a
+trade-off: **there is a commercially clean aligner that does not cost quality
+on English.** What it costs is compute, and the seam means adopting it is a
+config value.
+
+Caveats that keep this from being a decision yet:
+
+- **English only, 20 songs.** The multilingual claim is untested; the sibling
+  1B checkpoints are per-language, and voidful (the one multilingual
+  permissive candidate) has still not run.
+- **Turkish has no 1B option** in this family — `mpoyraz` is 300M.
+- **CPU cost is unmeasured.** 2.3× on GPU says nothing certain about the
+  production CPU worker, which already spends ~10 min per song.
+- The quality-ramp constants remain MMS-calibrated (`alignment.py:113`).
+
+### And the arbiter got worse news
+
+Song-level PCO correlation with MMS: **300M +0.920, 1B +0.945**. The better
+the second model, the more it agrees — including on the failures. On MMS's
+worst song both alternatives land in the same territory.
+
+That is not surprising in hindsight and it is worth stating plainly: these are
+all wav2vec2-family CTC models reading the same separated vocals through the
+same windows. **Architectural diversity is what a second opinion needs, and
+this family cannot supply it.** Cross-model disagreement at *word* level may
+still carry signal the song aggregate hides — that measurement is still owed —
+but the song-level evidence says a same-family second opinion is a weak
+foundation for the arbiter.
