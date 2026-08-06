@@ -72,6 +72,46 @@ def _pair(items, ref_words: list[tuple[int, str]]) -> list[float] | None:
     ]
 
 
+def _align_windowed(aligner, audio_path, song) -> list:
+    """One Qwen call per lrclib-anchored window, timestamps offset back.
+
+    Production would run Qwen exactly this way (the same windows MMS uses),
+    and 15-40 s slices sit near its speech training distribution — against
+    full songs it drifts up to 55 s with no way back. Ground-truth line starts
+    serve as anchors unjittered: a probe measures the mode's ceiling, not its
+    field robustness.
+    """
+    import soundfile as sf
+
+    from kashi_server.pipeline.windows import plan_windows
+
+    total_ms = round(song.duration_hint_s * 1000)
+    plan = plan_windows(song.line_texts, song.line_starts_ms, total_ms)
+    if plan is None:
+        raise RuntimeError("no window plan (too few anchors)")
+
+    data, sr = sf.read(str(audio_path), dtype="float32")
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+
+    pieces, texts = [], []
+    for window in plan:
+        lo = min(len(data), max(0, round(window.slice_start_ms / 1000 * sr)))
+        hi = min(len(data), round(window.slice_end_ms / 1000 * sr))
+        pieces.append((data[lo:hi], sr))
+        texts.append(" ".join(song.line_texts[i] for i in window.line_indices))
+
+    results = aligner.align(pieces, texts, "English")
+    items: list = []
+    for window, result in zip(plan, results, strict=True):
+        offset_s = window.slice_start_ms / 1000
+        for item in result.items:
+            item.start_time += offset_s
+            item.end_time += offset_s
+            items.append(item)
+    return items
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
@@ -86,6 +126,16 @@ def main() -> int:
         "--full-mix",
         action="store_true",
         help="feed the mix instead of separated vocals (Whisper-style models can prefer it)",
+    )
+    parser.add_argument(
+        "--windowed",
+        action="store_true",
+        help=(
+            "slice by lrclib-style line anchors (production's window shape). "
+            "Full songs collapsed — MAE 18-24 s — while three songs aligned "
+            "fine, so short windows near Qwen's speech training length are "
+            "its last plausible operating mode."
+        ),
     )
     parser.add_argument("--label", default="qwen-fa-probe")
     args = parser.parse_args()
@@ -131,19 +181,22 @@ def main() -> int:
                     continue
             # The annotation's own token stream, so the counting matches the
             # ground truth by construction — the same trick the harness uses.
-            text = " ".join(token for _, token in song.words)
             t0 = time.monotonic()
-            result = aligner.align(str(audio), text, "English")[0]
+            if args.windowed:
+                items = _align_windowed(aligner, audio, song)
+            else:
+                text = " ".join(token for _, token in song.words)
+                items = list(aligner.align(str(audio), text, "English")[0].items)
             entry["align_s"] = round(time.monotonic() - t0, 1)
         except Exception as exc:  # a broken song is a data point, not the end
             logger.exception("%s failed", song.stem)
             entry["error"] = f"{type(exc).__name__}: {exc}"
             continue
 
-        deviations = _pair(result.items, song.words)
+        deviations = _pair(items, song.words)
         if deviations is None:
             entry["error"] = (
-                f"token mismatch: qwen={len(result.items)} "
+                f"token mismatch: qwen={len(items)} "
                 f"vs kept-annotation={sum(1 for _, t in song.words if _clean_token(t))}"
             )
             continue
