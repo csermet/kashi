@@ -52,15 +52,29 @@ has to be measurable against the incumbent on the same 79 songs.
 # incumbent
 python -m benchmarks.run --dataset jamendo --separation kim-melband --windowed \
   --label mms-baseline
-# the only candidate that is Apache-2.0 on BOTH code and weights
+# any other CTC checkpoint
 python -m benchmarks.run --dataset jamendo --separation kim-melband --windowed \
-  --align-model Qwen/Qwen3-ForcedAligner-0.6B --label qwen3-fa
+  --align-model <hf-id> --label <name>
 ```
 
 `meta.alignment_model` records the model that actually ran, so two result
-files can never claim the same aligner. Known caveats before reading the
-numbers: Qwen3-FA quantises to 80 ms bins (±40 ms, material against our
-191 ms MAE) and its language list does **not** include Turkish.
+files can never claim the same aligner.
+
+**Scope of the flag.** `load_alignment_model` is
+`AutoModelForCTC.from_pretrained`, so this swaps **CTC checkpoints** —
+wav2vec2/MMS-family — and nothing else. It is not an architecture switch.
+
+Two consequences worth stating plainly:
+
+- **Qwen3-ForcedAligner-0.6B cannot be compared this way.** It is a Qwen3
+  slot-filling aligner behind its own `qwen-asr` package, not a CTC head.
+  Putting it against the incumbent needs a second align BACKEND, which is
+  real work and not this flag. (Its own caveats stand for when that happens:
+  80 ms output bins, ±40 ms against our 191 ms MAE, and no Turkish in its
+  language list.)
+- **The commercially-clean path that IS in scope** is a permissively licensed
+  CTC checkpoint. That is the search worth running before building any
+  adapter, because it would drop straight in.
 
 One invocation = one configuration. The matrix:
 
