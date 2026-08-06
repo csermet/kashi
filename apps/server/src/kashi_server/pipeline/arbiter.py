@@ -1,0 +1,137 @@
+"""Does a drifted line deserve to lose its words, or only a warning?
+
+The defect this repairs (Faz 8 B4, measured 2026-08-06). A line whose start
+strays past `DRIFT_THRESHOLD_MS` from its lrclib anchor has its word timings
+**deleted** — the line survives as plain text. That rule has no second
+opinion in it: the anchor says "this line is misplaced" and the words die for
+it, even when they were internally perfect and merely sat on a shifted clock.
+
+The archive says the rule is too eager. At document scale, the cheapest
+threshold catching both genuinely bad songs destroys eleven good ones. At
+line scale — 3383 lines with ground truth — flagging the worst 5 % by signal
+catches 35 % of the truly bad lines: **seven times chance**, and nowhere near
+a separator. A signal that good deserves to be acted on softly and is nowhere
+near good enough to justify deleting anything.
+
+So the anchor proposes and the evidence disposes:
+
+- **Vocal onsets** (`onsets.py`) — the only signal independent of the aligner,
+  since it comes from the audio rather than the model that produced the
+  timings. Measured Spearman +0.399 against per-line truth.
+- **Silence coverage** — how much of the line's own span carries no word.
+  +0.345. A line smeared across an instrumental gap looks nothing like a sung
+  one.
+
+When both corroborate the anchor, the words go, exactly as before. When they
+contradict it, the line is **block-shifted onto the anchor and marked
+uncertain** — the shift keeps line and words on one clock (the ad-lib path's
+precedent), and the mark lets the client de-emphasise rather than the server
+destroy.
+
+Pure module: it is handed onsets, never audio. Detection lives at the I/O
+boundary in `onsets.py` so this stays testable without librosa.
+"""
+
+import logging
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+# A word start this far from the nearest detected vocal onset is unsupported
+# by the audio. Deliberately generous: in singing a note onset lands on the
+# syllable's VOWEL, so a word start sits early of it by the leading
+# consonant's length, and the tolerance has to absorb that bias rather than
+# punish every consonant-initial word (measured design note, Faz 8).
+ONSET_TOLERANCE_MS = 200
+# Below this fraction of a line's words landing on an onset, the audio does
+# not back the timings up. Chosen at the measured operating point: flagging
+# the worst ~5% of lines by this signal catches ~35% of genuinely bad ones.
+MIN_ONSET_SUPPORT = 0.34
+# A line whose words cover less than this fraction of its own span is mostly
+# hole — the aligner smeared a few words across a gap it could not explain.
+MIN_SPAN_COVERAGE = 0.30
+# Corroboration needs evidence: below this many words neither signal means
+# anything and the anchor is left to rule alone, as it does today.
+MIN_WORDS_FOR_EVIDENCE = 3
+
+
+@dataclass(frozen=True)
+class LineVerdict:
+    """What to do with one flagged line, and why."""
+
+    drop_words: bool
+    onset_support: float | None  # fraction landing on an onset; None = unmeasured
+    span_coverage: float
+
+    @property
+    def reason(self) -> str:
+        if self.drop_words:
+            return "audio agrees the line is misplaced"
+        return "audio backs the words up; shifted onto the anchor and marked"
+
+
+def _span_coverage(words: list, line_span_ms: int) -> float:
+    """Fraction of the line's own span that actually carries a word."""
+    if line_span_ms <= 0 or not words:
+        return 0.0
+    sung = sum(max(0, w.end_ms - w.start_ms) for w in words)
+    return min(1.0, sung / line_span_ms)
+
+
+def onset_support(words: list, onset_ms: list[int] | None) -> float | None:
+    """Fraction of word starts within `ONSET_TOLERANCE_MS` of a vocal onset.
+
+    None when there is nothing to measure against — no onsets detected, or no
+    words. An unmeasurable signal must not be read as a bad one.
+    """
+    if not onset_ms or not words:
+        return None
+    hits = 0
+    cursor = 0
+    for word in sorted(words, key=lambda w: w.start_ms):
+        # Both sequences are sorted, so the nearest onset is found by walking
+        # forward once rather than scanning per word.
+        while cursor + 1 < len(onset_ms) and abs(onset_ms[cursor + 1] - word.start_ms) <= abs(
+            onset_ms[cursor] - word.start_ms
+        ):
+            cursor += 1
+        if abs(onset_ms[cursor] - word.start_ms) <= ONSET_TOLERANCE_MS:
+            hits += 1
+    return hits / len(words)
+
+
+def judge_line(words: list, line_span_ms: int, onset_ms: list[int] | None) -> LineVerdict:
+    """Second opinion on a line the drift threshold already flagged. Pure.
+
+    Returns drop_words=True only when the evidence AGREES with the anchor. The
+    burden of proof sits on deletion, not on survival: that is the whole
+    correction, since the measured cost of the old rule was good documents
+    losing word timings they had earned.
+    """
+    coverage = _span_coverage(words, line_span_ms)
+    support = onset_support(words, onset_ms)
+
+    if len(words) < MIN_WORDS_FOR_EVIDENCE:
+        # Too few words for either signal to mean anything. The anchor rules
+        # alone, exactly as it does today — no new behaviour where there is no
+        # new evidence.
+        return LineVerdict(drop_words=True, onset_support=support, span_coverage=coverage)
+
+    if support is None:
+        # Onset detection unavailable (no librosa, unreadable audio). Coverage
+        # alone is the weaker signal, so it only rescues an unambiguous case.
+        return LineVerdict(
+            drop_words=coverage < MIN_SPAN_COVERAGE,
+            onset_support=None,
+            span_coverage=coverage,
+        )
+
+    unsupported = support < MIN_ONSET_SUPPORT
+    hollow = coverage < MIN_SPAN_COVERAGE
+    # BOTH must corroborate. Either alone is a seven-times-chance signal, which
+    # is worth a warning and not worth a deletion.
+    return LineVerdict(
+        drop_words=unsupported and hollow,
+        onset_support=support,
+        span_coverage=coverage,
+    )

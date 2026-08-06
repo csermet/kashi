@@ -104,6 +104,10 @@
             "type": "boolean",
             "description": "This line's word boundaries are SYNTHETIC (redistributed across the line span for sweep aesthetics), not aligner-measured. Presentation data only — never contribute them as measured timings. Omitted when false; only appears alongside `words`."
           },
+          "uncertain": {
+            "type": "boolean",
+            "description": "The drift threshold flagged this line but the audio vouched for its words (Faz 8 B4): they were block-shifted onto the lrclib anchor rather than deleted. Presentation hint — a client may de-emphasise the line; the timings are still aligner-measured. Omitted when false; only appears alongside `words`."
+          },
           "words": {
             "type": "array",
             "minItems": 1,

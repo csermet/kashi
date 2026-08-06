@@ -94,7 +94,9 @@ def test_worker_processes_an_upload_and_burns_the_row(
     assert job is not None and job.source_type == "upload"
 
     # Stub the heavy stages; the AUDIO fetch itself runs for real from the DB.
-    monkeypatch.setattr(wp, "_align_stage", lambda *a, **kw: (_fake_result(), False))
+    monkeypatch.setattr(
+        wp, "_align_stage", lambda s, j, tmp, audio, *a, **kw: (_fake_result(), False, audio)
+    )
     monkeypatch.setattr(
         wp,
         "fetch_lyrics",

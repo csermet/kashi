@@ -46,6 +46,7 @@ from kashi_server.pipeline.nightcore import (
     rubberband_filter,
     slow_duration_ok,
 )
+from kashi_server.pipeline.onsets import detect_onsets
 from kashi_server.pipeline.palette import extract_palette
 from kashi_server.pipeline.structure import extract_structure
 from kashi_server.pipeline.titles import clean_title, parse_composite_title
@@ -263,13 +264,18 @@ def _align_stage(
     *,
     align_wav: Path | None = None,
     tempo: float = 1.0,
-) -> tuple[AlignResult, bool]:
+) -> tuple[AlignResult, bool, Path]:
     """Align; optionally re-align on separated vocals when the score is low.
 
     `align_wav` skips the first decode when the caller already produced it
     (the nightcore branch decodes early for the duration sanity check);
     `tempo` carries the same slow-down into the second-pass vocal decode so
-    both passes align the same clock."""
+    both passes align the same clock.
+
+    Returns the wav that WON as well, because the arbiter's onset evidence has
+    to be measured on exactly the audio the surviving alignment heard — the
+    second pass swaps the mix for separated vocals, and onsets from the other
+    one would be evidence about a different signal (Faz 8 B4)."""
     language = detect_language(lyrics.full_text)
     # Windowing needs the lrclib stamps; the flag is the single rollout switch.
     anchors = lyrics.synced_starts_ms if settings.windowed_alignment else None
@@ -305,8 +311,8 @@ def _align_stage(
         vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000, tempo=tempo)
         second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors)
         if second.quality_score > result.quality_score:
-            return second, True
-    return result, False
+            return second, True, vocal_wav
+    return result, False, wav
 
 
 def _detect_nightcore(job: Job, download: DownloadResult) -> tuple[float, dict | None, str | None]:
@@ -646,7 +652,7 @@ def process_job(s: Session, job: Job) -> None:
                 checkpoint(s, job)
             lyrics = plan.lyrics
             speed_factor = plan.speed_factor
-            result, second_pass_separated = _align_stage(
+            result, second_pass_separated, aligned_wav = _align_stage(
                 s,
                 job,
                 tmp,
@@ -656,7 +662,15 @@ def process_job(s: Session, job: Job) -> None:
                 tempo=1.0 / speed_factor,
             )
             vocals_separated = second_pass_separated or separate_first
-            qa = apply_line_qa(result, lyrics.line_texts, lyrics.synced_starts_ms)
+            # The arbiter's only aligner-independent evidence (Faz 8 B4).
+            # Measured on the audio the winning alignment actually heard; a
+            # failure returns None and line QA falls back to today's rule.
+            qa = apply_line_qa(
+                result,
+                lyrics.line_texts,
+                lyrics.synced_starts_ms,
+                detect_onsets(aligned_wav),
+            )
             result = qa.result
             if speed_factor != 1.0:
                 if lyrics.source != "caller":

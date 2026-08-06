@@ -354,9 +354,35 @@ def test_qa_provenance_block_and_words_derived_flag():
         "adlib_rederived": 1,
         "offset_ms": -120,
         "trimmed_ends": 3,
+        # Faz 8 B4: how many flagged lines the audio vouched for. Zero here —
+        # this fixture predates the arbiter and none were rescued.
+        "uncertain": 0,
     }
     assert doc["lines"][0]["words_derived"] is True  # rederived AND word-carrying
     assert "words_derived" not in doc["lines"][1]
+
+
+def test_rescued_lines_carry_the_uncertain_flag():
+    """Faz 8 B4: a line the drift threshold flagged but the audio vouched for
+    keeps its words and says so, instead of shipping as a silent hole."""
+    from kashi_server.pipeline.line_qa import LineQAOutcome
+
+    result = _word_result()
+    qa = LineQAOutcome(
+        result=result,
+        flagged=[1],
+        offset_ms=0,
+        degraded_to_line=False,
+        uncertain=[1],
+    )
+    doc = build_document(
+        _job(), _lyrics(), result, _beats(), DEFAULT_PALETTE, vocals_separated=False, qa=qa
+    )
+    validate_document(doc)  # additive field passes the hard schema gate
+    assert doc["alignment"]["qa"]["uncertain"] == 1
+    assert doc["lines"][1]["uncertain"] is True
+    assert doc["lines"][1]["words"], "the words survived — that is the point"
+    assert "uncertain" not in doc["lines"][0]  # omitted when false, never written
 
 
 def test_document_without_qa_omits_the_block_entirely():

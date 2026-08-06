@@ -48,6 +48,10 @@ def _happy_stages(monkeypatch, scratch):
         return DownloadResult(path=path, abr=128.0, acodec="opus", duration_s=200.0, info={})
 
     def fake_align_stage(s, j, tmp, audio, lyrics, **kw):
+        # Third element is the wav that WON (Faz 8 B4): the arbiter measures
+        # onsets on exactly the audio the surviving alignment heard. The stub
+        # hands back the input path — no real audio, so onset detection
+        # returns None and line QA takes its pre-arbiter path.
         result = AlignResult(
             sync="word",
             lines=[LineTiming(0, 1000, "hello world", 0.8)],
@@ -56,7 +60,7 @@ def _happy_stages(monkeypatch, scratch):
             ],
             quality_score=0.8,
         )
-        return result, False
+        return result, False, Path(audio)
 
     monkeypatch.setattr(wp, "download_audio", fake_download)
     monkeypatch.setattr(wp, "_align_stage", fake_align_stage)
@@ -189,6 +193,7 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
         lambda s, j, tmp, audio, lyrics, **kw: (
             AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.8),
             False,
+            Path(audio),
         ),
     )
     monkeypatch.setattr(
@@ -475,7 +480,7 @@ def test_nightcore_detected_job_rescales_onto_the_played_clock(
             ],
             quality_score=0.8,
         )
-        return result, False
+        return result, False, Path(audio)
 
     monkeypatch.setattr(wp, "_align_stage", slowed_align)
 
@@ -571,7 +576,7 @@ def test_nightcore_wrong_song_gate_fails_honest(db_session, scratch, monkeypatch
             ],
             quality_score=0.1,
         )
-        return result, False
+        return result, False, Path(audio)
 
     monkeypatch.setattr(wp, "_align_stage", garbage_align)
     wp.process_job(db_session, job)
@@ -616,7 +621,7 @@ def test_nightcore_lyrics_text_skips_the_wrong_song_gate(db_session, scratch, mo
             ],
             quality_score=0.1,
         )
-        return result, False
+        return result, False, Path(audio)
 
     monkeypatch.setattr(wp, "_align_stage", lowprob_align)
     wp.process_job(db_session, job)

@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, replace
 from statistics import median
 
 from kashi_server.pipeline.alignment import AlignResult, LineTiming, quality_from_probs
+from kashi_server.pipeline.arbiter import judge_line
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,9 @@ class LineQAOutcome:
     adlib_shifted: list[int] = field(default_factory=list)  # block-shifted onto their anchors
     adlib_rederived: list[int] = field(default_factory=list)  # word spans redistributed
     trimmed_ends: int = 0  # word ends capped by the sustain trim (Faz 5 P1)
+    # Lines the drift threshold flagged but the audio vouched for: their words
+    # survive, shifted onto the anchor, carrying a warning instead of a hole.
+    uncertain: list[int] = field(default_factory=list)
 
 
 def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
@@ -341,6 +345,7 @@ def apply_line_qa(
     result: AlignResult,
     line_texts: list[str],
     synced_starts_ms: list[int | None] | None,
+    onset_ms: list[int] | None = None,
 ) -> LineQAOutcome:
     refs: list[int | None] | None = None
     if synced_starts_ms is not None:
@@ -421,10 +426,39 @@ def apply_line_qa(
         lines.append(line)
     lines = _clamp_monotonic(_recompute_ends(lines, flagged_set, result.lines))
     density_dropped = _border_case_drops(result, refs, flagged_set)
-    words_per_line = [
-        [] if i in flagged_set or i in density_dropped else words
-        for i, words in enumerate(result.words_per_line)
-    ]
+    # The anchor proposes, the audio disposes (Faz 8 B4). A flagged line used
+    # to lose its words unconditionally; now the evidence gets a vote, and
+    # deletion carries the burden of proof. A rescued line is BLOCK-SHIFTED
+    # with its snapped start so line and words stay on one clock — the ad-lib
+    # path's precedent — and marked uncertain so the client can de-emphasise
+    # what the server no longer destroys.
+    words_per_line: list[list] = []
+    uncertain: list[int] = []
+    for i, words in enumerate(result.words_per_line):
+        if i in density_dropped:
+            words_per_line.append([])
+            continue
+        if i not in flagged_set:
+            words_per_line.append(words)
+            continue
+        original = result.lines[i]
+        verdict = judge_line(words, original.end_ms - original.start_ms, onset_ms)
+        if verdict.drop_words:
+            words_per_line.append([])
+            continue
+        delta = lines[i].start_ms - original.start_ms
+        words_per_line.append(
+            [replace(w, start_ms=w.start_ms + delta, end_ms=w.end_ms + delta) for w in words]
+        )
+        uncertain.append(i)
+        logger.info(
+            "line QA rescue: line %d %r kept (onset support %s, coverage %.2f) — %s",
+            i,
+            original.text[:40],
+            "n/a" if verdict.onset_support is None else f"{verdict.onset_support:.2f}",
+            verdict.span_coverage,
+            verdict.reason,
+        )
 
     for i in flagged:
         logger.info(
@@ -465,6 +499,7 @@ def apply_line_qa(
         offset_ms=offset_ms,
         degraded_to_line=False,
         density_dropped=sorted(density_dropped),
+        uncertain=uncertain,
         adlib_shifted=adlib_shifted,
         adlib_rederived=rederived,
         trimmed_ends=trimmed,

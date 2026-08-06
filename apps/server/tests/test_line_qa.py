@@ -771,3 +771,74 @@ def test_offset_trust_is_a_pure_median_absolute_deviation():
     edge = OFFSET_TRUST_MAD_MS
     assert _offset_is_a_clock_difference([-edge, 0, edge], 0)
     assert not _offset_is_a_clock_difference([-edge - 1, -edge - 1, edge + 1, edge + 1], 0)
+
+
+def test_flagged_line_with_audio_backing_keeps_its_words_shifted(monkeypatch):
+    """Faz 8 B4 end to end. A drifted line whose words land on real onsets and
+    fill their span is a CLOCK disagreement, not bad word timing. It used to
+    lose its words; now it is block-shifted onto the anchor — line and words on
+    one clock, the ad-lib path's precedent — and marked uncertain."""
+    from kashi_server.pipeline.alignment import AlignResult, LineTiming
+
+    texts = ["one a b", "two c d", "three e f", "four g h"]
+    refs = [1000, 5000, 9000, 13_000]
+    # Line 3 sits 30 s late: far past the drift threshold, so it is flagged.
+    starts = [1000, 5000, 9000, 43_000]
+    lines, words = [], []
+    for start, text in zip(starts, texts, strict=True):
+        tokens = text.split()
+        chunk = _words(start, tokens)
+        words.append(chunk)
+        lines.append(LineTiming(start, chunk[-1].end_ms, text, 0.5))
+    result = AlignResult("word", lines, words, 0.8)
+    # Onsets exactly under every word, including the drifted line's.
+    onsets = [w.start_ms for chunk in words for w in chunk]
+
+    outcome = apply_line_qa(result, texts, refs, onsets)
+
+    assert outcome.flagged == [3]
+    assert outcome.uncertain == [3]  # warned, not destroyed
+    kept = outcome.result.words_per_line[3]
+    assert kept, "the audio backed these words up — they must survive"
+    # …and they moved WITH the line: the first word starts where the line does.
+    assert kept[0].start_ms == outcome.result.lines[3].start_ms
+    # The shift is rigid — internal spacing is the aligner's, untouched.
+    assert [w.end_ms - w.start_ms for w in kept] == [
+        w.end_ms - w.start_ms for w in words[3]
+    ]
+
+
+def test_flagged_line_the_audio_disowns_still_loses_its_words():
+    """The other half stays intact: when the evidence agrees with the anchor,
+    the old behaviour is the right behaviour."""
+    from kashi_server.pipeline.alignment import AlignResult, LineTiming
+
+    texts = ["one a b", "two c d", "three e f", "four g h"]
+    refs = [1000, 5000, 9000, 13_000]
+    starts = [1000, 5000, 9000, 43_000]
+    lines, words = [], []
+    for start, text in zip(starts, texts, strict=True):
+        tokens = text.split()
+        chunk = [
+            AlignedWord(start + i * 40, start + i * 40 + 20, tok, 0.5)
+            for i, tok in enumerate(tokens)
+        ]  # 60 ms of sound in a multi-second line: hollow
+        words.append(chunk)
+        lines.append(LineTiming(start, start + 9000, text, 0.5))
+    result = AlignResult("word", lines, words, 0.8)
+    onsets = [w.start_ms for chunk in words[:3] for w in chunk]  # nothing under line 3
+
+    outcome = apply_line_qa(result, texts, refs, onsets)
+    assert outcome.flagged == [3]
+    assert outcome.uncertain == []
+    assert outcome.result.words_per_line[3] == []
+
+
+def test_without_onsets_the_old_rule_still_governs():
+    """No audio evidence, no new behaviour — the pre-arbiter path is the
+    default so a librosa failure can never silently change documents."""
+    specs = [(1000, "one a"), (5000, "two b"), (9000, "three c"), (34_000, "four d")]
+    outcome = apply_line_qa(_result(specs), [s[1] for s in specs], [1000, 5000, 9000, 46_000])
+    assert outcome.flagged == [3]
+    assert outcome.result.words_per_line[3] == []
+    assert outcome.uncertain == []

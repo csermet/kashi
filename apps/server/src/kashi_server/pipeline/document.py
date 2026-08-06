@@ -100,6 +100,10 @@ def build_document(
     # as evidence — the Faz 5 lrclib publish gate above all — must not present
     # these as measured timings.
     derived_lines = set(qa.adlib_rederived) if qa is not None else set()
+    # Lines the drift threshold flagged but the audio vouched for (Faz 8 B4).
+    # Their words survive, shifted onto the anchor; the flag lets a client
+    # de-emphasise what the server chose not to destroy.
+    uncertain_lines = set(qa.uncertain) if qa is not None else set()
 
     lines: list[dict] = []
     for index, line in enumerate(align_result.lines):
@@ -124,6 +128,8 @@ def build_document(
             ]
             if index in derived_lines:
                 entry["words_derived"] = True
+            if index in uncertain_lines:
+                entry["uncertain"] = True
         lines.append(entry)
 
     track: dict = {
@@ -183,6 +189,7 @@ def build_document(
             "adlib_rederived": len(qa.adlib_rederived),
             "offset_ms": qa.offset_ms,
             "trimmed_ends": qa.trimmed_ends,
+            "uncertain": len(qa.uncertain),
         }
     if beats is not None:
         doc["beats"] = {

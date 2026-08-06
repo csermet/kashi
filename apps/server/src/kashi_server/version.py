@@ -342,5 +342,42 @@
 # is still to hand the aligner the kana reading. Had 2.18.0 shipped it would
 # have failed safe to line mode rather than misaligned, but it would have
 # fixed nothing.
-PIPELINE_VERSION = "2.18.1"
+# 2.19.0: the anchor proposes, the audio disposes (Faz 8 B4 — the arbiter).
+# A line drifting past DRIFT_THRESHOLD_MS lost its word timings outright. That
+# rule had no second opinion in it: the lrclib anchor said "misplaced" and the
+# words died for it, even when they were internally perfect and merely sat on
+# a shifted clock.
+# The archive says it is too eager. At document scale the cheapest threshold
+# catching both genuinely bad songs destroys ELEVEN good ones. At line scale —
+# 3383 lines against ground truth — the best signal flags the worst 5% and
+# catches 35% of the truly bad: seven times chance, and nowhere near a
+# separator. A signal that good is worth warning with and nowhere near good
+# enough to delete with.
+# So a flagged line now gets evidence, and DELETION CARRIES THE BURDEN OF
+# PROOF:
+#   · vocal onsets (onsets.py) — the only signal independent of the aligner,
+#     because it comes from the audio rather than the model that produced the
+#     timings. Measured Spearman +0.399 per line, the best of every free
+#     candidate, and it survives its own density confounder.
+#   · silence coverage — how much of the line's own span carries no word.
+#     +0.345. A line smeared over an instrumental gap looks nothing like a
+#     sung one.
+# BOTH must corroborate the anchor before the words go. When they contradict
+# it the line is block-shifted onto the anchor — line and words on one clock,
+# the ad-lib path's precedent — and marked `uncertain` (additive schema field
+# + a qa counter) so a client can de-emphasise what the server no longer
+# destroys.
+# Conservative by construction: fewer than three words means neither signal
+# means anything and today's rule stands; onset detection failing (no librosa,
+# unreadable audio) leaves coverage to rescue only the unambiguous case. No
+# new behaviour anywhere there is no new evidence.
+# The arbiter is pure and is handed onsets, never audio — detection lives at
+# the I/O boundary in onsets.py, measured on the wav the WINNING alignment
+# heard (the second pass swaps the mix for separated vocals, and onsets from
+# the other one would be evidence about a different signal).
+# Not in yet: cross-model disagreement. Qwen3-FA measured +0.483 song-level
+# correlation against MMS where same-family models sit at +0.92..+0.945, so it
+# is a real third signal — but its word-level value is unmeasured and nothing
+# enters production unmeasured.
+PIPELINE_VERSION = "2.19.0"
 PIPELINE_MAJOR = 2
