@@ -528,3 +528,38 @@ migration off CC-BY-NC costs **no measurable quality** and the German −1.2 pt
 is exactly what the singing-adapt fine-tune experiment exists to recover.
 This closes the "is there a hidden quality tax?" question with data from all
 79 songs.
+
+## The Qwen file, closed with three measurements (2026-08-06 night)
+
+Qwen3-ForcedAligner-0.6B, the one permissively licensed aligner with a
+genuinely non-CTC mechanism, probed three ways on the same 20 English songs:
+
+| mode | MAE mean | PCO@0.3 | verdict |
+|---|---|---|---|
+| full song, mix | 23.9 **s** | 0.131 | collapse |
+| full song, separated vocals | 18.4 **s** | 0.251 | collapse |
+| **windowed (lrclib anchors)** | **429 ms** | **0.812** | **works** |
+
+The collapse pattern was duration, not mechanism: on full songs three tracks
+aligned nearly perfectly while the rest drifted 7–55 s with no way back.
+Sliced into the same lrclib-anchored windows production already uses —
+15–40 s, near its speech training length — it recovers to PCO 0.812, six
+points behind MMS (0.8746) with a heavier tail (429 ms vs 191 ms MAE).
+
+Not good enough to be the primary. It was never meant to be. The number that
+matters is the other one:
+
+**Song-level correlation with MMS: +0.483** — against +0.920 (jg-300M) and
++0.945 (jg-1B) for same-family models. The architectural-diversity hypothesis
+holds: a slot-filling aligner fails in genuinely different places than a CTC
+one, which is exactly the property a disagreement signal needs and the one
+thing the wav2vec2 family could not supply at any size.
+
+Both decision criteria set in advance were met (PCO ≥ 0.75, correlation
+< 0.6). **The arbiter's second opinion exists: Qwen3-FA, windowed, Apache-2.0.**
+
+Honest limits: the probe ran with ground-truth anchors unjittered (a ceiling,
+not field robustness); no per-word score exists (the arbiter must use
+time-deltas only); Turkish stays excluded (silent degradation) — the TR
+second opinion remains the whisper route; and word-level disagreement-vs-truth
+is still the measurement the adapter should emit first.
