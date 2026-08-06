@@ -183,14 +183,16 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
         entry["align_s"] = round(align_s, 1)
         entry["sync"] = result.sync
         entry["quality_score"] = round(result.quality_score, 4)
+        onset_ms = None
         if args.signals:
             # Candidate confidence signals, written NEXT TO the ground-truth
             # error below so "does this signal know anything?" is a
             # correlation rather than an opinion (Faz 8).
             from benchmarks import signals as signal_probes
 
+            onset_ms = signal_probes.detect_onsets(audio)
             entry["signals"] = signal_probes.collect(
-                result, audio, round(song.duration_hint_s * 1000)
+                result, audio, round(song.duration_hint_s * 1000), onset_ms
             )
         deviations = metrics.word_start_deviations(_hyp_words(result), song.words)
         if deviations is None:
@@ -199,6 +201,24 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             stats = metrics.error_stats(deviations, tolerances_ms)
             assert stats is not None
             entry["words"] = asdict(stats)
+            if args.signals:
+                # Per-LINE signals paired with per-line truth. The deviation
+                # list is positional over the same flattened word stream the
+                # signals are computed from, so slicing it by the per-line
+                # word counts pairs them exactly — no re-matching, nothing to
+                # drift.
+                from benchmarks import signals as signal_probes
+
+                lines = signal_probes.line_signals(result, onset_ms)
+                cursor = 0
+                for row in lines:
+                    count = row["n_words"]
+                    chunk = deviations[cursor : cursor + count]
+                    cursor += count
+                    line_stats = metrics.error_stats(chunk, tolerances_ms) if chunk else None
+                    if line_stats is not None:
+                        row["truth"] = asdict(line_stats)
+                entry["lines_detail"] = lines
             # END-time metrics (Faz 5 P1): same positional pairing, end axis.
             tokens = [token for _, token in song.words]
             end_deviations = metrics.word_start_deviations(

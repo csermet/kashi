@@ -92,22 +92,12 @@ def probability_signals(probs: list[float]) -> dict:
     }
 
 
-def onset_signals(audio_path: Path, word_starts_ms: list[int]) -> dict:
-    """How close does each word start sit to a detected vocal onset?
+def detect_onsets(audio_path: Path) -> list[int] | None:
+    """Vocal onset times in ms, or None if the audio could not be read.
 
-    This is the one candidate that is genuinely INDEPENDENT of the aligner —
-    it comes from the audio, not from the model that produced the timings. If
-    the aligner drifts, its words stop landing on onsets, and nothing inside
-    the forward pass can hide that.
-
-    Known limitation, stated because it will show up in the numbers: in
-    singing a note onset aligns with the syllable's VOWEL, not its leading
-    consonant, so word starts sit systematically EARLY of their onset by the
-    consonant's length. The distance distribution is therefore expected to be
-    biased rather than centred — which is fine for a correlation, and would
-    need a vowel-aware correction before it could snap anything.
-
-    Returns Nones on failure: a song without onsets is still a data point.
+    Separated once per song and handed to every scope that needs it — the
+    audio pass is the expensive part of this module and a per-line recompute
+    would multiply it by forty.
     """
     try:
         import librosa
@@ -116,23 +106,33 @@ def onset_signals(audio_path: Path, word_starts_ms: list[int]) -> dict:
         onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=True)
     except Exception:  # a broken file must not end the sweep
         logger.exception("onset detection failed for %s", audio_path.name)
-        return {"onset_median_ms": None, "onset_within": None, "onset_count": None}
+        return None
+    return [round(float(t) * 1000) for t in onsets]
 
-    onset_ms = [round(float(t) * 1000) for t in onsets]
+
+def onset_distances(onset_ms: list[int], word_starts_ms: list[int]) -> list[float]:
+    """Distance from each word start to its nearest onset. Pure.
+
+    Both lists are sorted, so the nearest onset is found by walking forward
+    once rather than scanning per word.
+    """
     if not onset_ms or not word_starts_ms:
-        return {"onset_median_ms": None, "onset_within": None, "onset_count": len(onset_ms)}
-
+        return []
     distances: list[float] = []
     cursor = 0
     for start in sorted(word_starts_ms):
-        # Both lists are sorted, so the nearest onset is found by walking
-        # forward once rather than scanning per word.
         while cursor + 1 < len(onset_ms) and abs(onset_ms[cursor + 1] - start) <= abs(
             onset_ms[cursor] - start
         ):
             cursor += 1
         distances.append(abs(onset_ms[cursor] - start))
+    return distances
 
+
+def onset_summary(distances: list[float]) -> dict:
+    """Distances -> the shape the correlation reads. Pure."""
+    if not distances:
+        return {"onset_median_ms": None, "onset_within": None}
     n = len(distances)
     return {
         "onset_median_ms": round(_percentile(distances, 0.5), 1),
@@ -140,8 +140,51 @@ def onset_signals(audio_path: Path, word_starts_ms: list[int]) -> dict:
             str(tol): round(sum(1 for d in distances if d <= tol) / n, 4)
             for tol in ONSET_TOLERANCES_MS
         },
-        "onset_count": len(onset_ms),
     }
+
+
+def line_signals(result, onset_ms: list[int] | None) -> list[dict]:
+    """Per-LINE candidates (Faz 8, 2026-08-06).
+
+    The song-level hunt ended with document gating looking like the wrong
+    frame: at a looser badness threshold every candidate destroyed dozens of
+    good documents, and the archive's own damage is concentrated in a tail of
+    lines while the median document is clean. A document is not uniformly good
+    or bad, so asking a signal to judge one was asking the wrong question.
+
+    The field complaint was never "this song is bad" — it was "these words
+    drift". This is that question, at that scale.
+    """
+    rows: list[dict] = []
+    for index, words in enumerate(result.words_per_line):
+        row: dict = {"line": index, "n_words": len(words)}
+        if not words:
+            rows.append(row)
+            continue
+        probs = [w.prob for w in words]
+        row.update(probability_signals(probs))
+        if onset_ms:
+            row.update(onset_summary(onset_distances(onset_ms, [w.start_ms for w in words])))
+        span_ms = max(1, words[-1].end_ms - words[0].start_ms)
+        row.update(plausibility_signals(words, span_ms))
+        # The aligner's own per-line score, which line QA deliberately does NOT
+        # use as a flagging signal (measured: good lines score 0.00). Carried
+        # so that decision can be re-checked against ground truth rather than
+        # inherited.
+        if index < len(result.lines):
+            row["line_score"] = round(result.lines[index].score, 5)
+        rows.append(row)
+    return rows
+
+
+def onset_signals(audio_path: Path, word_starts_ms: list[int]) -> dict:
+    """Song-level onset summary. Thin wrapper over the pieces above so the
+    song and line scopes cannot drift apart."""
+    onset_ms = detect_onsets(audio_path)
+    if onset_ms is None:
+        return {"onset_median_ms": None, "onset_within": None, "onset_count": None}
+    summary = onset_summary(onset_distances(onset_ms, word_starts_ms))
+    return {**summary, "onset_count": len(onset_ms)}
 
 
 def plausibility_signals(words: list, total_duration_ms: int) -> dict:
@@ -183,11 +226,21 @@ def plausibility_signals(words: list, total_duration_ms: int) -> dict:
     }
 
 
-def collect(result, audio_path: Path, total_duration_ms: int) -> dict:
-    """Every candidate for one song, flat and JSON-ready."""
+def collect(
+    result, audio_path: Path, total_duration_ms: int, onset_ms: list[int] | None = None
+) -> dict:
+    """Every candidate for one song, flat and JSON-ready.
+
+    `onset_ms` is accepted so the caller can detect once and share it with the
+    per-line scope; omitted, it is detected here.
+    """
     words = [w for chunk in result.words_per_line for w in chunk]
     signals: dict = {}
     signals.update(probability_signals([w.prob for w in words]))
-    signals.update(onset_signals(audio_path, [w.start_ms for w in words]))
+    if onset_ms is None:
+        signals.update(onset_signals(audio_path, [w.start_ms for w in words]))
+    else:
+        signals.update(onset_summary(onset_distances(onset_ms, [w.start_ms for w in words])))
+        signals["onset_count"] = len(onset_ms)
     signals.update(plausibility_signals(words, total_duration_ms))
     return signals

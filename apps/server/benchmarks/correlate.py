@@ -87,36 +87,61 @@ def _flatten(signals: dict) -> dict[str, float]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", type=Path)
+    parser.add_argument(
+        "--lines",
+        action="store_true",
+        help=(
+            "correlate per LINE instead of per song. The song-level hunt "
+            "ended with document gating looking like the wrong frame — a "
+            "document is not uniformly good or bad, and the field complaint "
+            "was 'these words drift', not 'this song is bad'."
+        ),
+    )
     args = parser.parse_args()
 
     report = json.loads(args.results.read_text(encoding="utf-8"))
-    songs = [
-        s
-        for s in report.get("jamendo", {}).get("songs", [])
-        if s.get("words") and s.get("signals")
-    ]
-    if not songs:
+    all_songs = report.get("jamendo", {}).get("songs", [])
+
+    if args.lines:
+        rows = [
+            row
+            for song in all_songs
+            for row in song.get("lines_detail", [])
+            if row.get("truth") and row.get("n_words")
+        ]
+        scope, unit = rows, "lines"
+        truth_pco = [r["truth"]["pcs"]["0.3"] for r in rows]
+        truth_mae = [r["truth"]["mae_ms"] for r in rows]
+        flat = [_flatten(r) for r in rows]
+    else:
+        rows = [s for s in all_songs if s.get("words") and s.get("signals")]
+        scope, unit = rows, "songs"
+        truth_pco = [s["words"]["pcs"]["0.3"] for s in rows]
+        truth_mae = [s["words"]["mae_ms"] for s in rows]
+        flat = [{**_flatten(s["signals"]), "quality_score": s["quality_score"]} for s in rows]
+
+    if not scope:
         print(
-            "no scored songs carry signals — was the sweep run with --signals?",
+            "nothing to correlate — was the sweep run with --signals?",
             file=sys.stderr,
         )
         return 1
 
-    truth_pco = [s["words"]["pcs"]["0.3"] for s in songs]
-    truth_mae = [s["words"]["mae_ms"] for s in songs]
-
-    candidates: dict[str, list[float]] = {"quality_score": [s["quality_score"] for s in songs]}
-    for name in _flatten(songs[0]["signals"]):
-        column = [_flatten(s["signals"]).get(name) for s in songs]
-        if all(v is not None for v in column):
+    candidates: dict[str, list[float]] = {}
+    ignored = {"line", "n_words"} | {k for k in flat[0] if k.startswith("truth")}
+    for name in flat[0]:
+        if name in ignored:
+            continue
+        column = [row.get(name) for row in flat]
+        if all(isinstance(v, int | float) for v in column):
             candidates[name] = [float(v) for v in column]  # pyright: ignore[reportArgumentType]
 
-    rows = []
+    ranked = []
     for name, values in candidates.items():
         if len(set(values)) < 3:  # constant signals cannot rank anything
             continue
         flip = -1.0 if name in LOWER_IS_BETTER else 1.0
-        rows.append(
+        ranked.append(
             (
                 name,
                 flip * _spearman(values, truth_pco),
@@ -124,13 +149,13 @@ def main() -> int:
                 -flip * _spearman(values, truth_mae),
             )
         )
-    rows.sort(key=lambda r: -abs(r[1]))
+    ranked.sort(key=lambda r: -abs(r[1]))
 
-    print(f"{len(songs)} songs · {args.results.name}")
+    print(f"{len(scope)} {unit} · {args.results.name}")
     print(f"bar to beat: {INCUMBENT_LABEL} Spearman {INCUMBENT_SPEARMAN:+.3f}\n")
     print(f"{'signal':<28}{'Spearman':>10}{'Pearson':>10}{'vs MAE':>10}   verdict")
     print("-" * 74)
-    for name, sp, pe, mae_sp in rows:
+    for name, sp, pe, mae_sp in ranked:
         if abs(sp) < 0.1:
             verdict = "knows nothing"
         elif abs(sp) <= INCUMBENT_SPEARMAN:
