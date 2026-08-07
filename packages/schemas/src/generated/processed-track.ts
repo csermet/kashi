@@ -44,9 +44,9 @@ export interface KashiProcessedTrackV1 {
      */
     quality_score: number;
     /**
-     * What quality_score actually measured (pipeline 2.5.0+). "ctc-probs": calibrated CTC probability ramp (whole-audio path). "anchors": line-anchor agreement on the windowed path — word-level precision is NOT measured, so a 1.0 can still drift at word granularity. "human": human word data consumed as-is (lyricsfile), fixed 1.0. Absent on older documents.
+     * Which FORMULA produced quality_score (pipeline 2.5.0+; the last two added in 2.16.0). "ctc-probs": calibrated CTC probability ramp alone — no reference stamps were available. "anchors": line-anchor agreement on the windowed path. "probs+anchors": the ramp over surviving words, scaled by the fraction of referenced lines that survived QA. "line-anchors": line-anchor agreement on a document that has NO word timings at all (sync="line"). "human": human word data consumed as-is (lyricsfile), fixed 1.0. In every case except "human", word-level precision is NOT measured — a 1.0 can still drift at word granularity. Absent on documents older than 2.5.0.
      */
-    quality_basis?: "ctc-probs" | "anchors" | "human";
+    quality_basis?: "ctc-probs" | "anchors" | "probs+anchors" | "line-anchors" | "human";
     /**
      * Playback-speed factor the audio was corrected by before alignment (nightcore workflow); 1.0 for unmodified audio.
      */
@@ -79,6 +79,10 @@ export interface KashiProcessedTrackV1 {
      * This line's word boundaries are SYNTHETIC (redistributed across the line span for sweep aesthetics), not aligner-measured. Presentation data only — never contribute them as measured timings. Omitted when false; only appears alongside `words`.
      */
     words_derived?: boolean;
+    /**
+     * The drift threshold flagged this line but the audio vouched for its words (Faz 8 B4): they were block-shifted onto the lrclib anchor rather than deleted. Presentation hint — a client may de-emphasise the line; the timings are still aligner-measured. Omitted when false; only appears alongside `words`.
+     */
+    uncertain?: boolean;
     /**
      * @minItems 1
      */
