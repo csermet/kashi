@@ -578,3 +578,56 @@ seam takes CTC checkpoints (`AutoModelForCTC`), so **one permissively licensed
 CTC checkpoint would serve both purposes at once** — the commercial escape
 from CC-BY-NC, and the second opinion the arbiter needs. Finding it is the
 next concrete task, and it is a search, not a build.
+
+---
+
+# The arbiter in the field (2026-08-09) — and the defect the first run exposed
+
+Three of the archive's most-damaged documents, reprocessed on each version.
+"Rescued" = flagged by the drift threshold, then kept and marked `uncertain`
+because the audio vouched for the words.
+
+| | flagged | rescued | wordless lines |
+|---|---|---|---|
+| before the arbiter | 30 | — | **90** |
+| **2.19.0** (first field run) | 30 | **30 — every one** | 59 |
+| **2.19.1** (after the fix) | 31 | **26** | **64** |
+
+**The first run rescued everything it was asked about**, which is not a
+judgement, it is an abstention. Reading the log showed why: *"To fight, to
+fight, to fight"* survived at **onset support 0.00 and coverage 1.00** — the
+audio placed not one of its words near singing, and coverage vouched for it
+anyway.
+
+The cause is that the two signals measure different things. **Coverage
+measures a line's SHAPE; onsets measure its PLACE.** A line dragged somewhere
+wrong keeps its shape perfectly, so requiring both to condemn made coverage a
+veto over the only evidence that could see the error.
+
+Checked against ground truth before changing anything: on 3206 scored lines,
+the 21 with **zero** onset support were **67 % genuinely bad** (median PCO
+0.25, median error 578 ms) against a 4 % base rate — sixteen times the
+background. That is not weak evidence needing corroboration; it is a verdict.
+
+So 2.19.1 makes exactly one asymmetry: **zero support condemns on its own**,
+while *partial* support still needs coverage to agree. The rule is exactly
+zero, not "low" — one word landing on an onset means the line is somewhere
+real, and a single supported word returns it to the corroboration path.
+
+Field effect: the same documents now keep 26 of 31 flagged lines and drop the
+five the audio places nowhere. **26 lines got their word timings back** across
+three songs — timings the old rule deleted — while the genuinely misplaced
+ones still go.
+
+The log is the audit trail, per line, with the numbers that decided it:
+
+```
+line  1 'This is war'                  support 1.00  coverage 1.00  kept
+line 10 'To the edge of the earth,'    support 0.33  coverage 0.98  kept
+line 33 "Don't believe me, just watch" support 1.00  coverage 0.54  kept
+```
+
+Limits worth keeping in view: three documents is a demonstration, not a rate;
+`uncertain` is presentation-only until a client reads it; and the arbiter
+still has no third signal — cross-model disagreement remains unmeasured at
+word level and therefore out of production.
