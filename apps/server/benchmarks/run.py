@@ -46,6 +46,11 @@ SEPARATION_MODELS = {
     # "bleedless" score, the metric most correlated with CTC lock losses).
     "kim-melband": "mel_band_roformer_kim_ft_unwa.ckpt",
     "kim-melband-bleedless": "mel_band_roformer_kim_ft2_bleedless_unwa.ckpt",
+    # License hunt 2026-08-09: the unwa FTs above carry NO license at all
+    # (default all-rights-reserved), but their PARENT — Kimberley Jensen's
+    # base vocal model — is MIT on HF. If it lands within noise of the FT,
+    # the commercial chain gets its separator for free.
+    "kim-base": "vocals_mel_band_roformer.ckpt",
     "bsr-resurrection": "bs_roformer_vocals_resurrection_unwa.ckpt",
     "bsr-revive-v2": "bs_roformer_vocals_revive_v2_unwa.ckpt",
 }
