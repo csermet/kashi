@@ -76,6 +76,40 @@ Two consequences worth stating plainly:
   CTC checkpoint. That is the search worth running before building any
   adapter, because it would drop straight in.
 
+### Cross-model word disagreement (Faz 8.1)
+
+The debt behind the arbiter's planned third signal. MMS and Qwen3-FA correlate
+**+0.483 per song** — architectural diversity, on paper. But a song-level
+number cannot say whether the two are wrong on the same WORDS (signal goes
+quiet exactly when it is needed) or on different ones (real evidence of
+doubt). Nothing is built on it until that is measured.
+
+```bash
+# same songs, same stems, same anchors — four runs, ~30 min on the 5070 Ti
+python -m benchmarks.run --dataset jamendo --languages eng --separation kim-melband \
+  --windowed --anchor-jitter-ms 400 --dump-words --label wd-mms-j400
+python -m benchmarks.qwen_probe --languages eng --separation kim-melband \
+  --windowed --anchor-jitter-ms 400 --dump-words --label wd-qwen-j400
+# ...and the same pair at --anchor-jitter-ms 0 (see "the trap" below)
+
+python -m benchmarks.word_disagreement \
+  --mms results/<date>-wd-mms-j400.json --qwen results/<date>-wd-qwen-j400.json
+```
+
+**The trap the tool refuses at.** The two result files that already exist are
+*not* comparable: the MMS sweep ran at 400 ms anchor jitter, the first Qwen
+probe at 0 (ground-truth anchors, deliberately — it was measuring a ceiling).
+Word-level comparison needs both models on one window plan, or a difference
+between them is partly one of them having been handed better anchors.
+`word_disagreement` checks `anchor_jitter_ms` and refuses on a mismatch.
+Running the pair at BOTH 0 and 400 also separates the models' disagreement
+from the shared error a bad anchor injects into both.
+
+The verdict is pre-registered in the tool's constants (approved 2026-08-09,
+before the first run): P1 independence, P2 diagnostic power, P3 false-alarm
+ceiling. They are not to be tuned to a result — the exit code is 0 only when
+all three pass, and the printed verdict says what to do in each case.
+
 One invocation = one configuration. The matrix:
 
 | flag | values |

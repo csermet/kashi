@@ -56,6 +56,18 @@ def _clean_token(token: str) -> str:
     )
 
 
+def _kept_indices(ref_words: list[tuple[int, str]]) -> list[int]:
+    """ANNOTATION indices Qwen's processor keeps (punctuation-only tokens go).
+
+    THE join key for the cross-model comparison: Qwen's item k describes the
+    ground-truth word `_kept_indices(...)[k]`, so its time can be put beside
+    the MMS time for the same word. Kept as indices rather than as (time,
+    token) pairs precisely because the pairing has to survive a trip through
+    two separate result files.
+    """
+    return [i for i, (_, token) in enumerate(ref_words) if _clean_token(token)]
+
+
 def _pair(items, ref_words: list[tuple[int, str]]) -> list[float] | None:
     """Qwen items ↔ ground-truth tokens, positionally over the kept subset.
 
@@ -64,30 +76,45 @@ def _pair(items, ref_words: list[tuple[int, str]]) -> list[float] | None:
     comparison honest; a residual count mismatch means the tokenizers truly
     diverged and the song is reported as such rather than force-paired.
     """
-    kept = [(start, tok) for start, tok in ref_words if _clean_token(tok)]
+    kept = _kept_indices(ref_words)
     if len(items) != len(kept):
         return None
     return [
-        float(round(item.start_time * 1000) - start)
-        for item, (start, _) in zip(items, kept, strict=True)
+        float(round(item.start_time * 1000) - ref_words[i][0])
+        for item, i in zip(items, kept, strict=True)
     ]
 
 
-def _align_windowed(aligner, audio_path, song) -> list:
+def _align_windowed(aligner, audio_path, song, anchor_jitter_ms: int = 0) -> tuple[list, list[int]]:
     """One Qwen call per lrclib-anchored window, timestamps offset back.
 
     Production would run Qwen exactly this way (the same windows MMS uses),
     and 15-40 s slices sit near its speech training distribution — against
-    full songs it drifts up to 55 s with no way back. Ground-truth line starts
-    serve as anchors unjittered: a probe measures the mode's ceiling, not its
-    field robustness.
+    full songs it drifts up to 55 s with no way back.
+
+    `anchor_jitter_ms` reuses the harness's own deterministic jitter, seeded
+    per song. At 0 the ground-truth line starts anchor the windows and the run
+    measures the mode's CEILING. Any cross-model comparison must instead pass
+    the SAME jitter the MMS sweep used: the two models then share a window
+    plan word for word, and a difference between them is the models
+    disagreeing rather than one of them having been handed better anchors.
+
+    Returns the shifted items and, parallel to them, the window each came from
+    — a word at a window edge has a shared error source and the analysis needs
+    to be able to set those aside.
     """
     import soundfile as sf
 
+    from benchmarks.run import _jittered
     from kashi_server.pipeline.windows import plan_windows
 
     total_ms = round(song.duration_hint_s * 1000)
-    plan = plan_windows(song.line_texts, song.line_starts_ms, total_ms)
+    anchors: list[int | None] = (
+        _jittered(song.line_starts_ms, song.stem, anchor_jitter_ms)
+        if anchor_jitter_ms
+        else list(song.line_starts_ms)
+    )
+    plan = plan_windows(song.line_texts, anchors, total_ms)
     if plan is None:
         raise RuntimeError("no window plan (too few anchors)")
 
@@ -104,7 +131,8 @@ def _align_windowed(aligner, audio_path, song) -> list:
 
     results = aligner.align(pieces, texts, "English")
     items: list = []
-    for window, result in zip(plan, results, strict=True):
+    window_of: list[int] = []
+    for index, (window, result) in enumerate(zip(plan, results, strict=True)):
         offset_s = window.slice_start_ms / 1000
         for item in result.items:
             # ForcedAlignItem is frozen — build the shifted copy instead of
@@ -116,7 +144,8 @@ def _align_windowed(aligner, audio_path, song) -> list:
                     end_time=item.end_time + offset_s,
                 )
             )
-    return items
+            window_of.append(index)
+    return items, window_of
 
 
 def main() -> int:
@@ -143,6 +172,23 @@ def main() -> int:
             "fine, so short windows near Qwen's speech training length are "
             "its last plausible operating mode."
         ),
+    )
+    parser.add_argument(
+        "--anchor-jitter-ms",
+        type=int,
+        default=0,
+        help=(
+            "windowed only: simulate lrclib stamp noise on the window anchors, "
+            "using the harness's own per-song seed. 0 measures the mode's "
+            "ceiling (what the first probe did). A cross-model comparison MUST "
+            "pass the value the MMS sweep used — otherwise one model is handed "
+            "better anchors than the other and the disagreement is an artefact."
+        ),
+    )
+    parser.add_argument(
+        "--dump-words",
+        action="store_true",
+        help="per-word truth/hypothesis rows keyed by annotation index (see run.py --dump-words)",
     )
     parser.add_argument("--label", default="qwen-fa-probe")
     args = parser.parse_args()
@@ -190,10 +236,13 @@ def main() -> int:
             # ground truth by construction — the same trick the harness uses.
             t0 = time.monotonic()
             if args.windowed:
-                items = _align_windowed(aligner, audio, song)
+                items, window_of = _align_windowed(
+                    aligner, audio, song, args.anchor_jitter_ms
+                )
             else:
                 text = " ".join(token for _, token in song.words)
                 items = list(aligner.align(str(audio), text, "English")[0].items)
+                window_of = [-1] * len(items)  # whole-song path owns no windows
             entry["align_s"] = round(time.monotonic() - t0, 1)
         except Exception as exc:  # a broken song is a data point, not the end
             logger.exception("%s failed", song.stem)
@@ -207,6 +256,19 @@ def main() -> int:
                 f"vs kept-annotation={sum(1 for _, t in song.words if _clean_token(t))}"
             )
             continue
+        if args.dump_words:
+            # Same schema and same join key as run.py's dump: annotation index.
+            kept = _kept_indices(song.words)
+            entry["word_detail"] = [
+                {
+                    "i": ann_index,
+                    "token": song.words[ann_index][1],
+                    "truth_ms": song.words[ann_index][0],
+                    "hyp_ms": round(item.start_time * 1000),
+                    "window": win,
+                }
+                for item, ann_index, win in zip(items, kept, window_of, strict=True)
+            ]
         stats = metrics.error_stats(deviations, tolerances_ms)
         assert stats is not None
         entry["words"] = {
@@ -249,9 +311,17 @@ def main() -> int:
             "label": args.label,
             "alignment_model": MODEL_ID,
             "separation": "full-mix" if args.full_mix else args.separation,
+            # Recorded because it is the one field that decides whether this
+            # file may be compared with an MMS sweep at all: the anchors have
+            # to match, and the first two probe files were written before this
+            # was a knob, so their omission means 0.
+            "windowed": bool(args.windowed),
+            "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
             "note": (
-                "standalone probe — no windowing, no line QA, no star tokens; "
-                "NOT comparable to windowed sweeps except per-song vs the same "
+                "standalone probe — no line QA, no star tokens. Windowing is "
+                "opt-in (see `windowed`); a run is comparable with an MMS "
+                "sweep word for word only when both are windowed at the SAME "
+                "anchor_jitter_ms, otherwise only per-song against the same "
                 "ground truth"
             ),
             "wall_s": round(time.monotonic() - started, 1),

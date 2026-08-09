@@ -127,6 +127,13 @@ def _hyp_words(result: AlignResult) -> list[tuple[int, str]]:
     return [(w.start_ms, w.text) for chunk in result.words_per_line for w in chunk]
 
 
+def _word_line_indices(result: AlignResult) -> list[int]:
+    """Owning line index for every word of the FLATTENED stream `_hyp_words`
+    builds — the same order `word_start_deviations` pairs positionally, so a
+    per-word row can name its line without any re-matching."""
+    return [index for index, chunk in enumerate(result.words_per_line) for _ in chunk]
+
+
 def _hyp_word_ends(result: AlignResult) -> list[tuple[int, str]]:
     return [(w.end_ms, w.text) for chunk in result.words_per_line for w in chunk]
 
@@ -201,6 +208,23 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             stats = metrics.error_stats(deviations, tolerances_ms)
             assert stats is not None
             entry["words"] = asdict(stats)
+            if args.dump_words:
+                # Per-word rows keyed by ANNOTATION INDEX — the join key for
+                # cross-model comparison. Everything else here reduces to
+                # summary statistics, which is why the first Qwen correlation
+                # could only be computed per song: the per-word errors were
+                # thrown away as soon as they were counted.
+                line_of = _word_line_indices(result)
+                entry["word_detail"] = [
+                    {
+                        "i": i,
+                        "token": token,
+                        "truth_ms": truth_ms,
+                        "hyp_ms": round(truth_ms + deviations[i]),
+                        "line": line_of[i],
+                    }
+                    for i, (truth_ms, token) in enumerate(song.words)
+                ]
             if args.signals:
                 # Per-LINE signals paired with per-line truth. The deviation
                 # list is positional over the same flattened word stream the
@@ -470,6 +494,17 @@ def main() -> int:
             "signals.py). The shipped quality_score correlates at r=0.36 with "
             "real accuracy; this is the rig for finding something that does "
             "better. Adds an audio pass per song for onset detection."
+        ),
+    )
+    parser.add_argument(
+        "--dump-words",
+        action="store_true",
+        help=(
+            "also emit every word's truth/hypothesis time, keyed by annotation "
+            "index (benchmarks/word_disagreement.py joins two such dumps). "
+            "Without it the per-word errors are reduced to MAE/PCO and thrown "
+            "away, which is why 'do two models fail on the same WORDS?' could "
+            "not be answered from any sweep run so far. Adds ~100 KB/song."
         ),
     )
     parser.add_argument("--label", help="results filename label (default: config name)")
