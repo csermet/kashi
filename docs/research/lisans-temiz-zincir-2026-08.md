@@ -41,9 +41,16 @@ Doğrulanmış tablo (ajan C):
 - Elenenler: htdemucs_ft (beyanla kapalı) · Open-Unmix/Bandit/Banquet (NC) ·
   Spleeter (lisans OK, kalite sınıf dışı) · bsr-revive-v2 (çifte lisanssız).
 
-**Ölçüm planı:** KimberleyJSN taban modelini mevcut tezgahta kim_ft'ye karşı
-koştur (beklenti: 0.86-0.87 bandı, roformer'lar birbirine yakın). İkinci aday
-PolarFormer, ZFTurbo teyidi gelirse.
+**ÖLÇÜLDÜ (2026-08-09, 79 şarkı, GPU, `pc-kim-base-j400`):** kim-base (MIT)
+vs kim-ft-unwa (lisanssız): toplam PCO@0.3 **0.9090 vs 0.9150** (−0.6 puan);
+dil bazında EN −0.05 / FR +0.20 (berabere), DE −1.33 / ES −1.17. **Medyan MAE
+farkı +2 ms — tipik şarkı birebir aynı**; toplam MAE farkı (261 vs 191 ms)
+14/79 şarkının kuyruğundan geliyor (en kötü 2'si ES, tek bölge kilit kaybı
+deseni: MAE 1400+ ms'e çıkarken PCO 0.95'te kalıyor — hakem katmanının tam
+hedefindeki desen). **Karar seçenekleri:** (a) kim-base'i kabul et (−0.6 puan,
+MIT, bugün hazır), (b) unwa'ya HF discussion'dan lisans sor (olumluysa sıfır
+bedel), (c) PolarFormer'ı ZFTurbo teyidi sonrası ölç (MSST formatı — tezgah
+bağlama işi var). İkinci aday PolarFormer, ZFTurbo teyidi gelirse.
 
 ## 3. Hizalayıcı EN: çözülmüştü (Faz 8 ölçümü)
 
