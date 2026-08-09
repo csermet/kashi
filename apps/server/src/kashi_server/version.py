@@ -379,5 +379,20 @@
 # correlation against MMS where same-family models sit at +0.92..+0.945, so it
 # is a real third signal — but its word-level value is unmeasured and nothing
 # enters production unmeasured.
-PIPELINE_VERSION = "2.19.0"
+# 2.19.1: zero onset support condemns a line on its own (Faz 8 B4, corrected
+# by its own first field run). 2.19.0 required BOTH signals to corroborate
+# before deleting, and six reprocessed documents showed what that misses:
+# every flagged line was rescued, including "To fight, to fight, to fight" at
+# onset support 0.00 with coverage 1.00.
+# The two signals are not symmetric. Coverage measures a line's SHAPE, onsets
+# measure its PLACE — and a line dragged somewhere wrong keeps its shape
+# perfectly, so coverage will always vouch for it. Measured on the 3206
+# ground-truth lines: the 21 with zero onset support were **67% genuinely
+# bad** (median PCO 0.25, median error 578 ms) against a 4% base rate, and the
+# exact class 2.19.0 rescued — zero support with high coverage — was 65% bad.
+# So exactly-zero support now deletes without a second vote. The rule is
+# ZERO, not "low": one word landing on an onset means the line is somewhere
+# real, and partial support goes back to needing corroboration. It touches
+# 0.7% of lines, which is why the rescue win survives it.
+PIPELINE_VERSION = "2.19.1"
 PIPELINE_MAJOR = 2

@@ -53,6 +53,16 @@ MIN_SPAN_COVERAGE = 0.30
 # Corroboration needs evidence: below this many words neither signal means
 # anything and the anchor is left to rule alone, as it does today.
 MIN_WORDS_FOR_EVIDENCE = 3
+# …with one exception, measured after the first field run (2026-08-09).
+# NOT ONE word landing near an onset is not weak evidence, it is a positional
+# verdict: on 3206 ground-truth lines the 21 with zero support were **67%
+# genuinely bad** (median PCO 0.25, median error 578 ms) against a 4% base
+# rate — sixteen times the background. Requiring coverage to agree let that
+# class through, because coverage measures a line's SHAPE while onsets
+# measure its PLACE, and a line dragged somewhere wrong keeps its shape
+# perfectly. The field run proved it: "To fight, to fight, to fight" was
+# rescued at onset support 0.00 and coverage 1.00.
+ZERO_SUPPORT_IS_DAMNING = True
 
 
 @dataclass(frozen=True)
@@ -126,10 +136,15 @@ def judge_line(words: list, line_span_ms: int, onset_ms: list[int] | None) -> Li
             span_coverage=coverage,
         )
 
+    if ZERO_SUPPORT_IS_DAMNING and support == 0.0:
+        # The one asymmetry. Coverage cannot vouch for a line the audio places
+        # nowhere near singing, so it does not get a vote here.
+        return LineVerdict(drop_words=True, onset_support=support, span_coverage=coverage)
+
     unsupported = support < MIN_ONSET_SUPPORT
     hollow = coverage < MIN_SPAN_COVERAGE
-    # BOTH must corroborate. Either alone is a seven-times-chance signal, which
-    # is worth a warning and not worth a deletion.
+    # Otherwise BOTH must corroborate. Partial support is a seven-times-chance
+    # signal, which is worth a warning and not worth a deletion on its own.
     return LineVerdict(
         drop_words=unsupported and hollow,
         onset_support=support,

@@ -41,16 +41,19 @@ def test_audio_agreeing_with_the_anchor_still_deletes():
     assert verdict.span_coverage < 0.1
 
 
-def test_one_signal_alone_is_never_enough_to_delete():
-    """Either signal alone is a seven-times-chance predictor. Corroboration is
-    the whole design — a single suspicious number must not destroy timings."""
+def test_one_weak_signal_alone_is_never_enough_to_delete():
+    """Corroboration is the design for PARTIAL evidence: each signal alone is
+    a seven-times-chance predictor there, and a single suspicious number must
+    not destroy timings. (Zero onset support is the measured exception — it is
+    not weak evidence but a positional verdict; see below.)"""
     # Hollow line, but every word lands on an onset.
     onsets = [1000, 1400, 1800]
     hollow_but_supported = judge_line(_words([1000, 1400, 1800], dur=20), 9000, onsets)
     assert not hollow_but_supported.drop_words
-    # Well-filled line, but no onset supports it.
-    filled_but_unsupported = judge_line(_words([1000, 1400, 1800], dur=400), 1500, [50_000])
-    assert not filled_but_unsupported.drop_words
+    # Well-filled line with PARTIAL support — one word heard, the rest not.
+    filled_but_weak = judge_line(_words([1000, 1400, 1800], dur=400), 1500, [1000, 50_000])
+    assert 0.0 < (filled_but_weak.onset_support or 0) < MIN_ONSET_SUPPORT
+    assert not filled_but_weak.drop_words
 
 
 def test_too_few_words_falls_back_to_todays_behaviour():
@@ -99,3 +102,29 @@ def test_partial_support_lands_on_the_measured_operating_point():
     bad = judge_line(_words([1000, 50_000, 51_000, 52_000], dur=20), 9000, onsets)
     assert bad.onset_support is not None and bad.onset_support < MIN_ONSET_SUPPORT
     assert bad.drop_words
+
+
+def test_zero_onset_support_condemns_a_line_on_its_own():
+    """Measured after the first field run (2026-08-09). Coverage measures a
+    line's SHAPE and onsets measure its PLACE, so a line dragged somewhere
+    wrong keeps perfect coverage — and the first rule let exactly that class
+    through ("To fight, to fight, to fight", support 0.00, coverage 1.00).
+
+    On 3206 ground-truth lines the 21 with zero support were 67% genuinely
+    bad against a 4% base rate. Not one word near an onset is not weak
+    evidence; it is a verdict."""
+    words = _words([1000, 1400, 1800], dur=400)  # perfectly filled line…
+    verdict = judge_line(words, line_span_ms=1400, onset_ms=[50_000, 51_000])
+    assert verdict.onset_support == 0.0
+    assert verdict.span_coverage > 0.7  # …coverage vouches for it…
+    assert verdict.drop_words  # …and no longer saves it
+
+
+def test_a_single_supported_word_is_still_enough_to_be_heard():
+    """The rule is exactly zero, not 'low'. One word landing on an onset means
+    the line is somewhere real, and partial support goes back to needing
+    corroboration."""
+    onsets = [1000, 50_000]
+    verdict = judge_line(_words([1000, 1400, 1800], dur=400), 1400, onsets)
+    assert 0.0 < (verdict.onset_support or 0) < MIN_ONSET_SUPPORT
+    assert not verdict.drop_words
