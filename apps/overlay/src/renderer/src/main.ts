@@ -606,6 +606,12 @@ function applyView(view: ViewOutput): void {
     // plain line arriving after a word-synced one never got the class at all,
     // and a word-synced line arriving after a plain one kept it.
     lineEl.classList.toggle('plain', view.linePlain);
+    // The server's `uncertain` flag finally reaches a pixel (Faz 8.1). It used
+    // to be written on every rescued line and read by nobody, so the arbiter's
+    // whole "the anchor proposes, the audio disposes" decision was invisible
+    // in the field. The line still runs its word clock; it just stops
+    // competing for attention with the lines we are sure about.
+    lineEl.classList.toggle('uncertain', view.lineUncertain);
     // One-shot entrance: unconditional removal first — a stale class must
     // never linger into interlude/status views (its ID selector would
     // out-specificity the ♪ animation).
@@ -1002,6 +1008,7 @@ function frame(): void {
       searching,
       activeAdlib,
       activeHasWords: (words?.length ?? 0) > 0,
+      activeUncertain: lineIndex >= 0 && lines[lineIndex]?.uncertain === true,
     }),
   );
 

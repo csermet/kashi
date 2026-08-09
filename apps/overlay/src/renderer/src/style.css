@@ -84,6 +84,13 @@ body {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* Line-level emphasis is a PRODUCT of independent fades, never a race
+     between rules. Both factors default to 1, so a line with neither class is
+     pixel-identical to the old `opacity`-less rule. The alternative — each
+     class declaring its own `opacity` — silently lets the more specific
+     selector win, and an ad-lib line that was ALSO rescued would have shown
+     the ad-lib fade only, hiding the very signal this exists to show. */
+  opacity: calc(var(--kashi-adlib-fade, 1) * var(--kashi-uncertain-fade, 1));
   transition:
     font-size 0.2s,
     opacity 0.2s;
@@ -95,6 +102,27 @@ body {
    deliberate, documented appearance change. */
 .lyric.plain {
   color: var(--kashi-plain, #fff);
+}
+
+/* Rescued lines (server lines[].uncertain, Faz 8 B4): the drift threshold
+   flagged them, the audio vouched for their words, and the server shifted
+   them onto the anchor instead of deleting them. So they DO have a word
+   clock — we are just less certain where it sits, and the overlay should say
+   that without taking anything away. Nothing is hidden, dropped or
+   re-ordered; the line simply stops competing with the lines we trust.
+
+   Fade, not colour: an uncertain line is word-synced by definition, and the
+   word spans paint their own colour — a line-level `color` would never reach
+   them. Opacity multiplies down through the spans instead, so the karaoke
+   contrast (0.55 resting -> 1.0 sung) survives intact at a lower overall
+   brightness. 0.78 is the floor that keeps a resting word (0.78 x 0.55 =
+   0.43) about as legible as a shipped ad-lib word (0.85 x 0.55 = 0.47) over
+   a bright video frame; the text-shadow carries the rest.
+
+   Unscoped by effect level, like .lyric.plain and for the same reason: this
+   is the document telling the truth about itself, not an effect. */
+.lyric.uncertain {
+  --kashi-uncertain-fade: 0.78;
 }
 
 .lyric.dim {
@@ -219,11 +247,13 @@ body.fx-full #lyric-line.line-in {
 }
 
 /* Ad-lib lines (server lines[].adlib): backing-vocal feel — slightly faded,
-   italic. Only when the document says so; lrclib songs never get this. */
+   italic. Only when the document says so; lrclib songs never get this.
+   The fade is handed to .lyric as a FACTOR (see its opacity calc) so it
+   multiplies with the uncertain fade rather than out-specifying it. */
 body.fx-simple .lyric.adlib,
 body.fx-full .lyric.adlib {
   font-style: italic;
-  opacity: 0.85;
+  --kashi-adlib-fade: 0.85;
 }
 
 /* Sustained fill ("ooh-ooh" sweep): the active long-held/ad-lib word fills

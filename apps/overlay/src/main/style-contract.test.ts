@@ -256,6 +256,58 @@ describe('style contract: an untimed line wears the theme (Faz 7 P8b)', () => {
   });
 });
 
+describe('style contract: a rescued line is softened, never removed (Faz 8.1)', () => {
+  const mainSource = readFileSync(
+    fileURLToPath(new URL('../renderer/src/main.ts', import.meta.url)),
+    'utf8',
+  );
+
+  it('the flag reaches a pixel at all', () => {
+    // The whole defect this closes: the server has written lines[].uncertain
+    // since pipeline 2.19.0 and no client read it, so the arbiter's verdict
+    // was invisible in the field. If this class stops being applied, the
+    // signal is silently half-delivered again.
+    expect(mainSource).toContain("classList.toggle('uncertain', view.lineUncertain)");
+    const start = css.indexOf('.lyric.uncertain');
+    expect(start, '.lyric.uncertain rule is missing').toBeGreaterThan(-1);
+    const block = css.slice(start, css.indexOf('}', start) + 1);
+    expect(block).toContain('--kashi-uncertain-fade');
+  });
+
+  it('softens without hiding: no display/visibility escape hatch', () => {
+    // Caner's rule for this change was explicit — de-emphasise, no deleting,
+    // no hiding. A later "just skip the doubtful lines" would land here.
+    const start = css.indexOf('.lyric.uncertain');
+    const block = css.slice(start, css.indexOf('}', start) + 1);
+    for (const banned of ['display:', 'visibility:', 'content:']) {
+      expect(block, `${banned} in the uncertain rule`).not.toContain(banned);
+    }
+  });
+
+  it('line fades MULTIPLY instead of racing on specificity', () => {
+    // Two independent reasons to soften one line (ad-lib text, rescued
+    // timings) can both be true — `adlib` comes from the text, `uncertain`
+    // from line QA's rescue path. If each declared its own `opacity`, the
+    // more specific selector would win outright and one signal would vanish:
+    // `body.fx-simple .lyric.adlib` (0,3,1) beats `.lyric.uncertain` (0,2,0),
+    // so an ad-lib line that was ALSO rescued would have shown no softening
+    // beyond the ad-lib's own. The factor variables make it a product.
+    const base = css.slice(css.indexOf('.lyric {'), css.indexOf('}', css.indexOf('.lyric {')) + 1);
+    expect(base).toContain('--kashi-adlib-fade');
+    expect(base).toContain('--kashi-uncertain-fade');
+    // Both default to 1: a line wearing neither class is pixel-identical to
+    // the pre-Faz-8.1 stylesheet, which had no opacity on .lyric at all.
+    expect(base).toContain('var(--kashi-adlib-fade, 1)');
+    expect(base).toContain('var(--kashi-uncertain-fade, 1)');
+    // And the ad-lib rule must contribute a FACTOR, not an opacity of its own.
+    const adlibStart = css.indexOf('body.fx-simple .lyric.adlib');
+    expect(adlibStart, 'the ad-lib rule moved').toBeGreaterThan(-1);
+    const adlib = css.slice(adlibStart, css.indexOf('}', adlibStart) + 1);
+    expect(adlib).toContain('--kashi-adlib-fade');
+    expect(adlib, 'the ad-lib rule went back to a bare opacity').not.toMatch(/(^|[^-])opacity:/);
+  });
+});
+
 describe('style contract: particle alphas have one source (Faz 7 P8b)', () => {
   const textures = readFileSync(
     fileURLToPath(new URL('../renderer/src/fx-textures.ts', import.meta.url)),

@@ -97,6 +97,13 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
       text: line['text'],
     };
     if (line['adlib'] === true) mapped.adlib = true;
+    // Only alongside words, exactly as the schema states it: the flag says
+    // "these word timings were rescued, not deleted", so without words there
+    // is nothing for it to qualify and a stray flag would de-emphasise a line
+    // for no reason the user could see.
+    if (line['uncertain'] === true && Array.isArray(line['words']) && line['words'].length > 0) {
+      mapped.uncertain = true;
+    }
     if (Array.isArray(line['words']) && line['words'].length > 0) {
       const words: ServerWord[] = [];
       for (const rawWord of line['words'] as unknown[]) {
@@ -115,9 +122,12 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
   let effectiveLines = lines;
   if (sync === 'word' && quality < QUALITY_GATE) {
     // Low-confidence word timings read as jitter — degrade to line mode by
-    // STRIPPING the words (never blended, single decision point).
+    // STRIPPING the words (never blended, single decision point). `uncertain`
+    // goes with them: it qualifies word timings that no longer exist, and a
+    // line-mode document has no per-line confidence story to tell — every
+    // line came off the same anchor.
     effectiveSync = 'line';
-    effectiveLines = lines.map(({ words: _words, ...rest }) => rest);
+    effectiveLines = lines.map(({ words: _words, uncertain: _uncertain, ...rest }) => rest);
   }
 
   const payload: ServerLyricsFound = {

@@ -29,7 +29,7 @@ describe('deriveView', () => {
       activeText: 'la la',
       searching: true,
     });
-    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false, lineAdlib: false, linePlain: false });
+    expect(view).toEqual({ boxVisible: false, lineText: '', lineDim: false, searchVisible: false, interlude: false, lineAdlib: false, linePlain: false, lineUncertain: false });
   });
 
   it('shows the active lyric line bright', () => {
@@ -42,6 +42,7 @@ describe('deriveView', () => {
       interlude: false,
       lineAdlib: false,
       linePlain: true,
+      lineUncertain: false,
     });
   });
 
@@ -81,6 +82,7 @@ describe('deriveView', () => {
       interlude: false,
       lineAdlib: false,
       linePlain: true,
+      lineUncertain: false,
     });
   });
 
@@ -99,6 +101,7 @@ describe('deriveView', () => {
       interlude: false,
       lineAdlib: false,
       linePlain: true,
+      lineUncertain: false,
     });
   });
 });
@@ -112,6 +115,7 @@ describe('shouldAnimateLineChange', () => {
     interlude: false,
     lineAdlib: false,
     linePlain: true,
+    lineUncertain: false,
     ...over,
   });
 
@@ -308,6 +312,65 @@ describe('plain lines wear the theme, and know it from their own data', () => {
     expect(deriveView({ ...base, activeText: 'spoken', activeHasWords: false })).toEqual(
       plainAfterSung,
     );
+  });
+
+  it('softens a rescued line, and only while it still has a word clock', () => {
+    // Faz 8.1: the server has written lines[].uncertain since pipeline 2.19.0
+    // and nothing read it, so the arbiter's "the anchor proposes, the audio
+    // disposes" verdict was invisible in the field. It is a statement ABOUT
+    // word timings, so it only means anything while they are on screen.
+    expect(
+      deriveView({ ...base, activeText: 'shifted', activeHasWords: true, activeUncertain: true })
+        .lineUncertain,
+    ).toBe(true);
+    // Word clock gone (line mode / QA dropped the words): the line already
+    // wears .plain, and fading it further would say the same thing twice.
+    expect(
+      deriveView({ ...base, activeText: 'shifted', activeHasWords: false, activeUncertain: true })
+        .lineUncertain,
+    ).toBe(false);
+    // A confident line is never softened; nor is the ♪ or an ad.
+    expect(
+      deriveView({ ...base, activeText: 'sure', activeHasWords: true }).lineUncertain,
+    ).toBe(false);
+    expect(
+      deriveView({ ...base, activeText: null, activeHasWords: true, activeUncertain: true })
+        .lineUncertain,
+    ).toBe(false);
+    expect(
+      deriveView({ ...base, adActive: true, activeText: 'x', activeHasWords: true, activeUncertain: true })
+        .lineUncertain,
+    ).toBe(false);
+  });
+
+  it('never removes anything — a rescued line keeps its text and its box', () => {
+    // The rule Caner set for this change: de-emphasise, no deleting, no
+    // hiding. Pin it so a future "just skip uncertain lines" cannot land
+    // quietly.
+    const sure = deriveView({ ...base, activeText: 'to fight', activeHasWords: true });
+    const rescued = deriveView({
+      ...base,
+      activeText: 'to fight',
+      activeHasWords: true,
+      activeUncertain: true,
+    });
+    expect(rescued.lineText).toBe(sure.lineText);
+    expect(rescued.boxVisible).toBe(true);
+    expect({ ...rescued, lineUncertain: false }).toEqual(sure);
+  });
+
+  it('softening composes with the ad-lib flag instead of replacing it', () => {
+    // Both can be true on one line: `adlib` is derived from the TEXT, while
+    // `uncertain` comes from line QA's rescue path — nothing couples them.
+    const view = deriveView({
+      ...base,
+      activeText: 'Oh-ooh, whoa-oh',
+      activeHasWords: true,
+      activeAdlib: true,
+      activeUncertain: true,
+    });
+    expect(view.lineAdlib).toBe(true);
+    expect(view.lineUncertain).toBe(true);
   });
 
   it('compares every field, so no future one is silently exempt', () => {

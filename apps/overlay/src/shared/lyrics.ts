@@ -24,6 +24,15 @@ export interface LyricLine {
   text: string;
   /** Nonlexical ad-lib line (server 2.1.0+; older docs lack it — tolerant). */
   adlib?: boolean;
+  /**
+   * The drift threshold flagged this line but the audio vouched for its words
+   * (pipeline 2.19.0+, Faz 8 B4): they were block-shifted onto the lrclib
+   * anchor instead of being deleted. Presentation hint only — the timings are
+   * still aligner-measured, so the line keeps its word clock and is merely
+   * de-emphasised. Only meaningful ALONGSIDE `words`, which is how the server
+   * writes it and how mapDocument carries it.
+   */
+  uncertain?: boolean;
   /** Present on kashi-server word-sync documents (Faz 3B). */
   words?: WordTiming[];
 }

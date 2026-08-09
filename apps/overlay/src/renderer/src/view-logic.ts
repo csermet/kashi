@@ -27,6 +27,12 @@ export interface ViewState {
    * recognised as plain and sat at stock white.
    */
   activeHasWords?: boolean;
+  /**
+   * The server rescued this line's word timings instead of deleting them and
+   * said so (`lines[].uncertain`, Faz 8 B4). It still has a word clock; we are
+   * just less sure WHERE it sits.
+   */
+  activeUncertain?: boolean;
 }
 
 export interface ViewOutput {
@@ -44,6 +50,13 @@ export interface ViewOutput {
    * excluded: the ♪ owns its own styling.
    */
   linePlain: boolean;
+  /**
+   * Soften the line: its word timings were rescued rather than trusted
+   * outright. Deliberately NOT hiding or dropping anything — the words still
+   * run their clock, they just stop shouting. Interludes and status views are
+   * excluded (the ♪ and the idle badge are not lyrics).
+   */
+  lineUncertain: boolean;
 }
 
 export function deriveView(state: ViewState): ViewOutput {
@@ -56,6 +69,7 @@ export function deriveView(state: ViewState): ViewOutput {
       interlude: false,
       lineAdlib: false,
       linePlain: false,
+      lineUncertain: false,
     };
   }
   if (state.hasLines) {
@@ -69,6 +83,12 @@ export function deriveView(state: ViewState): ViewOutput {
       interlude: state.activeText === null,
       lineAdlib: state.activeText !== null && state.activeAdlib === true,
       linePlain: state.activeText !== null && state.activeHasWords !== true,
+      // Gated on activeHasWords, not just on the flag: the fade is a statement
+      // ABOUT the word clock, and a line without one already wears .plain.
+      lineUncertain:
+        state.activeText !== null &&
+        state.activeHasWords === true &&
+        state.activeUncertain === true,
     };
   }
   return {
@@ -81,6 +101,7 @@ export function deriveView(state: ViewState): ViewOutput {
     // Status and idle text are plain by definition — no word clock stands
     // behind them, so they wear the same quiet tone as an untimed lyric.
     linePlain: true,
+    lineUncertain: false,
   };
 }
 
@@ -101,7 +122,8 @@ export function viewsEqual(a: ViewOutput | null, b: ViewOutput): boolean {
     a.searchVisible === b.searchVisible &&
     a.interlude === b.interlude &&
     a.lineAdlib === b.lineAdlib &&
-    a.linePlain === b.linePlain
+    a.linePlain === b.linePlain &&
+    a.lineUncertain === b.lineUncertain
   );
 }
 

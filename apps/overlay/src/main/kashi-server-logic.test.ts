@@ -93,6 +93,77 @@ describe('mapDocument', () => {
     expect(garbage!.lines[0]!.adlib).toBeUndefined();
   });
 
+  it('carries the uncertain flag, but only where words back it up', () => {
+    // Faz 8.1: the flag has been in every document since pipeline 2.19.0 and
+    // no client read it. It qualifies WORD timings ("rescued, not deleted"),
+    // so it rides only alongside them — the server writes it that way and the
+    // client must not invent a case the server cannot produce.
+    const withWords = mapDocument(
+      doc({
+        lines: [
+          {
+            start_ms: 1000,
+            end_ms: 2000,
+            text: 'To fight, to fight, to fight',
+            uncertain: true,
+            words: [{ start_ms: 1000, end_ms: 2000, text: 'To' }],
+          },
+        ],
+      }),
+    );
+    expect(withWords!.lines[0]!.uncertain).toBe(true);
+    expect(withWords!.lines[0]!.words).toHaveLength(1);
+
+    // Wordless line (line QA dropped them): a stray flag must not dim a line
+    // that has no word clock to be uncertain about.
+    const wordless = mapDocument(
+      doc({ lines: [{ start_ms: 0, end_ms: 1, text: 'x', uncertain: true }] }),
+    );
+    expect(wordless!.lines[0]!.uncertain).toBeUndefined();
+
+    // Pre-2.19.0 documents lack the field; garbage never maps to true.
+    expect(mapDocument(doc())!.lines[0]!.uncertain).toBeUndefined();
+    const garbage = mapDocument(
+      doc({
+        lines: [
+          {
+            start_ms: 0,
+            end_ms: 1,
+            text: 'x',
+            uncertain: 'yes',
+            words: [{ start_ms: 0, end_ms: 1, text: 'x' }],
+          },
+        ],
+      }),
+    );
+    expect(garbage!.lines[0]!.uncertain).toBeUndefined();
+  });
+
+  it('the quality gate strips uncertain along with the words it describes', () => {
+    // The degrade path has ONE decision point on purpose. Leaving the flag
+    // behind would fade a line in a document where every line came off the
+    // same anchor — a distinction with nothing behind it.
+    const degraded = mapDocument(
+      doc({
+        alignment: { quality_score: QUALITY_GATE - 0.01 },
+        lines: [
+          {
+            start_ms: 1000,
+            end_ms: 2000,
+            text: 'hello world',
+            uncertain: true,
+            words: [{ start_ms: 1000, end_ms: 2000, text: 'hello' }],
+          },
+        ],
+      }),
+    );
+    expect(degraded!.sync).toBe('line');
+    expect(degraded!.lines[0]!.words).toBeUndefined();
+    expect(degraded!.lines[0]!.uncertain).toBeUndefined();
+    // ...and the line itself survives intact: de-emphasis never deletes.
+    expect(degraded!.lines[0]!.text).toBe('hello world');
+  });
+
   it('passes palette and beats through for Faz 4', () => {
     const payload = mapDocument(
       doc({
