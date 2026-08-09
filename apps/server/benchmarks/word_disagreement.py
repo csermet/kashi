@@ -60,6 +60,14 @@ P2_MIN_RECALL = 0.20
 P3_SURE_MS = 100
 P3_MAX_FALSE_ALARM = 0.05
 
+# The ONE escape hatch the pre-registration allows, and only when P1 has
+# already passed: if the errors are independent but 500 ms is the wrong place
+# to stand, these three operating points may be examined — once. They are a
+# constant rather than a CLI value on purpose. A free `--flag-ms` knob would
+# let the operating point be chosen after seeing the answer, which is exactly
+# the failure the pre-registration exists to prevent.
+SWEEP_FLAG_MS = (300, 500, 800)
+
 
 def _load(path: Path, kind: str) -> dict:
     report = json.loads(path.read_text(encoding="utf-8"))
@@ -116,6 +124,41 @@ def _edge_words(qwen_rows: dict[int, dict]) -> set[int]:
     return set(first.values()) | set(last.values())
 
 
+def _operating_point(words: list[dict], flag_ms: int) -> dict:
+    """Everything P2 and P3 need at ONE flag threshold.
+
+    P2 and P3 read the same flag from opposite sides — does it find the bad
+    words, and does it stay quiet on the good ones — so they are computed
+    together. Loosening the threshold trades one against the other, which is
+    what makes an after-the-fact choice of threshold so easy to abuse and why
+    the sweep is restricted to SWEEP_FLAG_MS.
+    """
+    bad = [w for w in words if abs(w["e_m"]) > P2_BAD_MS]
+    flagged = [w for w in words if abs(w["d"]) > flag_ms]
+    hits = [w for w in flagged if abs(w["e_m"]) > P2_BAD_MS]
+    sure = [w for w in words if abs(w["e_m"]) <= P3_SURE_MS]
+    base_rate = len(bad) / len(words) if words else 0.0
+    precision = len(hits) / len(flagged) if flagged else 0.0
+    recall = len(hits) / len(bad) if bad else 0.0
+    lift = precision / base_rate if base_rate else 0.0
+    false_alarm = (
+        sum(abs(w["d"]) > flag_ms for w in sure) / len(sure) if sure else 0.0
+    )
+    return {
+        "flag_ms": flag_ms,
+        "n_bad": len(bad),
+        "n_flagged": len(flagged),
+        "n_sure": len(sure),
+        "base_rate": base_rate,
+        "precision": precision,
+        "recall": recall,
+        "lift": lift,
+        "false_alarm": false_alarm,
+        "p2": lift >= P2_MIN_LIFT and recall >= P2_MIN_RECALL,
+        "p3": false_alarm <= P3_MAX_FALSE_ALARM,
+    }
+
+
 def _fmt_pct(value: float) -> str:
     return f"{value * 100:.1f}%"
 
@@ -124,6 +167,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mms", type=Path, required=True, help="run.py sweep with --dump-words")
     parser.add_argument("--qwen", type=Path, required=True, help="qwen_probe.py with --dump-words")
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help=(
+            "the ONE threshold sweep the pre-registration allows, and only "
+            f"after P1 passes: P2/P3 at |Δ| in {SWEEP_FLAG_MS} ms. There is "
+            "deliberately no free threshold argument — the values are fixed in "
+            "the module so the operating point cannot be chosen after seeing "
+            "the answer."
+        ),
+    )
     parser.add_argument(
         "--allow-anchor-mismatch",
         action="store_true",
@@ -217,22 +271,22 @@ def main() -> int:
     print(f"  -> {'PASS' if p1_pass else 'FAIL'}")
     print()
 
-    # --- P2: does the flag find bad words? ----------------------------------
-    bad = [w for w in words if abs(w["e_m"]) > P2_BAD_MS]
-    flagged = [w for w in words if abs(w["d"]) > P2_FLAG_MS]
-    hits = [w for w in flagged if abs(w["e_m"]) > P2_BAD_MS]
-    base_rate = len(bad) / len(words)
-    precision = len(hits) / len(flagged) if flagged else 0.0
-    recall = len(hits) / len(bad) if bad else 0.0
-    lift = precision / base_rate if base_rate else 0.0
-    p2_pass = lift >= P2_MIN_LIFT and recall >= P2_MIN_RECALL
+    # --- P2 / P3 at the committed operating point ---------------------------
+    point = _operating_point(words, P2_FLAG_MS)
+    bad = [w for w in words if abs(w["e_m"]) > P2_BAD_MS]  # kept for the context block
+    base_rate = point["base_rate"]
+    precision, recall, lift = point["precision"], point["recall"], point["lift"]
+    p2_pass = point["p2"]
 
     print(
         f"P2 — diagnostic power (bad = |MMS error| > {P2_BAD_MS} ms, "
         f"flag = |Δ| > {P2_FLAG_MS} ms)"
     )
     print(f"  base rate of bad words  {_fmt_pct(base_rate)} ({len(bad)}/{len(words)})")
-    print(f"  flagged                 {_fmt_pct(len(flagged) / len(words))} ({len(flagged)})")
+    print(
+        f"  flagged                 {_fmt_pct(point['n_flagged'] / len(words))} "
+        f"({point['n_flagged']})"
+    )
     print(f"  precision               {_fmt_pct(precision)}")
     print(f"  lift                    {lift:.2f}x   (threshold >= {P2_MIN_LIFT:.1f}x)")
     print(
@@ -244,9 +298,8 @@ def main() -> int:
 
     # --- P3: is it quiet where MMS is right? --------------------------------
     sure = [w for w in words if abs(w["e_m"]) <= P3_SURE_MS]
-    false_alarms = [w for w in sure if abs(w["d"]) > P2_FLAG_MS]
-    false_alarm_rate = len(false_alarms) / len(sure) if sure else 0.0
-    p3_pass = false_alarm_rate <= P3_MAX_FALSE_ALARM
+    false_alarm_rate = point["false_alarm"]
+    p3_pass = point["p3"]
 
     print(f"P3 — false alarms where MMS is clearly right (|MMS error| <= {P3_SURE_MS} ms)")
     print(f"  such words              {len(sure)}")
@@ -292,6 +345,42 @@ def main() -> int:
             f"{_spearman([r[0] for r in line_rows], [r[1] for r in line_rows]):+.3f}"
         )
     print()
+
+    # --- the one allowed sweep ----------------------------------------------
+    # Gated on P1 having passed: if the two models fail on the SAME words, no
+    # operating point can rescue the signal and a sweep would only be shopping
+    # for a number.
+    if args.sweep and p1_pass:
+        allowed = ", ".join(str(v) for v in SWEEP_FLAG_MS)
+        print(f"threshold sweep (pre-declared: |Δ| at {allowed} ms)")
+        print(
+            f"  {'|Δ|':>7}{'flagged':>10}{'precision':>11}{'lift':>8}"
+            f"{'recall':>9}{'false alarm':>13}   P2/P3"
+        )
+        print("  " + "-" * 64)
+        for flag_ms in SWEEP_FLAG_MS:
+            row = _operating_point(words, flag_ms)
+            marks = f"{'ok' if row['p2'] else 'no'}/{'ok' if row['p3'] else 'no'}"
+            print(
+                f"  {flag_ms:>5} ms{_fmt_pct(row['n_flagged'] / len(words)):>10}"
+                f"{_fmt_pct(row['precision']):>11}{row['lift']:>7.2f}x"
+                f"{_fmt_pct(row['recall']):>9}{_fmt_pct(row['false_alarm']):>13}   {marks}"
+            )
+        survivors = [
+            v
+            for v in SWEEP_FLAG_MS
+            if all(_operating_point(words, v)[key] for key in ("p2", "p3"))
+        ]
+        print()
+        if survivors:
+            print(f"  operating point(s) satisfying BOTH: {survivors} ms")
+        else:
+            print("  NO operating point satisfies P2 and P3 together.")
+            print("  Per the pre-registration, that ends it: the adapter is not written")
+            print("  on this evidence, and no further threshold may be invented.")
+        print()
+    elif args.sweep:
+        print("sweep skipped: P1 failed, so no operating point can rescue the signal.\n")
 
     verdict = p1_pass and p2_pass and p3_pass
     print("=" * 66)

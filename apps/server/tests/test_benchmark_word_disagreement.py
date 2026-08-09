@@ -261,6 +261,85 @@ def test_p3_catches_a_signal_that_is_really_just_qwen_breaking(tmp_path, capsys)
     assert "ONE pre-declared" in out
 
 
+# --- the one allowed sweep ---------------------------------------------------
+
+
+def _sweepable(bad_n: int, loud_alarms: int, quiet_alarms: int = 0, n_quiet: int = 200):
+    """Words engineered so the flag's behaviour is known at every threshold.
+
+    The bad words' MMS errors are spread WIDE on purpose. A fixture where all
+    bad words share one error makes |MMS error| and |Δ − MMS error| move
+    together by construction, which fails P1 and never reaches the sweep — the
+    fixture would be testing its own arithmetic rather than the sweep.
+
+    `loud_alarms` misfire at every threshold (|Δ| = 900); `quiet_alarms`
+    misfire only below 800 ms (|Δ| = 600), which is what lets a test show the
+    sweep DISCRIMINATING between operating points instead of rating them alike.
+    """
+    mms_rows, qwen_rows = [], []
+    i = 0
+
+    def add(e_m: int, d: int):
+        nonlocal i
+        truth = i * 1000
+        mms_rows.append(_word(i, truth, truth + e_m))
+        qwen_rows.append(_word(i, truth, truth + e_m - d, window=i // 20))
+        i += 1
+
+    for k in range(bad_n):
+        add(P2_BAD_MS + 50 + (k * 137) % 1450, 900)  # bad, flagged everywhere
+    for k in range(loud_alarms):
+        add((k * 7) % 90, 900)  # clearly right, flagged everywhere
+    for k in range(quiet_alarms):
+        add((k * 11) % 90, 600)  # clearly right, flagged only below 800 ms
+    for k in range(n_quiet):
+        add((k * 7) % 90, ((k * 37) % 581) - 290)  # clearly right, never flagged
+    return [_song("s", mms_rows)], [_song("s", qwen_rows)]
+
+
+def test_the_sweep_reports_every_pre_declared_threshold_and_no_others(tmp_path, capsys):
+    mms, qwen = _sweepable(bad_n=30, loud_alarms=40)
+    _run(tmp_path, mms, qwen, extra=["--sweep"])
+    out = capsys.readouterr().out
+    assert "threshold sweep (pre-declared: |Δ| at 300, 500, 800 ms)" in out
+    for value in (300, 500, 800):
+        assert f"{value} ms" in out
+    # No free threshold knob exists — the operating point cannot be chosen
+    # after seeing the table, which is the whole point of pre-registering it.
+    assert "--flag-ms" not in out
+
+
+def test_the_sweep_says_plainly_when_nothing_survives(tmp_path, capsys):
+    # 40 misfires among 240 clearly-right words = 16.7%, over the 5% ceiling at
+    # every threshold, while the bad words stay caught (so only P3 decides).
+    mms, qwen = _sweepable(bad_n=30, loud_alarms=40)
+    code = _run(tmp_path, mms, qwen, extra=["--sweep"])
+    out = capsys.readouterr().out
+    assert "NO operating point satisfies P2 and P3 together" in out
+    assert "the adapter is not written" in out
+    assert code == 2
+
+
+def test_the_sweep_names_the_operating_point_that_survives(tmp_path, capsys):
+    """And only that one: the loosest threshold clears P3 while the tighter two
+    do not, so the table has to discriminate rather than rate them alike."""
+    mms, qwen = _sweepable(bad_n=30, loud_alarms=4, quiet_alarms=12)
+    _run(tmp_path, mms, qwen, extra=["--sweep"])
+    out = capsys.readouterr().out
+    assert "operating point(s) satisfying BOTH: [800] ms" in out
+    assert "NO operating point" not in out
+
+
+def test_the_sweep_is_refused_when_p1_failed(tmp_path, capsys):
+    """No operating point can rescue a signal whose errors track the incumbent's
+    — sweeping there would only be shopping for a number."""
+    mms, qwen = _paired_songs(6, 40, coupled=True)
+    _run(tmp_path, mms, qwen, extra=["--sweep"])
+    out = capsys.readouterr().out
+    assert "sweep skipped: P1 failed" in out
+    assert "threshold sweep (pre-declared" not in out
+
+
 # --- window edges ------------------------------------------------------------
 
 
