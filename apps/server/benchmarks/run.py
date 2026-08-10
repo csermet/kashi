@@ -132,6 +132,20 @@ def _hyp_words(result: AlignResult) -> list[tuple[int, str]]:
     return [(w.start_ms, w.text) for chunk in result.words_per_line for w in chunk]
 
 
+def _verified_only(values: list[float], verified: list[bool] | None) -> list[float]:
+    """Keep only the rows a human actually checked.
+
+    A sampled eval set carries truth for a subset; the unchecked rows still
+    hold their pre-mark, which came from the very pipeline under test. Letting
+    those into the metric would score the pipeline against its own output —
+    the self-certification the whole eval exists to prevent. `None` means the
+    set is fully annotated (JamendoLyrics), so everything counts.
+    """
+    if verified is None:
+        return values
+    return [v for v, ok in zip(values, verified, strict=True) if ok]
+
+
 def _word_line_indices(result: AlignResult) -> list[int]:
     """Owning line index for every word of the FLATTENED stream `_hyp_words`
     builds — the same order `word_start_deviations` pairs positionally, so a
@@ -210,8 +224,15 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
         if deviations is None:
             entry["error"] = "word count mismatch (sync degraded or token drift)"
         else:
-            stats = metrics.error_stats(deviations, tolerances_ms)
-            assert stats is not None
+            if song.verified is not None:
+                entry["verified_words"] = sum(song.verified)
+            stats = metrics.error_stats(
+                _verified_only(deviations, song.verified), tolerances_ms
+            )
+            if stats is None:
+                entry["error"] = "no verified words in this song"
+                rows.append(entry)
+                continue
             entry["words"] = asdict(stats)
             if args.dump_words:
                 # Per-word rows keyed by ANNOTATION INDEX — the join key for
@@ -227,6 +248,7 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                         "truth_ms": truth_ms,
                         "hyp_ms": round(truth_ms + deviations[i]),
                         "line": line_of[i],
+                        **({} if song.verified is None else {"verified": song.verified[i]}),
                     }
                     for i, (truth_ms, token) in enumerate(song.words)
                 ]
@@ -242,7 +264,10 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 cursor = 0
                 for row in lines:
                     count = row["n_words"]
-                    chunk = deviations[cursor : cursor + count]
+                    chunk = _verified_only(
+                        deviations[cursor : cursor + count],
+                        None if song.verified is None else song.verified[cursor : cursor + count],
+                    )
                     cursor += count
                     line_stats = metrics.error_stats(chunk, tolerances_ms) if chunk else None
                     if line_stats is not None:
@@ -254,12 +279,13 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 _hyp_word_ends(result), list(zip(song.word_ends_ms, tokens, strict=True))
             )
             if end_deviations is not None:
-                end_stats = metrics.error_stats(end_deviations, tolerances_ms)
-                assert end_stats is not None
-                entry["word_ends"] = asdict(end_stats)
-                entry["over_extension"] = round(
-                    metrics.over_extension_rate(end_deviations), 4
-                )
+                verified_ends = _verified_only(end_deviations, song.verified)
+                end_stats = metrics.error_stats(verified_ends, tolerances_ms)
+                if end_stats is not None:
+                    entry["word_ends"] = asdict(end_stats)
+                    entry["over_extension"] = round(
+                        metrics.over_extension_rate(verified_ends), 4
+                    )
             line_report = metrics.line_start_report(
                 [(line.start_ms, line.text) for line in result.lines],
                 list(zip(song.line_starts_ms, song.line_texts, strict=True)),

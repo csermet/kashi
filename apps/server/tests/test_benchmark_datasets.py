@@ -73,6 +73,31 @@ def test_turkish_loads_through_the_same_reader(tmp_path):
     assert songs[0].words == [(500, "şımarık"), (1000, "kuzu")]
 
 
+def test_verified_column_marks_which_words_a_human_checked(tmp_path):
+    """Hand-built sets annotate a SAMPLE, because measuring the first song
+    showed 96% of the correction effort moved words by less than the 300 ms
+    PCO tolerance. The unchecked rows keep their pre-mark so the row count
+    still matches the tokens; `verified` says which ones may be scored."""
+    root = _mini_checkout(tmp_path)
+    (root / "annotations" / "words" / "Artist_-_Song.csv").write_text(
+        "word_start,word_end,line_end,verified\n"
+        "1.0,1.5,nan,1\n"
+        "1.5,2.0,2.0,0\n"
+        "10.0,10.5,nan,0\n"
+        "10.5,11.0,11.0,1\n"
+    )
+    song = load_jamendo(root, stems={"Artist_-_Song"})[0]
+    assert song.verified == [True, False, False, True]
+    assert len(song.words) == 4  # every row still loads; only scoring differs
+
+
+def test_a_set_without_the_column_scores_every_word(tmp_path):
+    # JamendoLyrics itself has no `verified` column, and every word in it IS
+    # ground truth — absence must mean "all", never "none".
+    song = load_jamendo(_mini_checkout(tmp_path), stems={"Artist_-_Song"})[0]
+    assert song.verified is None
+
+
 def test_a_local_root_is_never_silently_downloaded(tmp_path):
     """A missing TR root must fail loudly. The default path fetches 390 MB on
     a miss, and inheriting that for a set that is assembled by hand would turn

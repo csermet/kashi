@@ -57,6 +57,13 @@ class JamendoSong:
     words: list[tuple[int, str]]  # (start_ms, token), annotation order
     word_ends_ms: list[int]  # parallel to words — END ground truth (Faz 5 P1)
     duration_hint_s: float  # last word end — enough for wall-clock ratios
+    # Which words a human actually checked (optional `verified` column). None
+    # means "all of them", which is what JamendoLyrics is. Our hand-built sets
+    # annotate a SAMPLE per song: measured on the first song, 96% of the
+    # correction effort moved words by less than the 300 ms PCO tolerance —
+    # invisible to the metric — so paying for every word buys nothing. The
+    # unchecked rows keep their pre-mark and are excluded from scoring.
+    verified: list[bool] | None = None
 
 
 def ensure_jamendo(data_dir: Path, name: str = "jamendolyrics") -> Path:
@@ -116,6 +123,10 @@ def _read_song(root: Path, row: dict) -> JamendoSong:
     if current:  # final line lacking a line_end marker — keep it anyway
         line_texts.append(" ".join(current))
 
+    verified = None
+    if rows and "verified" in rows[0]:
+        verified = [str(r.get("verified", "1")).strip() in ("1", "true", "True") for r in rows]
+
     return JamendoSong(
         stem=stem,
         artist=row["Artist"],
@@ -128,6 +139,7 @@ def _read_song(root: Path, row: dict) -> JamendoSong:
         words=words,
         word_ends_ms=word_ends_ms,
         duration_hint_s=float(rows[-1]["word_end"]),
+        verified=verified,
     )
 
 
