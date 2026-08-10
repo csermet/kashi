@@ -44,13 +44,27 @@ def main() -> int:
         d["_path"] = p
         packets.append(d)
 
-    # HAZIR olanlar önce (ön-işareti tam), sonra BEKLE — sıra numarası
-    # doğrudan "hangisinden başlayayım" sorusunu cevaplasın.
-    packets.sort(key=lambda d: (d["wordless_lines"] > 0, -len(d["lines"])))
+    # Numaralar SABİT. İlk koşuda bir sıra kararlaştırılıp diske yazılır ve bir
+    # daha değişmez: arşiv tazelendikçe şarkılar BEKLE'den HAZIR'a geçiyor ve
+    # sıralamayı duruma göre yapmak, insan "13'ü yapıyorum" derken 13'ün başka
+    # bir şarkı olmasına yol açıyordu.
+    order_file = KIT / "order.json"
+    if order_file.exists():
+        order = json.loads(order_file.read_text(encoding="utf-8"))
+    else:
+        order = [d["source_id"] for d in
+                 sorted(packets, key=lambda d: (d["wordless_lines"] > 0, -len(d["lines"])))]
+        order_file.write_text(json.dumps(order, indent=1), encoding="utf-8")
+    rank = {sid: i for i, sid in enumerate(order)}
+    packets.sort(key=lambda d: rank.get(d["source_id"], 999))
 
+    done = {p.stem for p in (KIT / "annotations").glob("*.csv")}
     index = []
     for i, d in enumerate(packets, 1):
-        state = "BEKLE" if d["wordless_lines"] else "HAZIR"
+        # BITTI = anotasyonu elde. Listenin ilk işi "sırada ne var" sorusunu
+        # cevaplamak; biteni göstermezse aynı şarkı iki kez yapılır.
+        state = ("BITTI" if d["stem"] in done
+                 else "BEKLE" if d["wordless_lines"] else "HAZIR")
         name = f"{i:02d}-{state}-{slug(d['artist'])}-{slug(d['title'])}"
         # paket
         dst = KIT / "packets" / f"{name}.json"
@@ -70,14 +84,19 @@ def main() -> int:
             shutil.move(str(audio), str(KIT / "audio" / f"{name}{ext}"))
         index.append((i, state, d, name, ext))
 
+    kalan = sum(1 for _, st, *_ in index if st == "HAZIR")
     lines = ["# Anotasyon sırası", "",
+             f"**{sum(1 for _, st, *_ in index if st == 'BITTI')} bitti · {kalan} hazır · "
+             f"{sum(1 for _, st, *_ in index if st == 'BEKLE')} bekliyor**", "",
              "| # | durum | şarkı | satır | kelimesiz | q |",
              "|---|---|---|---|---|---|"]
     for i, state, d, _name, _ext in index:
         lines.append(f"| {i:02d} | {state} | {d['artist']} — {d['title']} | "
                      f"{len(d['lines'])} | {d['wordless_lines']} | {d['quality_score']:.2f} |")
-    lines += ["", "HAZIR = hemen yapılabilir · BEKLE = tazeleme dalgası bitince",
-              "", "Paket ve ses AYNI adı taşır: `packets/01-...json` ↔ `audio/01-...m4a`"]
+    lines += [
+        "", "BITTI = anotasyonu var · HAZIR = sırada · BEKLE = eksik ön-işaret",
+        "", "Paket ve ses AYNI adı taşır: `packets/01-...json` ↔ `audio/01-...m4a`",
+    ]
     (KIT / "SIRA.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     ready = sum(1 for _, s, *_ in index if s == "HAZIR")
