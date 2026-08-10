@@ -1,0 +1,11 @@
+# Veri buraya DEĞİL, /home/cnr-intel/kashi-eval altına iner (KASHI_EVAL_DIR).
+# Ses ve sözler telifli; set yalnız dahili değerlendirme için. Kazara bir
+# kopya buraya düşerse git'e girmesin.
+audio/
+packets/
+annotations/
+*.m4a
+*.webm
+*.mp3
+SIRA.md
+ids.txt

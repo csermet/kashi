@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Kashi — TR eval anotasyon aracı</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --line:#242b36; --text:#e6edf3; --dim:#8b949e;
+    --accent:#4c8dff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --edit:#a371f7;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);display:flex;flex-direction:column;
+       font:14px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+  header{padding:9px 14px;background:var(--panel);border-bottom:1px solid var(--line);
+         display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  h1{font-size:15px;margin:0;font-weight:600}
+  .muted{color:var(--dim)}
+  button{background:#21262d;color:var(--text);border:1px solid var(--line);
+         border-radius:6px;padding:5px 11px;cursor:pointer;font-size:13px}
+  button:hover{background:#2d333b}
+  button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.pri:hover{filter:brightness(1.1)}
+  input[type=file]{font-size:12px;color:var(--dim);max-width:205px}
+  main{padding:10px 14px;display:flex;flex-direction:column;gap:9px;flex:1;min-height:0}
+  canvas{width:100%;display:block;background:#0a0d12;border:1px solid var(--line);
+         border-radius:8px;cursor:grab;touch-action:none}
+  canvas:active{cursor:grabbing}
+  #overview{height:66px} #zoom{height:158px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+
+  /* karaoke şeridi — asıl geri bildirim burada */
+  #lineText{font-size:23px;line-height:1.9;min-height:52px;padding:9px 12px;
+            background:var(--panel);border:1px solid var(--line);border-radius:8px;
+            display:flex;flex-wrap:wrap;gap:5px;align-items:baseline}
+  .w{padding:2px 8px 3px;border-radius:6px;cursor:pointer;white-space:nowrap;
+     border:1px solid transparent;position:relative;transition:color .08s}
+  .w:hover{background:#21262d}
+  .w .n{font-size:10px;color:#586069;vertical-align:super;margin-right:3px}
+  .w.sel{background:var(--accent);color:#fff}
+  .w.sel .n{color:#cfe0ff}
+  .w.sung{color:var(--ok);text-shadow:0 0 12px rgba(63,185,80,.45)}
+  .w.sel.sung{background:var(--accent);color:#fff;text-shadow:0 0 12px rgba(255,255,255,.5)}
+  .w.edited{border-color:var(--edit)}
+  .w.jit{border-style:dashed;border-color:var(--warn)}
+  /* Örneklem dışı: görünür kalsın (bağlam) ama "burayla işin yok" desin. */
+  .w.off{opacity:.32}
+  .w.done{box-shadow:inset 0 -2px 0 var(--ok)}
+
+  #status{font-size:12.5px;color:var(--dim);display:flex;gap:15px;flex-wrap:wrap}
+  #status b{color:var(--text);font-weight:600}
+  kbd{background:#21262d;border:1px solid var(--line);border-bottom-width:2px;
+      border-radius:4px;padding:1px 5px;font:12px ui-monospace,monospace}
+  #help{font-size:12.5px;color:var(--dim);display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:4px 16px;
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  /* Satır listesi kalan yüksekliği yer: ekranın altı boş kalmasın, bağlam
+     ne kadar çok görünürse "burası yanlış" o kadar erken fark edilir. */
+  #lines{flex:1;min-height:120px;overflow:auto;border:1px solid var(--line);
+         border-radius:8px;background:var(--panel)}
+  .ln{padding:6px 12px;border-bottom:1px solid var(--line);cursor:pointer;
+      display:flex;gap:12px;font-size:14.5px}
+  .ln:hover{background:#1c222b}
+  .ln.cur{background:#1f2937}
+  .ln.playing{background:#14301c}
+  .ln .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ln .n{color:var(--dim);font:12px ui-monospace,monospace;min-width:50px}
+  .pill{font-size:11px;padding:1px 7px;border-radius:99px;border:1px solid var(--line)}
+  .pill.on{background:var(--ok);border-color:var(--ok);color:#08260f}
+  .warn{color:var(--warn)}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px}
+  summary{cursor:pointer;font-weight:600;font-size:13.5px}
+  details ol{margin:8px 0 4px;padding-left:20px} details li{margin:4px 0;color:var(--dim)}
+  details b{color:var(--text)}
+  .hint{font-size:12px;color:var(--dim)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Kashi TR eval</h1>
+  <label class="muted">paket <input type="file" id="fPacket" accept=".json"></label>
+  <label class="muted">ses <input type="file" id="fAudio" accept="audio/*"></label>
+  <span id="songName" class="muted">—</span>
+  <span style="flex:1"></span>
+  <button id="btnMode" title="Tamamı: baştan sona dinle (varsayılan). Örneklem: uzun şarkıda her yerden 30 kelime">mod: TAMAMI</button>
+  <button id="btnJitter" title="Örneklemdeki birkaç kelimeye sapma ekler — dikkatini ölçer">kalibrasyon: kapalı</button>
+  <button id="btnExport" class="pri">dışa aktar</button>
+</header>
+
+<main>
+  <details id="quick" open>
+    <summary>Nasıl çalışır? (bir kez oku, sonra kapat)</summary>
+    <ol>
+      <li><b>Baştan sona çal.</b> <kbd>space</kbd>. Söylenen kelime
+          <span style="color:var(--ok)">yeşil</span> yanar.</li>
+      <li><b>Yalnız bariz yanlışta dur.</b> Ses yeşil bandın <b>dışında</b> başlıyorsa
+          <kbd>space</kbd> ile durdur, kelimeye tıkla, <kbd>L</kbd> ile dinle,
+          <kbd>Ctrl</kbd>+<kbd>←</kbd>/<kbd>→</kbd> ile kaydır (50 ms). Sonra devam.</li>
+      <li><b>Şarkı bitince "dışa aktar".</b> "Tamamını kontrol ettin mi?" diye sorar —
+          evet dersen bütün kelimeler ölçüme girer.</li>
+    </ol>
+    <p style="margin:8px 0;color:var(--warn)"><b>Kelime kelime onaylamana gerek yok.</b>
+      Dokunmadığın kelimeler de "baktım, doğruydu" sayılır — dışa aktarımdaki tek soru
+      bunu kapsar.</p>
+    <p style="margin:8px 0"><b>İnce ayar yapma.</b> Dalga formundaki
+      <span style="background:rgba(63,185,80,.18);padding:1px 8px;border-radius:4px">yeşil bant</span>
+      metriğin toleransı (±300 ms ≈ bir hece). Kelimenin sesi <b>bandın içinde
+      başlıyorsa metrik zaten "doğru" sayıyor</b> — dokunma, <kbd>Enter</kbd> ile geç.
+      Yalnız ses bandın <b>dışında</b> başlıyorsa düzelt.</p>
+    <p class="hint">3 kez dinleyip karar veremiyorsan tolerans içindedir, geç.
+      Beklenti: 30 kelimenin ~25'i sadece "dinle-Enter". Şeridi fareyle
+      <b>sürüklersen ses kayar</b>; boş yere <b>tıklarsan</b> oraya gider.
+      <kbd>space</kbd> ile normal dinleyip yeşil yanmayı da izleyebilirsin.</p>
+  </details>
+
+  <canvas id="overview"></canvas>
+  <canvas id="zoom"></canvas>
+
+  <div class="row">
+    <button id="btnPlay">▶ oynat/durdur <kbd>space</kbd></button>
+    <button id="btnLoop">🔁 seçili kelimeyi döngüle <kbd>L</kbd></button>
+    <button id="btnSwept" title="Baştan seçili kelimeye kadar HEPSİNİ kontrol ettiysen: o aralık da ölçüme girer">✔ buraya kadar hepsini kontrol ettim</button>
+    <label class="muted">hız
+      <select id="rate">
+        <option value="0.5">0.5×</option><option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option><option value="1.25">1.25×</option>
+      </select>
+    </label>
+    <span id="clock" style="font:13px ui-monospace,monospace;color:var(--dim)">0.000 s</span>
+    <span style="flex:1"></span>
+    <label class="muted" title="Yalnız T ile canlı damgalama yaparken kullanılır. İnsan refleksi geç kalır; bu sayı onu geri alır. Sadece nudge ile çalışıyorsan hiç dokunma.">
+      tap düzeltmesi <input id="tapOff" type="number" value="-80" step="10" style="width:66px;background:#21262d;color:var(--text);border:1px solid var(--line);border-radius:5px;padding:3px 6px">ms
+      <span class="hint">(yalnız <kbd>T</kbd> için)</span>
+    </label>
+  </div>
+
+  <div id="lineText" class="muted">paket + ses dosyasını yükle…</div>
+  <div id="lines"></div>
+  <div id="status"></div>
+
+  <div id="help">
+    <div><kbd>space</kbd> oynat / durdur</div>
+    <div><kbd>←</kbd> <kbd>→</kbd> önceki / sonraki kelime</div>
+    <div><kbd>↑</kbd> <kbd>↓</kbd> önceki / sonraki satır</div>
+    <div><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> kelimeyi ∓10 ms kaydır</div>
+    <div><kbd>Ctrl</kbd>+<kbd>←</kbd> <kbd>→</kbd> kelimeyi ∓50 ms kaydır</div>
+    <div><kbd>L</kbd> seçili kelimeyi döngüde dinle</div>
+    <div><kbd>Enter</kbd> bu kelime tamam → sonraki</div>
+    <div><kbd>T</kbd> kelimeyi şu ana damgala</div>
+    <div><kbd>R</kbd> kelimeyi orijinaline döndür</div>
+    <div class="hint">fareyle şeridi sürükle = ses kayar · tıkla = oraya git</div>
+  </div>
+</main>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Kashi TR eval annotation tool. Single file, no network: the audio never
+// leaves the machine (File API only) and the export is a plain download.
+//
+// Turkish has no word-level ground truth anywhere, so this set is built by
+// hand. Output schema is JamendoLyrics' so the existing bench reads it with
+// zero changes.
+// ---------------------------------------------------------------------------
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+let packet = null;
+let words = [];             // {t,start,end,line,orig,derived,edited,jitter}
+let lineOf = [];            // {first,count,text,start,end,confirmed,hadWords}
+let sel = 0;                // SELECTED word (what editing acts on)
+let sample = null;          // sorted indices to check, or null = whole song
+
+// Sampling exists because of a measurement, not a hunch. On the first song
+// 137 words took 20 minutes, and only 6 of them (4%) moved further than the
+// 300 ms PCO tolerance — 96% of the effort was invisible to the metric.
+// PCO is a proportion, so ~30 words spread across a song estimate it about as
+// well as 250 do, at a tenth of the cost.
+const SAMPLE_N = 30;
+/** Stratified: one word from each of N even slices, so the sample spans the
+ *  whole song instead of clumping. Deterministic per song — reopening the
+ *  packet must not hand you a different set half way through. */
+function buildSample(n = SAMPLE_N) {
+  if (words.length <= n) return words.map((_, i) => i);
+  let seed = 0;
+  for (const c of (packet.source_id || "x")) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const lo = Math.floor((k * words.length) / n);
+    const hi = Math.max(lo + 1, Math.floor(((k + 1) * words.length) / n));
+    out.push(lo + Math.floor(rnd() * (hi - lo)));
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+const inSample = (i) => !sample || sample.includes(i);
+let audio = { ctx:null, buf:null, src:null, startedAt:0, offset:0, playing:false, rate:1 };
+let loop = null;
+let jitterOn = false;
+let drag = null;            // {canvas, wasPlaying}
+
+// --- audio ------------------------------------------------------------------
+function ctx() {
+  if (!audio.ctx) audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  return audio.ctx;
+}
+function now() {
+  if (!audio.buf) return 0;
+  if (!audio.playing) return audio.offset;
+  return audio.offset + (ctx().currentTime - audio.startedAt) * audio.rate;
+}
+function stop() {
+  if (audio.src) { try { audio.src.onended = null; audio.src.stop(); } catch {} audio.src = null; }
+  audio.playing = false;
+}
+function play(from, until) {
+  if (!audio.buf) return;
+  stop();
+  const src = ctx().createBufferSource();
+  src.buffer = audio.buf;
+  src.playbackRate.value = audio.rate;
+  src.connect(ctx().destination);
+  const start = clamp(from, 0, audio.buf.duration - 0.01);
+  if (until != null) {
+    src.start(0, start, Math.max(0.02, until - start));
+    src.onended = () => { if (loop) play(loop.from, loop.to); };
+  } else {
+    src.start(0, start);
+  }
+  audio.src = src; audio.offset = start; audio.startedAt = ctx().currentTime; audio.playing = true;
+}
+function seek(sec) {
+  const was = audio.playing;
+  stop(); loop = null;
+  audio.offset = clamp(sec, 0, audio.buf ? audio.buf.duration : 0);
+  if (was) play(audio.offset);
+}
+function toggle() {
+  if (!audio.buf) return;
+  if (audio.playing) { const p = now(); stop(); audio.offset = p; loop = null; }
+  else play(audio.offset);
+}
+
+// --- packet -----------------------------------------------------------------
+function loadPacket(p) {
+  packet = p; words = []; lineOf = [];
+  p.lines.forEach((ln, li) => {
+    const toks = (ln.text || "").trim().split(/\s+/).filter(Boolean);
+    const src = Array.isArray(ln.words) && ln.words.length === toks.length ? ln.words : null;
+    const first = words.length;
+    toks.forEach((tok, wi) => {
+      // No aligner words for this line (line QA dropped them, or the token
+      // count disagreed): spread across the line span as a starting guess and
+      // flag it — those are exactly the ones needing real work.
+      const s = src ? src[wi].start_ms
+                    : ln.start_ms + (ln.end_ms - ln.start_ms) * (wi / toks.length);
+      const e = src ? src[wi].end_ms
+                    : ln.start_ms + (ln.end_ms - ln.start_ms) * ((wi + 1) / toks.length);
+      words.push({ t: tok, start: Math.round(s), end: Math.round(e), line: li,
+                   orig: Math.round(s), derived: !src, edited: false, jitter: 0 });
+    });
+    lineOf.push({ first, count: toks.length, text: ln.text, start: ln.start_ms,
+                  end: ln.end_ms, confirmed: false, hadWords: !!src });
+  });
+  sel = 0;
+  // Full song by default. The way this is actually used, measured over four
+  // songs: listen straight through, touch only what is audibly wrong, never
+  // confirm word by word. That covers everything and yields ~8x the verified
+  // words of a 30-word sample for one or two extra minutes, so it is the
+  // default and the sample is the fallback for a song too long to sit through.
+  sample = null;
+  restore();
+  $("songName").textContent = `${p.artist} — ${p.title} · ${words.length} kelime / ${lineOf.length} satır`;
+  lastLineKey = -1;
+  render();
+}
+
+// --- persistence ------------------------------------------------------------
+const keyOf = () => "kashi-eval:" + (packet ? packet.source_id : "?");
+function save() {
+  if (!packet) return;
+  localStorage.setItem(keyOf(), JSON.stringify({
+    v: 2, words: words.map(w => [w.start, w.end, w.edited ? 1 : 0, w.jitter, w.checked ? 1 : 0]),
+    confirmed: lineOf.map(l => l.confirmed ? 1 : 0), sel, jitterOn,
+  }));
+}
+function restore() {
+  try {
+    const st = JSON.parse(localStorage.getItem(keyOf()) || "null");
+    if (!st || !Array.isArray(st.words) || st.words.length !== words.length) return;
+    st.words.forEach(([s, e, ed, ji, ck], i) => {
+      words[i].start = s; words[i].end = e; words[i].edited = !!ed;
+      words[i].jitter = ji || 0; words[i].checked = !!ck;
+    });
+    (st.confirmed || []).forEach((c, i) => { if (lineOf[i]) lineOf[i].confirmed = !!c; });
+    sel = st.sel || 0; jitterOn = !!st.jitterOn;
+    $("btnJitter").textContent = "kalibrasyon: " + (jitterOn ? "AÇIK" : "kapalı");
+  } catch {}
+}
+
+// --- attention calibration --------------------------------------------------
+// Deliberate noise on a random 10% of words. The pre-marks come from the very
+// pipeline being evaluated, so a reviewer who accepts rather than checks would
+// produce a set that certifies whatever we already do. Someone genuinely
+// listening corrects these; the export reports the rate.
+function applyJitter() {
+  jitterOn = !jitterOn;
+  if (jitterOn) {
+    // Only inside the sample, and sparsely: on the first song the injected
+    // noise accounted for a quarter of all the corrections made. An integrity
+    // check that costs a quarter of the budget is not worth its price.
+    words.forEach((w, i) => {
+      if (!w.edited && inSample(i) && Math.random() < 0.12) {
+        const d = (Math.random() < 0.5 ? -1 : 1) * (100 + Math.round(Math.random() * 100));
+        w.jitter = d; w.start += d;
+      }
+    });
+  } else {
+    words.forEach(w => { if (w.jitter && !w.edited) w.start -= w.jitter; w.jitter = 0; });
+  }
+  $("btnJitter").textContent = "kalibrasyon: " + (jitterOn ? "AÇIK" : "kapalı");
+  save(); render();
+}
+
+// --- which word is SOUNDING right now (the karaoke feedback) ----------------
+function playingWord() {
+  const t = now() * 1000;
+  let lo = 0, hi = words.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (words[mid].start <= t) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  if (found < 0) return -1;
+  // Stop lighting up once the line is over — a held highlight through a long
+  // instrumental reads as "this word is wrong" when nothing is being sung.
+  const l = lineOf[words[found].line];
+  if (t > l.end + 800) return -1;
+  return found;
+}
+
+// --- editing ----------------------------------------------------------------
+function nudge(ms) {
+  const w = words[sel]; if (!w) return;
+  w.start = Math.max(0, w.start + ms);
+  w.edited = true;
+  save(); render();
+}
+function tap() {
+  const w = words[sel]; if (!w || !audio.buf) return;
+  w.start = Math.max(0, Math.round(now() * 1000) + Number($("tapOff").value || 0));
+  w.edited = true;
+  save(); select(sel + 1, false); render();
+}
+function reset() {
+  const w = words[sel]; if (!w) return;
+  w.start = w.orig; w.edited = false; w.jitter = 0;
+  save(); render();
+}
+/** Select a word. Seeks EXACTLY to it — no hidden pre-roll (the earlier
+ *  1.2 s rewind made every selection feel like a mis-seek). Use L for
+ *  lead-in, which says so on the button. */
+function select(i, doSeek = true) {
+  sel = clamp(i, 0, words.length - 1);
+  if (doSeek && audio.buf) seek(words[sel].start / 1000);
+  render();
+}
+/** Next/previous word IN THE SAMPLE. In sample mode the arrows must not walk
+ *  through words nobody is going to check — the whole saving is in never
+ *  looking at them. */
+function step(dir) {
+  if (!sample) return select(sel + dir);
+  const pos = sample.findIndex(i => (dir > 0 ? i > sel : i < sel));
+  if (dir > 0) {
+    const nxt = sample.find(i => i > sel);
+    if (nxt != null) select(nxt); else select(sample[sample.length - 1]);
+  } else {
+    const prev = [...sample].reverse().find(i => i < sel);
+    if (prev != null) select(prev); else select(sample[0]);
+  }
+  void pos;
+}
+function selectLine(li) {
+  const l = lineOf[clamp(li, 0, lineOf.length - 1)];
+  if (l) select(l.first);
+}
+/** "Bu kelime tamam" — in sample mode that is the unit of work, so Enter
+ *  marks it done and jumps to the next one to check. Whole-song mode keeps
+ *  the old per-line meaning. */
+function confirmLine() {
+  const w = words[sel];
+  if (!w) return;
+  if (sample) {
+    w.checked = true;
+    save();
+    const nxt = sample.find(i => i > sel && !words[i].checked)
+             ?? sample.find(i => !words[i].checked);
+    if (nxt != null) select(nxt); else render();
+    return;
+  }
+  const l = lineOf[w.line];
+  if (l) l.confirmed = true;
+  save();
+  selectLine(w.line + 1);
+}
+/** "Buraya kadar hepsini gözden geçirdim."
+ *
+ *  A systematic sweep is unbiased ground truth — every word in the range was
+ *  looked at, whether it needed moving or not. Marking merely EDITED words as
+ *  verified would not do: those were selected precisely because they were
+ *  wrong, so scoring them alone would measure the aligner only where it fails.
+ *  A contiguous swept range has no such selection. */
+function markSweptUpToHere() {
+  const upto = sel;
+  const n = upto + 1;
+  if (!confirm(
+    `İlk ${n} kelimenin HEPSİNİ tek tek dinleyip kontrol ettiysen onayla.\n\n` +
+    "Yalnız düzelttiklerini değil, doğru bulup geçtiklerini de kapsar — " +
+    "aradan atlanmış kelime varsa bu işaret ölçümü bozar.")) return;
+  for (let i = 0; i <= upto; i++) words[i].checked = true;
+  if (sample) sample = [...new Set([...sample, ...words.map((_, i) => i).slice(0, n)])]
+    .sort((a, b) => a - b);
+  save(); lastLineKey = -1; render();
+}
+
+function loopWord() {
+  const w = words[sel]; if (!w || !audio.buf) return;
+  loop = { from: Math.max(0, w.start / 1000 - 0.45), to: w.start / 1000 + 0.75 };
+  play(loop.from, loop.to);
+}
+
+// --- drawing ----------------------------------------------------------------
+let peaks = null;
+function computePeaks(buf, n) {
+  const ch = buf.getChannelData(0), step = Math.floor(ch.length / n), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    let max = 0;
+    const from = i * step, to = Math.min(ch.length, from + step);
+    for (let j = from; j < to; j += 2) { const v = Math.abs(ch[j]); if (v > max) max = v; }
+    out[i] = max;
+  }
+  return out;
+}
+function fit(c) {
+  const dpr = window.devicePixelRatio || 1, r = c.getBoundingClientRect();
+  if (c.width !== Math.round(r.width * dpr)) {
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+  }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { g, w: r.width, h: r.height };
+}
+function drawOverview() {
+  const { g, w, h } = fit($("overview"));
+  g.clearRect(0, 0, w, h);
+  if (!audio.buf) return;
+  if (!peaks || peaks.length !== Math.round(w)) peaks = computePeaks(audio.buf, Math.round(w));
+  g.fillStyle = "#2b3644";
+  for (let x = 0; x < peaks.length; x++) {
+    const a = peaks[x] * (h / 2) * 0.95;
+    g.fillRect(x, h / 2 - a, 1, a * 2);
+  }
+  const dur = audio.buf.duration;
+  g.fillStyle = "#3d4a5c";
+  lineOf.forEach(l => g.fillRect((l.start / 1000 / dur) * w, 0, 1, 7));
+  g.fillStyle = "#3fb950";
+  lineOf.forEach(l => { if (l.confirmed) g.fillRect((l.start / 1000 / dur) * w, 0, 2, 7); });
+  const c = words[sel];
+  if (c) { g.fillStyle = "#4c8dff"; g.fillRect((c.start / 1000 / dur) * w - 1, 0, 2, h); }
+  g.fillStyle = "#f0f6fc";
+  g.fillRect((now() / dur) * w, 0, 1, h);
+}
+const ZOOM_SPAN = 3.0;
+/** The metric's window. Anything inside it already scores as correct, so it
+ *  is drawn rather than described — the band IS the instruction. */
+const TOLERANCE_MS = 300;
+/** The zoom view is always centred on the playhead, so dragging slides the
+ *  WAVEFORM under a fixed cursor instead of teleporting the cursor — the
+ *  film-strip feel every audio editor has. Selecting a word seeks to it, which
+ *  re-centres for free. */
+function zoomWindow() {
+  return { t0: now() - ZOOM_SPAN / 2, span: ZOOM_SPAN };
+}
+function drawZoom() {
+  const { g, w, h } = fit($("zoom"));
+  g.clearRect(0, 0, w, h);
+  if (!audio.buf) return;
+  const { t0, span } = zoomWindow();
+  const sr = audio.buf.sampleRate, ch = audio.buf.getChannelData(0);
+  g.fillStyle = "#37455a";
+  for (let x = 0; x < w; x++) {
+    const ts = t0 + (x / w) * span, i0 = Math.floor(ts * sr), i1 = Math.floor((ts + span / w) * sr);
+    let max = 0;
+    for (let j = Math.max(0, i0); j < Math.min(ch.length, i1); j++) {
+      const v = Math.abs(ch[j]); if (v > max) max = v;
+    }
+    const a = max * (h / 2) * 0.95;
+    g.fillRect(x, h / 2 - a, 1, a * 2);
+  }
+  const xOf = (sec) => ((sec - t0) / span) * w;
+  const pw = playingWord();
+  // Tolerance band: PCO@0.3 asks one binary question — is the word within
+  // 300 ms? Drawing that window turns "how precise do I need to be?" from a
+  // judgement call into something visible: if the sound starts inside the
+  // band, the metric already counts it correct and further nudging buys
+  // nothing. Measured on the first song, 96% of the hand corrections landed
+  // inside this band.
+  // The band tracks whatever you are judging right now: the SOUNDING word
+  // while playing, the selected one while paused. The word AFTER it gets a
+  // second, violet band — when two words sit close enough that their windows
+  // overlap, "inside the band" stops being a clean answer, and seeing the
+  // collision beats being surprised by it.
+  const focus = (audio.playing && pw >= 0) ? pw : sel;
+  const band = (idx, fill, edge) => {
+    const wd = words[idx];
+    if (!wd) return;
+    const x0 = xOf((wd.start - TOLERANCE_MS) / 1000), x1 = xOf((wd.start + TOLERANCE_MS) / 1000);
+    if (x1 < 0 || x0 > w) return;
+    g.fillStyle = fill;
+    g.fillRect(x0, 0, x1 - x0, h - 17);
+    g.fillStyle = edge;
+    g.fillRect(x0, 0, 1, h - 17);
+    g.fillRect(x1, 0, 1, h - 17);
+  };
+  // Violet is a hint about the neighbour, green is the thing being judged —
+  // the contrast between them should say which is which without reading a
+  // legend.
+  band(focus + 1, "rgba(163,113,247,0.055)", "rgba(163,113,247,0.18)");
+  band(focus, "rgba(63,185,80,0.22)", "rgba(63,185,80,0.62)");
+  words.forEach((wd, i) => {
+    const x = xOf(wd.start / 1000);
+    if (x < -70 || x > w + 70) return;
+    const isSel = i === sel, isPlaying = i === pw, isNext = i === focus + 1;
+    g.fillStyle = isSel ? "#4c8dff" : isPlaying ? "#3fb950"
+                : isNext ? "#a371f7" : (wd.edited ? "#8957e5" : "#57606a");
+    g.fillRect(x, 0, isSel || isPlaying ? 2 : 1, h - 17);
+    g.font = (isSel || isPlaying || isNext ? "600 " : "") + "12px ui-sans-serif,system-ui";
+    g.fillStyle = isSel ? "#e6edf3" : isPlaying ? "#3fb950" : isNext ? "#a371f7" : "#8b949e";
+    g.fillText(wd.t, x + 3, h - 4);
+  });
+  g.fillStyle = "#f0f6fc";
+  g.fillRect(xOf(now()), 0, 1, h);
+}
+
+// --- word strip -------------------------------------------------------------
+let lastLineKey = -1;
+function render() {
+  drawOverview(); drawZoom();
+  $("clock").textContent = now().toFixed(3) + " s";
+  if (!words.length) return;
+
+  // While playing, FOLLOW the sounding line; when paused, show the selected
+  // one. Watching the highlight land (or not land) on the beat is the whole
+  // feedback loop, so it must not be hidden behind manual navigation.
+  const pw = playingWord();
+  const showLine = (audio.playing && pw >= 0) ? words[pw].line : words[sel].line;
+  const l = lineOf[showLine];
+  // `sel` belongs in the key: two sampled words can share a line, and without
+  // it Enter moved the selection while the strip kept painting the old
+  // highlight — the change was real but invisible, which reads as "Enter does
+  // nothing".
+  const key = ((showLine * 4096 + sel) * 4096 + (pw < 0 ? 4095 : pw)) * 2 + (audio.playing ? 1 : 0);
+  if (key !== lastLineKey) {
+    lastLineKey = key;
+    $("lineText").innerHTML = words.slice(l.first, l.first + l.count).map((x, i) => {
+      const idx = l.first + i, cls = ["w"];
+      if (idx === sel) cls.push("sel");
+      if (idx === pw) cls.push("sung");
+      if (x.edited) cls.push("edited");
+      if (x.jitter && !x.edited) cls.push("jit");
+      if (sample && !inSample(idx)) cls.push("off");
+      if (x.checked) cls.push("done");
+      return `<span class="${cls.join(" ")}" data-i="${idx}"><span class="n">${i + 1}</span>${escapeHtml(x.t)}</span>`;
+    }).join("");
+    $("lineText").classList.remove("muted");
+    renderLines(showLine, pw < 0 ? -1 : words[pw].line);
+  }
+
+  const edited = words.filter(x => x.edited).length;
+  if (sample) {
+    const done = sample.filter(i => words[i].checked).length;
+    const pos = sample.indexOf(sel);
+    $("status").innerHTML =
+      `<b>${done}/${sample.length}</b> kelime bitti` +
+      (pos >= 0 ? ` · şu an ${pos + 1}.` : ` · <span class="warn">örneklem dışı bir kelime seçili</span>`) +
+      ` · düzelttiğin <b>${edited}</b>` +
+      (done === sample.length ? ` · <span style="color:var(--ok)"><b>BİTTİ — dışa aktar</b></span>` : "") +
+      (jitterOn ? ` · <span class="warn">kalibrasyon açık</span>` : "");
+    return;
+  }
+  const conf = lineOf.filter(x => x.confirmed).length;
+  const derived = words.filter(x => x.derived).length;
+  $("status").innerHTML =
+    `seçili kelime <b>${sel + 1}/${words.length}</b>` +
+    ` · düzelttiğin <b>${edited}</b>` +
+    ` · onaylı satır <b>${conf}/${lineOf.length}</b>` +
+    (derived ? ` · <span class="warn">ön-işaretsiz ${derived} kelime</span>` : "") +
+    (jitterOn ? ` · <span class="warn">kalibrasyon açık</span>` : "");
+}
+function renderLines(curLine, playLine) {
+  if (!$("lines").children.length || $("lines").children.length !== lineOf.length) {
+    $("lines").innerHTML = lineOf.map((l, i) =>
+      `<div class="ln" data-l="${i}">
+         <span class="n">${(l.start / 1000).toFixed(1)}s</span>
+         <span class="t">${escapeHtml(l.text)}</span>
+         <span class="pill">—</span>
+       </div>`).join("");
+  }
+  [...$("lines").children].forEach((el, i) => {
+    el.classList.toggle("cur", i === curLine);
+    el.classList.toggle("playing", i === playLine && i !== curLine);
+    const pill = el.lastElementChild;
+    const on = lineOf[i].confirmed;
+    if (pill.classList.contains("on") !== on) {
+      pill.classList.toggle("on", on); pill.textContent = on ? "✓" : "—";
+    }
+  });
+  const el = $("lines").children[curLine];
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+const escapeHtml = (s) => s.replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+// --- export -----------------------------------------------------------------
+// JamendoLyrics schema, so benchmarks/datasets.py reads it unchanged:
+//   <stem>.csv        word_start,word_end,line_end   (line_end = "nan" mid-line)
+//   <stem>.words.txt  whitespace-separated tokens, same order
+function exportAll() {
+  if (!packet) return;
+  // The failure this catches: a full listen-through with real corrections
+  // exported as ALL-unverified, because marking is a separate action that is
+  // easy to finish a song without doing. The file looked fine and would have
+  // scored nothing. Never let the export leave silently empty.
+  const checked = words.filter(w => w.checked).length;
+  const edited = words.filter(w => w.edited).length;
+  if (!sample) {
+    // Coverage is a claim only the person who listened can make, so it is
+    // asked once, plainly, instead of being inferred from which words got
+    // touched — the touched ones are by definition the wrong ones, and
+    // scoring only those would measure the aligner solely where it fails.
+    if (!confirm(
+      `Şarkının TAMAMINI dinleyip kontrol ettin mi?\n\n` +
+      `TAMAM  → ${words.length} kelimenin hepsi ölçüme girer ` +
+      `(${edited} tanesini düzeltmişsin).\n` +
+      `İPTAL  → yarım bıraktıysan; dosya yazılmaz.`)) return;
+    words.forEach(w => { w.checked = true; });
+    save();
+  } else if (checked < sample.length) {
+    if (!confirm(
+      `${sample.length} örneklem kelimesinin ${checked} tanesi işaretli.\n\n` +
+      `Yalnız o ${checked} kelime ölçüme girer. Devam?`)) return;
+  }
+  const stem = `${packet.artist}_-_${packet.title}`.replace(/[^\w\-]+/g, "_").slice(0, 80);
+  // `verified` says which rows a human actually checked. The rest keep their
+  // pre-mark so the row count still matches the token count, and the bench
+  // drops them from scoring — an unchecked word would otherwise score the
+  // pipeline against its own output.
+  const rows = ["word_start,word_end,line_end,verified"];
+  words.forEach((w, i) => {
+    const nxt = words[i + 1];
+    const end = Math.max(w.start + 60, nxt && nxt.line === w.line ? nxt.start : w.end);
+    const lineEnd = (!nxt || nxt.line !== w.line) ? (end / 1000).toFixed(3) : "nan";
+    const ok = w.checked ? 1 : 0;
+    rows.push(`${(w.start / 1000).toFixed(3)},${(end / 1000).toFixed(3)},${lineEnd},${ok}`);
+  });
+  dl(`${stem}.csv`, rows.join("\n") + "\n");
+  dl(`${stem}.words.txt`, words.map(w => w.t).join(" ") + "\n");
+  const jit = words.filter((w, i) => w.jitter && inSample(i));
+  dl(`${stem}.review.json`, JSON.stringify({
+    source_id: packet.source_id, title: packet.title, artist: packet.artist,
+    words: words.length, edited: words.filter(w => w.edited).length,
+    sampled: sample ? sample.length : null,
+    verified: sample ? sample.filter(i => words[i].checked).length : words.length,
+    lines: lineOf.length, confirmed: lineOf.filter(l => l.confirmed).length,
+    derived_words: words.filter(w => w.derived).length,
+    calibration: jitterOn ? {
+      jittered: jit.length, corrected: jit.filter(w => w.edited).length,
+      caught_rate: jit.length ? +(jit.filter(w => w.edited).length / jit.length).toFixed(3) : null,
+    } : null,
+    exported_at: new Date().toISOString(),
+  }, null, 1));
+}
+function dl(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// --- pointer: drag PANS the audio, a plain click jumps ----------------------
+// Dragging moves the sound past a fixed cursor rather than moving the cursor:
+// grab the waveform and slide it, like a film strip. A click that never moved
+// still means "go there", which is what the overview map is for.
+const DRAG_SLOP_PX = 3;
+function secPerPx(canvas) {
+  const r = canvas.getBoundingClientRect();
+  return (canvas.id === "overview" ? audio.buf.duration : ZOOM_SPAN) / r.width;
+}
+["overview", "zoom"].forEach(id => {
+  const c = $(id);
+  c.addEventListener("pointerdown", (e) => {
+    if (!audio.buf) return;
+    // A running source would fight the clock while scrubbing, so playback
+    // pauses for the drag and resumes wherever it was let go.
+    drag = { canvas: c, wasPlaying: audio.playing, lastX: e.clientX, moved: 0 };
+    stop(); loop = null;
+    c.setPointerCapture(e.pointerId);
+  });
+  c.addEventListener("pointermove", (e) => {
+    if (!drag || drag.canvas !== c) return;
+    const dx = e.clientX - drag.lastX;
+    drag.lastX = e.clientX;
+    drag.moved += Math.abs(dx);
+    // Drag right -> content slides right -> we move BACK in time.
+    audio.offset = clamp(audio.offset - dx * secPerPx(c), 0, audio.buf.duration);
+    render();
+  });
+  const end = (e) => {
+    if (!drag || drag.canvas !== c) return;
+    const { wasPlaying, moved } = drag;
+    drag = null;
+    if (moved <= DRAG_SLOP_PX && audio.buf) {   // a click, not a drag
+      const r = c.getBoundingClientRect();
+      const frac = clamp((e.clientX - r.left) / r.width, 0, 1);
+      audio.offset = c.id === "overview"
+        ? frac * audio.buf.duration
+        : clamp(zoomWindow().t0 + frac * ZOOM_SPAN, 0, audio.buf.duration);
+    }
+    if (wasPlaying) play(audio.offset); else render();
+  };
+  c.addEventListener("pointerup", end);
+  c.addEventListener("pointercancel", end);
+});
+
+// --- wiring -----------------------------------------------------------------
+$("fPacket").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  loadPacket(JSON.parse(await f.text()));
+};
+$("fAudio").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  audio.buf = await ctx().decodeAudioData(await f.arrayBuffer());
+  peaks = null; lastLineKey = -1; render();
+};
+$("btnPlay").onclick = toggle;
+$("btnLoop").onclick = loopWord;
+$("btnSwept").onclick = markSweptUpToHere;
+$("btnExport").onclick = exportAll;
+$("btnJitter").onclick = applyJitter;
+$("btnMode").onclick = () => {
+  sample = sample ? null : buildSample();
+  $("btnMode").textContent = sample ? `mod: örneklem (${sample.length})` : "mod: TAMAMI";
+  if (sample) select(sample.find(i => !words[i].checked) ?? sample[0]);
+  lastLineKey = -1; save(); render();
+};
+$("rate").onchange = (e) => {
+  audio.rate = Number(e.target.value);
+  if (audio.playing) { const p = now(); stop(); play(p); }
+};
+$("lineText").onclick = (e) => {
+  const el = e.target.closest(".w");
+  if (el) select(+el.dataset.i);
+};
+$("lines").onclick = (e) => {
+  const el = e.target.closest(".ln"); if (el) selectLine(+el.dataset.l);
+};
+// A button keeps focus after a click, and then Enter/space activate THAT
+// button instead of doing their job here. Dropping focus after every click
+// keeps the keyboard flow the primary one.
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) b.blur();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  // Arrows already mean "move along the words", so the same arrows with a
+  // modifier meaning "move this word along the time axis" needs no new
+  // vocabulary. `,`/`.` stay as aliases for anyone who learned them.
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    const dir = e.key === "ArrowRight" ? 1 : -1;
+    if (e.shiftKey) { e.preventDefault(); return nudge(dir * 10); }
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); return nudge(dir * 50); }
+  }
+  const map = {
+    " ": toggle,
+    ArrowRight: () => step(1), ArrowLeft: () => step(-1),
+    ArrowDown: () => selectLine((words[sel]?.line ?? 0) + 1),
+    ArrowUp: () => selectLine((words[sel]?.line ?? 0) - 1),
+    t: tap, T: tap,
+    ",": () => nudge(-10), ".": () => nudge(10),
+    ";": () => nudge(-50), ":": () => nudge(50),
+    "<": () => nudge(-50), ">": () => nudge(50),
+    l: loopWord, L: loopWord,
+    r: reset, R: reset,
+    Enter: confirmLine,
+  };
+  if (map[e.key]) { e.preventDefault(); map[e.key](); }
+});
+(function tick() { if (audio.buf) render(); requestAnimationFrame(tick); })();
+window.addEventListener("resize", () => { peaks = null; });
+window.addEventListener("beforeunload", save);
+</script>
+</body>
+</html>
