@@ -2,7 +2,7 @@
 
 import pytest
 
-from benchmarks.datasets import KashiCase, load_cases, load_jamendo
+from benchmarks.datasets import KashiCase, ensure_jamendo, load_cases, load_jamendo
 
 CSV_HEADER = (
     "URL,Filepath,Artist,Title,Genre,LicenseType,Language,LyricOverlap,Polyphonic,NonLexical"
@@ -53,6 +53,32 @@ def test_load_jamendo_filters(tmp_path):
     assert [s.language for s in load_jamendo(root, languages={"spa"})] == ["spa"]
     assert len(load_jamendo(root, limit=1)) == 1
     assert [s.stem for s in load_jamendo(root, stems={"Otro_-_Cancion"})] == ["Otro_-_Cancion"]
+
+
+def test_turkish_loads_through_the_same_reader(tmp_path):
+    """The whole reason the hand-built TR set is written in this schema: no
+    loader fork, so every metric, flag and threshold applies to it unchanged.
+    JamendoLyrics itself has no Turkish — this row can only come from ours."""
+    root = _mini_checkout(tmp_path)
+    (root / "JamendoLyrics.csv").write_text(
+        f"{CSV_HEADER}\n"
+        "u,Tarkan_-_Sarki.mp3,Tarkan,Sarki,Pop,internal-eval-only,Turkish,false,false,false\n"
+    )
+    (root / "lyrics" / "Tarkan_-_Sarki.words.txt").write_text("şımarık kuzu")
+    (root / "annotations" / "words" / "Tarkan_-_Sarki.csv").write_text(
+        "word_start,word_end,line_end\n0.5,1.0,nan\n1.0,1.4,1.4\n"
+    )
+    songs = load_jamendo(root, languages={"tur"})
+    assert [s.language for s in songs] == ["tur"]
+    assert songs[0].words == [(500, "şımarık"), (1000, "kuzu")]
+
+
+def test_a_local_root_is_never_silently_downloaded(tmp_path):
+    """A missing TR root must fail loudly. The default path fetches 390 MB on
+    a miss, and inheriting that for a set that is assembled by hand would turn
+    a typo into a surprise download of the WRONG dataset."""
+    with pytest.raises(SystemExit, match="assembled, not"):
+        ensure_jamendo(tmp_path, "jamendolyrics-tr")
 
 
 def test_load_jamendo_token_mismatch_raises(tmp_path):

@@ -30,7 +30,18 @@ JAMENDO_COMMIT = "f093b7a74e034deac21eb5ea3fc40769b29c35b0"
 JAMENDO_TARBALL = f"https://github.com/f90/jamendolyrics/archive/{JAMENDO_COMMIT}.tar.gz"
 
 # JamendoLyrics.csv language names -> ISO-639-3 (what align() expects).
-LANGUAGES = {"English": "eng", "French": "fra", "German": "deu", "Spanish": "spa"}
+# Turkish is NOT in JamendoLyrics; it is here for our own hand-built TR eval
+# set, which is written in this exact schema so it loads through the same
+# reader (see benchmarks/README.md "Turkish eval set"). No word-level Turkish
+# ground truth exists publicly — checked 2026-08-09 — so the set is ours and
+# lives outside the repo with the rest of the copyrighted eval audio.
+LANGUAGES = {
+    "English": "eng",
+    "French": "fra",
+    "German": "deu",
+    "Spanish": "spa",
+    "Turkish": "tur",
+}
 
 
 @dataclass(frozen=True)
@@ -48,11 +59,22 @@ class JamendoSong:
     duration_hint_s: float  # last word end — enough for wall-clock ratios
 
 
-def ensure_jamendo(data_dir: Path) -> Path:
-    """Download + extract once; subsequent runs reuse the checkout."""
-    root = data_dir / "jamendolyrics"
+def ensure_jamendo(data_dir: Path, name: str = "jamendolyrics") -> Path:
+    """Download + extract once; subsequent runs reuse the checkout.
+
+    `name` selects which root under data/ to use. Anything other than the
+    default is a LOCAL set in the same schema (our hand-built Turkish one) —
+    there is nothing to download, so a missing root is an error rather than a
+    390 MB surprise.
+    """
+    root = data_dir / name
     if (root / "JamendoLyrics.csv").exists():
         return root
+    if name != "jamendolyrics":
+        raise SystemExit(
+            f"{root} has no JamendoLyrics.csv — a local set is assembled, not "
+            "downloaded (see /home/cnr-intel/kashi-eval/make_jamendo_root.py)"
+        )
     data_dir.mkdir(parents=True, exist_ok=True)
     logger.info("downloading JamendoLyrics (~390 MB) from %s", JAMENDO_TARBALL)
     with httpx.Client(follow_redirects=True, timeout=None) as http:

@@ -144,7 +144,7 @@ def _hyp_word_ends(result: AlignResult) -> list[tuple[int, str]]:
 
 
 def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
-    root = datasets.ensure_jamendo(DATA_DIR)
+    root = datasets.ensure_jamendo(DATA_DIR, args.jamendo_root)
     songs = datasets.load_jamendo(
         root,
         languages=set(args.languages.split(",")) if args.languages else None,
@@ -461,6 +461,16 @@ def main() -> int:
     parser.add_argument("--songs", nargs="*", help="jamendo stems to include")
     parser.add_argument("--limit", type=int, help="max jamendo songs (after filters)")
     parser.add_argument("--tolerances", default="0.1,0.2,0.3,0.5", help="PCO tolerances, seconds")
+    parser.add_argument(
+        "--jamendo-root",
+        default="jamendolyrics",
+        help=(
+            "dataset directory under benchmarks/data/ (default: the downloaded "
+            "JamendoLyrics). Use `jamendolyrics-tr` for the hand-built Turkish "
+            "set — same schema, so every metric and flag applies unchanged, "
+            "which is the whole reason it was written in this shape."
+        ),
+    )
     parser.add_argument("--windowed", action="store_true", help="line-anchored windowed alignment")
     parser.add_argument(
         "--align-model",

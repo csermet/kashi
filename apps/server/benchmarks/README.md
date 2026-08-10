@@ -121,6 +121,38 @@ One invocation = one configuration. The matrix:
 Useful scoping flags: `--languages eng,spa`, `--limit 8`, `--songs <stem>...`,
 `--dataset cases`.
 
+### Turkish eval set (Faz 8.1)
+
+There is no word-level Turkish ground truth anywhere — lrclib serves line
+timings only (verified live), DALI has no Turkish, Musixmatch's word-level API
+is paywalled, and the only academic Turkish sets are classical makam. So ours
+is hand-built, and written in **exactly this schema** so it loads through the
+same reader: no loader fork, and every metric, flag and threshold applies to it
+unchanged.
+
+The kit lives at `/home/cnr-intel/kashi-eval` (outside the repo — the audio and
+the lyrics are both copyrighted, internal evaluation only):
+
+```bash
+./dl.sh                  # audio (yt-dlp, idempotent)
+./make_packets.sh        # pre-marks from processed_tracks
+# ...annotate in tool.html, drop the exports into annotations/
+./make_jamendo_root.py   # assemble benchmarks/data/jamendolyrics-tr/
+
+python -m benchmarks.run --dataset jamendo --jamendo-root jamendolyrics-tr \
+  --languages tur --separation kim-base --windowed --dump-words --label tr-baseline
+```
+
+`--jamendo-root` is the only new flag: anything other than the default is a
+LOCAL set, and a missing one is a hard error rather than a 390 MB download of
+the wrong dataset.
+
+**Anchor bias.** The pre-marks come from the very pipeline being evaluated, so
+a reviewer who accepts rather than checks would produce a set that certifies
+whatever we already do. The tool can inject ±100-200 ms into a random 10% of
+words and reports how many were caught; `make_jamendo_root.py` warns when that
+rate falls below 70%. Read the warning before trusting a song's timings.
+
 ## Wall-clock expectations (CPU)
 
 Separation dominates: BS-RoFormer ~6–9× realtime on CPU (double-digit minutes
