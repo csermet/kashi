@@ -5,13 +5,13 @@ YouTube kimliği (R6gSMSYKhKU) insan için anlamsız: hangi şarkı olduğu
 görünmüyor, paketle sesi eşleştirmek imkânsız. Yeni isim şunu söyler:
 
     01-HAZIR-Tarkan-Geccek.json / .m4a
-    11-BEKLE-Hadise-Sampiyon.json / .m4a
+    11-ZOR-manifest-Toz-Pembe.json / .m4a
        ^^      ^^^^^
        sıra    ön-işaret durumu
 
 HAZIR = ön-işaretleri tam, hemen anotasyon yapılabilir.
-BEKLE = kelimesiz satırları var; arşiv tazeleme dalgası bunları düzeltiyor,
-        dalga bitmeden yapmak boşuna elle iş çıkarır.
+ZOR   = tazeleme sonrası hâlâ kelimesiz satırı var; hakem kurtaramamış.
+        Anotasyonu daha yavaş ama ölçümde en değerlisi.
 
 Idempotent: tekrar koşulabilir, isimler source_id'den türetilir.
 """
@@ -63,9 +63,16 @@ def main() -> int:
     for i, d in enumerate(packets, 1):
         # BITTI = anotasyonu elde. Listenin ilk işi "sırada ne var" sorusunu
         # cevaplamak; biteni göstermezse aynı şarkı iki kez yapılır.
+        # ZOR = tazeleme dalgasindan SONRA hala kelimesiz satiri var: hakem
+        # kurtaramadi, yani gercekten zor bir vaka. Bu sarkilar anotasyonda
+        # daha yavas ama olcumde en degerlisi — modellerin ayristigi yer.
         state = ("BITTI" if d["stem"] in done
-                 else "BEKLE" if d["wordless_lines"] else "HAZIR")
-        name = f"{i:02d}-{state}-{slug(d['artist'])}-{slug(d['title'])}"
+                 else "ZOR" if d["wordless_lines"] else "HAZIR")
+        # Sanatçı-şarkı kısmı SABİT; değişen yalnız baştaki numara ve durum.
+        # Ses dosyasını bulmak için kullanılan tek dayanak bu, çünkü numara ve
+        # durum her koşuda değişebiliyor.
+        base = f"{slug(d['artist'])}-{slug(d['title'])}"
+        name = f"{i:02d}-{state}-{base}"
         # paket
         dst = KIT / "packets" / f"{name}.json"
         if d["_path"] != dst:
@@ -75,32 +82,41 @@ def main() -> int:
             src_path.unlink()
         else:
             d.pop("_path", None)
-        # ses — paketle AYNI adı alsın, eşleştirme göz kararı olsun
-        audio = next((KIT / "audio").glob(f"{d['source_id']}.*"), None)
-        if audio is None:
-            audio = next((KIT / "audio").glob(f"{name}.*"), None)
+        # Ses, paketle AYNI adı taşımalı — eşleştirme göz kararı olsun. Arama
+        # SLUG kuyruğuna göre: numara/durum önekine göre aramak, ikinci kez
+        # numaralandırdığımızda 18 dosyayı bulunamaz hâle getirmişti (paketler
+        # yeni numaraya geçti, sesler eskisinde kaldı, ad artık yalan söyledi).
+        matches = [p for p in (KIT / "audio").iterdir()
+                   if p.is_file() and (p.stem == d["source_id"] or p.stem.endswith(base))]
+        if len(matches) > 1:
+            print(f"  DİKKAT {base}: {len(matches)} ses dosyası eşleşti, ilki alındı")
+        audio = matches[0] if matches else None
         ext = audio.suffix if audio else "?"
         if audio and audio.stem != name:
             shutil.move(str(audio), str(KIT / "audio" / f"{name}{ext}"))
+        if audio is None:
+            print(f"  DİKKAT {name}: ses dosyası bulunamadı — ./dl.sh koş")
         index.append((i, state, d, name, ext))
 
     kalan = sum(1 for _, st, *_ in index if st == "HAZIR")
     lines = ["# Anotasyon sırası", "",
              f"**{sum(1 for _, st, *_ in index if st == 'BITTI')} bitti · {kalan} hazır · "
-             f"{sum(1 for _, st, *_ in index if st == 'BEKLE')} bekliyor**", "",
+             f"{sum(1 for _, st, *_ in index if st == 'ZOR')} zor**", "",
              "| # | durum | şarkı | satır | kelimesiz | q |",
              "|---|---|---|---|---|---|"]
     for i, state, d, _name, _ext in index:
         lines.append(f"| {i:02d} | {state} | {d['artist']} — {d['title']} | "
                      f"{len(d['lines'])} | {d['wordless_lines']} | {d['quality_score']:.2f} |")
     lines += [
-        "", "BITTI = anotasyonu var · HAZIR = sırada · BEKLE = eksik ön-işaret",
+        "", "BITTI = anotasyonu var · HAZIR = temiz ön-işaret · ZOR = kelimesiz satır içeriyor",
         "", "Paket ve ses AYNI adı taşır: `packets/01-...json` ↔ `audio/01-...m4a`",
     ]
     (KIT / "SIRA.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     ready = sum(1 for _, s, *_ in index if s == "HAZIR")
-    print(f"{len(index)} dosya adlandırıldı — {ready} HAZIR, {len(index) - ready} BEKLE")
+    print(f"{len(index)} dosya adlandırıldı — {ready} HAZIR, "
+          f"{sum(1 for _, s2, *_ in index if s2 == 'ZOR')} ZOR, "
+          f"{sum(1 for _, s2, *_ in index if s2 == 'BITTI')} BITTI")
     print(f"liste: {KIT / 'SIRA.md'}")
     return 0
 
