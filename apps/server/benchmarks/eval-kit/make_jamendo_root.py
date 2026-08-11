@@ -57,15 +57,48 @@ def _packets() -> dict[str, dict]:
 BACKSTEP_TOLERANCE_S = 0.25
 
 
+def _out_of_order(values: list[float]) -> list[int]:
+    """Diziyi azalmayan hâle getirmek için atılması gereken ASGARİ indeksler.
+
+    En uzun azalmayan alt diziyi (patience sorting, O(n log n)) koruyup geri
+    kalanını döndürür. Asgari olması önemli: tek bir yeri değişmiş kelime,
+    kendisinden sonraki masum kelimeleri de sıra dışı gösteriyordu.
+    """
+    tails: list[float] = []      # tails[k] = k+1 uzunluklu altdizinin en küçük sonu
+    tail_idx: list[int] = []
+    parent = [-1] * len(values)
+    for i, v in enumerate(values):
+        lo, hi = 0, len(tails)
+        while lo < hi:                       # v'den KESİN büyük ilk konum
+            mid = (lo + hi) // 2
+            if tails[mid] <= v:
+                lo = mid + 1
+            else:
+                hi = mid
+        parent[i] = tail_idx[lo - 1] if lo > 0 else -1
+        if lo == len(tails):
+            tails.append(v)
+            tail_idx.append(i)
+        else:
+            tails[lo] = v
+            tail_idx[lo] = i
+    keep = set()
+    node = tail_idx[-1] if tail_idx else -1
+    while node != -1:
+        keep.add(node)
+        node = parent[node]
+    return [i for i in range(len(values)) if i not in keep]
+
+
 def _validate(stem: str, tokens: list[str], rows: list[dict]) -> tuple[list[str], list[str]]:
     """(ölümcül, uyarı). Ölümcül olanlar şarkıyı elemeli; uyarılar yalnız
     söylenmeli — küçük bir kusur yüzünden 250 kelimelik emeği çöpe atmak,
     korumaya çalıştığı şeyden daha çok zarar verir."""
     fatal: list[str] = []
     warn: list[str] = []
+    starts: list[float] = []
     if len(tokens) != len(rows):
         fatal.append(f"{len(tokens)} token vs {len(rows)} CSV satırı — sayılar tutmuyor")
-    prev = -1.0
     for i, r in enumerate(rows):
         try:
             s, e = float(r["word_start"]), float(r["word_end"])
@@ -76,11 +109,27 @@ def _validate(stem: str, tokens: list[str], rows: list[dict]) -> tuple[list[str]
             fatal.append(f"satır {i}: end ({e}) <= start ({s})")
         if r.get("line_end") is None:
             fatal.append(f"satır {i}: line_end kolonu yok")
-        if s < prev:
-            back = prev - s
-            msg = f"satır {i}: zaman {back * 1000:.0f} ms geriye gitti ({s} < {prev})"
-            (fatal if back > BACKSTEP_TOLERANCE_S else warn).append(msg)
-        prev = s
+        starts.append(s)
+    # Sıra dışı kelimeleri ASGARİ kümeyle bul: en uzun azalmayan alt diziyi
+    # koru, dışarıda kalanları ele. Naif "önceki büyükse bunu at" yöntemi
+    # suçsuz komşuları kurban ediyordu — Şampiyon'da yeri değişen TEK kelime
+    # yerine ondan sonraki iki kelime elenmişti.
+    for i in _out_of_order(starts):
+        drift = min(abs(starts[i] - starts[j])
+                    for j in (i - 1, i + 1) if 0 <= j < len(starts))
+        if drift <= BACKSTEP_TOLERANCE_S:
+            warn.append(f"satır {i}: {drift * 1000:.0f} ms sıra dışı (zararsız)")
+            continue
+        # Sözlerdeki sırasından çok sonra söylenen kelime (üst üste binen vokal,
+        # sonradan gelen bir nara). CTC hizalama MONOTONdur: kelimeleri söz
+        # sırasıyla ve zamanda hep ileri yerleştirir, dolayısıyla böyle bir
+        # kelimeyi hiçbir model bulamaz. Puanlamak hizalayıcının kalitesini
+        # değil, mimarisinin yasakladığı bir şeyi ölçmek olurdu.
+        rows[i]["verified"] = "0"
+        warn.append(
+            f"satır {i} ({tokens[i] if i < len(tokens) else '?'}): sözlerdeki sırasından "
+            f"{drift:.1f} sn sapıyor — monoton hizalayıcı bulamaz, ölçüm dışı bırakıldı"
+        )
     if rows and all(r.get("line_end") == "nan" for r in rows):
         fatal.append("hiçbir satırda line_end yok — satır sınırları kaybolmuş")
     if rows and not any(r.get("verified") == "1" for r in rows):
@@ -158,7 +207,15 @@ def main() -> int:
         (DEST / "lyrics" / f"{stem}.words.txt").write_text(
             " ".join(tokens) + "\n", encoding="utf-8"
         )
-        shutil.copy(ann / f"{stem}.csv", DEST / "annotations" / "words" / f"{stem}.csv")
+        # Kopyalamak yerine YAZ: _validate bazi satirlarin verified'ini
+        # dusurmus olabilir (olculemez kelimeler), o karar cikti dosyasina
+        # yansimali.
+        with (DEST / "annotations" / "words" / f"{stem}.csv").open(
+                "w", newline="", encoding="utf-8") as out:
+            wr = csv.DictWriter(out, fieldnames=["word_start", "word_end", "line_end", "verified"])
+            wr.writeheader()
+            for row in _rows:
+                wr.writerow({k: row.get(k, "") for k in wr.fieldnames})
         # Ses, paketle AYNI dosya adını taşır (rename.py). Kimliğe göre arama
         # yedek: adlandırma öncesi indirilmiş dosyalar için.
         src = next((KIT / "audio").glob(f"{pkt['_file']}.*"), None) if pkt.get("_file") else None
