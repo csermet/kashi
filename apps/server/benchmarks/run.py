@@ -582,6 +582,7 @@ def main() -> int:
         config_name += "-notrim"
     started = time.monotonic()
 
+    from kashi_server.config import settings
     from kashi_server.pipeline.alignment import resolve_model_name
     from kashi_server.version import PIPELINE_VERSION
 
@@ -593,6 +594,15 @@ def main() -> int:
             # The model that ACTUALLY ran, not the module default — otherwise
             # a bake-off's two result files would claim the same aligner.
             "alignment_model": resolve_model_name(args.align_model),
+            # ...and with per-language routing (Faz 8.1) that single name is
+            # not the whole answer: without --align-model, each song takes the
+            # checkpoint its language maps to. Recorded so a multi-language
+            # run cannot look like a single-model one.
+            "align_models": (
+                {code: choice.checkpoint for code, choice in settings.align_models.items()}
+                if not args.align_model and settings.align_models
+                else None
+            ),
             "align_romanize": args.align_romanize,
             "separation": args.separation,
             "mixback": args.mixback if args.separation != "full-mix" else None,

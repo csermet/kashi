@@ -23,6 +23,17 @@ _ISO_639_1_TO_3 = {
 }
 
 
+def to_iso639_3(code: str) -> str:
+    """Normalize a language code to the form the aligner is called with.
+
+    "en" -> "eng", "ENG" -> "eng". An unknown code passes through lowercased
+    rather than becoming English: this is used to look up configuration, where
+    a wrong key must miss (and fall back visibly) instead of matching English.
+    """
+    normalized = code.strip().lower()
+    return _ISO_639_1_TO_3.get(normalized, normalized)
+
+
 def detect_language(text: str) -> str:
     if not text.strip():
         return DEFAULT_LANGUAGE

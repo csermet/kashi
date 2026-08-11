@@ -8,7 +8,7 @@ Docker image sets to the baked-in schema copy.
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -21,6 +21,30 @@ def _default_schema_path() -> Path:
         if candidate.exists():
             return candidate
     return Path("/app/schemas/processed-track.v1.schema.json")
+
+
+class AlignerChoice(BaseModel):
+    """One language's aligner: the checkpoint AND the text form it wants.
+
+    The two travel together on purpose. `romanize` is not a preference, it is
+    a property of the checkpoint's vocabulary — MMS learned romanized Latin,
+    mpoyraz's Turkish model learned ç ğ ı ö ş ü. Faz 8.1 measured what happens
+    when they come apart: with `romanize=True` uroman also strips punctuation,
+    so turning it off for the Turkish model made the first comma or ♪ abort
+    alignment and five of ten songs vanished. Two parallel dicts would let an
+    operator pick a checkpoint and forget its flag; one object cannot.
+
+    A bare string is accepted as shorthand for "this checkpoint, inherit the
+    global romanize setting":  {"eng": "jonatasgrosman/wav2vec2-xls-r-1b-english"}
+    """
+
+    checkpoint: str = Field(min_length=1)
+    romanize: bool | None = None  # None -> fall back to settings.align_romanize
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_checkpoint(cls, value):
+        return {"checkpoint": value} if isinstance(value, str) else value
 
 
 class Settings(BaseSettings):
@@ -45,9 +69,8 @@ class Settings(BaseSettings):
     # makes swapping the aligner a certainty rather than a maybe, and a
     # constant buried in a module is the wrong place for a certainty.
     #
-    # It also unlocks per-language routing, which is how the CJK gap gets
-    # closed: a Japanese karaoke fine-tune is usable at home while the
-    # commercial build runs something permissive.
+    # This is the FALLBACK for languages `align_models` (below) does not
+    # name; per-language routing lives there.
     #
     # Anything Hugging Face's `load_alignment_model` accepts. The document
     # records what actually ran in `alignment.method`, so a swap is visible
@@ -61,6 +84,30 @@ class Settings(BaseSettings):
     # the one it learned. Measuring such a model with this left on understates
     # it, so the flag rides with the checkpoint.
     align_romanize: bool = True
+    # PER-LANGUAGE routing over the two fields above (Faz 8.1). Empty by
+    # default: with no entry for a job's language, `align_model` /
+    # `align_romanize` answer exactly as they did before, so every existing
+    # measurement stays valid.
+    #
+    # It exists because the licence-clean chain is no longer ONE checkpoint.
+    # Faz 8.1 measured a permissive replacement per language and they are
+    # different models: English wants jonatasgrosman/wav2vec2-xls-r-1b-english
+    # (Apache-2.0, PCO 0.8789 — it BEAT the CC-BY-NC MMS default), Turkish
+    # wants mpoyraz/wav2vec2-xls-r-300m-cv7-turkish (CC-BY-4.0, 0.930 vs 0.938
+    # = no statistical difference) with romanize OFF, because its vocabulary
+    # is Turkish rather than romanized Latin.
+    #
+    # Keys are language codes as the aligner sees them (ISO-639-3: "eng",
+    # "tur"); "en"/"tr" are accepted and normalized, since a 2-letter key that
+    # silently never matched is the exact failure this project keeps paying
+    # for. Set from the environment as JSON:
+    #   ALIGN_MODELS='{"eng":"jonatasgrosman/wav2vec2-xls-r-1b-english",
+    #                  "tur":{"checkpoint":"mpoyraz/wav2vec2-xls-r-300m-cv7-turkish",
+    #                         "romanize":false}}'
+    # Operational note: the worker caches models by name, so a mixed-language
+    # queue holds every configured checkpoint in memory at once.
+    # Detail: docs/research/lisans-temiz-zincir-2026-08.md
+    align_models: dict[str, AlignerChoice] = {}
     # audio-separator registry filename. Kim MelBand: best measured PCO/MAE of
     # all candidates at ~2.1x realtime on the worker (BS-RoFormer quality at a
     # third of its cost); higher-SDR models measured WORSE for alignment.
@@ -118,6 +165,25 @@ class Settings(BaseSettings):
         default_factory=_default_schema_path,
         validation_alias=AliasChoices("KASHI_SCHEMA_PATH", "SCHEMA_PATH"),
     )
+
+    @field_validator("align_models")
+    @classmethod
+    def _normalize_language_keys(cls, value: dict) -> dict:
+        """Key the table the way the aligner is called ("en" -> "eng").
+
+        Raises on two keys that mean the same language: a config saying both
+        "en" and "eng" has no answer, and picking one silently is how a job
+        ends up on a checkpoint nobody chose.
+        """
+        from kashi_server.pipeline.langid import to_iso639_3
+
+        normalized: dict[str, AlignerChoice] = {}
+        for key, choice in value.items():
+            code = to_iso639_3(key)
+            if code in normalized:
+                raise ValueError(f"align_models has two entries for {code!r} (one is {key!r})")
+            normalized[code] = choice
+        return normalized
 
 
 settings = Settings()

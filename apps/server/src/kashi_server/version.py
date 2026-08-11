@@ -394,5 +394,31 @@
 # ZERO, not "low": one word landing on an onset means the line is somewhere
 # real, and partial support goes back to needing corroboration. It touches
 # 0.7% of lines, which is why the rescue win survives it.
-PIPELINE_VERSION = "2.19.1"
+# 2.20.0: the aligner is chosen PER LANGUAGE (Faz 8.1). 2.17.0 made the
+# checkpoint a setting on the assumption that the licence-clean replacement
+# would be one model. It is not: measured against the same benchmark, English
+# is best served by jonatasgrosman/wav2vec2-xls-r-1b-english (Apache-2.0, PCO
+# 0.8789 — it BEAT the CC-BY-NC default) and Turkish by mpoyraz's cv7
+# (CC-BY-4.0, 0.930 against 0.938, a difference the 95% interval cannot
+# distinguish from zero). One `align_model` cannot express that.
+#   · `align_models` maps language -> checkpoint, empty by default. With no
+#     entry the old two settings answer exactly as before, so every Faz 8
+#     measurement stays valid and this release changes no timings.
+#   · The checkpoint and its `romanize` flag are ONE object, never two
+#     parallel tables. romanize is a property of the vocabulary, not a
+#     preference: MMS learned romanized Latin, mpoyraz's model learned
+#     ç ğ ı ö ş ü, and feeding either the other one's text form is measurably
+#     wrong. A config shape that lets an operator set the model and forget the
+#     flag would reintroduce the failure by hand.
+#   · Language keys normalize ("en" -> "eng"), because the aligner is called
+#     with ISO-639-3 and a two-letter key would silently never match. Two
+#     spellings of one language are a startup error rather than a coin flip.
+#   · An explicit model argument (the benchmark's --align-model) bypasses the
+#     table entirely: a hand-picked checkpoint paired with some other model's
+#     text form is the same mismatch in a different costume.
+# Unlisted languages — Japanese among them, which still has no permissive
+# candidate — keep the global default. Operational note: the worker caches
+# weights per name, so a mixed-language queue holds every configured
+# checkpoint in memory at once.
+PIPELINE_VERSION = "2.20.0"
 PIPELINE_MAJOR = 2

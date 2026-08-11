@@ -28,8 +28,8 @@ MODEL_NAME = "MahmoudAshraf/mms-300m-1130-forced-aligner"
 STAR_TOKEN = "<star>"
 
 # Model name -> (model, tokenizer). Keyed rather than a pair of globals so the
-# seam can route per language later without reloading on every job (Faz 8
-# P-B1); today exactly one entry is ever populated.
+# per-language routing of Faz 8.1 does not reload weights on every job; a
+# worker fed a mixed-language queue holds one entry per configured checkpoint.
 _loaded: dict[str, tuple] = {}
 
 
@@ -70,13 +70,54 @@ class AlignResult:
     quality_basis: str = "ctc-probs"
 
 
-def resolve_model_name(override: str | None = None) -> str:
-    """Which aligner this run uses. Pure; the single place that answers it."""
-    if override:
-        return override
-    from kashi_server.config import settings
+@dataclass(frozen=True)
+class AlignerSpec:
+    """What the aligner is: a checkpoint and the text form it expects."""
 
-    return settings.align_model or MODEL_NAME
+    model_name: str
+    romanize: bool
+
+
+def resolve_aligner(
+    language: str | None = None,
+    model_name: str | None = None,
+    romanize: bool | None = None,
+) -> AlignerSpec:
+    """Which aligner this run uses. The single place that answers it.
+
+    Precedence, most specific first:
+
+    1. an explicit `model_name` argument (a benchmark flag, a caller doing a
+       bake-off). It takes the decision OUT of the per-language table entirely
+       — pairing a hand-picked checkpoint with some other model's romanize
+       flag is exactly the mismatch `AlignerChoice` exists to prevent.
+    2. `settings.align_models[language]` — the licence-clean per-language
+       routing (Faz 8.1: English and Turkish want different checkpoints).
+    3. `settings.align_model` / `settings.align_romanize`, i.e. today's
+       behaviour. Both are still the answer when nothing above matches, which
+       is why an empty table changes nothing.
+
+    An explicit `romanize` argument wins over whatever supplied the model, so
+    a benchmark can still measure one checkpoint both ways.
+    """
+    from kashi_server.config import settings
+    from kashi_server.pipeline.langid import to_iso639_3
+
+    choice = None
+    if not model_name and language:
+        choice = settings.align_models.get(to_iso639_3(language))
+    name = model_name or (choice.checkpoint if choice else None) or settings.align_model
+    if romanize is None:
+        romanize = choice.romanize if choice else None
+    if romanize is None:
+        romanize = settings.align_romanize
+    return AlignerSpec(name or MODEL_NAME, romanize)
+
+
+def resolve_model_name(override: str | None = None) -> str:
+    """Language-agnostic view of `resolve_aligner`, for callers that only want
+    to name the default (the benchmark's report header)."""
+    return resolve_aligner(model_name=override).model_name
 
 
 def _load_model(model_name: str):
@@ -362,11 +403,12 @@ def align(
     as the whole-audio mode."""
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
-    model_name = resolve_model_name(model_name)
-    if romanize is None:
-        from kashi_server.config import settings
-
-        romanize = settings.align_romanize
+    spec = resolve_aligner(language, model_name, romanize)
+    model_name, romanize = spec.model_name, spec.romanize
+    # Per job, because per-language routing means the answer can differ
+    # between two jobs of the same worker; the document only records the
+    # checkpoint, so the romanize half would otherwise leave no trace.
+    logger.info("aligner for %s: %s (romanize=%s)", language, model_name, romanize)
     model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
 

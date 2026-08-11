@@ -155,18 +155,28 @@ gerekirse wavesurfer.js ile ~1 günlük özel araç.
 Sevk edilebilir bir zincir var ve kalite bedeli ölçülebilir düzeyde değil.
 Hiçbiri "umuyoruz" değil — üçü de bağımsız ölçüldü.
 
-Geçiş kod işi değil, üç ayar:
+Geçiş kod işi değil, ayar işi. **Dil başına model seçimi 2026-08-11'de
+yazıldı** (pipeline 2.20.0 / server 0.23.0): `align_models` dili checkpoint'e
+eşliyor, `romanize` bayrağı checkpoint'in İÇİNDE taşınıyor (ayrı iki ayar
+olsaydı biri unutulur, TR modeline uroman metni giderdi — ölçümde 10 şarkının
+5'ini kaybettiren tuzağın ta kendisi). Tablo boşken davranış birebir eski,
+yani buraya kadarki bütün ölçümler geçerli kalıyor.
+
+Sevk = tek env değişkeni + ayrıştırıcı dosya adı:
 
 ```
-align_model                = jonatasgrosman/wav2vec2-xls-r-1b-english   # EN
-                             mpoyraz/wav2vec2-xls-r-300m-cv7-turkish    # TR
-align_romanize             = false          # TR yolunda
-separation_model_filename  = vocals_mel_band_roformer.ckpt
+ALIGN_MODELS='{"eng":"jonatasgrosman/wav2vec2-xls-r-1b-english",
+               "tur":{"checkpoint":"mpoyraz/wav2vec2-xls-r-300m-cv7-turkish",
+                      "romanize":false}}'
+SEPARATION_MODEL_FILENAME=vocals_mel_band_roformer.ckpt
 ```
 
-**Açık kalan tek iş: dil başına model seçimi.** Bugün tek bir `align_model`
-var; EN ve TR farklı checkpoint istiyor, pipeline'ın dile göre seçmesi gerek.
-Küçük iş — `resolve_model_name` zaten tek karar noktası.
+Listelenmeyen dil (jpn dahil — henüz permissive adayı yok) `align_model` /
+`align_romanize` ile eskisi gibi çalışır. Anahtarlar ISO-639-3'e normalize
+edilir ("en" da yazılabilir), aynı dilin iki yazımı başlangıçta hata verir.
+Operasyon notu: worker ağırlıkları isme göre önbelleğe alıyor, yani karışık
+dilli kuyrukta yapılandırılmış her checkpoint aynı anda bellekte durur
+(jg 1B ≈ 4 GB + mpoyraz 300M ≈ 1.2 GB).
 
 Donanım: GPU serbest (5070 Ti kişisel makinede, aynı ağ); ilerde sunucudan
 erişilebilir docker GPU servisi planlanıyor — 1B sınıfı modellerin CPU
@@ -180,8 +190,9 @@ maliyeti bu yüzden birincil kısıt değil.
    (TR seti hazır olunca)
 4. unwa'ya HF discussion'dan lisans sorusu + ZFTurbo'ya PolarFormer teyidi
    (yazılı, kalıcı; Caner onayıyla)
-5. Geçiş: `align_model` + `separation_model_filename` bayrakları, eski zincir
-   config yedeği olarak kalır
+5. ✅ Dil başına model seçimi kodu (2026-08-11, 2.20.0) — `align_models`
+6. Geçiş kararı: yukarıdaki `ALIGN_MODELS` + `SEPARATION_MODEL_FILENAME`
+   gitops'a girsin mi? Eski zincir config yedeği olarak kalır (Caner'ın kararı)
 
 Açık/doğrulanamayan noktalar: voidful vocab (gated 401) · ylacombe w2v-bert TR
 lisans niyeti · ilhanemirhan dönüşümünün bütünlüğü · omniASR TR-özel WER ·
