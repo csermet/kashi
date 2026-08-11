@@ -1,0 +1,7099 @@
+{
+ "meta": {
+  "generated_at": "2026-08-11T15:08:32+00:00",
+  "label": "tr-mpoyraz-cv8",
+  "pipeline_version": "2.19.1",
+  "alignment_model": "mpoyraz/wav2vec2-xls-r-300m-cv8-turkish",
+  "align_romanize": false,
+  "separation": "kim-base",
+  "mixback": 0.15,
+  "windowed": true,
+  "anchor_jitter_ms": 400,
+  "signals": false,
+  "line_postprocess": "none",
+  "trim_ends": true,
+  "host": "9e5983364062",
+  "cpus": 16,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 38.2
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 10,
+   "scored": 5,
+   "failed": [
+    "Berkcan_Guven_-_BERKCAN_GUVEN_-_YOUTUBE_BENIM_ISIM_DISS_",
+    "Gulsen_-_Yatcaz_Kalkcaz_Ordayim",
+    "Tarkan_-_Op",
+    "manifest_-_Toz_Pembe",
+    "manifest_ve_Pango_-_Zehir"
+   ],
+   "word_mae_ms_mean": 261.3,
+   "word_mae_ms_median": 195.0,
+   "word_medae_ms_mean": 48.9,
+   "pco": {
+    "0.1": 0.6865,
+    "0.2": 0.8261,
+    "0.3": 0.8906,
+    "0.5": 0.923
+   },
+   "align_s_total": 32.6,
+   "align_x_realtime": 0.035,
+   "trimmed_ends_total": 37,
+   "per_language": {
+    "tur": {
+     "songs": 5,
+     "word_mae_ms_mean": 261.3,
+     "pco_0.3": 0.8906
+    }
+   },
+   "word_end_mae_ms_mean": 273.6,
+   "word_end_mae_ms_median": 189.7,
+   "over_extension_mean": 0.091
+  },
+  "songs": [
+   {
+    "stem": "Ahmet_Kaya_-_Hani_Benim_Gencligim",
+    "language": "tur",
+    "duration_s": 255.5,
+    "n_words": 144,
+    "n_lines": 40,
+    "trimmed_ends": 2,
+    "separate_s": 0.0,
+    "align_s": 29.3,
+    "sync": "word",
+    "quality_score": 0.7777,
+    "verified_words": 144,
+    "words": {
+     "count": 144,
+     "mae_ms": 108.95138888888889,
+     "medae_ms": 26.0,
+     "p95_ms": 390.0,
+     "pcs": {
+      "0.1": 0.7222222222222222,
+      "0.2": 0.7986111111111112,
+      "0.3": 0.9166666666666666,
+      "0.5": 0.9652777777777778
+     }
+    },
+    "word_detail": [
+     {
+      "i": 0,
+      "token": "Hani",
+      "truth_ms": 37996,
+      "hyp_ms": 37997,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 1,
+      "token": "benim",
+      "truth_ms": 38311,
+      "hyp_ms": 38291,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 2,
+      "token": "sevincim",
+      "truth_ms": 39572,
+      "hyp_ms": 39152,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 3,
+      "token": "nerde",
+      "truth_ms": 40558,
+      "hyp_ms": 40538,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 4,
+      "token": "Bilyelerim",
+      "truth_ms": 44020,
+      "hyp_ms": 44000,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 5,
+      "token": "topacım",
+      "truth_ms": 45469,
+      "hyp_ms": 45449,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 6,
+      "token": "Kiraz",
+      "truth_ms": 49305,
+      "hyp_ms": 47948,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 7,
+      "token": "ağacında",
+      "truth_ms": 50782,
+      "hyp_ms": 50783,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 8,
+      "token": "yırtılan",
+      "truth_ms": 51601,
+      "hyp_ms": 51602,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 9,
+      "token": "gömleğim",
+      "truth_ms": 52840,
+      "hyp_ms": 52841,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 10,
+      "token": "Çaldılar",
+      "truth_ms": 55215,
+      "hyp_ms": 55302,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 11,
+      "token": "çocukluğumu",
+      "truth_ms": 57140,
+      "hyp_ms": 56814,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 12,
+      "token": "habersiz",
+      "truth_ms": 58418,
+      "hyp_ms": 58410,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 13,
+      "token": "Penceresiz",
+      "truth_ms": 61482,
+      "hyp_ms": 61487,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 14,
+      "token": "kaldım",
+      "truth_ms": 63120,
+      "hyp_ms": 63020,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 15,
+      "token": "anne",
+      "truth_ms": 64275,
+      "hyp_ms": 64322,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 16,
+      "token": "Penceresiz",
+      "truth_ms": 65640,
+      "hyp_ms": 65414,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 17,
+      "token": "kaldım",
+      "truth_ms": 67341,
+      "hyp_ms": 67619,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 18,
+      "token": "anne",
+      "truth_ms": 68580,
+      "hyp_ms": 68816,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 19,
+      "token": "Uçurtmam",
+      "truth_ms": 69952,
+      "hyp_ms": 69978,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 20,
+      "token": "tel",
+      "truth_ms": 70855,
+      "hyp_ms": 70881,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 21,
+      "token": "örgülere",
+      "truth_ms": 71380,
+      "hyp_ms": 71427,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 22,
+      "token": "takıldı",
+      "truth_ms": 72262,
+      "hyp_ms": 72288,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 23,
+      "token": "Hani",
+      "truth_ms": 74114,
+      "hyp_ms": 74114,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 24,
+      "token": "benim",
+      "truth_ms": 74639,
+      "hyp_ms": 74639,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 25,
+      "token": "gençliğim",
+      "truth_ms": 75353,
+      "hyp_ms": 75353,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 26,
+      "token": "anne",
+      "truth_ms": 76907,
+      "hyp_ms": 76928,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 27,
+      "token": "Penceresiz",
+      "truth_ms": 78319,
+      "hyp_ms": 78020,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 28,
+      "token": "kaldım",
+      "truth_ms": 79957,
+      "hyp_ms": 80204,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 29,
+      "token": "anne",
+      "truth_ms": 81175,
+      "hyp_ms": 81422,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 30,
+      "token": "Penceresiz",
+      "truth_ms": 82508,
+      "hyp_ms": 82508,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 31,
+      "token": "kaldım",
+      "truth_ms": 84146,
+      "hyp_ms": 84209,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 32,
+      "token": "anne",
+      "truth_ms": 85385,
+      "hyp_ms": 85406,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 33,
+      "token": "Uçurtmam",
+      "truth_ms": 86742,
+      "hyp_ms": 86519,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 34,
+      "token": "tellere",
+      "truth_ms": 87687,
+      "hyp_ms": 87884,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 35,
+      "token": "takıldı",
+      "truth_ms": 89073,
+      "hyp_ms": 89165,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 36,
+      "token": "Hani",
+      "truth_ms": 90905,
+      "hyp_ms": 90910,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 37,
+      "token": "benim",
+      "truth_ms": 91430,
+      "hyp_ms": 91435,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 38,
+      "token": "gençliğim",
+      "truth_ms": 92123,
+      "hyp_ms": 92233,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 39,
+      "token": "nerde",
+      "truth_ms": 93677,
+      "hyp_ms": 93724,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 40,
+      "token": "Ne",
+      "truth_ms": 113987,
+      "hyp_ms": 114003,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 41,
+      "token": "varsa",
+      "truth_ms": 114134,
+      "hyp_ms": 114129,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 42,
+      "token": "buğusu",
+      "truth_ms": 114680,
+      "hyp_ms": 114654,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 43,
+      "token": "genzi",
+      "truth_ms": 115226,
+      "hyp_ms": 115221,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 44,
+      "token": "yakan",
+      "truth_ms": 115835,
+      "hyp_ms": 115809,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 45,
+      "token": "Ekmek",
+      "truth_ms": 117976,
+      "hyp_ms": 117321,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 46,
+      "token": "gibi",
+      "truth_ms": 119153,
+      "hyp_ms": 119190,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 47,
+      "token": "aşk",
+      "truth_ms": 119699,
+      "hyp_ms": 119694,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 48,
+      "token": "gibi",
+      "truth_ms": 120245,
+      "hyp_ms": 120261,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 49,
+      "token": "Ah",
+      "truth_ms": 122685,
+      "hyp_ms": 122739,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 50,
+      "token": "ne",
+      "truth_ms": 123420,
+      "hyp_ms": 123432,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 51,
+      "token": "varsa",
+      "truth_ms": 123630,
+      "hyp_ms": 123600,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 52,
+      "token": "güzellikten",
+      "truth_ms": 124092,
+      "hyp_ms": 124083,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 53,
+      "token": "yana",
+      "truth_ms": 125373,
+      "hyp_ms": 125364,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 54,
+      "token": "Bölüştüm",
+      "truth_ms": 126904,
+      "hyp_ms": 126914,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 55,
+      "token": "büyümüştüm",
+      "truth_ms": 128501,
+      "hyp_ms": 128111,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 56,
+      "token": "Bu",
+      "truth_ms": 132330,
+      "hyp_ms": 131219,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 57,
+      "token": "ne",
+      "truth_ms": 132847,
+      "hyp_ms": 132899,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 58,
+      "token": "yaman",
+      "truth_ms": 133141,
+      "hyp_ms": 133172,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 59,
+      "token": "çelişki",
+      "truth_ms": 133918,
+      "hyp_ms": 133970,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 60,
+      "token": "anne",
+      "truth_ms": 135535,
+      "hyp_ms": 135566,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 61,
+      "token": "Bu",
+      "truth_ms": 136893,
+      "hyp_ms": 136918,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 62,
+      "token": "ne",
+      "truth_ms": 137019,
+      "hyp_ms": 137044,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 63,
+      "token": "yaman",
+      "truth_ms": 137229,
+      "hyp_ms": 137254,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 64,
+      "token": "çelişki",
+      "truth_ms": 137922,
+      "hyp_ms": 138136,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 65,
+      "token": "anne",
+      "truth_ms": 139350,
+      "hyp_ms": 139354,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 66,
+      "token": "Kurtlar",
+      "truth_ms": 140828,
+      "hyp_ms": 140859,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 67,
+      "token": "sofrasına",
+      "truth_ms": 141479,
+      "hyp_ms": 141489,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 68,
+      "token": "düştüm",
+      "truth_ms": 143516,
+      "hyp_ms": 143505,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 69,
+      "token": "Hani",
+      "truth_ms": 145077,
+      "hyp_ms": 145070,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 70,
+      "token": "benim",
+      "truth_ms": 145560,
+      "hyp_ms": 145553,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 71,
+      "token": "gençliğim",
+      "truth_ms": 146253,
+      "hyp_ms": 146267,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 72,
+      "token": "anne",
+      "truth_ms": 147849,
+      "hyp_ms": 147737,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 73,
+      "token": "Bu",
+      "truth_ms": 149326,
+      "hyp_ms": 149324,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 74,
+      "token": "ne",
+      "truth_ms": 149473,
+      "hyp_ms": 149471,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 75,
+      "token": "yaman",
+      "truth_ms": 149746,
+      "hyp_ms": 149744,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 76,
+      "token": "çelişki",
+      "truth_ms": 150628,
+      "hyp_ms": 150542,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 77,
+      "token": "anne",
+      "truth_ms": 152077,
+      "hyp_ms": 152054,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 78,
+      "token": "Bu",
+      "truth_ms": 153593,
+      "hyp_ms": 153356,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 79,
+      "token": "ne",
+      "truth_ms": 153719,
+      "hyp_ms": 153923,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 80,
+      "token": "yaman",
+      "truth_ms": 153950,
+      "hyp_ms": 154175,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 81,
+      "token": "çelişki",
+      "truth_ms": 154685,
+      "hyp_ms": 155036,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 82,
+      "token": "anne",
+      "truth_ms": 156176,
+      "hyp_ms": 156359,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 83,
+      "token": "Kurtlar",
+      "truth_ms": 157677,
+      "hyp_ms": 157684,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 84,
+      "token": "sofrasına",
+      "truth_ms": 158244,
+      "hyp_ms": 158251,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 85,
+      "token": "düştüm",
+      "truth_ms": 160281,
+      "hyp_ms": 160288,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 86,
+      "token": "Hani",
+      "truth_ms": 161943,
+      "hyp_ms": 161917,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 87,
+      "token": "benim",
+      "truth_ms": 162426,
+      "hyp_ms": 162421,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 88,
+      "token": "gençliğim",
+      "truth_ms": 163140,
+      "hyp_ms": 163219,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 89,
+      "token": "anne",
+      "truth_ms": 164610,
+      "hyp_ms": 164710,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 90,
+      "token": "Hani",
+      "truth_ms": 185381,
+      "hyp_ms": 185395,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 91,
+      "token": "benim",
+      "truth_ms": 185675,
+      "hyp_ms": 185668,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 92,
+      "token": "sevincim",
+      "truth_ms": 186347,
+      "hyp_ms": 186340,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 93,
+      "token": "nerde",
+      "truth_ms": 187481,
+      "hyp_ms": 187495,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 94,
+      "token": "Akvaryumum",
+      "truth_ms": 190241,
+      "hyp_ms": 190232,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 95,
+      "token": "kanaryam",
+      "truth_ms": 191543,
+      "hyp_ms": 191513,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 96,
+      "token": "Üstüne",
+      "truth_ms": 194961,
+      "hyp_ms": 193781,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 97,
+      "token": "titrediğim",
+      "truth_ms": 196226,
+      "hyp_ms": 196217,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 98,
+      "token": "kaktüs",
+      "truth_ms": 197087,
+      "hyp_ms": 197057,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 99,
+      "token": "çiçeği",
+      "truth_ms": 198431,
+      "hyp_ms": 198401,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 100,
+      "token": "Aldılar",
+      "truth_ms": 199567,
+      "hyp_ms": 200096,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 101,
+      "token": "kitaplarımı",
+      "truth_ms": 201416,
+      "hyp_ms": 201020,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 102,
+      "token": "sorgusuz",
+      "truth_ms": 202528,
+      "hyp_ms": 202532,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 103,
+      "token": "Duvarlar",
+      "truth_ms": 205638,
+      "hyp_ms": 205667,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 104,
+      "token": "konuşmuyor",
+      "truth_ms": 206625,
+      "hyp_ms": 206612,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 105,
+      "token": "anne",
+      "truth_ms": 208515,
+      "hyp_ms": 208523,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 106,
+      "token": "Duvarlar",
+      "truth_ms": 209853,
+      "hyp_ms": 209919,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 107,
+      "token": "konuşmuyor",
+      "truth_ms": 210756,
+      "hyp_ms": 210738,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 108,
+      "token": "anne",
+      "truth_ms": 212625,
+      "hyp_ms": 212628,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 109,
+      "token": "Açık",
+      "truth_ms": 214089,
+      "hyp_ms": 214122,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 110,
+      "token": "kalmıyor",
+      "truth_ms": 214446,
+      "hyp_ms": 214437,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 111,
+      "token": "hiçbir",
+      "truth_ms": 215958,
+      "hyp_ms": 215949,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 112,
+      "token": "kapı",
+      "truth_ms": 216840,
+      "hyp_ms": 216831,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 113,
+      "token": "Hani",
+      "truth_ms": 218242,
+      "hyp_ms": 217881,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 114,
+      "token": "benim",
+      "truth_ms": 218725,
+      "hyp_ms": 218910,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 115,
+      "token": "gençliğim",
+      "truth_ms": 219460,
+      "hyp_ms": 219624,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 116,
+      "token": "anne",
+      "truth_ms": 221035,
+      "hyp_ms": 221094,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 117,
+      "token": "Duvarlar",
+      "truth_ms": 222460,
+      "hyp_ms": 222465,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 118,
+      "token": "konuşmuyor",
+      "truth_ms": 223384,
+      "hyp_ms": 223389,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 119,
+      "token": "anne",
+      "truth_ms": 225316,
+      "hyp_ms": 225300,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 120,
+      "token": "Duvarlar",
+      "truth_ms": 226676,
+      "hyp_ms": 226680,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 121,
+      "token": "konuşmuyor",
+      "truth_ms": 227621,
+      "hyp_ms": 227604,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 122,
+      "token": "anne",
+      "truth_ms": 229469,
+      "hyp_ms": 229452,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 123,
+      "token": "Açık",
+      "truth_ms": 230939,
+      "hyp_ms": 230691,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 124,
+      "token": "kalmıyor",
+      "truth_ms": 231296,
+      "hyp_ms": 231531,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 125,
+      "token": "hiçbir",
+      "truth_ms": 232535,
+      "hyp_ms": 232875,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 126,
+      "token": "kapı",
+      "truth_ms": 233732,
+      "hyp_ms": 233967,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 127,
+      "token": "Hani",
+      "truth_ms": 234803,
+      "hyp_ms": 235099,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 128,
+      "token": "benim",
+      "truth_ms": 235790,
+      "hyp_ms": 235603,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 129,
+      "token": "gençliğim",
+      "truth_ms": 236525,
+      "hyp_ms": 236338,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 130,
+      "token": "nerde",
+      "truth_ms": 237932,
+      "hyp_ms": 237808,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 131,
+      "token": "Yağmurları",
+      "truth_ms": 239288,
+      "hyp_ms": 239340,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 132,
+      "token": "biriktir",
+      "truth_ms": 240653,
+      "hyp_ms": 240684,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 133,
+      "token": "anne",
+      "truth_ms": 242186,
+      "hyp_ms": 242238,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 134,
+      "token": "Yağmurları",
+      "truth_ms": 243537,
+      "hyp_ms": 243563,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 135,
+      "token": "biriktir",
+      "truth_ms": 244776,
+      "hyp_ms": 244760,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 136,
+      "token": "anne",
+      "truth_ms": 246456,
+      "hyp_ms": 246461,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 137,
+      "token": "Çağ",
+      "truth_ms": 247726,
+      "hyp_ms": 247791,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 138,
+      "token": "yangınında",
+      "truth_ms": 248062,
+      "hyp_ms": 248043,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 139,
+      "token": "tutuştum",
+      "truth_ms": 250120,
+      "hyp_ms": 250122,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 140,
+      "token": "Hani",
+      "truth_ms": 251963,
+      "hyp_ms": 251718,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 141,
+      "token": "benim",
+      "truth_ms": 252488,
+      "hyp_ms": 252684,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 142,
+      "token": "gençliğim",
+      "truth_ms": 253202,
+      "hyp_ms": 253440,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 143,
+      "token": "anne",
+      "truth_ms": 254819,
+      "hyp_ms": 254931,
+      "line": 39,
+      "verified": true
+     }
+    ],
+    "word_ends": {
+     "count": 144,
+     "mae_ms": 109.14583333333333,
+     "medae_ms": 30.0,
+     "p95_ms": 425.0,
+     "pcs": {
+      "0.1": 0.6666666666666666,
+      "0.2": 0.7847222222222222,
+      "0.3": 0.875,
+      "0.5": 0.9722222222222222
+     }
+    },
+    "over_extension": 0.0903,
+    "lines": {
+     "count": 40,
+     "mae_ms": 189.8,
+     "medae_ms": 30.0,
+     "p95_ms": 1111.0,
+     "pcs": {
+      "0.3": 0.85
+     }
+    }
+   },
+   {
+    "stem": "Berkcan_Guven_-_BERKCAN_GUVEN_-_YOUTUBE_BENIM_ISIM_DISS_",
+    "language": "tur",
+    "duration_s": 226.3,
+    "n_words": 303,
+    "n_lines": 48,
+    "error": "AssertionError: k != "
+   },
+   {
+    "stem": "Gulsen_-_Yatcaz_Kalkcaz_Ordayim",
+    "language": "tur",
+    "duration_s": 232.5,
+    "n_words": 244,
+    "n_lines": 64,
+    "error": "AssertionError: h != -"
+   },
+   {
+    "stem": "Hadise_-_Sampiyon",
+    "language": "tur",
+    "duration_s": 243.4,
+    "n_words": 192,
+    "n_lines": 56,
+    "trimmed_ends": 9,
+    "separate_s": 0.0,
+    "align_s": 1.2,
+    "sync": "word",
+    "quality_score": 0.5067,
+    "verified_words": 191,
+    "words": {
+     "count": 191,
+     "mae_ms": 587.2251308900524,
+     "medae_ms": 20.0,
+     "p95_ms": 2060.0,
+     "pcs": {
+      "0.1": 0.7539267015706806,
+      "0.2": 0.7853403141361257,
+      "0.3": 0.806282722513089,
+      "0.5": 0.8324607329842932
+     }
+    },
+    "word_detail": [
+     {
+      "i": 0,
+      "token": "Şampiyona",
+      "truth_ms": 80,
+      "hyp_ms": 120,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 1,
+      "token": "şeker",
+      "truth_ms": 840,
+      "hyp_ms": 860,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 2,
+      "token": "geliyor",
+      "truth_ms": 1620,
+      "hyp_ms": 1640,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 3,
+      "token": "geliyor",
+      "truth_ms": 2880,
+      "hyp_ms": 2880,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 4,
+      "token": "Şampiyona",
+      "truth_ms": 4140,
+      "hyp_ms": 3580,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 5,
+      "token": "şeker",
+      "truth_ms": 4860,
+      "hyp_ms": 4900,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 6,
+      "token": "geliyor",
+      "truth_ms": 5660,
+      "hyp_ms": 5660,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 7,
+      "token": "Yıldızı",
+      "truth_ms": 8180,
+      "hyp_ms": 6120,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 8,
+      "token": "var",
+      "truth_ms": 8680,
+      "hyp_ms": 8660,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 9,
+      "token": "başında",
+      "truth_ms": 8900,
+      "hyp_ms": 8920,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 10,
+      "token": "başım",
+      "truth_ms": 9920,
+      "hyp_ms": 9900,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 11,
+      "token": "mı",
+      "truth_ms": 10680,
+      "hyp_ms": 10520,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 12,
+      "token": "dönüyor",
+      "truth_ms": 10940,
+      "hyp_ms": 10940,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 13,
+      "token": "Şampiyona",
+      "truth_ms": 12180,
+      "hyp_ms": 12220,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 14,
+      "token": "şeker",
+      "truth_ms": 12920,
+      "hyp_ms": 12980,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 15,
+      "token": "geliyor",
+      "truth_ms": 13740,
+      "hyp_ms": 13740,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 16,
+      "token": "Şampiyon",
+      "truth_ms": 14680,
+      "hyp_ms": 14120,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 17,
+      "token": "Bir",
+      "truth_ms": 32880,
+      "hyp_ms": 32880,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 18,
+      "token": "kader",
+      "truth_ms": 33120,
+      "hyp_ms": 33120,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 19,
+      "token": "var",
+      "truth_ms": 33920,
+      "hyp_ms": 33900,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 20,
+      "token": "bilemiyoruz",
+      "truth_ms": 34400,
+      "hyp_ms": 34400,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 21,
+      "token": "Mucize",
+      "truth_ms": 36420,
+      "hyp_ms": 36540,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 22,
+      "token": "saklı",
+      "truth_ms": 37380,
+      "hyp_ms": 37400,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 23,
+      "token": "göremiyoruz",
+      "truth_ms": 38440,
+      "hyp_ms": 38440,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 24,
+      "token": "Arkadaşlar",
+      "truth_ms": 40780,
+      "hyp_ms": 41040,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 25,
+      "token": "dalga",
+      "truth_ms": 42720,
+      "hyp_ms": 42720,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 26,
+      "token": "geçti",
+      "truth_ms": 43480,
+      "hyp_ms": 43480,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 27,
+      "token": "Bakışını",
+      "truth_ms": 44480,
+      "hyp_ms": 44500,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 28,
+      "token": "gördüm",
+      "truth_ms": 45500,
+      "hyp_ms": 45480,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 29,
+      "token": "dans",
+      "truth_ms": 46760,
+      "hyp_ms": 46780,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 30,
+      "token": "ederken",
+      "truth_ms": 47440,
+      "hyp_ms": 47300,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 31,
+      "token": "Adını",
+      "truth_ms": 48840,
+      "hyp_ms": 48840,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 32,
+      "token": "yazdım",
+      "truth_ms": 49520,
+      "hyp_ms": 49540,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 33,
+      "token": "silemiyosun",
+      "truth_ms": 50520,
+      "hyp_ms": 50520,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 34,
+      "token": "Sıkı",
+      "truth_ms": 52500,
+      "hyp_ms": 52540,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 35,
+      "token": "sıkı",
+      "truth_ms": 53000,
+      "hyp_ms": 52980,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 36,
+      "token": "tuttum",
+      "truth_ms": 53520,
+      "hyp_ms": 53540,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 37,
+      "token": "gidemiyosun",
+      "truth_ms": 54600,
+      "hyp_ms": 54580,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 38,
+      "token": "Elime",
+      "truth_ms": 56860,
+      "hyp_ms": 56920,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 39,
+      "token": "düştün",
+      "truth_ms": 57580,
+      "hyp_ms": 57580,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 40,
+      "token": "yavrucuğum",
+      "truth_ms": 58840,
+      "hyp_ms": 58880,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 41,
+      "token": "Git",
+      "truth_ms": 60860,
+      "hyp_ms": 60880,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 42,
+      "token": "desem",
+      "truth_ms": 61380,
+      "hyp_ms": 61320,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 43,
+      "token": "de",
+      "truth_ms": 62120,
+      "hyp_ms": 62140,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 44,
+      "token": "zor",
+      "truth_ms": 62860,
+      "hyp_ms": 62900,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 45,
+      "token": "gidersin",
+      "truth_ms": 63380,
+      "hyp_ms": 63380,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 46,
+      "token": "Aşk",
+      "truth_ms": 64780,
+      "hyp_ms": 64800,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 47,
+      "token": "tutukladı",
+      "truth_ms": 65520,
+      "hyp_ms": 65540,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 48,
+      "token": "kalbimi",
+      "truth_ms": 66140,
+      "hyp_ms": 66140,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 49,
+      "token": "Zil",
+      "truth_ms": 68660,
+      "hyp_ms": 68680,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 50,
+      "token": "çaldırdı",
+      "truth_ms": 69400,
+      "hyp_ms": 69440,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 51,
+      "token": "eteklerimi",
+      "truth_ms": 70120,
+      "hyp_ms": 70120,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 52,
+      "token": "Sen",
+      "truth_ms": 72700,
+      "hyp_ms": 72720,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 53,
+      "token": "şahane",
+      "truth_ms": 73700,
+      "hyp_ms": 73740,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 54,
+      "token": "gelen",
+      "truth_ms": 74600,
+      "hyp_ms": 74620,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 55,
+      "token": "Dur",
+      "truth_ms": 76740,
+      "hyp_ms": 76760,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 56,
+      "token": "yapma",
+      "truth_ms": 77760,
+      "hyp_ms": 77780,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 57,
+      "token": "kimsenin",
+      "truth_ms": 78780,
+      "hyp_ms": 78800,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 58,
+      "token": "canını",
+      "truth_ms": 79400,
+      "hyp_ms": 79420,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 59,
+      "token": "yakma",
+      "truth_ms": 79800,
+      "hyp_ms": 79800,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 60,
+      "token": "Şampiyona",
+      "truth_ms": 80740,
+      "hyp_ms": 80800,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 61,
+      "token": "şeker",
+      "truth_ms": 81500,
+      "hyp_ms": 81540,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 62,
+      "token": "geliyor",
+      "truth_ms": 82300,
+      "hyp_ms": 82300,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 63,
+      "token": "geliyor",
+      "truth_ms": 83560,
+      "hyp_ms": 83560,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 64,
+      "token": "Şampiyona",
+      "truth_ms": 84820,
+      "hyp_ms": 84860,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 65,
+      "token": "şeker",
+      "truth_ms": 85540,
+      "hyp_ms": 85600,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 66,
+      "token": "geliyor",
+      "truth_ms": 86340,
+      "hyp_ms": 86320,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 67,
+      "token": "Yıldızı",
+      "truth_ms": 88860,
+      "hyp_ms": 88900,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 68,
+      "token": "var",
+      "truth_ms": 89360,
+      "hyp_ms": 89340,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 69,
+      "token": "başında",
+      "truth_ms": 89600,
+      "hyp_ms": 89580,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 70,
+      "token": "başım",
+      "truth_ms": 90580,
+      "hyp_ms": 90580,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 71,
+      "token": "mı",
+      "truth_ms": 91360,
+      "hyp_ms": 91340,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 72,
+      "token": "dönüyor",
+      "truth_ms": 91600,
+      "hyp_ms": 91620,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 73,
+      "token": "Şampiyona",
+      "truth_ms": 92860,
+      "hyp_ms": 92900,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 74,
+      "token": "şeker",
+      "truth_ms": 93600,
+      "hyp_ms": 93660,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 75,
+      "token": "geliyor",
+      "truth_ms": 94420,
+      "hyp_ms": 94440,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 76,
+      "token": "Şampiyon",
+      "truth_ms": 95360,
+      "hyp_ms": 95400,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 77,
+      "token": "Şampiyona",
+      "truth_ms": 96880,
+      "hyp_ms": 97680,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 78,
+      "token": "şeker",
+      "truth_ms": 97620,
+      "hyp_ms": 98160,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 79,
+      "token": "geliyor",
+      "truth_ms": 98440,
+      "hyp_ms": 98440,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 80,
+      "token": "geliyor",
+      "truth_ms": 99680,
+      "hyp_ms": 99700,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 81,
+      "token": "Şampiyona",
+      "truth_ms": 100940,
+      "hyp_ms": 100420,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 82,
+      "token": "şeker",
+      "truth_ms": 101660,
+      "hyp_ms": 101720,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 83,
+      "token": "geliyor",
+      "truth_ms": 102460,
+      "hyp_ms": 102480,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 84,
+      "token": "Yıldızı",
+      "truth_ms": 105000,
+      "hyp_ms": 105040,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 85,
+      "token": "var",
+      "truth_ms": 105480,
+      "hyp_ms": 105480,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 86,
+      "token": "başında",
+      "truth_ms": 105720,
+      "hyp_ms": 105740,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 87,
+      "token": "başım",
+      "truth_ms": 106720,
+      "hyp_ms": 106720,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 88,
+      "token": "mı",
+      "truth_ms": 107480,
+      "hyp_ms": 107340,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 89,
+      "token": "dönüyor",
+      "truth_ms": 107740,
+      "hyp_ms": 107500,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 90,
+      "token": "Şampiyona",
+      "truth_ms": 109000,
+      "hyp_ms": 108500,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 91,
+      "token": "şeker",
+      "truth_ms": 109740,
+      "hyp_ms": 109780,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 92,
+      "token": "geliyor",
+      "truth_ms": 110540,
+      "hyp_ms": 110540,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 93,
+      "token": "Şampiyon",
+      "truth_ms": 111500,
+      "hyp_ms": 111020,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 94,
+      "token": "Adını",
+      "truth_ms": 129500,
+      "hyp_ms": 129640,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 95,
+      "token": "yazdım",
+      "truth_ms": 130200,
+      "hyp_ms": 130220,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 96,
+      "token": "silemiyosun",
+      "truth_ms": 131200,
+      "hyp_ms": 131200,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 97,
+      "token": "Sıkı",
+      "truth_ms": 133180,
+      "hyp_ms": 133240,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 98,
+      "token": "sıkı",
+      "truth_ms": 133680,
+      "hyp_ms": 133680,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 99,
+      "token": "tuttum",
+      "truth_ms": 134180,
+      "hyp_ms": 134220,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 100,
+      "token": "gidemiyosun",
+      "truth_ms": 135280,
+      "hyp_ms": 135260,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 101,
+      "token": "Elime",
+      "truth_ms": 137540,
+      "hyp_ms": 137580,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 102,
+      "token": "düştün",
+      "truth_ms": 138260,
+      "hyp_ms": 138260,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 103,
+      "token": "yavrucuğum",
+      "truth_ms": 139520,
+      "hyp_ms": 139560,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 104,
+      "token": "Git",
+      "truth_ms": 141540,
+      "hyp_ms": 141600,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 105,
+      "token": "desem",
+      "truth_ms": 142060,
+      "hyp_ms": 142000,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 106,
+      "token": "de",
+      "truth_ms": 142800,
+      "hyp_ms": 142800,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 107,
+      "token": "zor",
+      "truth_ms": 143540,
+      "hyp_ms": 143540,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 108,
+      "token": "gidersin",
+      "truth_ms": 144060,
+      "hyp_ms": 144060,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 109,
+      "token": "Aşk",
+      "truth_ms": 145460,
+      "hyp_ms": 145880,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 110,
+      "token": "tutukladı",
+      "truth_ms": 146180,
+      "hyp_ms": 146200,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 111,
+      "token": "kalbimi",
+      "truth_ms": 146820,
+      "hyp_ms": 146800,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 112,
+      "token": "Zil",
+      "truth_ms": 149340,
+      "hyp_ms": 149340,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 113,
+      "token": "çaldırdı",
+      "truth_ms": 150080,
+      "hyp_ms": 150120,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 114,
+      "token": "eteklerimi",
+      "truth_ms": 150800,
+      "hyp_ms": 150800,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 115,
+      "token": "Sen",
+      "truth_ms": 153360,
+      "hyp_ms": 153400,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 116,
+      "token": "şahane",
+      "truth_ms": 154360,
+      "hyp_ms": 154420,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 117,
+      "token": "gelen",
+      "truth_ms": 155280,
+      "hyp_ms": 155280,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 118,
+      "token": "Dur",
+      "truth_ms": 157420,
+      "hyp_ms": 156160,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 119,
+      "token": "yapma",
+      "truth_ms": 158440,
+      "hyp_ms": 158460,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 120,
+      "token": "kimsenin",
+      "truth_ms": 159460,
+      "hyp_ms": 159480,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 121,
+      "token": "canını",
+      "truth_ms": 160060,
+      "hyp_ms": 160080,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 122,
+      "token": "yakma",
+      "truth_ms": 160480,
+      "hyp_ms": 160480,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 123,
+      "token": "Şampiyona",
+      "truth_ms": 161420,
+      "hyp_ms": 161480,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 124,
+      "token": "şeker",
+      "truth_ms": 162180,
+      "hyp_ms": 162220,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 125,
+      "token": "geliyor",
+      "truth_ms": 162980,
+      "hyp_ms": 162980,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 126,
+      "token": "geliyor",
+      "truth_ms": 164220,
+      "hyp_ms": 164240,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 127,
+      "token": "Şampiyona",
+      "truth_ms": 165480,
+      "hyp_ms": 165540,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 128,
+      "token": "şeker",
+      "truth_ms": 166220,
+      "hyp_ms": 166260,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 129,
+      "token": "geliyor",
+      "truth_ms": 167000,
+      "hyp_ms": 167000,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 130,
+      "token": "Yıldızı",
+      "truth_ms": 169520,
+      "hyp_ms": 169600,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 131,
+      "token": "var",
+      "truth_ms": 170020,
+      "hyp_ms": 170020,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 132,
+      "token": "başında",
+      "truth_ms": 170260,
+      "hyp_ms": 170260,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 133,
+      "token": "başım",
+      "truth_ms": 171260,
+      "hyp_ms": 171240,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 134,
+      "token": "mı",
+      "truth_ms": 172020,
+      "hyp_ms": 172000,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 135,
+      "token": "dönüyor",
+      "truth_ms": 172280,
+      "hyp_ms": 172280,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 136,
+      "token": "Şampiyona",
+      "truth_ms": 173540,
+      "hyp_ms": 173580,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 137,
+      "token": "şeker",
+      "truth_ms": 174280,
+      "hyp_ms": 174340,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 138,
+      "token": "geliyor",
+      "truth_ms": 175100,
+      "hyp_ms": 175080,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 139,
+      "token": "Şampiyon",
+      "truth_ms": 176040,
+      "hyp_ms": 175480,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 140,
+      "token": "Şampiyona",
+      "truth_ms": 177560,
+      "hyp_ms": 176080,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 141,
+      "token": "şeker",
+      "truth_ms": 178300,
+      "hyp_ms": 178360,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 142,
+      "token": "geliyor",
+      "truth_ms": 179100,
+      "hyp_ms": 178580,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 143,
+      "token": "geliyor",
+      "truth_ms": 180360,
+      "hyp_ms": 179120,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 144,
+      "token": "Şampiyona",
+      "truth_ms": 181620,
+      "hyp_ms": 179440,
+      "line": 41,
+      "verified": true
+     },
+     {
+      "i": 145,
+      "token": "şeker",
+      "truth_ms": 182340,
+      "hyp_ms": 179660,
+      "line": 41,
+      "verified": true
+     },
+     {
+      "i": 146,
+      "token": "geliyor",
+      "truth_ms": 183140,
+      "hyp_ms": 179780,
+      "line": 41,
+      "verified": true
+     },
+     {
+      "i": 147,
+      "token": "Yıldızı",
+      "truth_ms": 185660,
+      "hyp_ms": 180360,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 148,
+      "token": "var",
+      "truth_ms": 186160,
+      "hyp_ms": 183140,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 149,
+      "token": "başında",
+      "truth_ms": 186400,
+      "hyp_ms": 186400,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 150,
+      "token": "başım",
+      "truth_ms": 187400,
+      "hyp_ms": 187400,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 151,
+      "token": "mı",
+      "truth_ms": 188160,
+      "hyp_ms": 188720,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 152,
+      "token": "dönüyor",
+      "truth_ms": 188420,
+      "hyp_ms": 189940,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 153,
+      "token": "Şampiyona",
+      "truth_ms": 189680,
+      "hyp_ms": 191700,
+      "line": 43,
+      "verified": true
+     },
+     {
+      "i": 154,
+      "token": "şeker",
+      "truth_ms": 190420,
+      "hyp_ms": 211100,
+      "line": 43,
+      "verified": true
+     },
+     {
+      "i": 155,
+      "token": "geliyor",
+      "truth_ms": 191220,
+      "hyp_ms": 211380,
+      "line": 43,
+      "verified": true
+     },
+     {
+      "i": 156,
+      "token": "Şampiyon",
+      "truth_ms": 209740,
+      "hyp_ms": 211680,
+      "line": 44,
+      "verified": false
+     },
+     {
+      "i": 157,
+      "token": "Şampiyon",
+      "truth_ms": 192180,
+      "hyp_ms": 211880,
+      "line": 45,
+      "verified": true
+     },
+     {
+      "i": 158,
+      "token": "Şampiyona",
+      "truth_ms": 208320,
+      "hyp_ms": 212180,
+      "line": 46,
+      "verified": true
+     },
+     {
+      "i": 159,
+      "token": "şeker",
+      "truth_ms": 210580,
+      "hyp_ms": 212520,
+      "line": 46,
+      "verified": true
+     },
+     {
+      "i": 160,
+      "token": "geliyor",
+      "truth_ms": 211380,
+      "hyp_ms": 212640,
+      "line": 46,
+      "verified": true
+     },
+     {
+      "i": 161,
+      "token": "geliyor",
+      "truth_ms": 212620,
+      "hyp_ms": 212860,
+      "line": 46,
+      "verified": true
+     },
+     {
+      "i": 162,
+      "token": "Şampiyona",
+      "truth_ms": 213880,
+      "hyp_ms": 213260,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 163,
+      "token": "şeker",
+      "truth_ms": 214620,
+      "hyp_ms": 214660,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 164,
+      "token": "geliyor",
+      "truth_ms": 215400,
+      "hyp_ms": 215400,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 165,
+      "token": "Yıldızı",
+      "truth_ms": 217920,
+      "hyp_ms": 215920,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 166,
+      "token": "var",
+      "truth_ms": 218420,
+      "hyp_ms": 218420,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 167,
+      "token": "başında",
+      "truth_ms": 218660,
+      "hyp_ms": 218680,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 168,
+      "token": "başım",
+      "truth_ms": 219660,
+      "hyp_ms": 219660,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 169,
+      "token": "mı",
+      "truth_ms": 220440,
+      "hyp_ms": 220440,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 170,
+      "token": "dönüyor",
+      "truth_ms": 220680,
+      "hyp_ms": 220680,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 171,
+      "token": "Şampiyona",
+      "truth_ms": 221940,
+      "hyp_ms": 221460,
+      "line": 49,
+      "verified": true
+     },
+     {
+      "i": 172,
+      "token": "şeker",
+      "truth_ms": 222680,
+      "hyp_ms": 222720,
+      "line": 49,
+      "verified": true
+     },
+     {
+      "i": 173,
+      "token": "geliyor",
+      "truth_ms": 223500,
+      "hyp_ms": 223500,
+      "line": 49,
+      "verified": true
+     },
+     {
+      "i": 174,
+      "token": "Şampiyon",
+      "truth_ms": 224440,
+      "hyp_ms": 223980,
+      "line": 50,
+      "verified": true
+     },
+     {
+      "i": 175,
+      "token": "Şampiyona",
+      "truth_ms": 225960,
+      "hyp_ms": 226760,
+      "line": 51,
+      "verified": true
+     },
+     {
+      "i": 176,
+      "token": "şeker",
+      "truth_ms": 226700,
+      "hyp_ms": 227280,
+      "line": 51,
+      "verified": true
+     },
+     {
+      "i": 177,
+      "token": "geliyor",
+      "truth_ms": 227520,
+      "hyp_ms": 227520,
+      "line": 51,
+      "verified": true
+     },
+     {
+      "i": 178,
+      "token": "geliyor",
+      "truth_ms": 228760,
+      "hyp_ms": 228760,
+      "line": 51,
+      "verified": true
+     },
+     {
+      "i": 179,
+      "token": "Şampiyona",
+      "truth_ms": 230020,
+      "hyp_ms": 230060,
+      "line": 52,
+      "verified": true
+     },
+     {
+      "i": 180,
+      "token": "şeker",
+      "truth_ms": 230740,
+      "hyp_ms": 230800,
+      "line": 52,
+      "verified": true
+     },
+     {
+      "i": 181,
+      "token": "geliyor",
+      "truth_ms": 231540,
+      "hyp_ms": 231540,
+      "line": 52,
+      "verified": true
+     },
+     {
+      "i": 182,
+      "token": "Yıldızı",
+      "truth_ms": 234060,
+      "hyp_ms": 234120,
+      "line": 53,
+      "verified": true
+     },
+     {
+      "i": 183,
+      "token": "var",
+      "truth_ms": 234560,
+      "hyp_ms": 234560,
+      "line": 53,
+      "verified": true
+     },
+     {
+      "i": 184,
+      "token": "başında",
+      "truth_ms": 234800,
+      "hyp_ms": 234820,
+      "line": 53,
+      "verified": true
+     },
+     {
+      "i": 185,
+      "token": "başım",
+      "truth_ms": 235800,
+      "hyp_ms": 235820,
+      "line": 53,
+      "verified": true
+     },
+     {
+      "i": 186,
+      "token": "mı",
+      "truth_ms": 236560,
+      "hyp_ms": 236400,
+      "line": 53,
+      "verified": true
+     },
+     {
+      "i": 187,
+      "token": "dönüyor",
+      "truth_ms": 236820,
+      "hyp_ms": 236580,
+      "line": 53,
+      "verified": true
+     },
+     {
+      "i": 188,
+      "token": "Şampiyona",
+      "truth_ms": 238080,
+      "hyp_ms": 237360,
+      "line": 54,
+      "verified": true
+     },
+     {
+      "i": 189,
+      "token": "şeker",
+      "truth_ms": 238820,
+      "hyp_ms": 238860,
+      "line": 54,
+      "verified": true
+     },
+     {
+      "i": 190,
+      "token": "geliyor",
+      "truth_ms": 239620,
+      "hyp_ms": 239060,
+      "line": 54,
+      "verified": true
+     },
+     {
+      "i": 191,
+      "token": "Şampiyon",
+      "truth_ms": 240580,
+      "hyp_ms": 239360,
+      "line": 55,
+      "verified": true
+     }
+    ],
+    "word_ends": {
+     "count": 191,
+     "mae_ms": 665.282722513089,
+     "medae_ms": 140.0,
+     "p95_ms": 2040.0,
+     "pcs": {
+      "0.1": 0.36649214659685864,
+      "0.2": 0.6387434554973822,
+      "0.3": 0.7382198952879581,
+      "0.5": 0.8272251308900523
+     }
+    },
+    "over_extension": 0.0785,
+    "lines": {
+     "count": 56,
+     "mae_ms": 930.7142857142857,
+     "medae_ms": 70.0,
+     "p95_ms": 3860.0,
+     "pcs": {
+      "0.3": 0.5714285714285714
+     }
+    }
+   },
+   {
+    "stem": "INJI_-_BELLYDANCING",
+    "language": "tur",
+    "duration_s": 122.5,
+    "n_words": 189,
+    "n_lines": 35,
+    "trimmed_ends": 20,
+    "separate_s": 0.0,
+    "align_s": 0.6,
+    "sync": "word",
+    "quality_score": 0.3653,
+    "verified_words": 160,
+    "words": {
+     "count": 160,
+     "mae_ms": 377.56875,
+     "medae_ms": 100.5,
+     "p95_ms": 1448.0,
+     "pcs": {
+      "0.1": 0.5,
+      "0.2": 0.7625,
+      "0.3": 0.83125,
+      "0.5": 0.8625
+     }
+    },
+    "word_detail": [
+     {
+      "i": 0,
+      "token": "Ya",
+      "truth_ms": 80,
+      "hyp_ms": 84,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 1,
+      "token": "biz",
+      "truth_ms": 240,
+      "hyp_ms": 168,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 2,
+      "token": "şey",
+      "truth_ms": 400,
+      "hyp_ms": 420,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 3,
+      "token": "arıyoruz",
+      "truth_ms": 620,
+      "hyp_ms": 609,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 4,
+      "token": "da",
+      "truth_ms": 1000,
+      "hyp_ms": 1008,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 5,
+      "token": "böyle",
+      "truth_ms": 1140,
+      "hyp_ms": 1134,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 6,
+      "token": "Darbuka,",
+      "truth_ms": 1980,
+      "hyp_ms": 1764,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 7,
+      "token": "böyle",
+      "truth_ms": 2600,
+      "hyp_ms": 2667,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 8,
+      "token": "arabesk",
+      "truth_ms": 3520,
+      "hyp_ms": 3381,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 9,
+      "token": "falan",
+      "truth_ms": 4320,
+      "hyp_ms": 4389,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 10,
+      "token": "çalsın",
+      "truth_ms": 4620,
+      "hyp_ms": 4830,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 11,
+      "token": "Göbek",
+      "truth_ms": 4960,
+      "hyp_ms": 4978,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 12,
+      "token": "atalım",
+      "truth_ms": 5300,
+      "hyp_ms": 5293,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 13,
+      "token": "ya,",
+      "truth_ms": 5740,
+      "hyp_ms": 5713,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 14,
+      "token": "abi",
+      "truth_ms": 6040,
+      "hyp_ms": 5965,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 15,
+      "token": "azıcık",
+      "truth_ms": 6300,
+      "hyp_ms": 6280,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 16,
+      "token": "göbek",
+      "truth_ms": 6600,
+      "hyp_ms": 6637,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 17,
+      "token": "atalım",
+      "truth_ms": 6960,
+      "hyp_ms": 7036,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 18,
+      "token": "ya",
+      "truth_ms": 7440,
+      "hyp_ms": 7498,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 19,
+      "token": "The",
+      "truth_ms": 8020,
+      "hyp_ms": 8002,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 20,
+      "token": "city",
+      "truth_ms": 8160,
+      "hyp_ms": 8422,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 21,
+      "token": "go",
+      "truth_ms": 8420,
+      "hyp_ms": 8590,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 22,
+      "token": "crazy",
+      "truth_ms": 8660,
+      "hyp_ms": 8758,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 23,
+      "token": "on",
+      "truth_ms": 8980,
+      "hyp_ms": 9157,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 24,
+      "token": "a",
+      "truth_ms": 9100,
+      "hyp_ms": 9262,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 25,
+      "token": "Friday",
+      "truth_ms": 9180,
+      "hyp_ms": 9325,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 26,
+      "token": "Tequila",
+      "truth_ms": 10020,
+      "hyp_ms": 10049,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 27,
+      "token": "start",
+      "truth_ms": 10400,
+      "hyp_ms": 10427,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 28,
+      "token": "giving",
+      "truth_ms": 10660,
+      "hyp_ms": 10679,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 29,
+      "token": "me",
+      "truth_ms": 10920,
+      "hyp_ms": 10973,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 30,
+      "token": "a",
+      "truth_ms": 11060,
+      "hyp_ms": 11078,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 31,
+      "token": "migraine",
+      "truth_ms": 11140,
+      "hyp_ms": 11183,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 32,
+      "token": "Waiting",
+      "truth_ms": 12140,
+      "hyp_ms": 11981,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 33,
+      "token": "in",
+      "truth_ms": 12460,
+      "hyp_ms": 12590,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 34,
+      "token": "line",
+      "truth_ms": 12640,
+      "hyp_ms": 12716,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 35,
+      "token": "getting",
+      "truth_ms": 12880,
+      "hyp_ms": 12989,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 36,
+      "token": "sloppy",
+      "truth_ms": 13100,
+      "hyp_ms": 13262,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 37,
+      "token": "So",
+      "truth_ms": 13740,
+      "hyp_ms": 13808,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 38,
+      "token": "I'm",
+      "truth_ms": 13980,
+      "hyp_ms": 14060,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 39,
+      "token": "out",
+      "truth_ms": 14200,
+      "hyp_ms": 14333,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 40,
+      "token": "Minimum",
+      "truth_ms": 16100,
+      "hyp_ms": 16131,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 41,
+      "token": "tab",
+      "truth_ms": 16600,
+      "hyp_ms": 16593,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 42,
+      "token": "was",
+      "truth_ms": 16860,
+      "hyp_ms": 16908,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 43,
+      "token": "a",
+      "truth_ms": 17020,
+      "hyp_ms": 17076,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 44,
+      "token": "thousand",
+      "truth_ms": 17100,
+      "hyp_ms": 17139,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 45,
+      "token": "Big",
+      "truth_ms": 17840,
+      "hyp_ms": 17916,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 46,
+      "token": "boy",
+      "truth_ms": 18100,
+      "hyp_ms": 18168,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 47,
+      "token": "at",
+      "truth_ms": 18380,
+      "hyp_ms": 18504,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 48,
+      "token": "the",
+      "truth_ms": 18460,
+      "hyp_ms": 18588,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 49,
+      "token": "door",
+      "truth_ms": 18600,
+      "hyp_ms": 18714,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 50,
+      "token": "started",
+      "truth_ms": 18780,
+      "hyp_ms": 18966,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 51,
+      "token": "bouncing",
+      "truth_ms": 19080,
+      "hyp_ms": 19239,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 52,
+      "token": "Standing",
+      "truth_ms": 20040,
+      "hyp_ms": 20077,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 53,
+      "token": "outside",
+      "truth_ms": 20400,
+      "hyp_ms": 20392,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 54,
+      "token": "in",
+      "truth_ms": 20740,
+      "hyp_ms": 20770,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 55,
+      "token": "my",
+      "truth_ms": 20800,
+      "hyp_ms": 20833,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 56,
+      "token": "Versace",
+      "truth_ms": 20940,
+      "hyp_ms": 20938,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 57,
+      "token": "Fuck",
+      "truth_ms": 22040,
+      "hyp_ms": 21820,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 58,
+      "token": "it,",
+      "truth_ms": 22240,
+      "hyp_ms": 22345,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 59,
+      "token": "let's",
+      "truth_ms": 22320,
+      "hyp_ms": 22429,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 60,
+      "token": "go",
+      "truth_ms": 22560,
+      "hyp_ms": 22660,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 61,
+      "token": "Mariachi!",
+      "truth_ms": 22780,
+      "hyp_ms": 22807,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 62,
+      "token": "So",
+      "truth_ms": 40380,
+      "hyp_ms": 40437,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 63,
+      "token": "let's",
+      "truth_ms": 40680,
+      "hyp_ms": 40605,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 64,
+      "token": "get",
+      "truth_ms": 40900,
+      "hyp_ms": 40920,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 65,
+      "token": "in",
+      "truth_ms": 41220,
+      "hyp_ms": 41277,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 66,
+      "token": "a",
+      "truth_ms": 41480,
+      "hyp_ms": 41508,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 67,
+      "token": "car",
+      "truth_ms": 41620,
+      "hyp_ms": 41634,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 68,
+      "token": "Take",
+      "truth_ms": 42400,
+      "hyp_ms": 42285,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 69,
+      "token": "a",
+      "truth_ms": 42700,
+      "hyp_ms": 42831,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 70,
+      "token": "shot",
+      "truth_ms": 42860,
+      "hyp_ms": 42957,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 71,
+      "token": "in",
+      "truth_ms": 43260,
+      "hyp_ms": 43377,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 72,
+      "token": "the",
+      "truth_ms": 43420,
+      "hyp_ms": 43755,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 73,
+      "token": "dark",
+      "truth_ms": 43620,
+      "hyp_ms": 45036,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 74,
+      "token": "Let",
+      "truth_ms": 44400,
+      "hyp_ms": 45036,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 75,
+      "token": "it",
+      "truth_ms": 44720,
+      "hyp_ms": 45036,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 76,
+      "token": "take",
+      "truth_ms": 44860,
+      "hyp_ms": 45036,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 77,
+      "token": "you",
+      "truth_ms": 45220,
+      "hyp_ms": 45306,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 78,
+      "token": "wherever",
+      "truth_ms": 45360,
+      "hyp_ms": 45516,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 79,
+      "token": "It's",
+      "truth_ms": 46660,
+      "hyp_ms": 46608,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 80,
+      "token": "now",
+      "truth_ms": 46860,
+      "hyp_ms": 47112,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 81,
+      "token": "or",
+      "truth_ms": 47220,
+      "hyp_ms": 47322,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 82,
+      "token": "it's",
+      "truth_ms": 47440,
+      "hyp_ms": 47490,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 83,
+      "token": "never",
+      "truth_ms": 47620,
+      "hyp_ms": 47721,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 84,
+      "token": "Lose",
+      "truth_ms": 48340,
+      "hyp_ms": 48288,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 85,
+      "token": "myself",
+      "truth_ms": 48600,
+      "hyp_ms": 48792,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 86,
+      "token": "in",
+      "truth_ms": 49160,
+      "hyp_ms": 49359,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 87,
+      "token": "your",
+      "truth_ms": 49380,
+      "hyp_ms": 49506,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 88,
+      "token": "eyes",
+      "truth_ms": 49860,
+      "hyp_ms": 50514,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 89,
+      "token": "Take",
+      "truth_ms": 50320,
+      "hyp_ms": 50514,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 90,
+      "token": "the",
+      "truth_ms": 50560,
+      "hyp_ms": 50624,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 91,
+      "token": "lows",
+      "truth_ms": 50780,
+      "hyp_ms": 51401,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 92,
+      "token": "with",
+      "truth_ms": 51140,
+      "hyp_ms": 52241,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 93,
+      "token": "the",
+      "truth_ms": 51520,
+      "hyp_ms": 52430,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 94,
+      "token": "highs",
+      "truth_ms": 51680,
+      "hyp_ms": 52514,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 95,
+      "token": "If",
+      "truth_ms": 52380,
+      "hyp_ms": 52682,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 96,
+      "token": "we're",
+      "truth_ms": 52580,
+      "hyp_ms": 52934,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 97,
+      "token": "rolling",
+      "truth_ms": 52820,
+      "hyp_ms": 53396,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 98,
+      "token": "together",
+      "truth_ms": 53260,
+      "hyp_ms": 53606,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 99,
+      "token": "I'm",
+      "truth_ms": 54580,
+      "hyp_ms": 55361,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 100,
+      "token": "down",
+      "truth_ms": 54760,
+      "hyp_ms": 55613,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 101,
+      "token": "for",
+      "truth_ms": 55000,
+      "hyp_ms": 55697,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 102,
+      "token": "whatever",
+      "truth_ms": 55200,
+      "hyp_ms": 55802,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 103,
+      "token": "This",
+      "truth_ms": 55820,
+      "hyp_ms": 55970,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 104,
+      "token": "bar's",
+      "truth_ms": 56020,
+      "hyp_ms": 56075,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 105,
+      "token": "good",
+      "truth_ms": 56280,
+      "hyp_ms": 56327,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 106,
+      "token": "but",
+      "truth_ms": 56520,
+      "hyp_ms": 56579,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 107,
+      "token": "it's",
+      "truth_ms": 56700,
+      "hyp_ms": 56768,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 108,
+      "token": "hella",
+      "truth_ms": 56800,
+      "hyp_ms": 56915,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 109,
+      "token": "far",
+      "truth_ms": 57020,
+      "hyp_ms": 57125,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 110,
+      "token": "Let's",
+      "truth_ms": 57760,
+      "hyp_ms": 57776,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 111,
+      "token": "stop",
+      "truth_ms": 57980,
+      "hyp_ms": 58154,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 112,
+      "token": "by",
+      "truth_ms": 58260,
+      "hyp_ms": 58406,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 113,
+      "token": "say",
+      "truth_ms": 58480,
+      "hyp_ms": 58658,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 114,
+      "token": "'Merhaba'",
+      "truth_ms": 58700,
+      "hyp_ms": 58847,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 115,
+      "token": "I'm",
+      "truth_ms": 59780,
+      "hyp_ms": 59797,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 116,
+      "token": "too",
+      "truth_ms": 60000,
+      "hyp_ms": 59944,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 117,
+      "token": "drunk",
+      "truth_ms": 60240,
+      "hyp_ms": 60217,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 118,
+      "token": "for",
+      "truth_ms": 60480,
+      "hyp_ms": 60490,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 119,
+      "token": "the",
+      "truth_ms": 60600,
+      "hyp_ms": 60616,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 120,
+      "token": "planning",
+      "truth_ms": 60720,
+      "hyp_ms": 60721,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 121,
+      "token": "But",
+      "truth_ms": 61380,
+      "hyp_ms": 61456,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 122,
+      "token": "let's",
+      "truth_ms": 61520,
+      "hyp_ms": 61582,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 123,
+      "token": "go",
+      "truth_ms": 61740,
+      "hyp_ms": 61792,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 124,
+      "token": "Damn",
+      "truth_ms": 63720,
+      "hyp_ms": 62905,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 125,
+      "token": "it's",
+      "truth_ms": 64020,
+      "hyp_ms": 64081,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 126,
+      "token": "closed",
+      "truth_ms": 64180,
+      "hyp_ms": 64354,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 127,
+      "token": "for",
+      "truth_ms": 64460,
+      "hyp_ms": 64711,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 128,
+      "token": "the",
+      "truth_ms": 64580,
+      "hyp_ms": 64816,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 129,
+      "token": "weekend",
+      "truth_ms": 64700,
+      "hyp_ms": 64900,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 130,
+      "token": "It's",
+      "truth_ms": 65520,
+      "hyp_ms": 65384,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 131,
+      "token": "cold",
+      "truth_ms": 65700,
+      "hyp_ms": 65678,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 132,
+      "token": "outside",
+      "truth_ms": 66040,
+      "hyp_ms": 66035,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 133,
+      "token": "bloody",
+      "truth_ms": 66400,
+      "hyp_ms": 66371,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 134,
+      "token": "freezing",
+      "truth_ms": 66680,
+      "hyp_ms": 66707,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 135,
+      "token": "I",
+      "truth_ms": 67620,
+      "hyp_ms": 67715,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 136,
+      "token": "wish",
+      "truth_ms": 67700,
+      "hyp_ms": 67757,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 137,
+      "token": "I",
+      "truth_ms": 67920,
+      "hyp_ms": 68009,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 138,
+      "token": "had",
+      "truth_ms": 67980,
+      "hyp_ms": 68051,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 139,
+      "token": "my",
+      "truth_ms": 68180,
+      "hyp_ms": 68282,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 140,
+      "token": "Helly",
+      "truth_ms": 68400,
+      "hyp_ms": 68597,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 141,
+      "token": "Hansen",
+      "truth_ms": 68680,
+      "hyp_ms": 68807,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 142,
+      "token": "Fuck",
+      "truth_ms": 69640,
+      "hyp_ms": 69626,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 143,
+      "token": "it",
+      "truth_ms": 69840,
+      "hyp_ms": 70046,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 144,
+      "token": "let's",
+      "truth_ms": 69960,
+      "hyp_ms": 70172,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 145,
+      "token": "go",
+      "truth_ms": 70180,
+      "hyp_ms": 70403,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 146,
+      "token": "belly",
+      "truth_ms": 70400,
+      "hyp_ms": 70571,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 147,
+      "token": "dancing!",
+      "truth_ms": 70660,
+      "hyp_ms": 70907,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 148,
+      "token": "So",
+      "truth_ms": 88000,
+      "hyp_ms": 88027,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 149,
+      "token": "let's",
+      "truth_ms": 88280,
+      "hyp_ms": 88195,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 150,
+      "token": "get",
+      "truth_ms": 88500,
+      "hyp_ms": 88510,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 151,
+      "token": "in",
+      "truth_ms": 88700,
+      "hyp_ms": 90148,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 152,
+      "token": "a",
+      "truth_ms": 88890,
+      "hyp_ms": 90547,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 153,
+      "token": "car",
+      "truth_ms": 89250,
+      "hyp_ms": 91072,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 154,
+      "token": "Take",
+      "truth_ms": 90010,
+      "hyp_ms": 92668,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 155,
+      "token": "a",
+      "truth_ms": 90190,
+      "hyp_ms": 93592,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 156,
+      "token": "shot",
+      "truth_ms": 90400,
+      "hyp_ms": 94789,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 157,
+      "token": "in",
+      "truth_ms": 90750,
+      "hyp_ms": 96910,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 158,
+      "token": "the",
+      "truth_ms": 90970,
+      "hyp_ms": 98170,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 159,
+      "token": "dark",
+      "truth_ms": 91230,
+      "hyp_ms": 98611,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 160,
+      "token": "Let",
+      "truth_ms": 98920,
+      "hyp_ms": 99703,
+      "line": 29,
+      "verified": false
+     },
+     {
+      "i": 161,
+      "token": "it",
+      "truth_ms": 99240,
+      "hyp_ms": 100690,
+      "line": 29,
+      "verified": false
+     },
+     {
+      "i": 162,
+      "token": "take",
+      "truth_ms": 99680,
+      "hyp_ms": 100963,
+      "line": 29,
+      "verified": false
+     },
+     {
+      "i": 163,
+      "token": "you",
+      "truth_ms": 100420,
+      "hyp_ms": 101068,
+      "line": 29,
+      "verified": false
+     },
+     {
+      "i": 164,
+      "token": "wherever",
+      "truth_ms": 100660,
+      "hyp_ms": 101131,
+      "line": 29,
+      "verified": false
+     },
+     {
+      "i": 165,
+      "token": "It's",
+      "truth_ms": 102320,
+      "hyp_ms": 101383,
+      "line": 30,
+      "verified": false
+     },
+     {
+      "i": 166,
+      "token": "now",
+      "truth_ms": 102540,
+      "hyp_ms": 102937,
+      "line": 30,
+      "verified": false
+     },
+     {
+      "i": 167,
+      "token": "or",
+      "truth_ms": 102980,
+      "hyp_ms": 103903,
+      "line": 30,
+      "verified": false
+     },
+     {
+      "i": 168,
+      "token": "it's",
+      "truth_ms": 105920,
+      "hyp_ms": 104113,
+      "line": 30,
+      "verified": false
+     },
+     {
+      "i": 169,
+      "token": "never",
+      "truth_ms": 106300,
+      "hyp_ms": 106402,
+      "line": 30,
+      "verified": false
+     },
+     {
+      "i": 170,
+      "token": "Lose",
+      "truth_ms": 106760,
+      "hyp_ms": 106993,
+      "line": 31,
+      "verified": false
+     },
+     {
+      "i": 171,
+      "token": "myself",
+      "truth_ms": 107020,
+      "hyp_ms": 107392,
+      "line": 31,
+      "verified": false
+     },
+     {
+      "i": 172,
+      "token": "in",
+      "truth_ms": 107900,
+      "hyp_ms": 107728,
+      "line": 31,
+      "verified": false
+     },
+     {
+      "i": 173,
+      "token": "your",
+      "truth_ms": 108040,
+      "hyp_ms": 107833,
+      "line": 31,
+      "verified": false
+     },
+     {
+      "i": 174,
+      "token": "eyes",
+      "truth_ms": 108640,
+      "hyp_ms": 108253,
+      "line": 31,
+      "verified": false
+     },
+     {
+      "i": 175,
+      "token": "Take",
+      "truth_ms": 108880,
+      "hyp_ms": 109093,
+      "line": 32,
+      "verified": false
+     },
+     {
+      "i": 176,
+      "token": "the",
+      "truth_ms": 109360,
+      "hyp_ms": 110038,
+      "line": 32,
+      "verified": false
+     },
+     {
+      "i": 177,
+      "token": "lows",
+      "truth_ms": 109580,
+      "hyp_ms": 110920,
+      "line": 32,
+      "verified": false
+     },
+     {
+      "i": 178,
+      "token": "with",
+      "truth_ms": 109880,
+      "hyp_ms": 111697,
+      "line": 32,
+      "verified": false
+     },
+     {
+      "i": 179,
+      "token": "the",
+      "truth_ms": 110480,
+      "hyp_ms": 111970,
+      "line": 32,
+      "verified": false
+     },
+     {
+      "i": 180,
+      "token": "highs",
+      "truth_ms": 110880,
+      "hyp_ms": 112117,
+      "line": 32,
+      "verified": false
+     },
+     {
+      "i": 181,
+      "token": "If",
+      "truth_ms": 112520,
+      "hyp_ms": 112117,
+      "line": 33,
+      "verified": false
+     },
+     {
+      "i": 182,
+      "token": "we're",
+      "truth_ms": 112800,
+      "hyp_ms": 112117,
+      "line": 33,
+      "verified": false
+     },
+     {
+      "i": 183,
+      "token": "rolling",
+      "truth_ms": 112980,
+      "hyp_ms": 112531,
+      "line": 33,
+      "verified": false
+     },
+     {
+      "i": 184,
+      "token": "together",
+      "truth_ms": 113760,
+      "hyp_ms": 114631,
+      "line": 33,
+      "verified": false
+     },
+     {
+      "i": 185,
+      "token": "I'm",
+      "truth_ms": 114320,
+      "hyp_ms": 114946,
+      "line": 34,
+      "verified": false
+     },
+     {
+      "i": 186,
+      "token": "down",
+      "truth_ms": 114480,
+      "hyp_ms": 115177,
+      "line": 34,
+      "verified": false
+     },
+     {
+      "i": 187,
+      "token": "for",
+      "truth_ms": 114760,
+      "hyp_ms": 115975,
+      "line": 34,
+      "verified": false
+     },
+     {
+      "i": 188,
+      "token": "whatever",
+      "truth_ms": 122380,
+      "hyp_ms": 117865,
+      "line": 34,
+      "verified": false
+     }
+    ],
+    "word_ends": {
+     "count": 160,
+     "mae_ms": 364.3375,
+     "medae_ms": 127.5,
+     "p95_ms": 1073.0,
+     "pcs": {
+      "0.1": 0.425,
+      "0.2": 0.68125,
+      "0.3": 0.75625,
+      "0.5": 0.86875
+     }
+    },
+    "over_extension": 0.2562,
+    "lines": {
+     "count": 35,
+     "mae_ms": 293.25714285714287,
+     "medae_ms": 115.0,
+     "p95_ms": 937.0,
+     "pcs": {
+      "0.3": 0.7428571428571429
+     }
+    }
+   },
+   {
+    "stem": "Sibel_Can_ve_Eypio_-_KIYAMAM",
+    "language": "tur",
+    "duration_s": 144.8,
+    "n_words": 186,
+    "n_lines": 37,
+    "trimmed_ends": 0,
+    "separate_s": 0.0,
+    "align_s": 0.7,
+    "sync": "word",
+    "quality_score": 1.0,
+    "verified_words": 186,
+    "words": {
+     "count": 186,
+     "mae_ms": 37.516129032258064,
+     "medae_ms": 16.0,
+     "p95_ms": 196.0,
+     "pcs": {
+      "0.1": 0.8924731182795699,
+      "0.2": 0.956989247311828,
+      "0.3": 0.989247311827957,
+      "0.5": 1.0
+     }
+    },
+    "word_detail": [
+     {
+      "i": 0,
+      "token": "Bir",
+      "truth_ms": 10129,
+      "hyp_ms": 10122,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 1,
+      "token": "seni",
+      "truth_ms": 10297,
+      "hyp_ms": 10332,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 2,
+      "token": "tutamadım",
+      "truth_ms": 10906,
+      "hyp_ms": 10899,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 3,
+      "token": "ben",
+      "truth_ms": 12418,
+      "hyp_ms": 12432,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 4,
+      "token": "de",
+      "truth_ms": 12733,
+      "hyp_ms": 12726,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 5,
+      "token": "elimde",
+      "truth_ms": 12922,
+      "hyp_ms": 12957,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 6,
+      "token": "(Elimde)",
+      "truth_ms": 14245,
+      "hyp_ms": 13965,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 7,
+      "token": "Gördün",
+      "truth_ms": 14912,
+      "hyp_ms": 14933,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 8,
+      "token": "mü",
+      "truth_ms": 15437,
+      "hyp_ms": 15437,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 9,
+      "token": "sen",
+      "truth_ms": 15710,
+      "hyp_ms": 15710,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 10,
+      "token": "kendini",
+      "truth_ms": 16067,
+      "hyp_ms": 16067,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 11,
+      "token": "hiç",
+      "truth_ms": 17012,
+      "hyp_ms": 16991,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 12,
+      "token": "gözlerimde?",
+      "truth_ms": 17369,
+      "hyp_ms": 17369,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 13,
+      "token": "(Gözlerimde)",
+      "truth_ms": 18566,
+      "hyp_ms": 18587,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 14,
+      "token": "Bilmem",
+      "truth_ms": 19699,
+      "hyp_ms": 19709,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 15,
+      "token": "dünyanın",
+      "truth_ms": 20266,
+      "hyp_ms": 20255,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 16,
+      "token": "belki",
+      "truth_ms": 21211,
+      "hyp_ms": 21221,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 17,
+      "token": "başka",
+      "truth_ms": 21778,
+      "hyp_ms": 21767,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 18,
+      "token": "yerinde",
+      "truth_ms": 22534,
+      "hyp_ms": 22544,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 19,
+      "token": "Elimde",
+      "truth_ms": 23563,
+      "hyp_ms": 23693,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 20,
+      "token": "değil",
+      "truth_ms": 24718,
+      "hyp_ms": 24491,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 21,
+      "token": "ben",
+      "truth_ms": 25264,
+      "hyp_ms": 25058,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 22,
+      "token": "kaçtım,",
+      "truth_ms": 25621,
+      "hyp_ms": 25394,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 23,
+      "token": "altıpatlar",
+      "truth_ms": 26377,
+      "hyp_ms": 26171,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 24,
+      "token": "belimde",
+      "truth_ms": 27532,
+      "hyp_ms": 27305,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 25,
+      "token": "Canım",
+      "truth_ms": 28256,
+      "hyp_ms": 28309,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 26,
+      "token": "ben",
+      "truth_ms": 28655,
+      "hyp_ms": 28645,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 27,
+      "token": "dünyanın",
+      "truth_ms": 29117,
+      "hyp_ms": 29107,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 28,
+      "token": "bir",
+      "truth_ms": 30230,
+      "hyp_ms": 30220,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 29,
+      "token": "yerinde",
+      "truth_ms": 30608,
+      "hyp_ms": 30598,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 30,
+      "token": "başka",
+      "truth_ms": 31448,
+      "hyp_ms": 31417,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 31,
+      "token": "şekilde",
+      "truth_ms": 32120,
+      "hyp_ms": 32131,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 32,
+      "token": "Elimde",
+      "truth_ms": 33267,
+      "hyp_ms": 33292,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 33,
+      "token": "değil",
+      "truth_ms": 34107,
+      "hyp_ms": 34111,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 34,
+      "token": "ben",
+      "truth_ms": 34695,
+      "hyp_ms": 34678,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 35,
+      "token": "kaçtım,",
+      "truth_ms": 34989,
+      "hyp_ms": 34972,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 36,
+      "token": "altıpatlar",
+      "truth_ms": 35766,
+      "hyp_ms": 35770,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 37,
+      "token": "belimde",
+      "truth_ms": 36900,
+      "hyp_ms": 36883,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 38,
+      "token": "Kıyamam",
+      "truth_ms": 38014,
+      "hyp_ms": 38031,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 39,
+      "token": "Yalanım",
+      "truth_ms": 39568,
+      "hyp_ms": 39585,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 40,
+      "token": "yok,",
+      "truth_ms": 40744,
+      "hyp_ms": 40761,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 41,
+      "token": "dokunamam",
+      "truth_ms": 41374,
+      "hyp_ms": 41391,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 42,
+      "token": "Bir",
+      "truth_ms": 43079,
+      "hyp_ms": 43097,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 43,
+      "token": "sen",
+      "truth_ms": 43331,
+      "hyp_ms": 43307,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 44,
+      "token": "varsın",
+      "truth_ms": 43772,
+      "hyp_ms": 43748,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 45,
+      "token": "demez",
+      "truth_ms": 44738,
+      "hyp_ms": 44756,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 46,
+      "token": "benim",
+      "truth_ms": 45389,
+      "hyp_ms": 45407,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 47,
+      "token": "gözlerim",
+      "truth_ms": 45935,
+      "hyp_ms": 45932,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 48,
+      "token": "yalan",
+      "truth_ms": 46859,
+      "hyp_ms": 46814,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 49,
+      "token": "Sana",
+      "truth_ms": 47275,
+      "hyp_ms": 47402,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 50,
+      "token": "kıyamam",
+      "truth_ms": 47569,
+      "hyp_ms": 47759,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 51,
+      "token": "Yalanım",
+      "truth_ms": 49415,
+      "hyp_ms": 49738,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 52,
+      "token": "yok,",
+      "truth_ms": 50383,
+      "hyp_ms": 50284,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 53,
+      "token": "dokunamam",
+      "truth_ms": 51076,
+      "hyp_ms": 50977,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 54,
+      "token": "Bir",
+      "truth_ms": 52712,
+      "hyp_ms": 52573,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 55,
+      "token": "sen",
+      "truth_ms": 52922,
+      "hyp_ms": 53098,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 56,
+      "token": "varsın",
+      "truth_ms": 53363,
+      "hyp_ms": 53539,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 57,
+      "token": "demez",
+      "truth_ms": 54350,
+      "hyp_ms": 54547,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 58,
+      "token": "benim",
+      "truth_ms": 55001,
+      "hyp_ms": 55177,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 59,
+      "token": "gözlerim",
+      "truth_ms": 55547,
+      "hyp_ms": 55723,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 60,
+      "token": "yalan",
+      "truth_ms": 56450,
+      "hyp_ms": 56605,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 61,
+      "token": "Seviyorsa",
+      "truth_ms": 57190,
+      "hyp_ms": 57182,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 62,
+      "token": "tap,",
+      "truth_ms": 57799,
+      "hyp_ms": 57812,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 63,
+      "token": "geliyorsa",
+      "truth_ms": 58282,
+      "hyp_ms": 58253,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 64,
+      "token": "kap",
+      "truth_ms": 59101,
+      "hyp_ms": 59093,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 65,
+      "token": "Biliyorsa",
+      "truth_ms": 59542,
+      "hyp_ms": 59534,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 66,
+      "token": "sev",
+      "truth_ms": 60319,
+      "hyp_ms": 60290,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 67,
+      "token": "onu,",
+      "truth_ms": 60592,
+      "hyp_ms": 60605,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 68,
+      "token": "bilmiyorsa",
+      "truth_ms": 60886,
+      "hyp_ms": 60899,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 69,
+      "token": "at",
+      "truth_ms": 61492,
+      "hyp_ms": 61613,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 70,
+      "token": "Durumlar",
+      "truth_ms": 62026,
+      "hyp_ms": 62062,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 71,
+      "token": "sakat,",
+      "truth_ms": 62446,
+      "hyp_ms": 62461,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 72,
+      "token": "beni",
+      "truth_ms": 62887,
+      "hyp_ms": 62902,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 73,
+      "token": "sürülerek",
+      "truth_ms": 63202,
+      "hyp_ms": 63217,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 74,
+      "token": "at",
+      "truth_ms": 63916,
+      "hyp_ms": 63952,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 75,
+      "token": "Geceyle",
+      "truth_ms": 64294,
+      "hyp_ms": 64351,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 76,
+      "token": "karanlığa",
+      "truth_ms": 64924,
+      "hyp_ms": 64939,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 77,
+      "token": "ettim",
+      "truth_ms": 65722,
+      "hyp_ms": 65758,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 78,
+      "token": "iltifat",
+      "truth_ms": 66100,
+      "hyp_ms": 66115,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 79,
+      "token": "Yani",
+      "truth_ms": 66501,
+      "hyp_ms": 66522,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 80,
+      "token": "böyle",
+      "truth_ms": 66753,
+      "hyp_ms": 66732,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 81,
+      "token": "durumdayız",
+      "truth_ms": 67068,
+      "hyp_ms": 67068,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 82,
+      "token": "demek",
+      "truth_ms": 67719,
+      "hyp_ms": 67719,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 83,
+      "token": "durumum",
+      "truth_ms": 68055,
+      "hyp_ms": 68055,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 84,
+      "token": "harap",
+      "truth_ms": 68601,
+      "hyp_ms": 68622,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 85,
+      "token": "Kahraman",
+      "truth_ms": 69126,
+      "hyp_ms": 69126,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 86,
+      "token": "değiliz",
+      "truth_ms": 69798,
+      "hyp_ms": 69798,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 87,
+      "token": "dedim",
+      "truth_ms": 70239,
+      "hyp_ms": 70260,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 88,
+      "token": "sonumuza",
+      "truth_ms": 70554,
+      "hyp_ms": 70533,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 89,
+      "token": "bak",
+      "truth_ms": 71184,
+      "hyp_ms": 71184,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 90,
+      "token": "Yetmedi",
+      "truth_ms": 71608,
+      "hyp_ms": 71618,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 91,
+      "token": "mi",
+      "truth_ms": 72049,
+      "hyp_ms": 72059,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 92,
+      "token": "oğlum",
+      "truth_ms": 72217,
+      "hyp_ms": 72248,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 93,
+      "token": "benim",
+      "truth_ms": 72532,
+      "hyp_ms": 72542,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 94,
+      "token": "yediğim",
+      "truth_ms": 72847,
+      "hyp_ms": 72857,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 95,
+      "token": "dayak?",
+      "truth_ms": 73288,
+      "hyp_ms": 73298,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 96,
+      "token": "Bari",
+      "truth_ms": 73918,
+      "hyp_ms": 73928,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 97,
+      "token": "desen",
+      "truth_ms": 74401,
+      "hyp_ms": 74411,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 98,
+      "token": "bir",
+      "truth_ms": 74716,
+      "hyp_ms": 74705,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 99,
+      "token": "şeyleri",
+      "truth_ms": 74863,
+      "hyp_ms": 74873,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 100,
+      "token": "üzerime",
+      "truth_ms": 75346,
+      "hyp_ms": 75377,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 101,
+      "token": "yap",
+      "truth_ms": 75976,
+      "hyp_ms": 75986,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 102,
+      "token": "ya",
+      "truth_ms": 76291,
+      "hyp_ms": 76280,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 103,
+      "token": "da",
+      "truth_ms": 76438,
+      "hyp_ms": 76448,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 104,
+      "token": "bir",
+      "truth_ms": 76564,
+      "hyp_ms": 76574,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 105,
+      "token": "sigara",
+      "truth_ms": 76732,
+      "hyp_ms": 76742,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 106,
+      "token": "yak",
+      "truth_ms": 77236,
+      "hyp_ms": 77246,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 107,
+      "token": "Canımıza",
+      "truth_ms": 77613,
+      "hyp_ms": 77664,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 108,
+      "token": "tak",
+      "truth_ms": 78180,
+      "hyp_ms": 78210,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 109,
+      "token": "edeni",
+      "truth_ms": 78432,
+      "hyp_ms": 78462,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 110,
+      "token": "kafamıza",
+      "truth_ms": 78810,
+      "hyp_ms": 78819,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 111,
+      "token": "kak",
+      "truth_ms": 79419,
+      "hyp_ms": 79449,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 112,
+      "token": "Yaramıza",
+      "truth_ms": 79944,
+      "hyp_ms": 79974,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 113,
+      "token": "bak",
+      "truth_ms": 80700,
+      "hyp_ms": 80709,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 114,
+      "token": "desem",
+      "truth_ms": 80994,
+      "hyp_ms": 81024,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 115,
+      "token": "aramız",
+      "truth_ms": 81435,
+      "hyp_ms": 81465,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 116,
+      "token": "uzak",
+      "truth_ms": 81855,
+      "hyp_ms": 81906,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 117,
+      "token": "Söyle",
+      "truth_ms": 82378,
+      "hyp_ms": 82411,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 118,
+      "token": "bana",
+      "truth_ms": 82693,
+      "hyp_ms": 82663,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 119,
+      "token": "kurduğun",
+      "truth_ms": 82966,
+      "hyp_ms": 82957,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 120,
+      "token": "bu",
+      "truth_ms": 83491,
+      "hyp_ms": 83482,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 121,
+      "token": "nasıl",
+      "truth_ms": 83617,
+      "hyp_ms": 83629,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 122,
+      "token": "bir",
+      "truth_ms": 83974,
+      "hyp_ms": 83923,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 123,
+      "token": "tuzak?",
+      "truth_ms": 84100,
+      "hyp_ms": 84070,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 124,
+      "token": "Durdurun",
+      "truth_ms": 84751,
+      "hyp_ms": 84742,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 125,
+      "token": "şu",
+      "truth_ms": 85339,
+      "hyp_ms": 85351,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 126,
+      "token": "dünyayı",
+      "truth_ms": 85507,
+      "hyp_ms": 85498,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 127,
+      "token": "biz",
+      "truth_ms": 85969,
+      "hyp_ms": 85960,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 128,
+      "token": "köşede",
+      "truth_ms": 86158,
+      "hyp_ms": 86149,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 129,
+      "token": "durak",
+      "truth_ms": 86599,
+      "hyp_ms": 86590,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 130,
+      "token": "Yatını",
+      "truth_ms": 87210,
+      "hyp_ms": 87235,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 131,
+      "token": "bırak,",
+      "truth_ms": 87651,
+      "hyp_ms": 87655,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 132,
+      "token": "katını",
+      "truth_ms": 88260,
+      "hyp_ms": 88285,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 133,
+      "token": "bırak",
+      "truth_ms": 88911,
+      "hyp_ms": 88915,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 134,
+      "token": "Çevre",
+      "truth_ms": 89499,
+      "hyp_ms": 89545,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 135,
+      "token": "yolu",
+      "truth_ms": 90024,
+      "hyp_ms": 90049,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 136,
+      "token": "kapalıymış",
+      "truth_ms": 90297,
+      "hyp_ms": 90322,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 137,
+      "token": "atını",
+      "truth_ms": 91032,
+      "hyp_ms": 91057,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 138,
+      "token": "bırak",
+      "truth_ms": 91431,
+      "hyp_ms": 91435,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 139,
+      "token": "Yalan",
+      "truth_ms": 92032,
+      "hyp_ms": 92051,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 140,
+      "token": "yere",
+      "truth_ms": 92326,
+      "hyp_ms": 92345,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 141,
+      "token": "gönlü",
+      "truth_ms": 92599,
+      "hyp_ms": 92597,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 142,
+      "token": "ve",
+      "truth_ms": 93061,
+      "hyp_ms": 93059,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 143,
+      "token": "hatırı",
+      "truth_ms": 93187,
+      "hyp_ms": 93206,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 144,
+      "token": "bırak",
+      "truth_ms": 93670,
+      "hyp_ms": 93689,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 145,
+      "token": "Ona",
+      "truth_ms": 94216,
+      "hyp_ms": 94235,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 146,
+      "token": "yazdığım",
+      "truth_ms": 94468,
+      "hyp_ms": 94508,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 147,
+      "token": "en",
+      "truth_ms": 95182,
+      "hyp_ms": 95180,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 148,
+      "token": "son",
+      "truth_ms": 95371,
+      "hyp_ms": 95369,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 149,
+      "token": "satırı",
+      "truth_ms": 95686,
+      "hyp_ms": 95684,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 150,
+      "token": "bırak",
+      "truth_ms": 96211,
+      "hyp_ms": 96230,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 151,
+      "token": "Yalanım",
+      "truth_ms": 97682,
+      "hyp_ms": 97691,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 152,
+      "token": "yok,",
+      "truth_ms": 98249,
+      "hyp_ms": 98237,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 153,
+      "token": "dokunamam",
+      "truth_ms": 98921,
+      "hyp_ms": 98930,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 154,
+      "token": "Bir",
+      "truth_ms": 100496,
+      "hyp_ms": 100484,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 155,
+      "token": "sen",
+      "truth_ms": 101084,
+      "hyp_ms": 101051,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 156,
+      "token": "varsın",
+      "truth_ms": 101588,
+      "hyp_ms": 101513,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 157,
+      "token": "demez",
+      "truth_ms": 102491,
+      "hyp_ms": 102500,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 158,
+      "token": "benim",
+      "truth_ms": 103163,
+      "hyp_ms": 103151,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 159,
+      "token": "gözlerim",
+      "truth_ms": 103688,
+      "hyp_ms": 103676,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 160,
+      "token": "yalan",
+      "truth_ms": 104383,
+      "hyp_ms": 104579,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 161,
+      "token": "Sana",
+      "truth_ms": 104872,
+      "hyp_ms": 104901,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 162,
+      "token": "kıyamam",
+      "truth_ms": 105166,
+      "hyp_ms": 105174,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 163,
+      "token": "Yalanım",
+      "truth_ms": 107112,
+      "hyp_ms": 106770,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 164,
+      "token": "yok,",
+      "truth_ms": 107959,
+      "hyp_ms": 107988,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 165,
+      "token": "dokunamam",
+      "truth_ms": 108673,
+      "hyp_ms": 108681,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 166,
+      "token": "Bir",
+      "truth_ms": 110289,
+      "hyp_ms": 110305,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 167,
+      "token": "sen",
+      "truth_ms": 110520,
+      "hyp_ms": 110536,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 168,
+      "token": "varsın",
+      "truth_ms": 110961,
+      "hyp_ms": 110977,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 169,
+      "token": "demez",
+      "truth_ms": 111948,
+      "hyp_ms": 111985,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 170,
+      "token": "benim",
+      "truth_ms": 112599,
+      "hyp_ms": 112615,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 171,
+      "token": "gözlerim",
+      "truth_ms": 113145,
+      "hyp_ms": 113161,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 172,
+      "token": "yalan",
+      "truth_ms": 114027,
+      "hyp_ms": 114043,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 173,
+      "token": "Kıyamam",
+      "truth_ms": 134022,
+      "hyp_ms": 134023,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 174,
+      "token": "Yalanım",
+      "truth_ms": 135597,
+      "hyp_ms": 135577,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 175,
+      "token": "yok,",
+      "truth_ms": 136731,
+      "hyp_ms": 136732,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 176,
+      "token": "dokunamam",
+      "truth_ms": 137361,
+      "hyp_ms": 137362,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 177,
+      "token": "Bir",
+      "truth_ms": 139101,
+      "hyp_ms": 139111,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 178,
+      "token": "sen",
+      "truth_ms": 139332,
+      "hyp_ms": 139321,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 179,
+      "token": "varsın",
+      "truth_ms": 139752,
+      "hyp_ms": 139762,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 180,
+      "token": "demez",
+      "truth_ms": 140781,
+      "hyp_ms": 140791,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 181,
+      "token": "benim",
+      "truth_ms": 141432,
+      "hyp_ms": 141463,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 182,
+      "token": "gözlerim",
+      "truth_ms": 141957,
+      "hyp_ms": 141988,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 183,
+      "token": "yalan",
+      "truth_ms": 142860,
+      "hyp_ms": 142828,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 184,
+      "token": "Sana",
+      "truth_ms": 143427,
+      "hyp_ms": 143437,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 185,
+      "token": "kıyamam",
+      "truth_ms": 143784,
+      "hyp_ms": 143794,
+      "line": 36,
+      "verified": true
+     }
+    ],
+    "word_ends": {
+     "count": 186,
+     "mae_ms": 39.33870967741935,
+     "medae_ms": 16.0,
+     "p95_ms": 196.0,
+     "pcs": {
+      "0.1": 0.8870967741935484,
+      "0.2": 0.956989247311828,
+      "0.3": 0.9946236559139785,
+      "0.5": 1.0
+     }
+    },
+    "over_extension": 0.0,
+    "lines": {
+     "count": 37,
+     "mae_ms": 46.432432432432435,
+     "medae_ms": 19.0,
+     "p95_ms": 323.0,
+     "pcs": {
+      "0.3": 0.9459459459459459
+     }
+    }
+   },
+   {
+    "stem": "Tarkan_-_Op",
+    "language": "tur",
+    "duration_s": 215.4,
+    "n_words": 272,
+    "n_lines": 43,
+    "error": "AssertionError: b != ♪"
+   },
+   {
+    "stem": "Volga_Tamoz_-_Sebastian",
+    "language": "tur",
+    "duration_s": 164.4,
+    "n_words": 133,
+    "n_lines": 54,
+    "trimmed_ends": 6,
+    "separate_s": 0.0,
+    "align_s": 0.8,
+    "sync": "word",
+    "quality_score": 0.3559,
+    "verified_words": 133,
+    "words": {
+     "count": 133,
+     "mae_ms": 195.01503759398497,
+     "medae_ms": 82.0,
+     "p95_ms": 394.0,
+     "pcs": {
+      "0.1": 0.5639097744360902,
+      "0.2": 0.8270676691729323,
+      "0.3": 0.9097744360902256,
+      "0.5": 0.9548872180451128
+     }
+    },
+    "word_detail": [
+     {
+      "i": 0,
+      "token": "Beni",
+      "truth_ms": 16462,
+      "hyp_ms": 16538,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 1,
+      "token": "terkediyormuş",
+      "truth_ms": 17317,
+      "hyp_ms": 16958,
+      "line": 0,
+      "verified": true
+     },
+     {
+      "i": 2,
+      "token": "Ne",
+      "truth_ms": 20258,
+      "hyp_ms": 20024,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 3,
+      "token": "kadar",
+      "truth_ms": 20593,
+      "hyp_ms": 20654,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 4,
+      "token": "da",
+      "truth_ms": 21178,
+      "hyp_ms": 21410,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 5,
+      "token": "üzüldüm",
+      "truth_ms": 21622,
+      "hyp_ms": 21746,
+      "line": 1,
+      "verified": true
+     },
+     {
+      "i": 6,
+      "token": "Dakıyormuş",
+      "truth_ms": 23951,
+      "hyp_ms": 24090,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 7,
+      "token": "gemileri",
+      "truth_ms": 25480,
+      "hyp_ms": 25518,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 8,
+      "token": "birileri",
+      "truth_ms": 26467,
+      "hyp_ms": 26484,
+      "line": 2,
+      "verified": true
+     },
+     {
+      "i": 9,
+      "token": "Duyduğumda",
+      "truth_ms": 27801,
+      "hyp_ms": 27597,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 10,
+      "token": "ne",
+      "truth_ms": 28934,
+      "hyp_ms": 29172,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 11,
+      "token": "güldüm",
+      "truth_ms": 29186,
+      "hyp_ms": 29424,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 12,
+      "token": "hahahahah",
+      "truth_ms": 30320,
+      "hyp_ms": 30453,
+      "line": 3,
+      "verified": true
+     },
+     {
+      "i": 13,
+      "token": "Kaçıyormuşum",
+      "truth_ms": 31731,
+      "hyp_ms": 31604,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 14,
+      "token": "ondan",
+      "truth_ms": 33132,
+      "hyp_ms": 33242,
+      "line": 4,
+      "verified": true
+     },
+     {
+      "i": 15,
+      "token": "Çok",
+      "truth_ms": 35274,
+      "hyp_ms": 34880,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 16,
+      "token": "uzaklaşmışım",
+      "truth_ms": 35820,
+      "hyp_ms": 35909,
+      "line": 5,
+      "verified": true
+     },
+     {
+      "i": 17,
+      "token": "Değişmişim",
+      "truth_ms": 39181,
+      "hyp_ms": 39186,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 18,
+      "token": "olabilirmiş",
+      "truth_ms": 40765,
+      "hyp_ms": 40824,
+      "line": 6,
+      "verified": true
+     },
+     {
+      "i": 19,
+      "token": "Bende",
+      "truth_ms": 42655,
+      "hyp_ms": 42714,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 20,
+      "token": "haklıymışım",
+      "truth_ms": 43516,
+      "hyp_ms": 43575,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 21,
+      "token": "hahahahaha",
+      "truth_ms": 45385,
+      "hyp_ms": 45444,
+      "line": 7,
+      "verified": true
+     },
+     {
+      "i": 22,
+      "token": "Söyle",
+      "truth_ms": 46231,
+      "hyp_ms": 46298,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 23,
+      "token": "ona",
+      "truth_ms": 46757,
+      "hyp_ms": 46823,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 24,
+      "token": "sebastian",
+      "truth_ms": 47320,
+      "hyp_ms": 47201,
+      "line": 8,
+      "verified": true
+     },
+     {
+      "i": 25,
+      "token": "Azımı",
+      "truth_ms": 48433,
+      "hyp_ms": 48587,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 26,
+      "token": "açtırmasın",
+      "truth_ms": 49147,
+      "hyp_ms": 49238,
+      "line": 9,
+      "verified": true
+     },
+     {
+      "i": 27,
+      "token": "Kalbini",
+      "truth_ms": 50323,
+      "hyp_ms": 50325,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 28,
+      "token": "kırdırmasın",
+      "truth_ms": 51079,
+      "hyp_ms": 50913,
+      "line": 10,
+      "verified": true
+     },
+     {
+      "i": 29,
+      "token": "Akşam",
+      "truth_ms": 51942,
+      "hyp_ms": 52089,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 30,
+      "token": "akşam",
+      "truth_ms": 52902,
+      "hyp_ms": 53097,
+      "line": 11,
+      "verified": true
+     },
+     {
+      "i": 31,
+      "token": "Eğer",
+      "truth_ms": 53897,
+      "hyp_ms": 54042,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 32,
+      "token": "bir",
+      "truth_ms": 54611,
+      "hyp_ms": 54714,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 33,
+      "token": "derdi",
+      "truth_ms": 54842,
+      "hyp_ms": 54924,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 34,
+      "token": "varsa",
+      "truth_ms": 55304,
+      "hyp_ms": 55407,
+      "line": 12,
+      "verified": true
+     },
+     {
+      "i": 35,
+      "token": "Gelsin",
+      "truth_ms": 56141,
+      "hyp_ms": 55945,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 36,
+      "token": "burda",
+      "truth_ms": 56477,
+      "hyp_ms": 56428,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 37,
+      "token": "konuşsun",
+      "truth_ms": 56724,
+      "hyp_ms": 56848,
+      "line": 13,
+      "verified": true
+     },
+     {
+      "i": 38,
+      "token": "Öyle",
+      "truth_ms": 57684,
+      "hyp_ms": 57856,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 39,
+      "token": "atıp",
+      "truth_ms": 58333,
+      "hyp_ms": 58444,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 40,
+      "token": "tutmasın",
+      "truth_ms": 58795,
+      "hyp_ms": 58885,
+      "line": 14,
+      "verified": true
+     },
+     {
+      "i": 41,
+      "token": "Arkamdan",
+      "truth_ms": 59614,
+      "hyp_ms": 59683,
+      "line": 15,
+      "verified": true
+     },
+     {
+      "i": 42,
+      "token": "Söyle",
+      "truth_ms": 61381,
+      "hyp_ms": 61366,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 43,
+      "token": "ona",
+      "truth_ms": 61857,
+      "hyp_ms": 61870,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 44,
+      "token": "sebastian",
+      "truth_ms": 62283,
+      "hyp_ms": 62290,
+      "line": 16,
+      "verified": true
+     },
+     {
+      "i": 45,
+      "token": "Ağzımı",
+      "truth_ms": 63522,
+      "hyp_ms": 63613,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 46,
+      "token": "açtırmasın",
+      "truth_ms": 64257,
+      "hyp_ms": 64327,
+      "line": 17,
+      "verified": true
+     },
+     {
+      "i": 47,
+      "token": "Kalbini",
+      "truth_ms": 65391,
+      "hyp_ms": 65440,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 48,
+      "token": "kırdırtmasın",
+      "truth_ms": 66210,
+      "hyp_ms": 66238,
+      "line": 18,
+      "verified": true
+     },
+     {
+      "i": 49,
+      "token": "Akşam",
+      "truth_ms": 67180,
+      "hyp_ms": 67096,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 50,
+      "token": "akşam",
+      "truth_ms": 68000,
+      "hyp_ms": 68146,
+      "line": 19,
+      "verified": true
+     },
+     {
+      "i": 51,
+      "token": "Eğer",
+      "truth_ms": 69249,
+      "hyp_ms": 69133,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 52,
+      "token": "bir",
+      "truth_ms": 69732,
+      "hyp_ms": 69763,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 53,
+      "token": "derdi",
+      "truth_ms": 69921,
+      "hyp_ms": 69973,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 54,
+      "token": "varsa",
+      "truth_ms": 70425,
+      "hyp_ms": 70456,
+      "line": 20,
+      "verified": true
+     },
+     {
+      "i": 55,
+      "token": "Gelsin",
+      "truth_ms": 71055,
+      "hyp_ms": 71086,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 56,
+      "token": "burda",
+      "truth_ms": 71748,
+      "hyp_ms": 71779,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 57,
+      "token": "konuşsun",
+      "truth_ms": 72126,
+      "hyp_ms": 72157,
+      "line": 21,
+      "verified": true
+     },
+     {
+      "i": 58,
+      "token": "Öyle",
+      "truth_ms": 72921,
+      "hyp_ms": 72609,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 59,
+      "token": "atıp",
+      "truth_ms": 73414,
+      "hyp_ms": 73281,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 60,
+      "token": "tutmasın",
+      "truth_ms": 74057,
+      "hyp_ms": 73953,
+      "line": 22,
+      "verified": true
+     },
+     {
+      "i": 61,
+      "token": "Arkamdan",
+      "truth_ms": 74650,
+      "hyp_ms": 74730,
+      "line": 23,
+      "verified": true
+     },
+     {
+      "i": 62,
+      "token": "Sebastian",
+      "truth_ms": 79298,
+      "hyp_ms": 79313,
+      "line": 24,
+      "verified": true
+     },
+     {
+      "i": 63,
+      "token": "Sebastian",
+      "truth_ms": 83130,
+      "hyp_ms": 83177,
+      "line": 25,
+      "verified": true
+     },
+     {
+      "i": 64,
+      "token": "Sebastian",
+      "truth_ms": 86955,
+      "hyp_ms": 92753,
+      "line": 26,
+      "verified": true
+     },
+     {
+      "i": 65,
+      "token": "Beni",
+      "truth_ms": 92051,
+      "hyp_ms": 92753,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 66,
+      "token": "terkediyormuş",
+      "truth_ms": 92556,
+      "hyp_ms": 92753,
+      "line": 27,
+      "verified": true
+     },
+     {
+      "i": 67,
+      "token": "Ne",
+      "truth_ms": 95349,
+      "hyp_ms": 95450,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 68,
+      "token": "kadar",
+      "truth_ms": 96189,
+      "hyp_ms": 96227,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 69,
+      "token": "da",
+      "truth_ms": 96945,
+      "hyp_ms": 96962,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 70,
+      "token": "üzüldüm",
+      "truth_ms": 97218,
+      "hyp_ms": 97277,
+      "line": 28,
+      "verified": true
+     },
+     {
+      "i": 71,
+      "token": "Yakıyormuş",
+      "truth_ms": 99651,
+      "hyp_ms": 99693,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 72,
+      "token": "gemileri",
+      "truth_ms": 101119,
+      "hyp_ms": 101184,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 73,
+      "token": "birileri",
+      "truth_ms": 102043,
+      "hyp_ms": 102087,
+      "line": 29,
+      "verified": true
+     },
+     {
+      "i": 74,
+      "token": "Duyduğumda",
+      "truth_ms": 103741,
+      "hyp_ms": 103350,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 75,
+      "token": "ne",
+      "truth_ms": 104529,
+      "hyp_ms": 104547,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 76,
+      "token": "güldüm",
+      "truth_ms": 104802,
+      "hyp_ms": 104820,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 77,
+      "token": "hahahahah",
+      "truth_ms": 105948,
+      "hyp_ms": 105870,
+      "line": 30,
+      "verified": true
+     },
+     {
+      "i": 78,
+      "token": "Kaçıyormuşum",
+      "truth_ms": 107343,
+      "hyp_ms": 107235,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 79,
+      "token": "ondan",
+      "truth_ms": 108897,
+      "hyp_ms": 108999,
+      "line": 31,
+      "verified": true
+     },
+     {
+      "i": 80,
+      "token": "Çok",
+      "truth_ms": 111021,
+      "hyp_ms": 111016,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 81,
+      "token": "uzaklaşmışım",
+      "truth_ms": 111505,
+      "hyp_ms": 111268,
+      "line": 32,
+      "verified": true
+     },
+     {
+      "i": 82,
+      "token": "Değişmişim",
+      "truth_ms": 114970,
+      "hyp_ms": 114145,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 83,
+      "token": "olabilirmiş",
+      "truth_ms": 116650,
+      "hyp_ms": 116686,
+      "line": 33,
+      "verified": true
+     },
+     {
+      "i": 84,
+      "token": "Bende",
+      "truth_ms": 118481,
+      "hyp_ms": 118335,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 85,
+      "token": "haklıymışım",
+      "truth_ms": 119036,
+      "hyp_ms": 118965,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 86,
+      "token": "(falan",
+      "truth_ms": 120968,
+      "hyp_ms": 121002,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 87,
+      "token": "filan)",
+      "truth_ms": 121388,
+      "hyp_ms": 121443,
+      "line": 34,
+      "verified": true
+     },
+     {
+      "i": 88,
+      "token": "Söyle",
+      "truth_ms": 121871,
+      "hyp_ms": 121905,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 89,
+      "token": "ona",
+      "truth_ms": 122480,
+      "hyp_ms": 122535,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 90,
+      "token": "sebastian",
+      "truth_ms": 122879,
+      "hyp_ms": 122955,
+      "line": 35,
+      "verified": true
+     },
+     {
+      "i": 91,
+      "token": "Azımı",
+      "truth_ms": 124102,
+      "hyp_ms": 124084,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 92,
+      "token": "açtırmasın",
+      "truth_ms": 124957,
+      "hyp_ms": 124693,
+      "line": 36,
+      "verified": true
+     },
+     {
+      "i": 93,
+      "token": "Kalbini",
+      "truth_ms": 125797,
+      "hyp_ms": 125848,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 94,
+      "token": "kırdırmasın",
+      "truth_ms": 126574,
+      "hyp_ms": 126604,
+      "line": 37,
+      "verified": true
+     },
+     {
+      "i": 95,
+      "token": "Akşam",
+      "truth_ms": 127687,
+      "hyp_ms": 127759,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 96,
+      "token": "akşam",
+      "truth_ms": 128716,
+      "hyp_ms": 128809,
+      "line": 38,
+      "verified": true
+     },
+     {
+      "i": 97,
+      "token": "Eğer",
+      "truth_ms": 129864,
+      "hyp_ms": 129782,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 98,
+      "token": "bir",
+      "truth_ms": 130261,
+      "hyp_ms": 130139,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 99,
+      "token": "derdi",
+      "truth_ms": 130616,
+      "hyp_ms": 130349,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 100,
+      "token": "varsa",
+      "truth_ms": 130784,
+      "hyp_ms": 130832,
+      "line": 39,
+      "verified": true
+     },
+     {
+      "i": 101,
+      "token": "Gelsin",
+      "truth_ms": 131414,
+      "hyp_ms": 131462,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 102,
+      "token": "burda",
+      "truth_ms": 132086,
+      "hyp_ms": 132113,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 103,
+      "token": "konuşsun",
+      "truth_ms": 132485,
+      "hyp_ms": 132533,
+      "line": 40,
+      "verified": true
+     },
+     {
+      "i": 104,
+      "token": "Öyle",
+      "truth_ms": 133346,
+      "hyp_ms": 133541,
+      "line": 41,
+      "verified": true
+     },
+     {
+      "i": 105,
+      "token": "atıp",
+      "truth_ms": 134039,
+      "hyp_ms": 134108,
+      "line": 41,
+      "verified": true
+     },
+     {
+      "i": 106,
+      "token": "tutmasın",
+      "truth_ms": 134522,
+      "hyp_ms": 134570,
+      "line": 41,
+      "verified": true
+     },
+     {
+      "i": 107,
+      "token": "Arkamdan",
+      "truth_ms": 135343,
+      "hyp_ms": 135212,
+      "line": 42,
+      "verified": true
+     },
+     {
+      "i": 108,
+      "token": "Söyle",
+      "truth_ms": 137067,
+      "hyp_ms": 136766,
+      "line": 43,
+      "verified": true
+     },
+     {
+      "i": 109,
+      "token": "ona",
+      "truth_ms": 137494,
+      "hyp_ms": 137501,
+      "line": 43,
+      "verified": true
+     },
+     {
+      "i": 110,
+      "token": "sebastian",
+      "truth_ms": 137935,
+      "hyp_ms": 137984,
+      "line": 43,
+      "verified": true
+     },
+     {
+      "i": 111,
+      "token": "Ağzımı",
+      "truth_ms": 139195,
+      "hyp_ms": 139149,
+      "line": 44,
+      "verified": true
+     },
+     {
+      "i": 112,
+      "token": "açtırmasın",
+      "truth_ms": 139951,
+      "hyp_ms": 139800,
+      "line": 44,
+      "verified": true
+     },
+     {
+      "i": 113,
+      "token": "Kalbini",
+      "truth_ms": 141161,
+      "hyp_ms": 140913,
+      "line": 45,
+      "verified": true
+     },
+     {
+      "i": 114,
+      "token": "kırdırmasın",
+      "truth_ms": 141658,
+      "hyp_ms": 141711,
+      "line": 45,
+      "verified": true
+     },
+     {
+      "i": 115,
+      "token": "Akşam",
+      "truth_ms": 142666,
+      "hyp_ms": 142845,
+      "line": 46,
+      "verified": true
+     },
+     {
+      "i": 116,
+      "token": "akşam",
+      "truth_ms": 143779,
+      "hyp_ms": 143916,
+      "line": 46,
+      "verified": true
+     },
+     {
+      "i": 117,
+      "token": "Eğer",
+      "truth_ms": 144993,
+      "hyp_ms": 144907,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 118,
+      "token": "bir",
+      "truth_ms": 145319,
+      "hyp_ms": 145243,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 119,
+      "token": "derdi",
+      "truth_ms": 145782,
+      "hyp_ms": 145474,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 120,
+      "token": "varsa",
+      "truth_ms": 145950,
+      "hyp_ms": 145957,
+      "line": 47,
+      "verified": true
+     },
+     {
+      "i": 121,
+      "token": "Gelsin",
+      "truth_ms": 146517,
+      "hyp_ms": 146587,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 122,
+      "token": "burda",
+      "truth_ms": 147182,
+      "hyp_ms": 147280,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 123,
+      "token": "konuşsun",
+      "truth_ms": 147847,
+      "hyp_ms": 147658,
+      "line": 48,
+      "verified": true
+     },
+     {
+      "i": 124,
+      "token": "Öyle",
+      "truth_ms": 148512,
+      "hyp_ms": 148645,
+      "line": 49,
+      "verified": true
+     },
+     {
+      "i": 125,
+      "token": "atıp",
+      "truth_ms": 149121,
+      "hyp_ms": 149254,
+      "line": 49,
+      "verified": true
+     },
+     {
+      "i": 126,
+      "token": "tutmasın",
+      "truth_ms": 149730,
+      "hyp_ms": 149716,
+      "line": 49,
+      "verified": true
+     },
+     {
+      "i": 127,
+      "token": "Arkamdan",
+      "truth_ms": 150408,
+      "hyp_ms": 150461,
+      "line": 50,
+      "verified": true
+     },
+     {
+      "i": 128,
+      "token": "(Sebastian)",
+      "truth_ms": 154828,
+      "hyp_ms": 153695,
+      "line": 51,
+      "verified": true
+     },
+     {
+      "i": 129,
+      "token": "(Söyle",
+      "truth_ms": 157711,
+      "hyp_ms": 158315,
+      "line": 52,
+      "verified": true
+     },
+     {
+      "i": 130,
+      "token": "ona",
+      "truth_ms": 158352,
+      "hyp_ms": 158567,
+      "line": 52,
+      "verified": true
+     },
+     {
+      "i": 131,
+      "token": "sebastian)",
+      "truth_ms": 158893,
+      "hyp_ms": 158651,
+      "line": 52,
+      "verified": true
+     },
+     {
+      "i": 132,
+      "token": "(Sebastian)",
+      "truth_ms": 162584,
+      "hyp_ms": 158966,
+      "line": 53,
+      "verified": true
+     }
+    ],
+    "word_ends": {
+     "count": 133,
+     "mae_ms": 189.6766917293233,
+     "medae_ms": 78.0,
+     "p95_ms": 415.0,
+     "pcs": {
+      "0.1": 0.6015037593984962,
+      "0.2": 0.8345864661654135,
+      "0.3": 0.924812030075188,
+      "0.5": 0.9548872180451128
+     }
+    },
+    "over_extension": 0.0301,
+    "lines": {
+     "count": 54,
+     "mae_ms": 337.962962962963,
+     "medae_ms": 104.5,
+     "p95_ms": 1133.0,
+     "pcs": {
+      "0.3": 0.8148148148148148
+     }
+    }
+   },
+   {
+    "stem": "manifest_-_Toz_Pembe",
+    "language": "tur",
+    "duration_s": 186.6,
+    "n_words": 213,
+    "n_lines": 46,
+    "error": "AssertionError: a != -"
+   },
+   {
+    "stem": "manifest_ve_Pango_-_Zehir",
+    "language": "tur",
+    "duration_s": 166.4,
+    "n_words": 251,
+    "n_lines": 67,
+    "error": "AssertionError: o != -"
+   }
+  ]
+ }
+}
