@@ -101,7 +101,11 @@
     </ol>
     <p style="margin:8px 0;color:var(--warn)"><b>Kelime kelime onaylamana gerek yok.</b>
       Dokunmadığın kelimeler de "baktım, doğruydu" sayılır — dışa aktarımdaki tek soru
-      bunu kapsar.</p>
+      bunu kapsar.<br>
+      <b>Şarkı bir yerden sonra tamamen kaydıysa</b> ve düzeltmeye değmediyse:
+      son kontrol ettiğin kelimeyi seç, <b>"✂ buradan sonrasına bakmadım"</b> de.
+      Kontrol etmediğin yeri puanlamak, hizalayıcıyı kendi yanlış çıktısına göre
+      notlandırmak olur.</p>
     <p style="margin:8px 0"><b>İnce ayar yapma.</b> Dalga formundaki
       <span style="background:rgba(63,185,80,.18);padding:1px 8px;border-radius:4px">yeşil bant</span>
       metriğin toleransı (±300 ms ≈ bir hece). Kelimenin sesi <b>bandın içinde
@@ -119,7 +123,7 @@
   <div class="row">
     <button id="btnPlay">▶ oynat/durdur <kbd>space</kbd></button>
     <button id="btnLoop">🔁 seçili kelimeyi döngüle <kbd>L</kbd></button>
-    <button id="btnSwept" title="Baştan seçili kelimeye kadar HEPSİNİ kontrol ettiysen: o aralık da ölçüme girer">✔ buraya kadar hepsini kontrol ettim</button>
+    <button id="btnSwept" title="Seçili kelimeye kadar kontrol ettiysen ve sonrasına bakmadıysan: yalnız o aralık ölçüme girer">✂ buradan sonrasına bakmadım</button>
     <label class="muted">hız
       <select id="rate">
         <option value="0.5">0.5×</option><option value="0.75">0.75×</option>
@@ -428,10 +432,14 @@ function markSweptUpToHere() {
   const upto = sel;
   const n = upto + 1;
   if (!confirm(
-    `İlk ${n} kelimenin HEPSİNİ tek tek dinleyip kontrol ettiysen onayla.\n\n` +
-    "Yalnız düzelttiklerini değil, doğru bulup geçtiklerini de kapsar — " +
-    "aradan atlanmış kelime varsa bu işaret ölçümü bozar.")) return;
+    `İlk ${n} kelimeyi kontrol ettim, SONRASINA bakmadım.\n\n` +
+    `→ İlk ${n} kelime ölçüme girer (düzelttiklerin + doğru bulup geçtiklerin).\n` +
+    `→ Kalan ${words.length - n} kelime ölçüm DIŞINDA kalır.\n\n` +
+    "Şarkı bir yerden sonra tamamen kaydıysa ve düzeltmeye değmediyse tam olarak " +
+    "bunu kullan — kontrol etmediğin yeri puanlamak, hizalayıcıyı kendi yanlış " +
+    "çıktısına göre notlandırmak olur.")) return;
   for (let i = 0; i <= upto; i++) words[i].checked = true;
+  for (let i = upto + 1; i < words.length; i++) words[i].checked = false;
   if (sample) sample = [...new Set([...sample, ...words.map((_, i) => i).slice(0, n)])]
     .sort((a, b) => a - b);
   save(); lastLineKey = -1; render();
@@ -705,7 +713,18 @@ function exportAll() {
   // scored nothing. Never let the export leave silently empty.
   const checked = words.filter(w => w.checked).length;
   const edited = words.filter(w => w.edited).length;
-  if (!sample) {
+  if (!sample && checked > 0 && checked < words.length) {
+    // Partial coverage was declared with the range buttons — respect it. The
+    // failure this prevents: a song correct to 88 s and drifting after it was
+    // exported all-verified, so the untouched tail (still the pipeline's own
+    // wrong output) would have scored as CORRECT for every model. The eval
+    // would have rewarded the aligner precisely where it failed.
+    if (!confirm(
+      `${checked}/${words.length} kelime kontrol edilmiş olarak işaretli.\n\n` +
+      `Yalnız onlar ölçüme girer; kalan ${words.length - checked} kelime dışarıda ` +
+      `kalır (kontrol etmediğin yeri puanlamak, hizalayıcıyı kendi çıktısına ` +
+      `göre notlandırmak olurdu).\n\nDevam?`)) return;
+  } else if (!sample) {
     // Coverage is a claim only the person who listened can make, so it is
     // asked once, plainly, instead of being inferred from which words got
     // touched — the touched ones are by definition the wrong ones, and
@@ -714,7 +733,7 @@ function exportAll() {
       `Şarkının TAMAMINI dinleyip kontrol ettin mi?\n\n` +
       `TAMAM  → ${words.length} kelimenin hepsi ölçüme girer ` +
       `(${edited} tanesini düzeltmişsin).\n` +
-      `İPTAL  → yarım bıraktıysan; dosya yazılmaz.`)) return;
+      `İPTAL  → yarım bıraktıysan önce "buradan sonrasına bakmadım" de.`)) return;
     words.forEach(w => { w.checked = true; });
     save();
   } else if (checked < sample.length) {
