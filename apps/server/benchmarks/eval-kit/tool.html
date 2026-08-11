@@ -454,10 +454,17 @@ function drawOverview() {
   g.clearRect(0, 0, w, h);
   if (!audio.buf) return;
   if (!peaks || peaks.length !== Math.round(w)) peaks = computePeaks(audio.buf, Math.round(w));
-  g.fillStyle = "#2b3644";
+  g.fillStyle = "#242e3b";
   for (let x = 0; x < peaks.length; x++) {
-    const a = peaks[x] * (h / 2) * 0.95;
+    const a = peaks[x] * (h / 2) * 0.8;
     g.fillRect(x, h / 2 - a, 1, a * 2);
+  }
+  // Yakınlaştırılmış pencerenin şarkıdaki yeri — nerede olduğunu kaybetme.
+  if (viewStart !== null) {
+    const x0 = (viewStart / audio.buf.duration) * w;
+    const x1 = ((viewStart + ZOOM_SPAN) / audio.buf.duration) * w;
+    g.fillStyle = "rgba(76,141,255,0.10)";
+    g.fillRect(x0, 0, Math.max(2, x1 - x0), h);
   }
   const dur = audio.buf.duration;
   g.fillStyle = "#3d4a5c";
@@ -473,12 +480,22 @@ const ZOOM_SPAN = 3.0;
 /** The metric's window. Anything inside it already scores as correct, so it
  *  is drawn rather than described — the band IS the instruction. */
 const TOLERANCE_MS = 300;
-/** The zoom view is always centred on the playhead, so dragging slides the
- *  WAVEFORM under a fixed cursor instead of teleporting the cursor — the
- *  film-strip feel every audio editor has. Selecting a word seeks to it, which
- *  re-centres for free. */
+let viewStart = null;
+/** The zoom view PAGES instead of scrolling.
+ *
+ *  Centring on the playhead every frame meant the waveform and every word
+ *  label slid continuously, which is exhausting to watch and makes the labels
+ *  unreadable — you cannot read text that is moving under you. Now the window
+ *  holds still while the cursor crosses it, and jumps one page when the cursor
+ *  nears the right edge. Between jumps nothing moves except the cursor. */
+const PAGE_AT = 0.82;    // cursor reaches this fraction -> turn the page
+const PAGE_LEAD = 0.22;  // ...and lands this far in on the new page
 function zoomWindow() {
-  return { t0: now() - ZOOM_SPAN / 2, span: ZOOM_SPAN };
+  const t = now();
+  if (viewStart === null || t < viewStart || t > viewStart + ZOOM_SPAN * PAGE_AT) {
+    viewStart = Math.max(0, t - ZOOM_SPAN * PAGE_LEAD);
+  }
+  return { t0: viewStart, span: ZOOM_SPAN };
 }
 function drawZoom() {
   const { g, w, h } = fit($("zoom"));
@@ -486,14 +503,17 @@ function drawZoom() {
   if (!audio.buf) return;
   const { t0, span } = zoomWindow();
   const sr = audio.buf.sampleRate, ch = audio.buf.getChannelData(0);
-  g.fillStyle = "#37455a";
+  // The waveform is CONTEXT, not the subject: the eye should go to the word
+  // markers and the tolerance band. Drawn quiet and short (0.62 of the half
+  // height) so the labels along the bottom stay legible over it.
+  g.fillStyle = "#2b3646";
   for (let x = 0; x < w; x++) {
     const ts = t0 + (x / w) * span, i0 = Math.floor(ts * sr), i1 = Math.floor((ts + span / w) * sr);
     let max = 0;
     for (let j = Math.max(0, i0); j < Math.min(ch.length, i1); j++) {
       const v = Math.abs(ch[j]); if (v > max) max = v;
     }
-    const a = max * (h / 2) * 0.95;
+    const a = max * (h / 2) * 0.62;
     g.fillRect(x, h / 2 - a, 1, a * 2);
   }
   const xOf = (sec) => ((sec - t0) / span) * w;
@@ -530,12 +550,19 @@ function drawZoom() {
     const x = xOf(wd.start / 1000);
     if (x < -70 || x > w + 70) return;
     const isSel = i === sel, isPlaying = i === pw, isNext = i === focus + 1;
+    const hot = isSel || isPlaying || isNext;
     g.fillStyle = isSel ? "#4c8dff" : isPlaying ? "#3fb950"
-                : isNext ? "#a371f7" : (wd.edited ? "#8957e5" : "#57606a");
-    g.fillRect(x, 0, isSel || isPlaying ? 2 : 1, h - 17);
-    g.font = (isSel || isPlaying || isNext ? "600 " : "") + "12px ui-sans-serif,system-ui";
-    g.fillStyle = isSel ? "#e6edf3" : isPlaying ? "#3fb950" : isNext ? "#a371f7" : "#8b949e";
-    g.fillText(wd.t, x + 3, h - 4);
+                : isNext ? "#a371f7" : (wd.edited ? "#8957e5" : "#3d4654");
+    g.fillRect(x, 0, isSel || isPlaying ? 2 : 1, h - 19);
+    // Labels sit in a reserved strip at the bottom, on their own dark plate:
+    // over a waveform they were unreadable, and this is the text the whole
+    // judgement depends on.
+    g.font = (hot ? "600 " : "") + "12.5px ui-sans-serif,system-ui";
+    const tw = g.measureText(wd.t).width;
+    g.fillStyle = "rgba(10,13,18,0.82)";
+    g.fillRect(x + 1, h - 17, tw + 6, 16);
+    g.fillStyle = isSel ? "#e6edf3" : isPlaying ? "#56d364" : isNext ? "#b083f7" : "#7d8590";
+    g.fillText(wd.t, x + 4, h - 5);
   });
   g.fillStyle = "#f0f6fc";
   g.fillRect(xOf(now()), 0, 1, h);
@@ -710,7 +737,12 @@ function secPerPx(canvas) {
     drag.lastX = e.clientX;
     drag.moved += Math.abs(dx);
     // Drag right -> content slides right -> we move BACK in time.
-    audio.offset = clamp(audio.offset - dx * secPerPx(c), 0, audio.buf.duration);
+    const delta = dx * secPerPx(c);
+    audio.offset = clamp(audio.offset - delta, 0, audio.buf.duration);
+    // Carry the view with the cursor so a drag stays continuous; paging is for
+    // playback, and letting it fire mid-drag would make the waveform jump
+    // under the hand that is moving it.
+    if (viewStart !== null) viewStart = Math.max(0, viewStart - delta);
     render();
   });
   const end = (e) => {
