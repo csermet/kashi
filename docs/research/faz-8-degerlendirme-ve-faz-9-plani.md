@@ -1,0 +1,90 @@
+# Faz 8.1 değerlendirmesi + Faz 9 planı (2026-08-11)
+
+Caner'ın sorusu: *"300 ms kabul edilebilir bir doğruluk değil, 100-150 ms'e
+inmek lazım."* — **Haklı, ve bu fazın kapanışı o işin başlangıcı olmalı.**
+
+## Bu faz ne yaptı, ne YAPMADI
+
+**Yaptı: lisans.** Zincirdeki üç halkanın üçü de permissive karşılığıyla
+ölçüldü (kim-base MIT · jg-1b Apache · mpoyraz cv7 CC-BY). Kalite bedeli
+ölçülebilir düzeyde değil. Ücretli ürünün önündeki hukuki engel kalktı.
+
+**Yaptı: ölçebilirlik.** Türkçe için projenin ilk hakikat verisi kuruldu
+(10 şarkı / 1966 kelime). Öncesinde Türkçe hakkında hiçbir ölçülmüş iddiada
+bulunamıyorduk.
+
+**Yaptı: dürüstlük altyapısı.** Dört ölçüm tuzağı kapatıldı — en tehlikelisi
+kontrol edilmemiş bölgenin modele tam puan kazandırmasıydı.
+
+**YAPMADI: doğruluğu iyileştirmedi.** Bu fazın amacı zaten "aynı kaliteyi
+lisanssız taşı" idi ve tam olarak o oldu. Hizalama bugün dünkü kadar iyi —
+ne daha iyi ne daha kötü. **Faz 9'un konusu bu.**
+
+## Artılar / eksiler
+
+| ✅ | ❌ |
+|---|---|
+| Lisans zinciri temiz, üçü de ölçüldü | Doğruluk hiç artmadı (amaç değildi) |
+| TR ölçülebilir hale geldi | TR seti **yalnız 300 ms'de** geçerli |
+| 5 hata modu isimlendirildi + kanıtlandı | Beşi de **düzeltilmedi** |
+| Qwen ölçümle elendi (yol kapandı, boşuna uğraşılmayacak) | İkinci-görüş yolu tümden kapandı |
+| overlay `uncertain` sahada | Etkisi 0.5 kalite kapısıyla sınırlı |
+| Arşiv tazelendi (409 satır kelime senkronu kazandı) | 0.5 kapısı hâlâ ölçülmüş-kötü, dokunulmadı |
+
+## 🔑 YENİ BULGU: sistematik gecikme — ve bedava düzeltmesi
+
+İngilizce JamendoLyrics (**tam hassasiyetli** insan anotasyonu, 5569 kelime):
+
+- **Kelimelerin %76'sı GEÇ işaretleniyor.** Rastgele olsa %50 beklenirdi.
+- İşaretli medyan hata: **+79 ms**
+- Sadece sabit bir kaydırma uygulayınca:
+
+| düzeltme | PCO@0.1 | PCO@0.2 |
+|---|---|---|
+| yok (bugün) | 0.492 | 0.764 |
+| **−79 ms** | **0.588** | **0.846** |
+| −100 ms | 0.564 | 0.850 |
+
+**Tek satırlık bir kaydırma, algısal toleransta ~10 puan.** Ve sebebi Faz 8'de
+zaten araştırılıp not edilmişti: *şarkıda nota onset'i hecenin ÜNLÜSÜYLE
+hizalanır, baştaki ünsüzle değil* — CTC ünlüyü duyuyor, kelime ise ünsüzle
+başlıyor. Aradaki fark ünsüzün süresi, yani ~80 ms.
+
+Bu tesadüf değil, **mekanizması bilinen sistematik bir yanlılık.**
+
+## Faz 9 planı: algısal doğruluk (300 ms → 100-150 ms)
+
+**Kritik avantaj: yeni veri toplamaya gerek YOK.** İngilizce JamendoLyrics
+zaten tam hassasiyetli; PCO@0.1'i bugün ölçebiliyoruz. Geliştirme orada
+yapılır, Türkçe'de küçük bir yüksek-hassasiyet altkümesiyle doğrulanır.
+
+### Sıra (ucuzdan pahalıya, her adım ölçülür)
+
+1. **Sabit ofset kalibrasyonu** (~2 saat) — yukarıdaki −79 ms. Dil/model başına
+   ölçülüp config'e. Beklenen: PCO@0.1 +10 puan. *En yüksek getiri/maliyet.*
+2. **Ünlü-farkındalıklı düzeltme** (~1 gün) — sabit ofset yerine kelimenin
+   BAŞ SESİNE göre düzeltme (ünsüzle başlayan kelime daha çok geri, ünlüyle
+   başlayan az). Sabit ofsetin üstüne ne katıyor, ölçülür.
+3. **Gross hata modları** (~2-3 gün) — kilit kaybı (BELLYDANCING) ve tekrarlı
+   söz karışması (Berkcan). Bunlar PCO@0.3'ü de düşürüyor, ayrı sınıf.
+4. **0.5 kalite kapısı** — ölçülmüş kötü kapı (r=+0.36). Kaldırılması/
+   değiştirilmesi ayrı bir karar; hakem katmanı artık satır düzeyinde iş
+   gördüğü için doküman düzeyi kapıya ihtiyaç azaldı.
+5. **Yüksek hassasiyetli TR altkümesi** (~4-6 saat insan) — yalnız 1-4 adımın
+   Türkçe'de de tuttuğunu doğrulamak için 3-5 şarkı, ±30 ms hedefiyle.
+
+### Hedef
+
+**PCO@0.1 ≥ 0.70** (bugün 0.49). Adım 1+2 ile 0.60-0.65 bandı gerçekçi
+görünüyor; gerisi 3. maddeye ve model kalitesine bağlı.
+
+## Karar: fazı kapatalım mı?
+
+**Öneri: evet, ama "tamam budur" diye değil.** Faz 8.1'in hedefi lisanstı ve
+o hedef ölçülerek tutuldu. Doğruluk ayrı bir problem sınıfı, ayrı bir bütçe
+ve ayrı bir eval hassasiyeti istiyor — aynı fazın içine sıkıştırmak ikisini de
+yarım bırakır.
+
+Kapanış şartı: **dil başına model seçimi** (~1 saat, tek kalan iş). Sonra
+Faz 9 doğrudan yukarıdaki 1. maddeyle açılır — elimizde ölçülmüş, mekanizması
+bilinen ve ucuz bir kazanç var.
