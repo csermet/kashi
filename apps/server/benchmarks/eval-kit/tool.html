@@ -126,6 +126,20 @@
         <option value="1" selected>1×</option><option value="1.25">1.25×</option>
       </select>
     </label>
+    <label class="muted">görünüm
+      <select id="follow">
+        <option value="scroll" selected>kayan</option>
+        <option value="page">sayfa çeviren</option>
+      </select>
+    </label>
+    <label class="muted">pencere
+      <select id="zoom-span">
+        <option value="3">3 sn</option>
+        <option value="4.5" selected>4,5 sn</option>
+        <option value="6">6 sn</option>
+        <option value="9">9 sn</option>
+      </select>
+    </label>
     <span id="clock" style="font:13px ui-monospace,monospace;color:var(--dim)">0.000 s</span>
     <span style="flex:1"></span>
     <label class="muted" title="Yalnız T ile canlı damgalama yaparken kullanılır. İnsan refleksi geç kalır; bu sayı onu geri alır. Sadece nudge ile çalışıyorsan hiç dokunma.">
@@ -476,25 +490,63 @@ function drawOverview() {
   g.fillStyle = "#f0f6fc";
   g.fillRect((now() / dur) * w, 0, 1, h);
 }
-const ZOOM_SPAN = 3.0;
+let ZOOM_SPAN = 4.5;
+
+// --- pre-rendered waveform tile ---------------------------------------------
+// Recomputing the waveform column by column on every frame was the reason
+// scrolling looked rough: each column takes a max over a sample range, the
+// ranges do not line up between frames, and the shape shimmers at the pixel
+// level while it moves. Drawing it ONCE into an offscreen strip and blitting
+// that strip at a fractional offset gives true sub-pixel motion — and costs a
+// render every few seconds instead of sixty times a second.
+const tile = { canvas: null, start: 0, span: 0, pxPerSec: 0, h: 0 };
+function ensureTile(span, viewW, viewH, dpr) {
+  const pxPerSec = (viewW * dpr) / span;
+  const tileSpan = span * 3;
+  const t = now();
+  const wantStart = t - tileSpan / 2;
+  const stale = !tile.canvas || tile.span !== tileSpan || tile.h !== viewH * dpr
+    || tile.pxPerSec !== pxPerSec
+    || t - span / 2 < tile.start + 0.05
+    || t + span / 2 > tile.start + tileSpan - 0.05;
+  if (!stale) return;
+  const wpx = Math.ceil(tileSpan * pxPerSec);
+  if (!tile.canvas) tile.canvas = document.createElement("canvas");
+  tile.canvas.width = wpx;
+  tile.canvas.height = Math.round(viewH * dpr);
+  Object.assign(tile, { start: wantStart, span: tileSpan, pxPerSec, h: viewH * dpr });
+  const g = tile.canvas.getContext("2d");
+  const sr = audio.buf.sampleRate, ch = audio.buf.getChannelData(0);
+  const half = tile.canvas.height / 2;
+  g.clearRect(0, 0, wpx, tile.canvas.height);
+  g.fillStyle = "#2b3646";
+  for (let x = 0; x < wpx; x++) {
+    const ts = wantStart + x / pxPerSec;
+    const i0 = Math.floor(ts * sr), i1 = Math.floor((ts + 1 / pxPerSec) * sr);
+    let max = 0;
+    for (let j = Math.max(0, i0); j < Math.min(ch.length, i1); j++) {
+      const v = Math.abs(ch[j]); if (v > max) max = v;
+    }
+    const a = max * half * 0.62;
+    if (a > 0) g.fillRect(x, half - a, 1, a * 2);
+  }
+}
 /** The metric's window. Anything inside it already scores as correct, so it
  *  is drawn rather than described — the band IS the instruction. */
 const TOLERANCE_MS = 300;
 let viewStart = null;
-/** The zoom view PAGES instead of scrolling.
- *
- *  Centring on the playhead every frame meant the waveform and every word
- *  label slid continuously, which is exhausting to watch and makes the labels
- *  unreadable — you cannot read text that is moving under you. Now the window
- *  holds still while the cursor crosses it, and jumps one page when the cursor
- *  nears the right edge. Between jumps nothing moves except the cursor. */
-const PAGE_AT = 0.82;    // cursor reaches this fraction -> turn the page
-const PAGE_LEAD = 0.22;  // ...and lands this far in on the new page
+let follow = "scroll";   // "scroll" = kayan (varsayılan) · "page" = sayfa çeviren
+const PAGE_AT = 0.82;    // sayfa modunda: imleç bu orana gelince çevir
+const PAGE_LEAD = 0.22;  // ...ve yeni sayfada buraya düşsün
 function zoomWindow() {
   const t = now();
-  if (viewStart === null || t < viewStart || t > viewStart + ZOOM_SPAN * PAGE_AT) {
-    viewStart = Math.max(0, t - ZOOM_SPAN * PAGE_LEAD);
+  if (follow === "page") {
+    if (viewStart === null || t < viewStart || t > viewStart + ZOOM_SPAN * PAGE_AT) {
+      viewStart = Math.max(0, t - ZOOM_SPAN * PAGE_LEAD);
+    }
+    return { t0: viewStart, span: ZOOM_SPAN };
   }
+  viewStart = t - ZOOM_SPAN / 2;   // kayan: imleç hep ortada
   return { t0: viewStart, span: ZOOM_SPAN };
 }
 function drawZoom() {
@@ -502,19 +554,14 @@ function drawZoom() {
   g.clearRect(0, 0, w, h);
   if (!audio.buf) return;
   const { t0, span } = zoomWindow();
-  const sr = audio.buf.sampleRate, ch = audio.buf.getChannelData(0);
   // The waveform is CONTEXT, not the subject: the eye should go to the word
-  // markers and the tolerance band. Drawn quiet and short (0.62 of the half
-  // height) so the labels along the bottom stay legible over it.
-  g.fillStyle = "#2b3646";
-  for (let x = 0; x < w; x++) {
-    const ts = t0 + (x / w) * span, i0 = Math.floor(ts * sr), i1 = Math.floor((ts + span / w) * sr);
-    let max = 0;
-    for (let j = Math.max(0, i0); j < Math.min(ch.length, i1); j++) {
-      const v = Math.abs(ch[j]); if (v > max) max = v;
-    }
-    const a = max * (h / 2) * 0.62;
-    g.fillRect(x, h / 2 - a, 1, a * 2);
+  // markers and the tolerance band. Blitted from the pre-rendered strip at a
+  // FRACTIONAL source offset, which is what makes the motion smooth.
+  const dpr = window.devicePixelRatio || 1;
+  ensureTile(span, w, h, dpr);
+  if (tile.canvas) {
+    const sx = (t0 - tile.start) * tile.pxPerSec;
+    g.drawImage(tile.canvas, sx, 0, span * tile.pxPerSec, tile.canvas.height, 0, 0, w, h);
   }
   const xOf = (sec) => ((sec - t0) / span) * w;
   const pw = playingWord();
@@ -770,7 +817,7 @@ $("fPacket").onchange = async (e) => {
 $("fAudio").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
   audio.buf = await ctx().decodeAudioData(await f.arrayBuffer());
-  peaks = null; lastLineKey = -1; render();
+  peaks = null; tile.canvas = null; lastLineKey = -1; render();
 };
 $("btnPlay").onclick = toggle;
 $("btnLoop").onclick = loopWord;
@@ -786,6 +833,12 @@ $("btnMode").onclick = () => {
 $("rate").onchange = (e) => {
   audio.rate = Number(e.target.value);
   if (audio.playing) { const p = now(); stop(); play(p); }
+};
+$("follow").onchange = (e) => { follow = e.target.value; viewStart = null; };
+$("zoom-span").onchange = (e) => {
+  ZOOM_SPAN = Number(e.target.value);
+  tile.canvas = null;   // çözünürlük değişti, şerit yeniden çizilmeli
+  viewStart = null;
 };
 $("lineText").onclick = (e) => {
   const el = e.target.closest(".w");
@@ -827,7 +880,8 @@ document.addEventListener("keydown", (e) => {
   if (map[e.key]) { e.preventDefault(); map[e.key](); }
 });
 (function tick() { if (audio.buf) render(); requestAnimationFrame(tick); })();
-window.addEventListener("resize", () => { peaks = null; });
+// Genişlik değişince şeridin çözünürlüğü de değişir; ikisi birlikte düşer.
+window.addEventListener("resize", () => { peaks = null; tile.canvas = null; });
 window.addEventListener("beforeunload", save);
 </script>
 </body>
