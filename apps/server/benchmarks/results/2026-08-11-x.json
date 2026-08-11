@@ -1,0 +1,125 @@
+{
+ "meta": {
+  "generated_at": "2026-08-11T14:41:11+00:00",
+  "label": "x",
+  "pipeline_version": "2.19.1",
+  "alignment_model": "mpoyraz/wav2vec2-xls-r-300m-cv8-turkish",
+  "align_romanize": false,
+  "separation": "kim-base",
+  "mixback": 0.15,
+  "windowed": true,
+  "anchor_jitter_ms": 400,
+  "signals": false,
+  "line_postprocess": "none",
+  "trim_ends": true,
+  "host": "cnr-intel",
+  "cpus": 4,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 0.3
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 10,
+   "scored": 0,
+   "failed": [
+    "Ahmet_Kaya_-_Hani_Benim_Gençliğim",
+    "Berkcan_Güven_-_BERKCAN_GÜVEN_-_YOUTUBE_BENİM_İŞİM_DISS_",
+    "Gülşen_-_Yatcaz_Kalkcaz_Ordayım",
+    "Hadise_-_Şampiyon",
+    "INJI_-_BELLYDANCING",
+    "Sibel_Can_ve_Eypio_-_KIYAMAM",
+    "Tarkan_-_Öp",
+    "Volga_Tamöz_-_Sebastian",
+    "manifest_-_Toz_Pembe",
+    "manifest_ve_Pango_-_Zehir"
+   ]
+  },
+  "songs": [
+   {
+    "stem": "Ahmet_Kaya_-_Hani_Benim_Gençliğim",
+    "language": "tur",
+    "duration_s": 255.5,
+    "n_words": 144,
+    "n_lines": 40,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "Berkcan_Güven_-_BERKCAN_GÜVEN_-_YOUTUBE_BENİM_İŞİM_DISS_",
+    "language": "tur",
+    "duration_s": 226.3,
+    "n_words": 303,
+    "n_lines": 48,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "Gülşen_-_Yatcaz_Kalkcaz_Ordayım",
+    "language": "tur",
+    "duration_s": 232.5,
+    "n_words": 244,
+    "n_lines": 64,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "Hadise_-_Şampiyon",
+    "language": "tur",
+    "duration_s": 243.4,
+    "n_words": 192,
+    "n_lines": 56,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "INJI_-_BELLYDANCING",
+    "language": "tur",
+    "duration_s": 122.5,
+    "n_words": 189,
+    "n_lines": 35,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "Sibel_Can_ve_Eypio_-_KIYAMAM",
+    "language": "tur",
+    "duration_s": 144.8,
+    "n_words": 186,
+    "n_lines": 37,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "Tarkan_-_Öp",
+    "language": "tur",
+    "duration_s": 215.4,
+    "n_words": 272,
+    "n_lines": 43,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "Volga_Tamöz_-_Sebastian",
+    "language": "tur",
+    "duration_s": 164.4,
+    "n_words": 133,
+    "n_lines": 54,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "manifest_-_Toz_Pembe",
+    "language": "tur",
+    "duration_s": 186.6,
+    "n_words": 213,
+    "n_lines": 46,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   },
+   {
+    "stem": "manifest_ve_Pango_-_Zehir",
+    "language": "tur",
+    "duration_s": 166.4,
+    "n_words": 251,
+    "n_lines": 67,
+    "error": "ModuleNotFoundError: No module named 'audio_separator'"
+   }
+  ]
+ }
+}

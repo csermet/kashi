@@ -29,8 +29,10 @@ import argparse
 import csv
 import json
 import os
+import re
 import shutil
 import sys
+import unicodedata
 from pathlib import Path
 
 # Veri (ses/paket/anotasyon) repo DISINDA durur: sesler ve sozler telifli,
@@ -38,6 +40,23 @@ from pathlib import Path
 KIT = Path(os.environ.get("KASHI_EVAL_DIR", "/home/cnr-intel/kashi-eval"))
 REPO = Path(os.environ.get("KASHI_REPO", "/home/cnr-intel/Projects/kashi"))
 DEST = REPO / "apps/server/benchmarks/data/jamendolyrics-tr"
+
+
+TR_MAP = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+
+
+def ascii_stem(stem: str) -> str:
+    """Dosya adları için ASCII karşılık.
+
+    Set Linux'ta derlenip Windows'ta ölçülüyor ve Windows'un `tar`'ı UTF-8
+    dosya adlarını yerel kod sayfasına çevirip bozuyor — çıkarılan dizinde
+    `Gençliğim` aranırken başka bir bayt dizisi bulunuyordu. Sanatçı/şarkı
+    adları JamendoLyrics.csv'de OLDUĞU GİBİ kalır (onlar veri); değişen yalnız
+    dosya adı.
+    """
+    s = stem.translate(TR_MAP)
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+    return re.sub(r"[^\w\-]+", "_", s)
 
 
 def _packets() -> dict[str, dict]:
@@ -185,7 +204,8 @@ def main() -> int:
             continue
         ready.append((stem, tokens, rows, pkt, rev))
         rows_out.append({
-            "Filepath": f"{stem}.mp3", "Artist": pkt["artist"], "Title": pkt["title"],
+            "Filepath": f"{ascii_stem(stem)}.mp3",
+            "Artist": pkt["artist"], "Title": pkt["title"],
             "Language": "Turkish", "LicenseType": "internal-eval-only",
         })
 
@@ -204,13 +224,14 @@ def main() -> int:
     (DEST / "annotations" / "words").mkdir(parents=True, exist_ok=True)
     (DEST / "mp3").mkdir(parents=True, exist_ok=True)
     for stem, tokens, _rows, pkt, _ in ready:
-        (DEST / "lyrics" / f"{stem}.words.txt").write_text(
+        out_stem = ascii_stem(stem)
+        (DEST / "lyrics" / f"{out_stem}.words.txt").write_text(
             " ".join(tokens) + "\n", encoding="utf-8"
         )
         # Kopyalamak yerine YAZ: _validate bazi satirlarin verified'ini
         # dusurmus olabilir (olculemez kelimeler), o karar cikti dosyasina
         # yansimali.
-        with (DEST / "annotations" / "words" / f"{stem}.csv").open(
+        with (DEST / "annotations" / "words" / f"{out_stem}.csv").open(
                 "w", newline="", encoding="utf-8") as out:
             wr = csv.DictWriter(out, fieldnames=["word_start", "word_end", "line_end", "verified"])
             wr.writeheader()
@@ -224,7 +245,7 @@ def main() -> int:
         if src is None:
             print(f"  DİKKAT  {stem}: ses dosyası yok ({pkt['source_id']})")
             continue
-        shutil.copy(src, DEST / "mp3" / f"{stem}.mp3")
+        shutil.copy(src, DEST / "mp3" / f"{out_stem}.mp3")
     with (DEST / "JamendoLyrics.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["Filepath", "Artist", "Title", "Language", "LicenseType"])
         w.writeheader()
