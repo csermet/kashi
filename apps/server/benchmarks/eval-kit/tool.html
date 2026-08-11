@@ -124,6 +124,17 @@
     <button id="btnPlay">▶ oynat/durdur <kbd>space</kbd></button>
     <button id="btnLoop">🔁 seçili kelimeyi döngüle <kbd>L</kbd></button>
     <button id="btnSwept" title="Seçili kelimeye kadar kontrol ettiysen ve sonrasına bakmadıysan: yalnız o aralık ölçüme girer">✂ buradan sonrasına bakmadım</button>
+    <span class="muted" style="display:inline-flex;align-items:center;gap:5px;
+         border:1px solid var(--line);border-radius:6px;padding:2px 7px">
+      toplu
+      <input id="bulkStep" type="number" value="50" step="50" min="10"
+             style="width:64px;background:#21262d;color:var(--text);border:1px solid var(--line);
+                    border-radius:5px;padding:2px 5px">ms
+      <button id="btnLineL" title="Satırın tamamını geri kaydır (Ctrl+Shift+←)">◀ satır</button>
+      <button id="btnLineR" title="Satırın tamamını ileri kaydır (Ctrl+Shift+→)">satır ▶</button>
+      <button id="btnEndL" title="Seçili kelimeden şarkı SONUNA kadar geri kaydır">◀ sonrası</button>
+      <button id="btnEndR" title="Seçili kelimeden şarkı SONUNA kadar ileri kaydır">sonrası ▶</button>
+    </span>
     <label class="muted">hız
       <select id="rate">
         <option value="0.5">0.5×</option><option value="0.75">0.75×</option>
@@ -162,6 +173,7 @@
     <div><kbd>↑</kbd> <kbd>↓</kbd> önceki / sonraki satır</div>
     <div><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> kelimeyi ∓10 ms kaydır</div>
     <div><kbd>Ctrl</kbd>+<kbd>←</kbd> <kbd>→</kbd> kelimeyi ∓50 ms kaydır</div>
+    <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> SATIRIN tamamını kaydır</div>
     <div><kbd>L</kbd> seçili kelimeyi döngüde dinle</div>
     <div><kbd>Enter</kbd> bu kelime tamam → sonraki</div>
     <div><kbd>T</kbd> kelimeyi şu ana damgala</div>
@@ -363,6 +375,32 @@ function nudge(ms) {
   w.start = Math.max(0, w.start + ms);
   w.edited = true;
   save(); render();
+}
+/** Shift a RANGE of words together.
+ *
+ *  The corrections that actually happen are mostly block-shaped: a whole line
+ *  landing early, or a repeated chorus sliding by a second and staying there.
+ *  Measured on Berkcan Güven, 48 corrections of which ~30 were consecutive
+ *  words moved by similar amounts — that is thirty keystroke sequences to fix
+ *  one displacement. */
+function shiftRange(from, to, ms) {
+  if (!words.length) return;
+  for (let i = Math.max(0, from); i <= Math.min(words.length - 1, to); i++) {
+    words[i].start = Math.max(0, words[i].start + ms);
+    words[i].edited = true;
+  }
+  save(); render();
+}
+function shiftLine(ms) {
+  const w = words[sel]; if (!w) return;
+  const l = lineOf[w.line];
+  shiftRange(l.first, l.first + l.count - 1, ms);
+}
+/** From the selected word to the END of the song. For the case that keeps
+ *  coming up: correct until some point, then everything after it is uniformly
+ *  displaced (BELLYDANCING loses lock at 88 s and never recovers). */
+function shiftToEnd(ms) {
+  shiftRange(sel, words.length - 1, ms);
 }
 function tap() {
   const w = words[sel]; if (!w || !audio.buf) return;
@@ -841,6 +879,11 @@ $("fAudio").onchange = async (e) => {
 $("btnPlay").onclick = toggle;
 $("btnLoop").onclick = loopWord;
 $("btnSwept").onclick = markSweptUpToHere;
+const bulk = () => Number($("bulkStep").value) || 50;
+$("btnLineL").onclick = () => shiftLine(-bulk());
+$("btnLineR").onclick = () => shiftLine(bulk());
+$("btnEndL").onclick = () => shiftToEnd(-bulk());
+$("btnEndR").onclick = () => shiftToEnd(bulk());
 $("btnExport").onclick = exportAll;
 $("btnJitter").onclick = applyJitter;
 $("btnMode").onclick = () => {
@@ -880,6 +923,10 @@ document.addEventListener("keydown", (e) => {
   // vocabulary. `,`/`.` stay as aliases for anyone who learned them.
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
     const dir = e.key === "ArrowRight" ? 1 : -1;
+    const step = Number($("bulkStep").value) || 50;
+    // Ctrl+Shift = whole line, Shift = one word fine, Ctrl = one word coarse.
+    // Same vocabulary, widening scope — nothing new to remember.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); return shiftLine(dir * step); }
     if (e.shiftKey) { e.preventDefault(); return nudge(dir * 10); }
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); return nudge(dir * 50); }
   }
