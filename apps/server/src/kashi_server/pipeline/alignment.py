@@ -269,7 +269,8 @@ def _line_only_fallback(
 
 
 def _align_texts(
-    model, tokenizer, audio, texts: list[str], language: str, star_frequency: str = "segment"
+    model, tokenizer, audio, texts: list[str], language: str,
+    star_frequency: str = "segment", romanize: bool = True,
 ) -> list[dict]:
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
     [{start, end, text, score}] in SECONDS relative to the given audio."""
@@ -284,7 +285,10 @@ def _align_texts(
     emissions, stride = generate_emissions(model, audio, batch_size=4)
     tokens_starred, text_starred = preprocess_text(
         " ".join(texts),
-        romanize=True,  # uroman: required by the multilingual MMS model
+        # uroman. MMS needs it (romanized Latin vocabulary); a model trained
+        # on the language's own alphabet does not, and romanizing first would
+        # feed it a phoneme set it never learned. Rides with the checkpoint.
+        romanize=romanize,
         language=language,
         split_size="word",
         star_frequency=star_frequency,
@@ -303,6 +307,7 @@ def align(
     language: str,
     synced_starts_ms: list[int | None] | None = None,
     model_name: str | None = None,
+    romanize: bool | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -312,6 +317,10 @@ def align(
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
     model_name = resolve_model_name(model_name)
+    if romanize is None:
+        from kashi_server.config import settings
+
+        romanize = settings.align_romanize
     model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
 
@@ -340,7 +349,9 @@ def align(
         plan = plan_windows(line_texts, synced_starts_ms, total_ms)
 
     if plan is None:
-        results = _align_texts(model, tokenizer, audio, align_texts, language)
+        results = _align_texts(
+            model, tokenizer, audio, align_texts, language, romanize=romanize
+        )
     else:
         logger.info("windowed alignment: %d windows over %d lines", len(plan), len(line_texts))
         merged: list[dict] = []
@@ -353,7 +364,9 @@ def align(
             # "edges": star tokens at BOTH slice edges absorb the pad and the
             # inter-line gap, so forced alignment doesn't stretch real words
             # over non-vocal audio (measured: "segment" cost ~0.13 PCO here).
-            for r in _align_texts(model, tokenizer, piece, texts, language, "edges"):
+            for r in _align_texts(
+                model, tokenizer, piece, texts, language, "edges", romanize=romanize
+            ):
                 if r.get("text") == STAR_TOKEN:
                     continue  # regroup drops them anyway; keep offsets word-only
                 merged.append(

@@ -108,13 +108,14 @@ def _align_song(
     language: str,
     anchors: list[int | None] | None = None,
     model_name: str | None = None,
+    romanize: bool | None = None,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
     with tempfile.TemporaryDirectory(prefix="kashi-bench-dec-") as tmp:
         wav = _decode_16k(audio, Path(tmp) / "align.wav")
         started = time.monotonic()
-        result = align(wav, line_texts, language, anchors, model_name)
+        result = align(wav, line_texts, language, anchors, model_name, romanize)
     return result, time.monotonic() - started
 
 
@@ -190,7 +191,8 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 else None
             )
             result, align_s = _align_song(
-                audio, song.line_texts, song.language, anchors, args.align_model
+                audio, song.line_texts, song.language, anchors, args.align_model,
+                args.align_romanize,
             )
         except Exception as exc:  # keep sweeping; a broken song is a data point
             logger.exception("%s failed", song.stem)
@@ -425,7 +427,8 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
             )
             anchors = [start for start, _ in reference] if args.windowed else None
             result, align_s = _align_song(
-                source, line_texts, case.language, anchors, args.align_model
+                source, line_texts, case.language, anchors, args.align_model,
+                args.align_romanize,
             )
         except Exception as exc:
             logger.exception("case %s failed", case.id)
@@ -508,6 +511,19 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--align-romanize",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "uroman romanization before alignment (default: settings). MMS "
+            "REQUIRES it — its vocabulary is romanized Latin. A model trained "
+            "on the language's own alphabet wants --no-align-romanize: "
+            "mpoyraz's Turkish vocab has ç ğ ı ö ş ü natively, and romanizing "
+            "first hands it a phoneme set it never learned, which understates "
+            "it. The flag rides with the checkpoint."
+        ),
+    )
+    parser.add_argument(
         "--line-postprocess",
         choices=("none", "soft-median", "soft-pl"),
         default="none",
@@ -577,6 +593,7 @@ def main() -> int:
             # The model that ACTUALLY ran, not the module default — otherwise
             # a bake-off's two result files would claim the same aligner.
             "alignment_model": resolve_model_name(args.align_model),
+            "align_romanize": args.align_romanize,
             "separation": args.separation,
             "mixback": args.mixback if args.separation != "full-mix" else None,
             "windowed": args.windowed,

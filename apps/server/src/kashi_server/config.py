@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     # in the archive rather than silent.
     # Detail: docs/research/hizalama-yontem-adaylari-2026-08.md
     align_model: str = "MahmoudAshraf/mms-300m-1130-forced-aligner"
+    # uroman romanization before alignment. REQUIRED by MMS, whose vocabulary
+    # is romanized Latin. A model trained on the language's own alphabet wants
+    # the opposite: mpoyraz's Turkish vocab carries ç ğ ı ö ş ü natively, and
+    # romanizing first would hand it "cgiosu" — a different phoneme set than
+    # the one it learned. Measuring such a model with this left on understates
+    # it, so the flag rides with the checkpoint.
+    align_romanize: bool = True
     # audio-separator registry filename. Kim MelBand: best measured PCO/MAE of
     # all candidates at ~2.1x realtime on the worker (BS-RoFormer quality at a
     # third of its cost); higher-SDR models measured WORSE for alignment.
