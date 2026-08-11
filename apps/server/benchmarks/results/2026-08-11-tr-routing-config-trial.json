@@ -1,0 +1,110 @@
+{
+ "meta": {
+  "generated_at": "2026-08-11T19:43:30+00:00",
+  "label": "tr-routing-config-trial",
+  "pipeline_version": "2.20.0",
+  "alignment_model": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+  "align_models": {
+   "tur": {
+    "checkpoint": "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish",
+    "romanize": false
+   }
+  },
+  "align_romanize": null,
+  "separation": "kim-base",
+  "mixback": 0.15,
+  "windowed": true,
+  "anchor_jitter_ms": 400,
+  "signals": false,
+  "line_postprocess": "none",
+  "trim_ends": true,
+  "host": "448bcc376271",
+  "cpus": 4,
+  "tolerances_s": [
+   0.1,
+   0.2,
+   0.3,
+   0.5
+  ],
+  "wall_s": 87.6
+ },
+ "jamendo": {
+  "aggregate": {
+   "songs": 1,
+   "scored": 1,
+   "failed": [],
+   "word_mae_ms_mean": 118.7,
+   "word_mae_ms_median": 118.7,
+   "word_medae_ms_mean": 20.0,
+   "pco": {
+    "0.1": 0.9738,
+    "0.2": 0.9791,
+    "0.3": 0.9895,
+    "0.5": 0.9895
+   },
+   "align_s_total": 87.0,
+   "align_x_realtime": 0.357,
+   "trimmed_ends_total": 1,
+   "per_language": {
+    "tur": {
+     "songs": 1,
+     "word_mae_ms_mean": 118.7,
+     "pco_0.3": 0.9895
+    }
+   },
+   "word_end_mae_ms_mean": 242.2,
+   "word_end_mae_ms_median": 242.2,
+   "over_extension_mean": 0.0262
+  },
+  "songs": [
+   {
+    "stem": "Hadise_-_Sampiyon",
+    "language": "tur",
+    "duration_s": 243.4,
+    "n_words": 192,
+    "n_lines": 56,
+    "trimmed_ends": 1,
+    "separate_s": 0.0,
+    "align_s": 87.0,
+    "align_model": "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish",
+    "sync": "word",
+    "quality_score": 0.5829,
+    "verified_words": 191,
+    "words": {
+     "count": 191,
+     "mae_ms": 118.7434554973822,
+     "medae_ms": 20.0,
+     "p95_ms": 60.0,
+     "pcs": {
+      "0.1": 0.9738219895287958,
+      "0.2": 0.9790575916230366,
+      "0.3": 0.9895287958115183,
+      "0.5": 0.9895287958115183
+     }
+    },
+    "word_ends": {
+     "count": 191,
+     "mae_ms": 242.20942408376965,
+     "medae_ms": 140.0,
+     "p95_ms": 500.0,
+     "pcs": {
+      "0.1": 0.38219895287958117,
+      "0.2": 0.806282722513089,
+      "0.3": 0.8534031413612565,
+      "0.5": 0.9528795811518325
+     }
+    },
+    "over_extension": 0.0262,
+    "lines": {
+     "count": 56,
+     "mae_ms": 661.7857142857143,
+     "medae_ms": 40.0,
+     "p95_ms": 1460.0,
+     "pcs": {
+      "0.3": 0.9464285714285714
+     }
+    }
+   }
+  ]
+ }
+}

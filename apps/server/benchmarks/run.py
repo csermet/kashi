@@ -209,6 +209,11 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             entry["trimmed_ends"] = trimmed
         entry["separate_s"] = round(separate_s, 1)
         entry["align_s"] = round(align_s, 1)
+        # Per song, because per-language routing (Faz 8.1) means one run can
+        # use several checkpoints — the header can only name the default, and
+        # a header that names a model no song ran is exactly the confusion
+        # `model_name` was added to prevent.
+        entry["align_model"] = result.model_name
         entry["sync"] = result.sync
         entry["quality_score"] = round(result.quality_score, 4)
         onset_ms = None
@@ -591,15 +596,16 @@ def main() -> int:
             "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "label": args.label or config_name,
             "pipeline_version": PIPELINE_VERSION,
-            # The model that ACTUALLY ran, not the module default — otherwise
-            # a bake-off's two result files would claim the same aligner.
+            # The checkpoint for songs NOTHING routes away from — one name can
+            # no longer describe a run (Faz 8.1), so what actually ran is
+            # recorded per song as `align_model`. `--align-model` overrides
+            # everything, and then this is the whole answer again.
             "alignment_model": resolve_model_name(args.align_model),
-            # ...and with per-language routing (Faz 8.1) that single name is
-            # not the whole answer: without --align-model, each song takes the
-            # checkpoint its language maps to. Recorded so a multi-language
-            # run cannot look like a single-model one.
+            # The routing table that was in force, romanize flags included: a
+            # checkpoint measured with and without uroman is two different
+            # measurements, and the file has to be able to tell them apart.
             "align_models": (
-                {code: choice.checkpoint for code, choice in settings.align_models.items()}
+                {code: choice.model_dump() for code, choice in settings.align_models.items()}
                 if not args.align_model and settings.align_models
                 else None
             ),
