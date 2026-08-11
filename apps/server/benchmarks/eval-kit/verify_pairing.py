@@ -13,7 +13,6 @@ import glob
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 KIT = Path(os.environ.get("KASHI_EVAL_DIR", "/home/cnr-intel/kashi-eval"))
