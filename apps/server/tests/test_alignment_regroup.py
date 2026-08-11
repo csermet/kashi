@@ -5,6 +5,7 @@ import pytest
 
 from kashi_server.pipeline.alignment import (
     STAR_TOKEN,
+    _fit_to_vocab,
     quality_from_probs,
     regroup_words_into_lines,
 )
@@ -212,3 +213,49 @@ def test_plans_are_optional_and_the_default_path_is_untouched():
     assert regroup_words_into_lines(texts, segs) == regroup_words_into_lines(
         texts, segs, [None, None]
     )
+
+
+def test_vocab_fitting_keeps_the_letters_the_model_learned():
+    """romanize=False yolunda temizlik kimse yapmıyordu: uroman devrede
+    olmadığı için noktalama modelin sözlüğüne çarpıyor ve hizalayıcı assert'e
+    düşüyordu — ilk Türkçe ölçümünde 10 şarkının 5'i böyle kayboldu."""
+    turkish = set("abcdefghijklmnopqrstuvwxyzçğışöü' ")
+    # Türkçe harfler modelin ÖĞRENDİĞİ harfler — sadeleştirilirse model
+    # hiç görmediği bir ses kümesiyle çalışmaya zorlanır.
+    assert _fit_to_vocab("Bi' açıldım, bi' kapandım", turkish) == "Bi' açıldım bi' kapandım"
+    # Sözlükte olmayan aksan gerçek bir kelimenin parçası: düşürülür, atılmaz.
+    assert _fit_to_vocab("hâlim hikâye,", turkish) == "halim hikaye"
+
+
+def test_vocab_fitting_never_changes_the_token_count():
+    """Regroup, satır metnindeki kelime sayısının hizalanan segment sayısına
+    EŞİT olmasına dayanıyor. Tamamen elenen bir token (♪ gibi) yer tutmazsa o
+    özdeşlik kırılır ve şarkı satır moduna düşer."""
+    turkish = set("abcdefghijklmnopqrstuvwxyzçğışöü' ")
+    for text in ["Şampiyon (Ooh) ♪", "♪ ♪ ♪", "a, b! c?"]:
+        assert len(_fit_to_vocab(text, turkish).split()) == len(text.split())
+
+
+def test_an_unknown_vocabulary_leaves_the_text_alone():
+    """Sözlük okunamazsa (tokenizer türü değişti) metne dokunma — sessizce
+    bozmaktansa eski davranışta kal."""
+    assert _fit_to_vocab("a,b ♪", set()) == "a,b ♪"
+
+
+def test_the_non_romanized_path_actually_applies_the_fitting():
+    """Saf fonksiyonu sınamak yetmiyor: çağrı yeri silinirse hiçbir test
+    düşmez ve ölçüm yine yarım şarkıyla döner. Gerçek yol `ctc_forced_aligner`
+    olmadan koşamadığı için kapı kaynak düzeyinde — bu koşulun kaybolması
+    sessiz kalmasın."""
+    from pathlib import Path
+
+    from kashi_server.pipeline import alignment
+
+    source = Path(alignment.__file__).read_text(encoding="utf-8")
+    assert "if not romanize:" in source
+    assert "_fit_to_vocab(joined, _vocab_chars(tokenizer))" in source
+    # ...ve romanize=True yolunda ASLA çalışmamalı: uroman zaten temizliyor,
+    # üstüne bir de sözlüğe indirmek MMS'in beklediği metni bozardı.
+    fitted = source.index("_fit_to_vocab(joined")
+    guard = source.rindex("if not romanize:", 0, fitted)
+    assert fitted - guard < 120, "sözlüğe indirgeme romanize koşulundan koptu"

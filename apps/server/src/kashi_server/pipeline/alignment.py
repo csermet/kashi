@@ -13,6 +13,7 @@ line-level document instead (the overlay already renders those).
 import logging
 import math
 import os
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -268,6 +269,48 @@ def _line_only_fallback(
     )
 
 
+def _vocab_chars(tokenizer) -> set[str]:
+    """Modelin TANIDIĞI tek karakterler. Boş küme = bilinmiyor, dokunma."""
+    try:
+        vocab = tokenizer.get_vocab()
+    except Exception:  # pragma: no cover - tokenizer türü değişirse sessizce devam
+        return set()
+    return {token.lower() for token in vocab if len(token) == 1}
+
+
+def _fit_to_vocab(text: str, allowed: set[str]) -> str:
+    """Metni modelin sözlüğüne indir, TOKEN SAYISINI koruyarak.
+
+    `romanize=True` yolunda bu işi uroman yapıyor: noktalama düşüyor, aksan
+    sadeleşiyor. `romanize=False` ile o temizlik ortadan kalkıyor ve sözlükte
+    olmayan ilk karakterde hizalayıcı assert'e düşüyor — ölçümde 10 Türkçe
+    şarkının 5'i böyle kayboldu (virgül, parantez, tire, ♪).
+
+    Karakter karakter: sözlükte varsa AYNEN kalır (ç ğ ı ö ş ü korunur, bu
+    modellerin öğrendiği harfler onlar); yoksa aksanı düşürülmüş hâli denenir
+    (â → a, "hikâye" gerçek bir kelime); o da yoksa atılır. Token sayısı
+    regroup özdeşliğini taşıdığı için boşalan token yer tutmak zorunda —
+    bu sette yalnızca 3 tane var ve üçü de ♪, yani söylenen bir söz değil.
+    """
+    if not allowed:
+        return text
+    filler = "a" if "a" in allowed else next(iter(sorted(allowed)))
+    out = []
+    for token in text.split():
+        kept = []
+        for ch in token:
+            if ch.lower() in allowed:
+                kept.append(ch)
+                continue
+            base = "".join(
+                c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c)
+            )
+            if base and all(c.lower() in allowed for c in base):
+                kept.append(base)
+        out.append("".join(kept) or filler)
+    return " ".join(out)
+
+
 def _align_texts(
     model, tokenizer, audio, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True,
@@ -283,8 +326,11 @@ def _align_texts(
     )
 
     emissions, stride = generate_emissions(model, audio, batch_size=4)
+    joined = " ".join(texts)
+    if not romanize:
+        joined = _fit_to_vocab(joined, _vocab_chars(tokenizer))
     tokens_starred, text_starred = preprocess_text(
-        " ".join(texts),
+        joined,
         # uroman. MMS needs it (romanized Latin vocabulary); a model trained
         # on the language's own alphabet does not, and romanizing first would
         # feed it a phoneme set it never learned. Rides with the checkpoint.
