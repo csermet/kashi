@@ -61,7 +61,36 @@ jg XLS-R 1B (jonatasgrosman, Apache-2.0) MMS'le 79 şarkıda BERABERE
 ağda; ilerde docker + otomatik/CF erişimli kurulum) planlandığı için hız
 engel olmaktan çıktı.
 
-## 4. Hizalayıcı TR: aday tarandı, ölçüm TR seti bekliyor
+## 4. Hizalayıcı TR: ✅ ÇÖZÜLDÜ (2026-08-11 ölçümü)
+
+10 şarkı, 1966 doğrulanmış kelime, aynı ayrıştırıcı (kim-base), aynı pencere
+ve jitter. Eşleştirilmiş karşılaştırma:
+
+| model | PCO@0.3 | PCO@0.2 | PCO@0.1 | MAE | lisans zinciri |
+|---|---|---|---|---|---|
+| MMS-300m (bugünkü) | **0.938** | 0.869 | 0.733 | 158 ms | ❌ CC-BY-NC |
+| **mpoyraz cv7** | **0.930** | 0.859 | 0.730 | 174 ms | ✅ **CC-BY-4.0** |
+| mpoyraz cv8 | 0.888 | 0.822 | 0.662 | 311 ms | ✅ Apache + CC0 |
+
+**cv7 ile MMS arasında istatistiksel fark YOK:** şarkı başına ortalama fark
+−0.008, %95 güven aralığı **[−0.017, +0.001]** — sıfırı içeriyor. 10 şarkının
+4'ünde birebir aynı, 1'inde cv7 daha iyi, 5'inde 0.4-3.7 puan geride.
+
+cv8 (Apache + CC0, en temiz zincir) **5 puan geride** — kabul edilemez.
+Aradaki fark eğitim verisi: cv7 CommonVoice 7 + MediaSpeech (CC-BY), cv8 yalnız
+CommonVoice 8. Lisans bir kademe "daha az saf" ama CC-BY-4.0 **atıfla ticari
+kullanıma açık** — bir künye satırı yeterli.
+
+**Karar: mpoyraz cv7.** `--no-align-romanize` ile (Türkçe harfler modelin
+sözlüğünde yerel).
+
+Ölçüm sırasında çıkan tuzak: `romanize=True` uroman üzerinden noktalamayı da
+temizliyormuş. Kapatınca ilk virgül/parantez/♪ şarkıyı düşürdü ve ilk koşuda
+10 şarkının 5'i kayboldu. Artık metin **modelin sözlüğüne** indirgeniyor
+(sözlük tokenizer'dan okunuyor; ç ğ ı ö ş ü korunur, â→a düşer, noktalama
+atılır, token sayısı korunur).
+
+## 4b. Hizalayıcı TR: aday taraması (arka plan)
 
 Ajan B'nin doğrulanmış sıralaması:
 
@@ -113,14 +142,31 @@ gerekirse wavesurfer.js ile ~1 günlük özel araç.
 
 ## 6. Hedef mimari (ölçüm sonrası hali)
 
-| Halka | Hedef | Lisans | Durum |
+**ÜÇ HALKA DA ÖLÇÜLDÜ.**
+
+| Halka | Hedef | Lisans | Ölçüm |
 |---|---|---|---|
-| Ayrıştırıcı | KimberleyJSN melbandroformer (veya PolarFormer) | MIT | ölçüm bekliyor (EN tezgahı hazır) |
-| Hizalayıcı EN | jg XLS-R 1B | Apache-2.0 | ✅ ölçüldü, berabere |
-| Hizalayıcı TR | mpoyraz cv8 (aday 1) | Apache-2.0 | TR seti bekliyor |
-| (alternatif) | omniASR-CTC tek model EN+TR | Apache-2.0 | duman testi bekliyor |
-| Romanizasyon | uroman / native vocab'da `romanize=False` | MIT | küçük iş |
-| Eski zincir | MMS + kim_ft | NC / lisanssız | **yedek olarak kalır** (config'te, sevk edilmez) |
+| Ayrıştırıcı | KimberleyJSN melbandroformer (`kim-base`) | **MIT** | 0.909 vs 0.915 — tipik şarkıda birebir (medyan MAE farkı +2 ms) |
+| Hizalayıcı EN | jg XLS-R 1B | **Apache-2.0** | 0.8789 vs 0.8746 — MMS'i geçti |
+| Hizalayıcı TR | mpoyraz cv7 + `--no-align-romanize` | **CC-BY-4.0** | 0.930 vs 0.938 — fark istatistiksel olarak YOK |
+| Romanizasyon | uroman (EN) / native vocab (TR) | MIT | — |
+| Eski zincir | MMS + kim_ft | NC / lisanssız | **config'te yedek kalır, sevk edilmez** |
+
+Sevk edilebilir bir zincir var ve kalite bedeli ölçülebilir düzeyde değil.
+Hiçbiri "umuyoruz" değil — üçü de bağımsız ölçüldü.
+
+Geçiş kod işi değil, üç ayar:
+
+```
+align_model                = jonatasgrosman/wav2vec2-xls-r-1b-english   # EN
+                             mpoyraz/wav2vec2-xls-r-300m-cv7-turkish    # TR
+align_romanize             = false          # TR yolunda
+separation_model_filename  = vocals_mel_band_roformer.ckpt
+```
+
+**Açık kalan tek iş: dil başına model seçimi.** Bugün tek bir `align_model`
+var; EN ve TR farklı checkpoint istiyor, pipeline'ın dile göre seçmesi gerek.
+Küçük iş — `resolve_model_name` zaten tek karar noktası.
 
 Donanım: GPU serbest (5070 Ti kişisel makinede, aynı ağ); ilerde sunucudan
 erişilebilir docker GPU servisi planlanıyor — 1B sınıfı modellerin CPU
