@@ -639,3 +639,38 @@ def test_edit_tolerance_matches_the_workers_anchor_gate():
     from kashi_server.worker.process import ANCHOR_CLOCK_TOLERANCE_S
 
     assert DIFFERENT_EDIT_TOLERANCE_S == ANCHOR_CLOCK_TOLERANCE_S
+
+
+def test_a_stamp_past_the_records_own_duration_is_not_evidence():
+    """Safari: a 179 s record timed its last line at 181.2 s, and that stamp
+    anchored an alignment window past the end of the audio. The LINE stays —
+    it is still sung — but it loses a time nothing can support."""
+    from kashi_server.pipeline.lrclib import _drop_overrunning_stamps
+
+    starts = [10_000, 170_000, 181_200]
+    assert _drop_overrunning_stamps(starts, 179.0) == [10_000, 170_000, None]
+    # Honest rounding survives: a second of slack is not an overrun.
+    assert _drop_overrunning_stamps([179_500], 179.0) == [179_500]
+    assert _drop_overrunning_stamps([180_400], 179.0) == [None]
+    # No duration to check against: nothing is dropped on a guess.
+    assert _drop_overrunning_stamps(starts, None) == starts
+
+
+def test_the_overrun_filter_runs_on_the_real_extract_path():
+    """The pure function can be right while _extract never calls it."""
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "id": 7,
+                "trackName": "Hotel Room Service",
+                "artistName": "Pitbull",
+                "duration": 234,
+                "syncedLyrics": "[00:10.00] first\n[03:58.00] outro past the end",
+            },
+        )
+
+    lyrics = _fetch(handler)
+    assert lyrics.synced_starts_ms == [10_000, None]
+    assert lyrics.line_texts == ["first", "outro past the end"]  # line kept

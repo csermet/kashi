@@ -529,5 +529,11 @@
 # are the point, and trading a synced-but-wrong-edit record for plain text
 # would lose the timing reference for nothing. Fires only on a mismatch, so
 # the etiquette budget is untouched on the normal path.
-PIPELINE_VERSION = "2.24.0"
+# 2.24.1: a stamp past the record's OWN duration is not evidence. Safari's
+# 179 s record timed its last line at 181.2 s, and that stamp anchored an
+# alignment window past the end of the audio. The LINE stays — it is still
+# sung — but it loses a time nothing can support, and a stampless line
+# already has a defined meaning downstream (it inherits its neighbour's
+# span). One second of slack absorbs honest rounding.
+PIPELINE_VERSION = "2.24.1"
 PIPELINE_MAJOR = 2

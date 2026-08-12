@@ -134,6 +134,31 @@ def _lines_from_plain(plain: str) -> list[str]:
     return [line.strip() for line in plain.splitlines() if line.strip()]
 
 
+# How far past a record's OWN stated duration a stamp may sit before it stops
+# being evidence. Crowd-sourced LRC files carry stamps for outros the upload
+# does not have: Safari's record (179 s) timed its last line at 181.2 s, and
+# that stamp anchored a window past the end of the audio (measured
+# 2026-08-12). A second of slack absorbs honest rounding; beyond that the
+# stamp describes a different recording.
+STAMP_OVERRUN_TOLERANCE_MS = 1_000
+
+
+def _drop_overrunning_stamps(
+    starts: list[int | None], duration_s: float | None
+) -> list[int | None]:
+    """Blank stamps that fall past the record's own duration. Pure.
+
+    Blanking rather than dropping the LINE: the text is still sung, it just
+    has no trustworthy time. A stampless line already has a defined meaning
+    downstream — it inherits its neighbour's span (plan_windows) — so this
+    reuses a path the pipeline handles rather than inventing one.
+    """
+    if duration_s is None:
+        return starts
+    limit = round(duration_s * 1000) + STAMP_OVERRUN_TOLERANCE_MS
+    return [None if start is not None and start > limit else start for start in starts]
+
+
 def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | None:
     if record.get("instrumental"):
         return None
@@ -141,7 +166,12 @@ def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | 
     if synced:
         entries = _parse_synced(synced)
         if entries:
-            return [text for _, text in entries], [start for start, _ in entries], True
+            duration = record.get("duration")
+            starts = _drop_overrunning_stamps(
+                [start for start, _ in entries],
+                float(duration) if duration is not None else None,
+            )
+            return [text for _, text in entries], starts, True
     plain = record.get("plainLyrics")
     if plain:
         lines = _lines_from_plain(plain)

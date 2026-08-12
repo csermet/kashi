@@ -454,6 +454,17 @@ body.fx-full.fill-neutral .word-fill {
 body.fx-hype .word.fx-word {
   --fx-color: var(--kashi-primary, #fff);
 }
+
+/* The word that FIRED the burst, held lit while the particles are in the air
+   (field report 2026-08-12: "the effect comes but you can't see why"). A
+   clipped span can flash past in 150 ms; the burst lives a second. Colour
+   and glow only — no transform, so a held word cannot shift the line's
+   layout under the active word that follows it. */
+body.fx-hype .word.fx-fired {
+  color: var(--fx-color, var(--kashi-primary, #fff));
+  text-shadow: 0 0 12px var(--fx-color, var(--kashi-primary, #fff));
+  transition: color 160ms ease-out, text-shadow 160ms ease-out;
+}
 body.fx-hype .word.fx-word.fx-explosion { --fx-color: var(--fx-tint-explosion, var(--kashi-primary, #fff)); }
 body.fx-hype .word.fx-word.fx-fire { --fx-color: var(--fx-tint-fire, var(--kashi-primary, #fff)); }
 body.fx-hype .word.fx-word.fx-poison { --fx-color: var(--fx-tint-poison, var(--kashi-primary, #fff)); }

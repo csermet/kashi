@@ -344,3 +344,29 @@ describe('style contract: particle alphas have one source (Faz 7 P8b)', () => {
     );
   });
 });
+
+describe('style contract: the fx-fired hold (Faz 9, field report 2026-08-12)', () => {
+  it('the held word changes colour and glow but never geometry', () => {
+    // "The effect comes but you can't see why": a clipped word span can flash
+    // past in 150 ms while its burst lives a second, so the triggering word
+    // is held lit. It must not transform — a held word shifting the line
+    // would move the ACTIVE word that follows it, which is the one being
+    // read. Colour and shadow only.
+    const rule = css.match(/body\.fx-hype \.word\.fx-fired \{([^}]*)\}/);
+    expect(rule, 'fx-fired rule').not.toBeNull();
+    const body = rule![1]!;
+    expect(body).toContain('color:');
+    expect(body).toContain('text-shadow:');
+    expect(body).not.toContain('transform');
+    expect(body).not.toContain('font-size');
+    expect(body).not.toContain('margin');
+    expect(body).not.toContain('padding');
+  });
+
+  it('the hold is hype-only — quieter levels stay quiet', () => {
+    const strays = selectorLines(css).filter(
+      (line) => line.includes('fx-fired') && !line.startsWith('body.fx-hype'),
+    );
+    expect(strays).toEqual([]);
+  });
+});

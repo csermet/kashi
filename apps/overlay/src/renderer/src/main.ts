@@ -444,6 +444,7 @@ function clearWordSpans(): void {
   fillRunStart = -1; // spans are gone — nothing carries .word-fill anymore
   fillActiveIndex = -1;
   fxWordTags = new Map();
+  clearFxFired(); // a mark on a detached span would keep a dead node alive
 }
 
 // Sustained-fill (Faz 4): a consecutive RUN of planned words sweeps as ONE
@@ -546,6 +547,37 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   fillActiveIndex = -1;
 }
 
+/**
+ * How long a word stays visibly "the one that fired", measured from the
+ * burst. Comfortably longer than the shortest sung word and shorter than the
+ * particle life, so the mark always outlives the span and never outlives its
+ * own burst.
+ */
+const FX_FIRED_HOLD_MS = 700;
+let firedSpan: HTMLElement | null = null;
+let firedTimer: ReturnType<typeof setTimeout> | null = null;
+
+function markFxFired(index: number): void {
+  const span = wordSpans[index];
+  if (!span) return;
+  firedSpan?.classList.remove('fx-fired');
+  span.classList.add('fx-fired');
+  firedSpan = span;
+  if (firedTimer !== null) clearTimeout(firedTimer);
+  firedTimer = setTimeout(() => {
+    firedSpan?.classList.remove('fx-fired');
+    firedSpan = null;
+  }, FX_FIRED_HOLD_MS);
+}
+
+/** Line rebuilds discard the spans; a mark on a detached node would leak. */
+function clearFxFired(): void {
+  if (firedTimer !== null) clearTimeout(firedTimer);
+  firedTimer = null;
+  firedSpan?.classList.remove('fx-fired');
+  firedSpan = null;
+}
+
 function highlightWord(index: number): void {
   if (index === activeWordIndex) return;
   // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
@@ -573,6 +605,14 @@ function highlightWord(index: number): void {
         resolveFxProfile(fxTag, fxHit?.intensity),
       );
     }
+    // Hold the TRIGGERING word lit for as long as the burst is in the air.
+    // Field report 2026-08-12: "the effect fires but the word is gone before
+    // you can see why". A misplaced word's span gets clipped to its
+    // neighbour's start, so the cause can flash past in 150 ms while its
+    // burst lives a full second — the eye sees an effect with no reason.
+    // This does NOT touch timing: the word is highlighted on its own clock
+    // as before; only the fired mark outlives the span.
+    markFxFired(index);
     // Same edge lights the box halo — in the LINE's primary category, so a
     // two-category line does not change the halo colour halfway through.
     triggerAmbientFlash();
