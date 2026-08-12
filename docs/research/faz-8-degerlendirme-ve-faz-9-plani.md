@@ -138,15 +138,14 @@ yapılır, Türkçe'de küçük bir yüksek-hassasiyet altkümesiyle doğrulanı
    pipeline 2.22.0. Ölçülen: 0.5847 → **0.5971** (+0.012). Beklentinin tersi
    yönde çıktı: ünlüyle başlayan kelime daha çok geri gitmeli, ünsüzle
    başlayan daha az.
-3. **Gross hata modları** (~2-3 gün) — kilit kaybı (BELLYDANCING) ve tekrarlı
-   söz karışması (Berkcan). Bunlar PCO@0.3'ü de düşürüyor, ayrı sınıf.
-4. **0.5 kalite kapısı** — ölçülmüş kötü kapı (r=+0.36). Kaldırılması/
-   değiştirilmesi ayrı bir karar; hakem katmanı artık satır düzeyinde iş
-   gördüğü için doküman düzeyi kapıya ihtiyaç azaldı.
+3. ⏸️ **ÖNCELİĞİ DÜŞTÜ (2026-08-12 ölçümü)** — 22 bozuk satırın 15'i ad-lib
+   veya birebir tekrar, yani metinden çözülemeyecek belirsizlik; gerçek hata
+   7/868 = %0.8. "Toplam hatanın %38'i" rakamı belirsizlikten şişmişti.
+4. ✅ **KAPANDI (2026-08-12)** — kalite kapısı 0.5 → **0.2** (overlay 0.25.0).
+   Yeniden ölçüldü: Spearman +0.244, kapı 1 kötüden 0'ını yakalayıp gerçek
+   PCO@0.3'ü 0.979 olan dokümanı öldürüyordu.
 5. **Yüksek hassasiyetli TR altkümesi** (~4-6 saat insan) — yalnız 1-4 adımın
    Türkçe'de de tuttuğunu doğrulamak için 3-5 şarkı, ±30 ms hedefiyle.
-
-### Hedef
 
 ### ❌ ÖLÇÜMLE ELENEN: onset'e hizalama + şarkı başına ofset (2026-08-12)
 
