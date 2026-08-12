@@ -562,3 +562,80 @@ def test_get_hit_with_lyricsfile_pays_no_extra_request():
     assert lyrics.source_id == 7 and lyrics.lyricsfile_raw is not None
     assert calls == ["/api/get"]
 
+
+
+# --- different-edit probe (Faz 9, the Safari case) --------------------------
+
+
+def _record(id_, duration, synced=True, track="Hotel Room Service", artist="Pitbull"):
+    lyrics = "[00:10.00] first line\n[00:20.00] second line" if synced else "first\nsecond"
+    rec = {"id": id_, "trackName": track, "artistName": artist, "duration": duration}
+    rec["syncedLyrics" if synced else "plainLyrics"] = lyrics
+    return rec
+
+
+def test_a_different_edit_get_hit_probes_search_for_the_matching_edit():
+    """The Safari case: /api/get returned a 187s record for a 179s track, so
+    the anchor gate stripped its stamps and line QA fought its clock all
+    song. One search request finds the 179s synced record instead."""
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return httpx.Response(200, json=_record(997232, 242))  # 234s istendi: +8s = farkli edit
+        return httpx.Response(200, json=[_record(35943062, 234), _record(1, 242)])
+
+    lyrics = _fetch(handler)
+    assert calls == ["/api/get", "/api/search"]
+    assert lyrics.source_id == 35943062
+    assert lyrics.had_synced is True
+    assert lyrics.record_duration_s == 234
+
+
+def test_the_probe_never_trades_synced_for_plain():
+    """A plain-text candidate cannot replace a synced record — anchors are the
+    point of the probe, and the wrong-edit record still carries line texts."""
+
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(200, json=_record(10, 242))  # +8s: different edit
+        return httpx.Response(200, json=[_record(11, 234, synced=False)])
+
+    lyrics = _fetch(handler)
+    assert lyrics.source_id == 10  # kept, despite the duration mismatch
+
+
+def test_a_matching_edit_spends_no_extra_request():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=_record(10, 236))  # within 5s of 234
+
+    lyrics = _fetch(handler)
+    assert calls == ["/api/get"]
+    assert lyrics.source_id == 10
+
+
+def test_no_duration_hint_means_no_probe():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=_record(10, 242))
+
+    hints = {**HINTS}
+    hints.pop("duration_ms")
+    lyrics = _fetch(handler, hints)
+    assert calls == ["/api/get"]
+    assert lyrics.source_id == 10
+
+
+def test_edit_tolerance_matches_the_workers_anchor_gate():
+    """The probe fires exactly where the worker will drop anchors — the two
+    thresholds describing "different edit" must be one number."""
+    from kashi_server.pipeline.lrclib import DIFFERENT_EDIT_TOLERANCE_S
+    from kashi_server.worker.process import ANCHOR_CLOCK_TOLERANCE_S
+
+    assert DIFFERENT_EDIT_TOLERANCE_S == ANCHOR_CLOCK_TOLERANCE_S

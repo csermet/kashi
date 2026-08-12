@@ -516,5 +516,18 @@
 #     classified transient and retried. It used to land in "other" ->
 #     permanent fail + a 7-day requeue block, for weather. A misspelled
 #     checkpoint stays permanent.
-PIPELINE_VERSION = "2.23.1"
+# 2.24.0: the different-edit probe (Faz 9, the Safari case). /api/get returns
+# ONE record and the ladder stopped there even when that record's duration
+# said "wrong edit" — guaranteeing the downstream anchor gate would strip its
+# stamps and line QA would fight its clock for the whole song. Measured live:
+# Safari got a 187 s record for a 179 s track — 21 of 47 lines flagged, the
+# document snapped -6 s, and the singer's own 179 s synced record sat in
+# /api/search unread. When the get-rung record misses the audio duration by
+# more than DIFFERENT_EDIT_TOLERANCE_S (pinned equal to the worker's
+# ANCHOR_CLOCK_TOLERANCE_S by a contract test), ONE search request now looks
+# for a duration-matched record, and only a SYNCED match replaces — anchors
+# are the point, and trading a synced-but-wrong-edit record for plain text
+# would lose the timing reference for nothing. Fires only on a mismatch, so
+# the etiquette budget is untouched on the normal path.
+PIPELINE_VERSION = "2.24.0"
 PIPELINE_MAJOR = 2

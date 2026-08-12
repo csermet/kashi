@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 USER_AGENT = f"kashi-server/{PIPELINE_VERSION} (+https://github.com/csermet/kashi)"
 SEARCH_DURATION_TOLERANCE_S = 3
+# A record whose duration disagrees with the audio by more than this is for a
+# DIFFERENT EDIT of the song: its synced stamps will be dropped by the worker's
+# anchor gate, and line QA will fight its clock all song (the Safari case,
+# 2026-08-12: /api/get returned a 187 s record for a 179 s track — every line
+# flagged, the whole document snapped -6 s). MUST equal the worker's
+# ANCHOR_CLOCK_TOLERANCE_S — a contract test pins the two together.
+DIFFERENT_EDIT_TOLERANCE_S = 5.0
 _TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
 _TOPIC_SUFFIX = re.compile(r"\s*-\s*Topic$", re.IGNORECASE)
 _WORD_TOKEN = re.compile(r"\w+")
@@ -232,6 +239,36 @@ def fetch_lyrics(
         rung = "get"
         record = _get_exact(http, title, artist, hints.get("album"), duration_s)
         extracted = _extract(record) if record else None
+        # Different-edit probe (Faz 9, the Safari case). /api/get returns ONE
+        # record and the ladder used to stop there even when that record's
+        # duration said "wrong edit" — guaranteeing the anchor gate would
+        # strip its stamps downstream. When we KNOW the record is a different
+        # edit, one search request is worth spending on a duration-matched
+        # SYNCED record: only a synced match replaces (anchors are the whole
+        # point; trading a synced-but-wrong-edit record for a plain-text one
+        # would lose line texts' timing reference for nothing). Etiquette:
+        # this fires only on a mismatch, keeping the ladder within its
+        # request budget.
+        if (
+            extracted is not None
+            and record is not None
+            and duration_s is not None
+            and record.get("duration") is not None
+            and abs(float(record["duration"]) - duration_s) > DIFFERENT_EDIT_TOLERANCE_S
+        ):
+            candidate = _search(http, title, artist, duration_s)
+            candidate_extracted = _extract(candidate) if candidate else None
+            if candidate_extracted is not None and candidate_extracted[2]:  # synced only
+                rung = "get+edit-probe"
+                logger.info(
+                    "different-edit probe: record %s (%ss) swapped for %s (%ss) at %ss audio",
+                    record.get("id"),
+                    record.get("duration"),
+                    candidate.get("id") if candidate else "?",
+                    candidate.get("duration") if candidate else "?",
+                    round(duration_s),
+                )
+                record, extracted = candidate, candidate_extracted
         # NOTE (2.4.4, closure e2e): a get→search "lyricsfile upgrade probe"
         # was tried and REVERTED — lrclib's /api/search never carries
         # lyricsfile content (every hit returns it empty) and word-sync
