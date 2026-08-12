@@ -117,7 +117,9 @@ export class KashiServerClient {
     await writeFile(path, JSON.stringify({ etag, document } satisfies CacheEntry)).catch((err) =>
       this.log(`kashi-server: cache write failed (${String(err).slice(0, 120)})`),
     );
-    return payload;
+    // A 200 under If-None-Match: the server's document differs from the one
+    // this client knew. The 304 path deliberately does NOT set this.
+    return { ...payload, fresh: true };
   }
 
   private staleOrError(cached: CacheEntry | null, reason: string): ServerLyricsResult {

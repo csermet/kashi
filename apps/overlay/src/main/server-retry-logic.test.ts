@@ -8,8 +8,8 @@ import {
   enrichmentKeys,
 } from './server-retry-logic.js';
 
-const serverDoc = (sync: 'word' | 'line', qualityScore = 0.9) =>
-  ({ found: true, source: 'kashi-server', sync, qualityScore, lines: [] }) as never;
+const serverDoc = (sync: 'word' | 'line', qualityScore = 0.9, extra: Record<string, unknown> = {}) =>
+  ({ found: true, source: 'kashi-server', sync, qualityScore, lines: [], ...extra }) as never;
 
 describe('retryDelayMs', () => {
   it('widens, then ends — a spent schedule returns null', () => {
@@ -50,10 +50,23 @@ describe('shouldUpgrade', () => {
     expect(shouldUpgrade(serverWord, serverDoc('line'))).toBe(false);
   });
 
-  it('re-rendering the same quality is flicker, not an upgrade', () => {
+  it('a revalidated (304) document is flicker, not an upgrade — whatever it scores', () => {
+    // Not fresh = byte-identical to the cache the display came from.
     expect(shouldUpgrade(serverWord, serverDoc('word', 0.8))).toBe(false);
     expect(shouldUpgrade(serverWord, serverDoc('word', 0.7))).toBe(false);
-    expect(shouldUpgrade(serverWord, serverDoc('word', 0.9))).toBe(true);
+    expect(shouldUpgrade(serverWord, serverDoc('word', 0.9))).toBe(false);
+  });
+
+  it('a fresh (200) document is authoritative — even at a LOWER score', () => {
+    // The audit case: a reprocessed document with better timings and a lower
+    // score was pinned out for the whole song. The score ranks real accuracy
+    // at Spearman +0.24; the server rewriting its own document is the signal.
+    expect(shouldUpgrade(serverWord, serverDoc('word', 0.5, { fresh: true }))).toBe(true);
+    expect(shouldUpgrade(serverWord, serverDoc('word', 0.9, { fresh: true }))).toBe(true);
+  });
+
+  it('a stale cache fallback never upgrades — it IS the display', () => {
+    expect(shouldUpgrade(serverWord, serverDoc('word', 0.9, { stale: true }))).toBe(false);
   });
 
   it('will not swap an lrclib line doc for a server line doc', () => {
@@ -78,29 +91,17 @@ describe('shouldUpgrade — enrichment, not just quality (P7)', () => {
   const doc = (over: Record<string, unknown> = {}) =>
     ({ found: true, source: 'kashi-server', sync: 'word', qualityScore: 0.9, lines: [], ...over }) as never;
 
-  it('upgrades on equal quality when the incoming document is genuinely richer', () => {
-    // The case that made this rule necessary: a reprocess that adds effects
-    // leaves alignment untouched, so the score is a wash while the document
-    // really is better. Comparing scores alone declined it, and the user kept
-    // an unthemed document for the whole song.
+  it('a richer reprocess arrives as a 200, and fresh is what admits it', () => {
+    // The case that made the old enrichment rule necessary: a reprocess that
+    // adds effects leaves the score a wash. Such a document ALWAYS arrives as
+    // a 200 (its content differs from the cache), so fresh admits it without
+    // score archaeology.
     const current = shown({ enrichment: ['beats'] });
-    expect(shouldUpgrade(current, doc({ beats: {}, fx: { select: 'density/1.1' } }))).toBe(true);
-  });
-
-  it('declines the identical document — re-rendering it is pure flicker', () => {
-    const current = shown({ enrichment: ['beats', 'fx'] });
-    expect(shouldUpgrade(current, doc({ beats: {}, fx: {} }))).toBe(false);
-  });
-
-  it('declines when each document has something the other lacks', () => {
-    // Otherwise two probes would swap back and forth all song.
-    const current = shown({ enrichment: ['palette'] });
+    expect(
+      shouldUpgrade(current, doc({ beats: {}, fx: { select: 'density/1.1' }, fresh: true })),
+    ).toBe(true);
+    // ...and the identical document arrives as a 304 (not fresh): declined.
     expect(shouldUpgrade(current, doc({ beats: {} }))).toBe(false);
-  });
-
-  it('still declines a strictly worse alignment, however rich it is', () => {
-    const current = shown({ qualityScore: 0.9, enrichment: [] });
-    expect(shouldUpgrade(current, doc({ qualityScore: 0.5, fx: {}, beats: {} }))).toBe(false);
   });
 
   it('enrichmentKeys names what a document carries, sorted and stable', () => {

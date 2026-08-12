@@ -75,21 +75,20 @@ export function shouldUpgrade(current: DisplayedLyrics, incoming: ServerLyricsRe
   // that is not "no difference" at hype level, so the swap is worth it when
   // the enrichment is actually there, and declined when it is not.
   if (current.source === 'lrclib') return carriesEnrichment(incoming);
-  // Same source and granularity: a real quality gain justifies the swap...
-  if (current.source !== 'kashi-server' || current.qualityScore === undefined) return false;
-  if (incoming.qualityScore > current.qualityScore) return true;
-  if (incoming.qualityScore < current.qualityScore) return false;
-  // ...and so does the same quality carrying MORE. A reprocess that adds
-  // effects leaves alignment untouched, so the score is a wash while the
-  // document is genuinely richer. Strictly more, never merely different: two
-  // documents that each have something the other lacks would otherwise swap
-  // back and forth on consecutive probes, and re-rendering an identical
-  // document is the flicker this rule exists to prevent.
-  const shown = new Set(current.enrichment ?? []);
-  const arriving = new Set(enrichmentKeys(incoming));
-  const addsSomething = [...arriving].some((key) => !shown.has(key));
-  const losesNothing = [...shown].every((key) => arriving.has(key));
-  return addsSomething && losesNothing;
+  // Server over server. This used to compare quality scores and refuse a
+  // lower one — reasonable-looking, and wrong: the score ranks real accuracy
+  // at Spearman +0.24 (measured 2026-08-12), so a reprocessed document with
+  // BETTER timings and a lower score was pinned out for the whole song.
+  // The trustworthy signal is already in the transport: every request
+  // revalidates with If-None-Match, so a `fresh` result means the server has
+  // deliberately produced a different document than this client knew — the
+  // server is the sole author of its documents, and its newest version is
+  // authoritative regardless of what the score thinks of it. A 304 (not
+  // fresh) is byte-identical to what the cache held, and re-rendering an
+  // identical document is the flicker this rule exists to prevent. A stale
+  // fallback is the cache itself — never an upgrade.
+  if (current.source !== 'kashi-server') return false;
+  return incoming.fresh === true;
 }
 
 /** Does this document bring anything lrclib cannot? */

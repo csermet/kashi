@@ -29,6 +29,15 @@ export interface ServerLyricsFound {
   found: true;
   /** Served from cache because the live request failed — not a fresh answer. */
   stale?: boolean;
+  /**
+   * Came off a 200 whose content the cache did NOT already hold. Since every
+   * request revalidates with If-None-Match, fresh means "the server has
+   * deliberately produced a different document than the one we knew" — the
+   * only trustworthy upgrade signal between two server documents. The
+   * quality score is NOT one: measured against ground truth it ranks real
+   * accuracy at Spearman +0.24 (2026-08-12 audit).
+   */
+  fresh?: boolean;
   source: 'kashi-server';
   sync: 'word' | 'line';
   qualityScore: number;
