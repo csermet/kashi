@@ -200,12 +200,25 @@ Sema açıklaması ve sunucudaki üç bayat "0.5" referansı da güncellendi. Te
 artık DEĞERİ sabitliyor (eski testler sabite göreliydi, o yüzden kapı aylarca
 ölçülmeden yerinde kaldı).
 
-### Hedef
+### Hedef (v2 — 2026-08-12'de Caner yeniden çerçeveledi)
 
-**PCO@0.1 ≥ 0.70.** Başlangıç 0.4892 → adım 1 ile 0.5847 → adım 2 ile
-**0.5971**. Kalan 0.10 puan: kelimelerin %33'ü 100-300 ms bandında duruyor
-(asıl havuz burası) ve 868 satırın 22'si toplam hatanın %38'ini taşıyor
-(3. madde). Ucuz kazançlar bitti; buradan sonrası mekanizma işi.
+İlk bar PCO@0.1 ≥ 0.70'ti. Caner hedefi ürün diliyle yeniden koydu: **"300
+değil 200 altı — 200 üstü kaçak olabildiğince az; tipik kelime 100 altı,
+olabiliyorsa 80 altı."** Metrik çifti buna göre:
+
+- **Birincil: PCO@0.2** — şu an **0.8385** (0.4892 tabanından iki düzeltmeyle
+  0.7649 → 0.8358 → 0.8385 geldi). Sabit eşik konmadı; yön yukarı, 200 ms
+  üstü kaçak şu an kelimelerin %16'sı.
+- **Medyan kelime hatası <100 ms** — şu an **84 ms** (esneme hedefi <80).
+- PCO@0.1 izlenmeye devam eder (0.5971) ama bar değil.
+- Ortalama (192 ms) hedef metriği DEĞİL: ad-lib/tekrar belirsizliği şişiriyor,
+  ortalamayı kovalamak çözümü olmayan satırları kovalamak olur.
+
+Dil kapsamı da netleşti: **bu faz İngilizce'de biter** (sistem burada
+kurulur); Türkçe F9.5'te elle kalibrasyonla taşınır (mini set ±30 ms),
+diğer diller sonra (Japonca hafif önde). Ucuz kazançlar bitti; PCO@0.2'yi
+kayda değer kıpırdatacak kalan yol model düzeyinde (fine-tune bahsi, ayrı
+karar).
 
 ## Karar: fazı kapatalım mı?
 
