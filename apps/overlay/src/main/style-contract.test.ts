@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  BOX_CHROME,
   BOX_SCALES,
   BOX_ZONE,
   BOX_ZONE_PRESETS,
@@ -151,6 +152,24 @@ describe('style contract: the box zone matches the window (Faz 6.7 P4 / Faz 7 P3
     expect(boxZoneFor('medium')).toEqual(BOX_ZONE);
     expect(boxZoneFor(undefined)).toEqual(BOX_ZONE);
     expect(boxZoneFor('not-a-scale')).toEqual(BOX_ZONE);
+  });
+
+  it("the stylesheet's chrome fallbacks ARE medium's chrome — default look pinned", () => {
+    // Box size was invisible for a whole phase because only the wrap width
+    // changed (field report 2026-08-12). The chrome makes it visible, and
+    // this pins the two places that must agree: an untouched install (CSS
+    // fallbacks) and the runtime's medium preset render identically.
+    const m = BOX_CHROME.medium;
+    expect(css).toContain(`padding: var(--kashi-box-pad, ${m.padY}px ${m.padX}px);`);
+    expect(css).toContain(`border-radius: var(--kashi-box-radius, ${m.radius}px);`);
+  });
+
+  it('every chrome step is visibly monotone — no two presets render alike', () => {
+    const { small, medium, large } = BOX_CHROME;
+    for (const key of ['padY', 'padX', 'radius'] as const) {
+      expect(small[key], key).toBeLessThan(medium[key]);
+      expect(medium[key], key).toBeLessThan(large[key]);
+    }
   });
 });
 

@@ -51,8 +51,10 @@ body {
      rest on a painting-order subtlety. */
   z-index: 1;
   max-width: var(--kashi-box-max-width, 500px);
-  padding: 10px 18px;
-  border-radius: 14px;
+  /* Fallbacks ARE the shipped look; the runtime writes the same values for
+     medium and visibly different ones for small/large (BOX_CHROME). */
+  padding: var(--kashi-box-pad, 10px 18px);
+  border-radius: var(--kashi-box-radius, 14px);
   /* Palette drives the COLOR, the user's opacity setting drives the alpha —
      the two never fight (Faz 4 contract). */
   background: rgba(var(--kashi-bg-rgb, 8, 10, 18), var(--kashi-box-alpha, 0.1));
@@ -379,6 +381,13 @@ body.fx-full.fill-neutral .word-fill {
 
 #offset-flash.show {
   opacity: 0.85;
+}
+
+/* Box-size feedback: momentarily lift the box background so its EXTENT is
+   visible while the new size lands (the resting alpha is 0.1 — near
+   invisible, which is exactly why the setting read as dead). */
+#lyric-box.reveal {
+  background: rgba(var(--kashi-bg-rgb, 8, 10, 18), 0.35);
 }
 
 /* Reduced motion (public-project etiquette): drop every scale/translate and

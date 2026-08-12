@@ -50,6 +50,7 @@ import {
   WINDOW_HEIGHT,
   type BoxScale,
 } from '../../shared/box-zone.js';
+import { BOX_CHROME } from '../../shared/box-zone.js';
 import {
   DEFAULT_TEXT_SCALE,
   parseTextScale,
@@ -221,6 +222,11 @@ function applySizeVars(): void {
   // The box is content-sized within its zone; 60px is the gutter the shipped
   // 560px zone left around a 500px box.
   root.setProperty('--kashi-box-max-width', `${zone.width - 60}px`);
+  // The visible half of the setting: wrap width only shows on LONG lines,
+  // the chrome shows on every line (field report 2026-08-12).
+  const chrome = BOX_CHROME[boxScale];
+  root.setProperty('--kashi-box-pad', `${chrome.padY}px ${chrome.padX}px`);
+  root.setProperty('--kashi-box-radius', `${chrome.radius}px`);
   const stage = document.getElementById('stage');
   if (stage) {
     stage.style.padding = `${zone.y}px ${zone.x}px ${WINDOW_HEIGHT - zone.y - zone.height}px`;
@@ -824,7 +830,26 @@ function flashTimingOffset(offsetMs: number): void {
   offsetFlashTimer = setTimeout(() => offsetFlashEl.classList.remove('show'), 900);
 }
 
+/** Show the box's extent for a moment so a size change is SEEN, not taken
+ * on faith — the tray menu closes the instant the user clicks the preset. */
+let boxRevealTimer: ReturnType<typeof setTimeout> | null = null;
+function flashBoxScale(scale: string): void {
+  if (offsetFlashEl) {
+    offsetFlashEl.textContent = `box: ${scale}`;
+    offsetFlashEl.classList.add('show');
+  }
+  boxEl?.classList.add('reveal');
+  if (boxRevealTimer !== null) clearTimeout(boxRevealTimer);
+  boxRevealTimer = setTimeout(() => {
+    offsetFlashEl?.classList.remove('show');
+    boxEl?.classList.remove('reveal');
+  }, 900);
+}
+
 window.kashi.onSettings((payload) => {
+  // Captured BEFORE the timing-offset branch flips it: branches below the
+  // flip would otherwise treat the startup replay as a live change.
+  const live = settingsSeen;
   const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
     payload as {
       box_alpha?: unknown;
@@ -876,6 +901,7 @@ window.kashi.onSettings((payload) => {
   if (box_scale !== undefined && parseBoxScale(box_scale) !== boxScale) {
     boxScale = parseBoxScale(box_scale);
     applySizeVars();
+    if (live) flashBoxScale(boxScale); // startup replay stays silent
     // The particle layer aims at the box's REAL rect per burst, so it follows
     // on its own; only the fallback (before anything has been measured) needs
     // telling that the zone moved.
