@@ -452,5 +452,33 @@
 # fits it (`benchmarks/lateness.py`) averages SONGS rather than words, so its
 # rows are comparable with the run's own aggregate, and cross-validates, so a
 # per-song accident cannot be sold as a bias.
-PIPELINE_VERSION = "2.21.0"
+# 2.22.0: the lateness correction learns the word's first sound (Faz 9 P2),
+# and in doing so REFUTES the mechanism 2.21.0 quoted for itself.
+# Per-class medians on the shipped English chain, before any correction:
+#   vowel-initial     +112 ms (n=1376)     plosive-initial   +62 ms (n=1813)
+#   fricative-initial  +87 ms (n=828)      sonorant-initial  +59 ms (n=1676)
+# Faz 8 predicted the opposite ordering: the note lands on the syllable's
+# vowel, so a CONSONANT-initial word should be late by that consonant's
+# duration and a vowel-initial word roughly unbiased. Vowel-initial words are
+# instead the latest class by a wide margin. The correction survives because
+# it was measured; its explanation does not, and pipeline/phonetics.py says so
+# rather than quietly keeping the story that reads well.
+# What the ordering does fit — offered as a hypothesis, not a finding — is
+# LANDMARK SHARPNESS: a plosive burst is unmistakable, friction has a soft
+# edge, and a word sung straight out of the previous word's voicing has no
+# boundary in the signal at all, so the model drifts to the steady state.
+#   · `offset_by_initial` refines `offset_ms` per class, per language. Empty
+#     is 2.21.0 behaviour exactly. Turkish gets nothing: its eval set is only
+#     valid at 300 ms and phonetics is a per-language fact, not a transferable
+#     one.
+#   · Per-word offsets can invert the word ORDER where two words sit closer
+#     than their offsets differ, so the shifted stream is re-normalised the
+#     way regroup normalises the raw one — starts never go backwards, a word
+#     never runs past the next one's start, and lines follow their own words
+#     instead of the base offset.
+# Worth +0.0130 PCO@0.1 held out (95% CI [+0.0062, +0.0198], winning in 14 of
+# 20 songs) on top of the constant's +0.0955. Small, real, and the honest
+# framing is that it is small: the remaining distance to the 0.70 target is in
+# the 100-300 ms band and the gross-error tail, not here.
+PIPELINE_VERSION = "2.22.0"
 PIPELINE_MAJOR = 2

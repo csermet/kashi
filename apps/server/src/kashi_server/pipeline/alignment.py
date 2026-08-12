@@ -78,6 +78,9 @@ class AlignerSpec:
     model_name: str
     romanize: bool
     offset_ms: int = 0
+    # class -> offset for words starting with that sound (Faz 9 P2). Empty
+    # means every word takes `offset_ms`, which is what P1 shipped.
+    offset_by_initial: dict[str, int] | None = None
 
 
 def resolve_aligner(
@@ -85,6 +88,7 @@ def resolve_aligner(
     model_name: str | None = None,
     romanize: bool | None = None,
     offset_ms: int | None = None,
+    offset_by_initial: dict[str, int] | None = None,
 ) -> AlignerSpec:
     """Which aligner this run uses. The single place that answers it.
 
@@ -120,7 +124,12 @@ def resolve_aligner(
         offset_ms = choice.offset_ms if choice else None
     if offset_ms is None:
         offset_ms = settings.align_offset_ms
-    return AlignerSpec(name or MODEL_NAME, romanize, offset_ms)
+    if offset_by_initial is None and choice:
+        offset_by_initial = choice.offset_by_initial
+    # Per-language only, deliberately: which sound a letter makes is a fact
+    # about a language, so a global table would be applying English phonetics
+    # to whatever else turned up.
+    return AlignerSpec(name or MODEL_NAME, romanize, offset_ms, offset_by_initial or None)
 
 
 def resolve_model_name(override: str | None = None) -> str:
@@ -285,36 +294,80 @@ def regroup_words_into_lines(
     return lines, words_per_line
 
 
-def shift_result(result: AlignResult, offset_ms: int) -> AlignResult:
-    """Move every timing by `offset_ms`. Pure; 0 returns the input untouched.
+def shift_result(
+    result: AlignResult, offset_ms: int, by_initial: dict[str, int] | None = None
+) -> AlignResult:
+    """Move every timing earlier by the measured lateness. Pure.
 
-    The correction for the measured lateness of sung alignment (Faz 9 P1).
+    The correction for the measured lateness of sung alignment (Faz 9 P1/P2).
     Whole SPANS move, not just their starts: the model did not mishear where
     the word ended relative to where it began, it heard the whole thing late,
     and stretching every word by 80 ms instead of moving it would inflate the
-    sustain the P1 end-trim exists to control.
+    sustain the 2.3.0 end-trim exists to control.
 
-    Time cannot go negative, so a span that would cross zero is clamped there —
-    it loses duration rather than the document losing its monotonicity.
+    `by_initial` (P2) gives a word its own offset by the sound it starts with —
+    vowel-initial words are measurably twice as late as plosive-initial ones.
+    Words differing means their ORDER can invert where the gap between two
+    words is smaller than the difference between their offsets, so the shifted
+    stream is re-normalised exactly as `regroup_words_into_lines` normalises
+    the raw one: starts never go backwards, and a word never runs past the
+    start of the next. Without that a fast passage could hand the renderer a
+    word that begins before the one in front of it, and the active-word search
+    assumes it never happens.
+
+    Lines follow their own words rather than the base offset, so a line can
+    never claim to start before the first word inside it.
+
+    Time cannot go negative, so a span crossing zero is clamped there — it
+    loses duration rather than the document losing its monotonicity.
     """
-    if not offset_ms:
+    if not offset_ms and not by_initial:
         return result
 
-    def span(start_ms: int, end_ms: int) -> tuple[int, int]:
-        start = max(0, start_ms + offset_ms)
-        return start, max(start, end_ms + offset_ms)
+    def offset_for(text: str) -> int:
+        if not by_initial:
+            return offset_ms
+        from kashi_server.pipeline.phonetics import initial_class
 
-    lines = []
-    for line in result.lines:
-        start, end = span(line.start_ms, line.end_ms)
-        lines.append(replace(line, start_ms=start, end_ms=end))
-    words_per_line = []
+        cls = initial_class(text)
+        return by_initial.get(cls, offset_ms) if cls else offset_ms
+
+    words_per_line: list[list[AlignedWord]] = []
+    previous_start = 0
     for chunk in result.words_per_line:
         shifted = []
         for word in chunk:
-            start, end = span(word.start_ms, word.end_ms)
-            shifted.append(replace(word, start_ms=start, end_ms=end))
+            delta = offset_for(word.text)
+            start = max(previous_start, max(0, word.start_ms + delta))
+            shifted.append(replace(word, start_ms=start, end_ms=max(start, word.end_ms + delta)))
+            previous_start = start
         words_per_line.append(shifted)
+    # Second pass: an end may now overlap the next word's start (the next word
+    # can have been pulled left harder than this one). Clip forward, never
+    # backward — shortening a span is safe, moving a start is not.
+    flat = [word for chunk in words_per_line for word in chunk]
+    clipped = {
+        id(word): min(word.end_ms, flat[index + 1].start_ms)
+        for index, word in enumerate(flat)
+        if index + 1 < len(flat)
+    }
+    words_per_line = [
+        [
+            replace(word, end_ms=max(word.start_ms, clipped.get(id(word), word.end_ms)))
+            for word in chunk
+        ]
+        for chunk in words_per_line
+    ]
+
+    lines = []
+    for index, line in enumerate(result.lines):
+        chunk = words_per_line[index] if index < len(words_per_line) else []
+        if chunk:
+            start, end = chunk[0].start_ms, max(chunk[-1].end_ms, chunk[0].start_ms)
+        else:  # line-only output: no words to follow, so the base offset stands
+            start = max(0, line.start_ms + offset_ms)
+            end = max(start, line.end_ms + offset_ms)
+        lines.append(replace(line, start_ms=start, end_ms=end))
     return replace(result, lines=lines, words_per_line=words_per_line)
 
 
@@ -438,6 +491,7 @@ def align(
     model_name: str | None = None,
     romanize: bool | None = None,
     offset_ms: int | None = None,
+    offset_by_initial: dict[str, int] | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -446,14 +500,15 @@ def align(
     as the whole-audio mode."""
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
-    spec = resolve_aligner(language, model_name, romanize, offset_ms)
+    spec = resolve_aligner(language, model_name, romanize, offset_ms, offset_by_initial)
     model_name, romanize = spec.model_name, spec.romanize
     # Per job, because per-language routing means the answer can differ
     # between two jobs of the same worker; the document only records the
     # checkpoint, so the romanize and offset halves would leave no trace.
     logger.info(
-        "aligner for %s: %s (romanize=%s, offset=%+d ms)",
+        "aligner for %s: %s (romanize=%s, offset=%+d ms%s)",
         language, model_name, romanize, spec.offset_ms,
+        f", by-initial {spec.offset_by_initial}" if spec.offset_by_initial else "",
     )
     model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
@@ -513,7 +568,7 @@ def align(
         return shift_result(
             _line_only_fallback(line_texts, results, plan is not None, model_name),
             spec.offset_ms,
-        )
+        )  # line mode has no words to classify
 
     lines, words_per_line = regrouped
     all_words = [word for chunk in words_per_line for word in chunk]
@@ -534,4 +589,5 @@ def align(
             model_name=model_name,
         ),
         spec.offset_ms,
+        spec.offset_by_initial,
     )

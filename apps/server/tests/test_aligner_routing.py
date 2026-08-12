@@ -290,3 +290,108 @@ def test_align_applies_the_offset_it_resolved(monkeypatch, configure, tmp_path):
 
     assert result.words_per_line[0][0].start_ms == 920
     assert result.lines[0].start_ms == 920
+
+
+# --- Faz 9 P2: per-sound refinement of the correction ----------------------
+
+EN_BY_INITIAL = {"vowel": -110, "fricative": -100, "plosive": -80, "sonorant": -60}
+
+
+def test_the_class_table_is_per_language_only(configure, monkeypatch):
+    """Which sound a letter makes is a fact about a LANGUAGE. A global table
+    would apply English phonetics to whatever else turned up."""
+    configure({"eng": {"checkpoint": EN_MODEL, "offset_ms": -80,
+                       "offset_by_initial": EN_BY_INITIAL}})
+    assert resolve_aligner("eng").offset_by_initial == EN_BY_INITIAL
+    assert resolve_aligner("tur").offset_by_initial is None
+    monkeypatch.setattr(settings, "align_offset_ms", -80)
+    assert resolve_aligner("jpn").offset_by_initial is None  # no global path
+
+
+def test_words_get_their_own_offset_by_first_sound():
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming, shift_result
+
+    words = [
+        AlignedWord(start_ms=1000, end_ms=1200, text="apple", prob=0.9),   # vowel  -110
+        AlignedWord(start_ms=2000, end_ms=2200, text="baby", prob=0.9),    # plosive -80
+        AlignedWord(start_ms=3000, end_ms=3200, text="♪", prob=0.9),       # no class -> base
+    ]
+    result = AlignResult(
+        sync="word",
+        lines=[LineTiming(start_ms=1000, end_ms=3200, text="apple baby ♪", score=0.9)],
+        words_per_line=[words],
+        quality_score=0.9,
+    )
+    shifted = shift_result(result, -50, EN_BY_INITIAL)
+    assert [w.start_ms for w in shifted.words_per_line[0]] == [890, 1920, 2950]
+    # The line follows its words rather than the base offset, so it can never
+    # claim to start before the first word inside it.
+    assert shifted.lines[0].start_ms == 890
+
+
+def test_per_class_offsets_cannot_invert_word_order():
+    """Two words 10 ms apart, pulled 30 ms apart by their classes, would swap:
+    baby lands at 1000-80 = 920 while apple lands at 1010-110 = 900, i.e. the
+    second word would start BEFORE the first. The renderer's active-word
+    search assumes starts never go backwards."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming, shift_result
+
+    words = [
+        AlignedWord(start_ms=1000, end_ms=1005, text="baby", prob=0.9),   # plosive -80
+        AlignedWord(start_ms=1010, end_ms=1200, text="apple", prob=0.9),  # vowel  -110
+    ]
+    result = AlignResult(
+        sync="word",
+        lines=[LineTiming(start_ms=1000, end_ms=1200, text="baby apple", score=0.9)],
+        words_per_line=[words],
+        quality_score=0.9,
+    )
+    starts = [w.start_ms for w in shift_result(result, -80, EN_BY_INITIAL).words_per_line[0]]
+    assert starts == sorted(starts)
+    assert starts == [920, 920]  # the vowel word is held at the plosive's start
+
+
+def test_a_word_never_runs_past_the_next_words_start():
+    """The second word can be pulled left harder than the first, so the first
+    one's end has to give way — shortening a span is safe, moving a start is
+    not."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming, shift_result
+
+    words = [
+        AlignedWord(start_ms=1000, end_ms=1500, text="baby", prob=0.9),   # plosive -80
+        AlignedWord(start_ms=1500, end_ms=1900, text="apple", prob=0.9),  # vowel  -110
+    ]
+    result = AlignResult(
+        sync="word",
+        lines=[LineTiming(start_ms=1000, end_ms=1900, text="baby apple", score=0.9)],
+        words_per_line=[words],
+        quality_score=0.9,
+    )
+    shifted = shift_result(result, -80, EN_BY_INITIAL).words_per_line[0]
+    assert shifted[0].end_ms <= shifted[1].start_ms == 1390
+
+
+def test_align_applies_the_class_table(monkeypatch, configure, tmp_path):
+    import sys
+    import types
+
+    from kashi_server.pipeline import alignment
+
+    configure({"eng": {"checkpoint": EN_MODEL, "offset_ms": -80,
+                       "offset_by_initial": EN_BY_INITIAL}})
+    monkeypatch.setitem(
+        sys.modules,
+        "ctc_forced_aligner",
+        types.SimpleNamespace(load_audio=lambda *a, **k: object()),
+    )
+    fake_model = types.SimpleNamespace(dtype=None, device="cpu")
+    monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
+    monkeypatch.setattr(
+        alignment,
+        "_align_texts",
+        lambda *a, **k: [{"text": "apple", "start": 1.0, "end": 1.2, "score": -0.1}],
+    )
+
+    result = alignment.align(tmp_path / "x.wav", ["apple"], "eng")
+
+    assert result.words_per_line[0][0].start_ms == 890  # vowel class, not -80

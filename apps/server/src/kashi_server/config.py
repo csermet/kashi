@@ -41,6 +41,13 @@ class AlignerChoice(BaseModel):
     checkpoint: str = Field(min_length=1)
     romanize: bool | None = None  # None -> fall back to settings.align_romanize
     offset_ms: int | None = None  # None -> fall back to settings.align_offset_ms
+    # Per-sound refinement of `offset_ms` (Faz 9 P2): class -> offset for
+    # words starting with that sound. Measured on English, where a
+    # vowel-initial word is nearly twice as late as a plosive-initial one
+    # (+112 vs +62 ms). Words whose class is unlisted — and every word when
+    # this is empty — take `offset_ms`, so the P1 behaviour is the floor.
+    # Classes: vowel | plosive | fricative | sonorant (pipeline/phonetics.py).
+    offset_by_initial: dict[str, int] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -93,10 +100,14 @@ class Settings(BaseSettings):
     # It exists because alignment error on SINGING is not centred on zero.
     # Measured on JamendoLyrics English (full-precision human annotation, 5693
     # words, 20 songs): 76% of words are marked LATE, median +80 ms, and all
-    # twenty songs carry it. The mechanism was predicted before it was
-    # measured — a sung note's onset lands on the syllable's VOWEL while the
-    # written word starts on a consonant, so a CTC model hears the vowel and
-    # reports the start about one consonant late.
+    # twenty songs carry it.
+    #
+    # The mechanism Faz 8 predicted for it — the note lands on the syllable's
+    # vowel, so the model is late by the leading consonant's duration — was
+    # REFUTED by the per-class measurement (see `offset_by_initial` above):
+    # vowel-initial words are the LATEST class, not the least late. The
+    # correction stands on the measurement, which reproduced across two
+    # checkpoints and two separators; the explanation does not.
     #
     # It is a property of singing rather than of a checkpoint: MMS-300m and
     # jonatasgrosman's XLS-R 1B, with different separators, produce the same

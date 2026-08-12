@@ -102,6 +102,11 @@ def _separated_audio(
     return blended, elapsed
 
 
+def _by_initial(args) -> dict[str, int] | None:
+    """--align-offset-by-initial as a class->ms table (Faz 9 P2)."""
+    return json.loads(args.align_offset_by_initial) if args.align_offset_by_initial else None
+
+
 def _align_song(
     audio: Path,
     line_texts: list[str],
@@ -110,13 +115,16 @@ def _align_song(
     model_name: str | None = None,
     romanize: bool | None = None,
     offset_ms: int | None = None,
+    by_initial: dict[str, int] | None = None,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
     with tempfile.TemporaryDirectory(prefix="kashi-bench-dec-") as tmp:
         wav = _decode_16k(audio, Path(tmp) / "align.wav")
         started = time.monotonic()
-        result = align(wav, line_texts, language, anchors, model_name, romanize, offset_ms)
+        result = align(
+            wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial
+        )
     return result, time.monotonic() - started
 
 
@@ -193,7 +201,7 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             )
             result, align_s = _align_song(
                 audio, song.line_texts, song.language, anchors, args.align_model,
-                args.align_romanize, args.align_offset_ms,
+                args.align_romanize, args.align_offset_ms, _by_initial(args),
             )
         except Exception as exc:  # keep sweeping; a broken song is a data point
             logger.exception("%s failed", song.stem)
@@ -434,7 +442,7 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
             anchors = [start for start, _ in reference] if args.windowed else None
             result, align_s = _align_song(
                 source, line_texts, case.language, anchors, args.align_model,
-                args.align_romanize, args.align_offset_ms,
+                args.align_romanize, args.align_offset_ms, _by_initial(args),
             )
         except Exception as exc:
             logger.exception("case %s failed", case.id)
@@ -543,6 +551,17 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--align-offset-by-initial",
+        help=(
+            "JSON class->ms table refining --align-offset-ms by the word's "
+            "first sound, e.g. "
+            '\'{"vowel":-110,"fricative":-100,"plosive":-80,"sonorant":-60}\'. '
+            "Measured on English: a vowel-initial word is nearly twice as late "
+            "as a plosive-initial one (+112 vs +62 ms), worth +0.013 PCO@0.1 "
+            "cross-validated. Classes: pipeline/phonetics.py."
+        ),
+    )
+    parser.add_argument(
         "--line-postprocess",
         choices=("none", "soft-median", "soft-pl"),
         default="none",
@@ -626,6 +645,7 @@ def main() -> int:
             "align_romanize": args.align_romanize,
             # The correction is part of the chain being measured: two runs of
             # one checkpoint at different offsets are two different results.
+            "align_offset_by_initial": _by_initial(args),
             "align_offset_ms": (
                 args.align_offset_ms
                 if args.align_offset_ms is not None
