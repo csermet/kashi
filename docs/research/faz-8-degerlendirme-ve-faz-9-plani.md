@@ -56,6 +56,35 @@ doğrulanmış kelime / 20 şarkı, MMS + kim-melband):
 > havuzunda** toplanıyordu. Aracın 0-ofset satırı artık sonuç dosyasının kendi
 > `aggregate.pco`'suyla dört haneye kadar aynı — yani rapor edilebilir.
 
+### ✅ P1 KAPANDI: yanlılık ölçüldü, düzeltildi, doğrulandı (2026-08-12)
+
+Yanlılık **modele değil ŞARKIYA ait** — bu iddiayı iki bağımsız zincir
+doğruladı: MMS + kim-melband %76.4 / +81 ms, sevk edilen jg-1b + kim-base
+%76.3 / +78 ms. İki farklı model, iki farklı ayrıştırıcı, 40 fold'un 40'ı da
+aynı **−80 ms**'i seçiyor. Faz 8'de tahmin edilen mekanizma (nota onset'i
+hecenin ünlüsüne düşer, kelime ünsüzle başlar) böylece ölçümle desteklendi.
+
+`align_offset_ms` (pipeline 2.21.0) uygulandıktan sonra ölçülen:
+
+| | düzeltmesiz | **−80 ms ile** |
+|---|---|---|
+| geç kelime oranı | %76.3 | **%49.1** |
+| medyan işaretli hata | +78 ms | **−2 ms** |
+| geç şarkı | 20/20 | 6/20 |
+| **kalan** en iyi ofset | −80 ms | **0 ms** (20/20 fold) |
+| PCO@0.1 | 0.4892 | **0.5847** |
+| PCO@0.2 | 0.7649 | **0.8358** |
+| PCO@0.3 | 0.8931 | **0.9101** |
+| medyan kelime MAE | 150 ms | **128 ms** |
+| aşırı-uzatma | 0.153 | **0.076** |
+
+Kalan ofsetin sıfıra inmesi asıl kanıt: ortada tüketilmemiş başka bir sabit
+gecikme yok. **Türkçe'ye ofset KONULMADI** — TR eval seti yalnız 300 ms'de
+geçerli, 80 ms ölçeğinde bir yanlılığı göremez (Faz 9 madde 5'in işi).
+
+Kanıt dosyaları: `2026-08-12-wd-jg1b-shipped.json` (düzeltmesiz) ve
+`2026-08-12-wd-jg1b-offset80.json` (düzeltmeli).
+
 **Tek satırlık bir kaydırma, algısal toleransta ~10 puan.** Ve sebebi Faz 8'de
 zaten araştırılıp not edilmişti: *şarkıda nota onset'i hecenin ÜNLÜSÜYLE
 hizalanır, baştaki ünsüzle değil* — CTC ünlüyü duyuyor, kelime ise ünsüzle
