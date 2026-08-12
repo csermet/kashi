@@ -33,17 +33,28 @@ ne daha iyi ne daha kötü. **Faz 9'un konusu bu.**
 
 ## 🔑 YENİ BULGU: sistematik gecikme — ve bedava düzeltmesi
 
-İngilizce JamendoLyrics (**tam hassasiyetli** insan anotasyonu, 5569 kelime):
+İngilizce JamendoLyrics (**tam hassasiyetli** insan anotasyonu, 5693
+doğrulanmış kelime / 20 şarkı, MMS + kim-melband):
 
-- **Kelimelerin %76'sı GEÇ işaretleniyor.** Rastgele olsa %50 beklenirdi.
-- İşaretli medyan hata: **+79 ms**
+- **Kelimelerin %76.4'ü GEÇ işaretleniyor.** Rastgele olsa %50 beklenirdi.
+  Üstelik 20 şarkının **20'si birden** geç — yanlılık birkaç bozuk şarkının
+  taşıdığı bir şey değil, modelin kendisinin.
+- İşaretli medyan hata: **+81 ms** (şarkı medyanlarının medyanı +72 ms)
 - Sadece sabit bir kaydırma uygulayınca:
 
 | düzeltme | PCO@0.1 | PCO@0.2 |
 |---|---|---|
-| yok (bugün) | 0.492 | 0.764 |
-| **−79 ms** | **0.588** | **0.846** |
-| −100 ms | 0.564 | 0.850 |
+| yok (bugün) | 0.4802 | 0.7407 |
+| **−80 ms** | **0.5595** | **0.8146** |
+| −100 ms | 0.5401 | 0.8175 |
+
+**Dürüst rakam +0.079** (leave-one-song-out: ofset 19 şarkıda seçilip 20.'de
+ölçülüyor; 20 fold'un 20'si de −80 ms seçiyor — yanlılık genelleniyor).
+
+> Bu tablo `benchmarks/lateness.py` ile yeniden üretilir; ilk yazımındaki
+> rakamlar (0.492 → 0.588) elle hesaplanmıştı ve **şarkı başına değil kelime
+> havuzunda** toplanıyordu. Aracın 0-ofset satırı artık sonuç dosyasının kendi
+> `aggregate.pco`'suyla dört haneye kadar aynı — yani rapor edilebilir.
 
 **Tek satırlık bir kaydırma, algısal toleransta ~10 puan.** Ve sebebi Faz 8'de
 zaten araştırılıp not edilmişti: *şarkıda nota onset'i hecenin ÜNLÜSÜYLE

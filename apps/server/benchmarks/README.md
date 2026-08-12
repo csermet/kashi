@@ -76,6 +76,39 @@ Two consequences worth stating plainly:
   CTC checkpoint. That is the search worth running before building any
   adapter, because it would drop straight in.
 
+### Systematic lateness / constant-offset calibration (Faz 9 P1)
+
+The alignment error on singing is not centred on zero. On the MMS word dump
+(20 English songs, 5693 verified words) **76.4% of words are marked LATE**,
+median +81 ms, and all 20 songs carry it — a note onset lands on the syllable's
+vowel while the written word starts on a consonant, so a CTC model hears the
+vowel and reports the start about one consonant late. Subtracting that bias is
+the cheapest accuracy in the project: **PCO@0.1 0.480 → 0.560**, held out.
+
+The bias belongs to the CHECKPOINT, so it has to be re-measured after every
+aligner change rather than inherited:
+
+```bash
+python -m benchmarks.run --dataset jamendo --languages eng --separation kim-base \
+  --windowed --anchor-jitter-ms 400 --dump-words \
+  --align-model <hf-id> --label wd-<name>
+python -m benchmarks.lateness results/<date>-wd-<name>.json --tolerance 0.1
+```
+
+Two things the tool insists on, because both were got wrong by hand first:
+
+- **Per-song aggregation** (mean of per-song fractions, MIREX — the same
+  convention `run.py` reports), so its 0-offset row is directly comparable
+  with the run's own `aggregate.pco`. Pooling words instead inflates whichever
+  songs are longest.
+- **Leave-one-song-out.** The offset that maximises PCO on the songs it was
+  measured on is fitted, not earned. The held-out number is the one to quote;
+  when the two disagree, the bias was noise.
+
+PCO is a step function, so the best offset is a plateau rather than a point:
+the tool returns its MIDDLE (most margin on both sides), and returns 0 whenever
+0 ties (no evidence of a bias means no shift).
+
 ### Cross-model word disagreement (Faz 8.1)
 
 The debt behind the arbiter's planned third signal. MMS and Qwen3-FA correlate
