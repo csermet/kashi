@@ -148,6 +148,36 @@ yapılır, Türkçe'de küçük bir yüksek-hassasiyet altkümesiyle doğrulanı
 
 ### Hedef
 
+### ❌ ÖLÇÜMLE ELENEN: onset'e hizalama + şarkı başına ofset (2026-08-12)
+
+Faz 8'in "ünlü-farkındalıklı onset snap" maddesi **ölçümle kapandı.** Sinyal
+var gibi görünüyor: gerçek kelime başlangıçlarının %74'ü bir vokal onset'ine
+≤100 ms mesafede ve "±150 ms içindeki EN İYİ onset'i seç" oracle'ı 0.5971 →
+0.6577 veriyor. Ama uygulanabilir hiçbir politika bunu yakalamıyor:
+
+| politika | PCO@0.1 |
+|---|---|
+| dokunma (taban) | **0.5971** |
+| en yakın onset ±60 / ±100 / ±150 ms | 0.5862 / 0.5798 / 0.5772 |
+| yalnız tek aday varsa ±150 ms | 0.5916 |
+| yalnız güçlü onset (>%90) ±150 ms | 0.5822 |
+| penceredeki en güçlü onset ±150 ms | 0.5419 |
+
+**Hepsi tabanın ALTINDA.** Sebebi tek teşhisle anlaşıldı: onset yakınlığı,
+modelin doğru bulduğu kelimeyle yanlış bulduğu kelimeyi **ayırt etmiyor** —
+gerçek başlangıcın en yakın onset'e uzaklığı isabetlerde 40 ms, 100-300 ms
+bandında 48 ms, >300 ms hatalarda 55 ms. Üç grup da aynı. Oracle'ın 0.6577'si
+cevaba bakarak elde ediliyor, yani gerçek bir tavan değil.
+
+Onset **kanıt katmanı olarak hakemde kalır** (Spearman +0.399 ile satırın
+yerini sorgulamakta iyi); **düzeltici olarak ölü**.
+
+Aynı turda ölçülen ikinci ölen fikir: **şarkı başına ofset**. Oracle tavanı
++0.0162 ve 20 şarkının yalnız 3'ünde |ofset| ≥ 40 ms. Uygulanabilir bir
+kestirici (lrclib çapalarından) bunun altını yakalar.
+
+### Hedef
+
 **PCO@0.1 ≥ 0.70.** Başlangıç 0.4892 → adım 1 ile 0.5847 → adım 2 ile
 **0.5971**. Kalan 0.10 puan: kelimelerin %33'ü 100-300 ms bandında duruyor
 (asıl havuz burası) ve 868 satırın 22'si toplam hatanın %38'ini taşıyor
