@@ -200,6 +200,33 @@ Sema açıklaması ve sunucudaki üç bayat "0.5" referansı da güncellendi. Te
 artık DEĞERİ sabitliyor (eski testler sabite göreliydi, o yüzden kapı aylarca
 ölçülmeden yerinde kaldı).
 
+### 🎧 SAHA ALGISI vs ÖLÇÜM: iki hipotez daha çürüdü (2026-08-12 gece)
+
+Kulak testi iki güçlü şikâyet üretti; ikisini de benchmark'a sordum ve
+**ikisi de bu sette karşılık bulmadı** — yarının planı ölçülmemiş bir
+varsayım üzerine kurulacaktı:
+
+**(a) "Tekrar eden satırlar bozuluyor, özellikle sonlara doğru."**
+Tekrar eden satırlarda >200 ms kaçak %15.5, benzersiz satırlarda %13.4 —
+**yalnız 1.15 kat**. "Sonlara doğru bozulma" ise düpedüz yok:
+
+| kaçıncı geçiş | 1 | 2 | 3 | 4+ |
+|---|---|---|---|---|
+| >200 ms kaçak | %15.0 | %16.4 | %17.4 | %13.7 |
+
+Trend yok. Mekanizma "tekrarın kendisi" değil.
+
+**(b) "Kelimeler ışık hızında geçiyor."** Ardışık kelime aralığının
+ekran/gerçek oranı: medyan **1.01**, %53 doğru, %24 fazla uzun. Gerçekte
+≥400 ms sürüp ekranda %40'ından azını alan kelime **%1.5**.
+
+**Bu bir çelişki değil, bir ders:** ölçüm setimiz (JamendoLyrics, CC indie)
+Caner'ın dinlediği pop yapısını temsil etmiyor — Shape of You'nun 8 kez dönen
+kancası, Uptown Funk'ın "hot damn"i bu sette yok. Ölçüm "sorun yok" derken
+kullanıcı sorunu görüyorsa, **eksik olan ölçüm setidir.** Sonuç: tekrar
+işine kod yazmadan önce bu şarkılardan mini bir set gerekiyor — şikâyet
+edilen tam satırlar (Oh I / hot damn / We go wild), elle ±30 ms.
+
 ### Hedef (v2 — 2026-08-12'de Caner yeniden çerçeveledi)
 
 İlk bar PCO@0.1 ≥ 0.70'ti. Caner hedefi ürün diliyle yeniden koydu: **"300
