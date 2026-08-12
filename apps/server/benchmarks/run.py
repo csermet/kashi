@@ -103,8 +103,20 @@ def _separated_audio(
 
 
 def _by_initial(args) -> dict[str, int] | None:
-    """--align-offset-by-initial as a class->ms table (Faz 9 P2)."""
-    return json.loads(args.align_offset_by_initial) if args.align_offset_by_initial else None
+    """--align-offset-by-initial as a class->ms table (Faz 9 P2).
+
+    Accepts `vowel=-110,plosive=-80` as well as JSON: the runs that need this
+    are typed into a Windows cmd window, where quoting JSON is its own failure
+    mode and a failed quote costs a whole GPU round trip.
+    """
+    raw = args.align_offset_by_initial
+    if not raw:
+        return None
+    if raw.lstrip().startswith("{"):
+        return json.loads(raw)
+    return {
+        key.strip(): int(value) for key, value in (p.split("=", 1) for p in raw.split(","))
+    }
 
 
 def _align_song(
@@ -555,7 +567,8 @@ def main() -> int:
         help=(
             "JSON class->ms table refining --align-offset-ms by the word's "
             "first sound, e.g. "
-            '\'{"vowel":-110,"fricative":-100,"plosive":-80,"sonorant":-60}\'. '
+            "vowel=-110,fricative=-100,plosive=-80,sonorant=-60 (JSON also "
+            "accepted). "
             "Measured on English: a vowel-initial word is nearly twice as late "
             "as a plosive-initial one (+112 vs +62 ms), worth +0.013 PCO@0.1 "
             "cross-validated. Classes: pipeline/phonetics.py."
