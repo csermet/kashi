@@ -6,9 +6,9 @@ Docker image sets to the baked-in schema copy.
 """
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -36,18 +36,40 @@ class AlignerChoice(BaseModel):
 
     A bare string is accepted as shorthand for "this checkpoint, inherit the
     global romanize setting":  {"eng": "jonatasgrosman/wav2vec2-xls-r-1b-english"}
+
+    extra="forbid", because this object is written by hand into an env var and
+    read by nobody until a job runs. Pydantic's default silently DROPS unknown
+    fields, and the 2026-08-12 audit showed what that costs here: "offsetms"
+    would quietly disable a measured correction, and "romanize_" on the
+    Turkish entry would hand mpoyraz's model uroman text — the exact failure
+    this class exists to make impossible. A config typo must be a crash at
+    startup, never a silently different pipeline.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     checkpoint: str = Field(min_length=1)
     romanize: bool | None = None  # None -> fall back to settings.align_romanize
-    offset_ms: int | None = None  # None -> fall back to settings.align_offset_ms
+    # Bounds: every measured bias in this project sits in the 59-112 ms band,
+    # so a value beyond +-500 ms is a typo (-800 for -80 shifts every word
+    # nearly a second and would ship silent garbage — shift_result clamps at
+    # zero but cannot know the number is wrong).
+    offset_ms: int | None = Field(default=None, ge=-500, le=500)
     # Per-sound refinement of `offset_ms` (Faz 9 P2): class -> offset for
     # words starting with that sound. Measured on English, where a
     # vowel-initial word is nearly twice as late as a plosive-initial one
     # (+112 vs +62 ms). Words whose class is unlisted — and every word when
     # this is empty — take `offset_ms`, so the P1 behaviour is the floor.
-    # Classes: vowel | plosive | fricative | sonorant (pipeline/phonetics.py).
-    offset_by_initial: dict[str, int] | None = None
+    # Keys are a Literal of the classes phonetics.py actually produces: a
+    # typo like "vowell" would otherwise match nothing and silently revert
+    # the latest class to the base offset, invisible outside a benchmark.
+    offset_by_initial: (
+        dict[
+            Literal["vowel", "plosive", "fricative", "sonorant"],
+            Annotated[int, Field(ge=-500, le=500)],
+        ]
+        | None
+    ) = None
 
     @model_validator(mode="before")
     @classmethod
@@ -114,7 +136,7 @@ class Settings(BaseSettings):
     # 76% / +80 ms / 20-of-20. Still measured per language before shipping,
     # because "we expect it to transfer" is how unmeasured claims get in.
     # Tool: `python -m benchmarks.lateness <run>.json` (leave-one-song-out).
-    align_offset_ms: int = 0
+    align_offset_ms: int = Field(default=0, ge=-500, le=500)
     # PER-LANGUAGE routing over the three fields above (Faz 8.1, Faz 9 P1). Empty by
     # default: with no entry for a job's language, `align_model` /
     # `align_romanize` answer exactly as they did before, so every existing

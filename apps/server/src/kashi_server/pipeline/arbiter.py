@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 # syllable's VOWEL, so a word start sits early of it by the leading
 # consonant's length, and the tolerance has to absorb that bias rather than
 # punish every consonant-initial word (measured design note, Faz 8).
+# CALIBRATED ON THE RAW ALIGNER CLOCK — which is why `onset_support` undoes
+# the Faz 9 lateness shift (word.shift_ms) before comparing: the shift moves
+# every English word 60-110 ms further from the onsets it was measured
+# against, and judging the shifted clock would spend half this tolerance on
+# a display correction (2026-08-12 audit, two independent reviews).
 ONSET_TOLERANCE_MS = 200
 # Below this fraction of a line's words landing on an onset, the audio does
 # not back the timings up. Chosen at the measured operating point: flagging
@@ -98,16 +103,20 @@ def onset_support(words: list, onset_ms: list[int] | None) -> float | None:
         return None
     hits = 0
     cursor = 0
-    for word in sorted(words, key=lambda w: w.start_ms):
+    # Evidence is judged on the clock it was calibrated on: onsets are
+    # acoustic, so the lateness correction is undone per word before
+    # comparing. Words that never went through shift_result carry 0.
+    starts = sorted(w.start_ms - getattr(w, "shift_ms", 0) for w in words)
+    for start in starts:
         # Both sequences are sorted, so the nearest onset is found by walking
         # forward once rather than scanning per word.
-        while cursor + 1 < len(onset_ms) and abs(onset_ms[cursor + 1] - word.start_ms) <= abs(
-            onset_ms[cursor] - word.start_ms
+        while cursor + 1 < len(onset_ms) and abs(onset_ms[cursor + 1] - start) <= abs(
+            onset_ms[cursor] - start
         ):
             cursor += 1
-        if abs(onset_ms[cursor] - word.start_ms) <= ONSET_TOLERANCE_MS:
+        if abs(onset_ms[cursor] - start) <= ONSET_TOLERANCE_MS:
             hits += 1
-    return hits / len(words)
+    return hits / len(starts)
 
 
 def judge_line(words: list, line_span_ms: int, onset_ms: list[int] | None) -> LineVerdict:

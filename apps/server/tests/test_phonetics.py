@@ -72,3 +72,12 @@ def test_the_measured_english_ordering_is_representable():
         "plosive",
         "sonorant",
     }
+
+
+def test_marked_vowels_fold_to_their_base_letter():
+    """Turkish â/î/û and borrowed é are marked VOWELS, not unknown script —
+    "âşık" must land in the vowel bucket the day the Turkish table ships."""
+    assert initial_class("âşık") == VOWEL
+    assert initial_class("hâlâ") == FRICATIVE  # h is the first letter
+    assert initial_class("îman") == VOWEL
+    assert initial_class("élan") == VOWEL

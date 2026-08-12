@@ -28,9 +28,15 @@ one.
 
 The classes are broad on purpose. English orthography is not phonemic ("hour",
 "one"), so a finer table would be measuring spelling; four buckets survive
-that noise, and the win is cross-validated at +0.013 PCO@0.1 (95% CI
-[+0.006, +0.020], 14 songs of 20).
+that noise. The honest, leave-one-song-out win is +0.010 PCO@0.1 (95% CI
+[+0.001, +0.018], 14 songs of 20). An earlier record called +0.013
+"cross-validated"; the 2026-08-12 audit showed that number was the in-sample
+fit — direction identical, magnitude ~30% flattered. The shipped table itself
+is close to but not exactly the argmax (plosive -80 vs a fitted -60; the
+difference is ~0.002 and errs toward the base offset, i.e. conservative).
 """
+
+import unicodedata
 
 # Latin letters, extended with the Turkish alphabet so a classified language
 # does not silently fall into "unknown" over ç/ğ/ı/ö/ş/ü. Turkish carries no
@@ -56,16 +62,34 @@ def initial_class(token: str) -> str | None:
     language's plain offset rather than guess.
     """
     for char in token.lower():
-        if char in _VOWELS:
-            return VOWEL
-        if char in _PLOSIVES:
-            return PLOSIVE
-        if char in _FRICATIVES:
-            return FRICATIVE
-        if char in _SONORANTS:
-            return SONORANT
+        cls = _class_of(char)
+        if cls is not None:
+            return cls
         if char.isalpha():
-            # A letter outside the tables (Greek, Cyrillic, kana): known to be
-            # a word, unknown to this classifier. None, not a wrong bucket.
+            # Legitimate orthography carries marks the tables don't list —
+            # Turkish â/î/û, borrowed é — and those are just marked vowels, so
+            # strip combining marks and try the base letter before giving up.
+            base = "".join(
+                c for c in unicodedata.normalize("NFKD", char) if not unicodedata.combining(c)
+            )
+            if base and base != char:
+                cls = _class_of(base)
+                if cls is not None:
+                    return cls
+            # A letter outside the tables even after decomposition (Greek,
+            # Cyrillic, kana): known to be a word, unknown to this classifier.
+            # None, not a wrong bucket.
             return None
+    return None
+
+
+def _class_of(char: str) -> str | None:
+    if char in _VOWELS:
+        return VOWEL
+    if char in _PLOSIVES:
+        return PLOSIVE
+    if char in _FRICATIVES:
+        return FRICATIVE
+    if char in _SONORANTS:
+        return SONORANT
     return None

@@ -476,9 +476,34 @@
 #     way regroup normalises the raw one — starts never go backwards, a word
 #     never runs past the next one's start, and lines follow their own words
 #     instead of the base offset.
-# Worth +0.0130 PCO@0.1 held out (95% CI [+0.0062, +0.0198], winning in 14 of
-# 20 songs) on top of the constant's +0.0955. Small, real, and the honest
-# framing is that it is small: the remaining distance to the 0.70 target is in
-# the 100-300 ms band and the gross-error tail, not here.
-PIPELINE_VERSION = "2.22.0"
+# Worth +0.010 PCO@0.1 held out (LOSO; 95% CI [+0.001, +0.018], winning in 14
+# of 20 songs) on top of the constant's +0.0955. The number first recorded
+# here (+0.013 "held out") was in fact the in-sample fit — corrected by the
+# 2026-08-12 audit; the constant -80 itself IS fully held-out (all 20 folds
+# chose it). Small, real, and the honest framing is that it is small: the
+# remaining distance lives in the 100-300 ms band, not here.
+# 2.23.0: the 2026-08-12 audit round — eight parallel reviews of everything
+# Faz 8.1/9 shipped, and the fixes for what survived adversarial verification.
+#   · langid: a DETECTED language outside the ten-code map now passes through
+#     raw instead of becoming "eng". Since routing shipped, "eng" is no longer
+#     a harmless hint: it selects the English-vocabulary checkpoint AND the
+#     English lateness corrections, a regression from the MMS fallback such
+#     songs should get. "eng" remains only for empty text / failed detection.
+#   · The arbiter judges on the ACOUSTIC clock again: AlignedWord carries the
+#     displacement the lateness correction actually applied (shift_ms), and
+#     onset_support undoes it before comparing against onsets. The shift was
+#     silently spending 60-110 ms of the 200 ms tolerance that was calibrated
+#     on raw starts — found independently by two reviews. Restores the B4
+#     rescue calibration exactly; no thresholds changed.
+#   · AlignerChoice is strict: unknown fields are startup errors (pydantic's
+#     default silently dropped "offsetms"/"romanize_" typos), offset values
+#     are bounded to +-500 ms, and offset_by_initial keys must be the four
+#     classes phonetics.py actually produces.
+#   · phonetics folds combining marks before classifying, so â/î/û and é are
+#     marked VOWELS rather than unknown script (dormant until a TR table).
+#   · Record correction: the per-initial table's gain is +0.010 PCO@0.1 by
+#     honest LOSO, not the +0.013 previously labelled "cross-validated" (that
+#     was the in-sample fit). The constant -80 needs no correction: all 20
+#     folds chose it.
+PIPELINE_VERSION = "2.23.0"
 PIPELINE_MAJOR = 2

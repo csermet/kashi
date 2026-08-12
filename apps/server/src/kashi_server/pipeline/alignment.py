@@ -39,6 +39,13 @@ class AlignedWord:
     end_ms: int
     text: str
     prob: float
+    # How far the lateness correction ACTUALLY moved this word (Faz 9 P1/P2),
+    # clamps included. Zero on raw aligner output. Carried so evidence layers
+    # can undo it: the arbiter's onset support was calibrated against RAW
+    # aligner starts, and onsets live on the acoustic clock — judging shifted
+    # starts against them silently spends 60-110 ms of a 200 ms tolerance
+    # (found independently by two 2026-08-12 audit reviews).
+    shift_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -124,8 +131,10 @@ def resolve_aligner(
         offset_ms = choice.offset_ms if choice else None
     if offset_ms is None:
         offset_ms = settings.align_offset_ms
-    if offset_by_initial is None and choice:
-        offset_by_initial = choice.offset_by_initial
+    if offset_by_initial is None and choice and choice.offset_by_initial:
+        # Widen the config's Literal-keyed type to the plain str keys this
+        # layer works with.
+        offset_by_initial = {str(k): v for k, v in choice.offset_by_initial.items()}
     # Per-language only, deliberately: which sound a letter makes is a fact
     # about a language, so a global table would be applying English phonetics
     # to whatever else turned up.
@@ -342,7 +351,17 @@ def shift_result(
         for word in chunk:
             delta = offset_for(word.text)
             start = max(previous_start, max(0, word.start_ms + delta))
-            shifted.append(replace(word, start_ms=start, end_ms=max(start, word.end_ms + delta)))
+            shifted.append(
+                replace(
+                    word,
+                    start_ms=start,
+                    end_ms=max(start, word.end_ms + delta),
+                    # The DISPLACEMENT that actually happened (clamps included),
+                    # so raw = start_ms - shift_ms recovers the aligner's own
+                    # clock exactly — the clock the arbiter's evidence lives on.
+                    shift_ms=word.shift_ms + (start - word.start_ms),
+                )
+            )
             previous_start = start
         words_per_line.append(shifted)
     # Second pass: an end may now overlap the next word's start (the next word

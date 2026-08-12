@@ -395,3 +395,114 @@ def test_align_applies_the_class_table(monkeypatch, configure, tmp_path):
     result = alignment.align(tmp_path / "x.wav", ["apple"], "eng")
 
     assert result.words_per_line[0][0].start_ms == 890  # vowel class, not -80
+
+
+# --- 2026-08-12 audit hardening -------------------------------------------
+
+
+def test_a_typoed_field_is_a_startup_error_not_a_silent_drop():
+    """Pydantic's default silently DROPS unknown fields. "offsetms" would
+    disable a measured correction; "romanize_" on the Turkish entry would hand
+    mpoyraz's model uroman text — the exact failure AlignerChoice exists to
+    prevent. A typo must crash at startup."""
+    with pytest.raises(ValidationError):
+        _table({"eng": {"checkpoint": EN_MODEL, "offsetms": -80}})
+    with pytest.raises(ValidationError):
+        _table({"tur": {"checkpoint": TR_MODEL, "romanize_": False}})
+
+
+def test_a_typoed_class_key_is_rejected_not_silently_ignored():
+    """"vowels" (plural) would match nothing and quietly revert the LATEST
+    class (+112 ms) to the base offset — invisible outside a benchmark."""
+    with pytest.raises(ValidationError):
+        _table({"eng": {"checkpoint": EN_MODEL, "offset_by_initial": {"vowels": -110}}})
+
+
+def test_fat_fingered_offsets_are_rejected():
+    """Every measured bias sits in the 59-112 ms band; -800 for -80 would
+    shift every word nearly a second of silent garbage."""
+    with pytest.raises(ValidationError):
+        _table({"eng": {"checkpoint": EN_MODEL, "offset_ms": -800}})
+    with pytest.raises(ValidationError):
+        _table({"eng": {"checkpoint": EN_MODEL, "offset_by_initial": {"vowel": -1100}}})
+    with pytest.raises(ValidationError):
+        Settings(align_offset_ms=-800)
+
+
+def test_an_unmapped_detected_language_misses_the_routing_table(configure):
+    """detect_language passes unmapped codes through raw (langid.py), so a
+    Chinese song must NOT take the English checkpoint and English lateness
+    corrections — that would be a regression from the MMS fallback."""
+    from kashi_server.pipeline.langid import _ISO_639_1_TO_3
+
+    assert _ISO_639_1_TO_3.get("zh") is None  # precondition: zh is unmapped
+    configure(
+        {"eng": {"checkpoint": EN_MODEL, "offset_ms": -80, "offset_by_initial": EN_BY_INITIAL}},
+        model="multilingual/fallback",
+    )
+    spec = resolve_aligner("zh")
+    assert spec.model_name == "multilingual/fallback"
+    assert spec.offset_ms == 0
+    assert spec.offset_by_initial is None
+    # And the detector really does pass such codes through when it detects them.
+    import kashi_server.pipeline.langid as langid_module
+
+    class _FakeResult(list):
+        pass
+
+    def fake_detect(text, model, k):
+        return [{"lang": "zh"}]
+
+    import types
+
+    fake_mod = types.SimpleNamespace(detect=fake_detect)
+    import sys
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setitem(sys.modules, "fast_langdetect", fake_mod)
+    try:
+        assert langid_module.detect_language("你好世界") == "zh"
+    finally:
+        monkey.undo()
+
+
+def test_arbiter_judges_on_the_acoustic_clock():
+    """The lateness shift moves words 60-110 ms away from the vocal onsets
+    they were measured against; onset support was calibrated on RAW starts.
+    A word at raw 1000 ms (onset 1150 within tolerance) shifted to 890 must
+    still count as supported — its evidence lives on the acoustic clock."""
+    from kashi_server.pipeline.alignment import AlignedWord
+    from kashi_server.pipeline.arbiter import onset_support
+
+    shifted = [
+        AlignedWord(start_ms=890, end_ms=1100, text="apple", prob=0.9, shift_ms=-110),
+        AlignedWord(start_ms=1920, end_ms=2100, text="baby", prob=0.9, shift_ms=-80),
+        AlignedWord(start_ms=2950, end_ms=3100, text="moon", prob=0.9, shift_ms=-60),
+    ]
+    onsets = [1150, 2150, 3160]  # each within 200 ms of the RAW start only
+    assert onset_support(shifted, onsets) == 1.0
+    # And the raw clock is genuinely what saves it: judged on the shifted
+    # starts these words would all be unsupported.
+    unshifted_view = [
+        AlignedWord(start_ms=w.start_ms, end_ms=w.end_ms, text=w.text, prob=w.prob)
+        for w in shifted
+    ]
+    assert onset_support(unshifted_view, onsets) == 0.0
+
+
+def test_shift_result_records_the_actual_displacement():
+    """shift_ms must be what HAPPENED, clamps included — raw recovery
+    (start_ms - shift_ms) has to be exact even for the zero-clamped word."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming, shift_result
+
+    words = [AlignedWord(start_ms=40, end_ms=200, text="on", prob=0.9)]
+    result = AlignResult(
+        sync="word",
+        lines=[LineTiming(start_ms=40, end_ms=200, text="on", score=0.9)],
+        words_per_line=[words],
+        quality_score=0.9,
+    )
+    shifted = shift_result(result, -80).words_per_line[0][0]
+    assert shifted.start_ms == 0
+    assert shifted.shift_ms == -40  # clamped: only 40 of the 80 happened
+    assert shifted.start_ms - shifted.shift_ms == 40  # raw recovered exactly
