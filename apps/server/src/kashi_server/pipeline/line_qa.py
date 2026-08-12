@@ -3,7 +3,8 @@
 Motivation (TiK ToK, 2026-07-11): the CTC aligner can lose lock on a heavily
 processed section (layered chorus vocals) and dump a block of lines far ahead
 of where they are actually sung — up to -15 s in the observed case — while the
-DOCUMENT-level quality score still clears the client's 0.5 word-mode gate. The
+DOCUMENT-level quality score still clears the client's word-mode gate (0.2
+since Faz 9 P4). The
 lrclib synced timestamps were correct in exactly that window, so they serve as
 the reference: lines whose aligner start strays far from the (offset-corrected)
 lrclib start get snapped to the reference time and lose their word timings
@@ -517,7 +518,8 @@ def _quality(
     Windowed path: anchor agreement alone. Measured (79 songs, 2026-07-12) the
     per-window probs do NOT track true accuracy (r=0.36; 10 of 13 sub-gate
     scores had PCO>=0.88), which would wrongly push good documents under the
-    client's 0.5 word-mode gate. Lines that stayed within the drift threshold
+    client's word-mode gate — the same finding that dropped that gate to 0.2
+    in Faz 9 P4. Lines that stayed within the drift threshold
     of their lrclib anchor ARE the windowed path's accuracy evidence.
 
     Otherwise the prob ramp — but SCALED BY the same agreement whenever

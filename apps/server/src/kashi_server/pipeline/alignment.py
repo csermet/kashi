@@ -165,11 +165,14 @@ def _word_prob(score: float) -> float:
 #   WRONG lyrics, same audio (different song's text):     mean word-prob 0.029
 #   clean speech fixture:                                 mean word-prob 0.32
 # Raw CTC probabilities are tiny on music even when the timings are visibly
-# right, so a naive mean would put every real song under the client's 0.5
+# right, so a naive mean would put every real song under the client's
 # line-mode gate. The document/line score therefore maps the mean through a
 # log ramp anchored at the measurements above: wrong-lyrics territory -> ~0.2,
-# correctly aligned full mix -> ~0.7, clean vocals -> 1.0. The 0.5 client
-# contract itself never moves (plan R-F3-7); only this mapping is tunable.
+# correctly aligned full mix -> ~0.7, clean vocals -> 1.0.
+# The CLIENT gate moved to 0.2 in Faz 9 P4 — measured against ground truth,
+# this score ranks real accuracy at Spearman +0.24, so anything above the
+# wrong-lyrics level was discarding accurate documents. The calibration below
+# is what says where that level is, which is the only claim it can support.
 _QUALITY_LOW_MEAN = 0.02
 _QUALITY_HIGH_MEAN = 0.15
 

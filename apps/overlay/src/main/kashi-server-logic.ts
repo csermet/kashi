@@ -50,8 +50,29 @@ export type ServerLyricsResult = ServerLyricsFound | { found: false } | { error:
 /**
  * Clients fall back to LINE rendering below this quality (schema contract).
  * The gate lives HERE, in main — the renderer stays dumb (plan R-F3-7).
+ *
+ * 0.5 -> 0.2 (Faz 9 P4, measured 2026-08-12). The gate was set where the
+ * number LOOKED like a confidence, not where the score's own calibration put
+ * anything. That calibration says: wrong-lyrics territory lands near 0.2, a
+ * correctly aligned full mix near 0.7. 0.5 therefore sat in the middle of the
+ * CORRECT range, and the archive paid for it.
+ *
+ * Measured against ground truth on the shipped chain (20 songs, JamendoLyrics
+ * English), the document score ranks real accuracy at Spearman +0.244 — it
+ * barely knows. Of the two songs it gated: one had a real PCO@0.3 of 0.979,
+ * i.e. very nearly perfect word timings, thrown away in the field. Of the one
+ * song that was genuinely bad, it gated NOTHING: that document scored 0.81 and
+ * sailed through. A gate that catches none of the bad and one of the best is
+ * not a conservative gate, it is a coin flip with a cost.
+ *
+ * 0.2 keeps the part the calibration actually supports — a document aligned
+ * against the WRONG lyrics still collapses below it — and hands the rest to
+ * the layer built for it: the arbiter judges lines with evidence independent
+ * of the model (vocal onsets, silence coverage) and marks survivors
+ * `uncertain`, which this app already renders faded. Line-level doubt belongs
+ * to the line, not to the whole document.
  */
-export const QUALITY_GATE = 0.5;
+export const QUALITY_GATE = 0.2;
 
 export function normalizeServerUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;

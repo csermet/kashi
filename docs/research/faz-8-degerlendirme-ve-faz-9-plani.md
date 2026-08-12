@@ -176,6 +176,31 @@ Aynı turda ölçülen ikinci ölen fikir: **şarkı başına ofset**. Oracle ta
 +0.0162 ve 20 şarkının yalnız 3'ünde |ofset| ≥ 40 ms. Uygulanabilir bir
 kestirici (lrclib çapalarından) bunun altını yakalar.
 
+### ✅ P4 KAPANDI: 0.5 kalite kapısı düşürüldü (2026-08-12)
+
+Kapı yeni zincirle yeniden ölçüldü ve **savunulamaz** çıktı:
+
+- `quality_score` ↔ gerçek PCO@0.3: **Spearman +0.244**
+- Kapının altında kalan 2 şarkıdan biri **gerçek PCO@0.3 = 0.979** (neredeyse
+  kusursuz, sahada kelime senkronu atılıyordu), diğeri 0.788
+- Gerçekten kötü olan tek şarkı (PCO@0.3 < 0.75) **q=0.81 ile kapıdan geçti**
+
+Yani kapı 1 kötüden 0'ını yakalıyor, 1 mükemmeli öldürüyordu. Hata kalibrasyonu
+okumamaktan geliyor: skorun kendi kalibrasyonu **yanlış-söz bölgesini ~0.2**,
+doğru hizalanmış tam miksi ~0.7 diyor — 0.5 tam da DOĞRU aralığın ortasına
+düşüyordu.
+
+**Karar: `QUALITY_GATE` 0.5 → 0.2** (overlay 0.25.0). Kalibrasyonun gerçekten
+desteklediği kısım korunuyor (yanlış sözle hizalanan doküman hâlâ elenir),
+gerisi hakem katmanına bırakılıyor: satır düzeyinde bağımsız kanıtla (onset,
+sessizlik kapsamı) karar veren ve kurtardığını `uncertain` işaretleyen katman
+zaten canlı, overlay de onu soluk render ediyor. **Şüphe satırın, dokümanın
+değil.**
+
+Sema açıklaması ve sunucudaki üç bayat "0.5" referansı da güncellendi. Test
+artık DEĞERİ sabitliyor (eski testler sabite göreliydi, o yüzden kapı aylarca
+ölçülmeden yerinde kaldı).
+
 ### Hedef
 
 **PCO@0.1 ≥ 0.70.** Başlangıç 0.4892 → adım 1 ile 0.5847 → adım 2 ile

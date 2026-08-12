@@ -40,7 +40,7 @@ export interface KashiProcessedTrackV1 {
     lyrics_source_id?: number;
     vocals_separated?: boolean;
     /**
-     * Normalized alignment confidence. Clients should fall back to line rendering below ~0.5.
+     * Normalized alignment confidence. Clients should fall back to line rendering below ~0.2 — the level this score's calibration associates with WRONG lyrics. Higher gates measure badly: against ground truth the score ranks real accuracy at Spearman +0.24, so a 0.5 gate discards documents that are in fact accurate (measured 2026-08-12: one gated document had a real PCO@0.3 of 0.979) while passing genuinely bad ones. Line-level doubt is carried per line by `uncertain` instead.
      */
     quality_score: number;
     /**

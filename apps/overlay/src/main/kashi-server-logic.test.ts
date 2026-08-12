@@ -67,6 +67,22 @@ describe('mapDocument', () => {
     expect(payload!.sync).toBe('word');
   });
 
+  it('pins the gate at the value the score was calibrated for', () => {
+    // The other gate tests are written relative to the constant, so moving it
+    // breaks nothing — which is how it sat at 0.5 for months while measurably
+    // destroying good documents. Measured 2026-08-12 on the shipped chain, 20
+    // songs with ground truth: the score ranks real accuracy at Spearman
+    // +0.244, it gated a document whose real PCO@0.3 was 0.979, and it let the
+    // one genuinely bad document (0.81) straight through.
+    // 0.2 is where the score's own calibration puts WRONG LYRICS. Line-level
+    // doubt is the arbiter's job (`uncertain`), not the document's.
+    expect(QUALITY_GATE).toBe(0.2);
+    const nearlyPerfectButLowScoring = mapDocument(doc({ alignment: { quality_score: 0.49 } }));
+    expect(nearlyPerfectButLowScoring!.sync).toBe('word');
+    const wrongLyrics = mapDocument(doc({ alignment: { quality_score: 0.04 } }));
+    expect(wrongLyrics!.sync).toBe('line');
+  });
+
   it('passes the adlib line flag through, tolerating docs without it', () => {
     const flagged = mapDocument(
       doc({
