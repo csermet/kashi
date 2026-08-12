@@ -85,6 +85,40 @@ geçerli, 80 ms ölçeğinde bir yanlılığı göremez (Faz 9 madde 5'in işi).
 Kanıt dosyaları: `2026-08-12-wd-jg1b-shipped.json` (düzeltmesiz) ve
 `2026-08-12-wd-jg1b-offset80.json` (düzeltmeli).
 
+### ✅ P2 KAPANDI: ilk-ses sınıfı — ve HİPOTEZİN ÇÜRÜMESİ (2026-08-12)
+
+**Faz 8'in mekanizma tahmini YANLIŞ çıktı.** Tahmin: ünsüzle başlayan kelime,
+ünsüzün süresi kadar geç işaretlenir; ünlüyle başlayan kelime yansız olur.
+Düzeltmesiz zincirde ölçülen medyan işaretli hata:
+
+| ilk ses | medyan | n |
+|---|---|---|
+| **ünlü** | **+112 ms** | 1376 |
+| sürtünmeli | +87 ms | 828 |
+| patlamalı | +62 ms | 1813 |
+| sürekli (nazal/likit) | +59 ms | 1676 |
+
+Ünlüyle başlayanlar en GEÇ sınıf, tahminin tam tersi. Düzeltme ölçüldüğü için
+duruyor; açıklama durmuyor — `pipeline/phonetics.py` bunu açıkça yazıyor.
+Sıralamaya uyan yeni hipotez (kanıt DEĞİL): **akustik işaretin keskinliği** —
+patlamalı ünsüzün patlaması nettir, sürtünmenin kenarı yumuşaktır, önceki
+kelimenin sesinden kesintisiz akan ünlünün sinyalde sınırı yoktur.
+
+Sevk edilen tablo (mutlak ofsetler): ünlü −110, sürtünmeli −100, patlamalı
+−80, sürekli −60. Ölçülen sonuç:
+
+| | sabit −80 | + sınıf tablosu |
+|---|---|---|
+| PCO@0.1 | 0.5847 | **0.5971** |
+| PCO@0.2 | 0.8358 | 0.8385 |
+| sınıf başına kalan yanlılık | +32 / +7 / −18 / −21 | **+2 / −13 / −18 / −1** |
+
+Çapraz doğrulanmış katkı **+0.0130** (%95 GA [+0.0062, +0.0198], 20 şarkının
+14'ünde kazanıyor); ölçülen gerçek katkı +0.0124. **Küçük olduğunu açıkça
+söylemek gerek:** 0.70 hedefine kalan yol 100-300 ms bandında (kelimelerin
+%33'ü) ve kuyrukta (868 satırın 22'si toplam hatanın %38'ini taşıyor).
+Kanıt: `2026-08-12-wd-jg1b-byinitial.json`.
+
 **Tek satırlık bir kaydırma, algısal toleransta ~10 puan.** Ve sebebi Faz 8'de
 zaten araştırılıp not edilmişti: *şarkıda nota onset'i hecenin ÜNLÜSÜYLE
 hizalanır, baştaki ünsüzle değil* — CTC ünlüyü duyuyor, kelime ise ünsüzle
