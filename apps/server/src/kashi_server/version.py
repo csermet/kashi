@@ -420,5 +420,37 @@
 # candidate — keep the global default. Operational note: the worker caches
 # weights per name, so a mixed-language queue holds every configured
 # checkpoint in memory at once.
-PIPELINE_VERSION = "2.20.0"
+# 2.21.0: the aligner's systematic lateness becomes correctable (Faz 9 P1).
+# Alignment error on SINGING is not centred on zero. Measured on JamendoLyrics
+# English — full-precision human annotation, 5693 verified words, 20 songs —
+# 76% of words are marked LATE with a median signed error of +80 ms, and ALL
+# TWENTY songs carry it. That last part is what makes it a property rather than
+# a few bad songs, and it is invisible in a pooled median.
+# The mechanism was predicted in Faz 8 research before it was measured: a sung
+# note's onset lands on the syllable's VOWEL while the written word starts on a
+# consonant, so a CTC model hears the vowel and reports the start about one
+# consonant late. Two independent confirmations that it is a property of
+# SINGING and not of a checkpoint: MMS-300m (CC-BY-NC, kim-melband separator)
+# and jonatasgrosman's XLS-R 1B (Apache, kim-base separator) — different
+# models, different separators — produce 76.4%/+81 ms and 76.3%/+78 ms, and
+# every one of 20 leave-one-song-out folds picks the same -80 ms correction.
+#   · `align_offset_ms` shifts every word and line, and rides in `align_models`
+#     per language beside the checkpoint it was measured for. DEFAULT 0: a
+#     shift moves every timing the pipeline produces, so it ships per language
+#     after being measured, never inherited. English is measured; Turkish is
+#     NOT, because the Turkish eval set is only valid at 300 ms and cannot see
+#     an 80 ms bias.
+#   · Whole SPANS move, not just starts — the model did not mishear how long
+#     the word was, and stretching every word by 80 ms would inflate exactly
+#     the sustain the 2.3.0 end-trim exists to control. A span that would cross
+#     zero is clamped there.
+#   · Applied at the aligner's own exit, so anchors, the arbiter, line QA and
+#     the benchmark all see the corrected clock rather than each judging a bias
+#     the pipeline already knows about.
+# Measured value of the correction on the shipped English chain, held out:
+# PCO@0.1 0.4892 -> 0.5847 (+0.096), PCO@0.3 0.8931 -> 0.9101. The tool that
+# fits it (`benchmarks/lateness.py`) averages SONGS rather than words, so its
+# rows are comparable with the run's own aggregate, and cross-validates, so a
+# per-song accident cannot be sold as a bias.
+PIPELINE_VERSION = "2.21.0"
 PIPELINE_MAJOR = 2

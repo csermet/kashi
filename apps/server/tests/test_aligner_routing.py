@@ -181,3 +181,112 @@ def test_align_actually_routes_by_language(monkeypatch, configure, tmp_path):
 
     assert seen == {"model": TR_MODEL, "romanize": False}
     assert result.model_name == TR_MODEL
+
+
+# --- Faz 9 P1: the measured lateness correction ---------------------------
+
+
+def test_the_offset_defaults_to_no_correction(configure):
+    """Shipping a shift by default would move every timing in the archive on
+    an upgrade. It is measured per language and set on purpose."""
+    assert Settings.model_fields["align_offset_ms"].default == 0
+    configure()
+    assert resolve_aligner("eng").offset_ms == 0
+
+
+def test_the_offset_travels_with_its_language(configure):
+    configure(
+        {"eng": {"checkpoint": EN_MODEL, "offset_ms": -80}, "tur": TR_MODEL},
+        romanize=True,
+    )
+    assert resolve_aligner("eng").offset_ms == -80
+    # Turkish has no measurement of its own yet — the eval set is only valid at
+    # 300 ms, which cannot see an 80 ms bias. It must NOT inherit English's.
+    assert resolve_aligner("tur").offset_ms == 0
+    assert resolve_aligner("jpn").offset_ms == 0
+
+
+def test_an_explicit_offset_argument_wins(configure):
+    """How the correction is fitted in the first place: measure with it off."""
+    configure({"eng": {"checkpoint": EN_MODEL, "offset_ms": -80}})
+    assert resolve_aligner("eng", offset_ms=0).offset_ms == 0
+    assert resolve_aligner("eng", offset_ms=-120).offset_ms == -120
+
+
+def test_a_global_offset_covers_unlisted_languages(monkeypatch, configure):
+    configure(MEASURED)
+    monkeypatch.setattr(settings, "align_offset_ms", -50)
+    assert resolve_aligner("jpn").offset_ms == -50
+    assert resolve_aligner("eng").offset_ms == -50  # entry says nothing -> global
+
+
+def test_shift_moves_whole_spans_and_keeps_durations():
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming, shift_result
+
+    result = AlignResult(
+        sync="word",
+        lines=[LineTiming(start_ms=1000, end_ms=1800, text="gel", score=0.9)],
+        words_per_line=[[AlignedWord(start_ms=1000, end_ms=1800, text="gel", prob=0.9)]],
+        quality_score=0.9,
+    )
+    shifted = shift_result(result, -80)
+    assert (shifted.lines[0].start_ms, shifted.lines[0].end_ms) == (920, 1720)
+    word = shifted.words_per_line[0][0]
+    assert (word.start_ms, word.end_ms) == (920, 1720)
+    # Duration is preserved: the model did not mishear the word's LENGTH.
+    assert word.end_ms - word.start_ms == 800
+    assert word.text == "gel" and word.prob == 0.9
+
+
+def test_shift_of_zero_changes_nothing():
+    from kashi_server.pipeline.alignment import AlignResult, LineTiming, shift_result
+
+    result = AlignResult(
+        sync="line",
+        lines=[LineTiming(start_ms=10, end_ms=20, text="a", score=0.5)],
+        words_per_line=[],
+        quality_score=0.5,
+    )
+    assert shift_result(result, 0) is result
+
+
+def test_a_span_shifted_past_zero_is_clamped_not_negative():
+    """The first word of a song that starts at 40 ms cannot move to -40."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming, shift_result
+
+    result = AlignResult(
+        sync="word",
+        lines=[LineTiming(start_ms=40, end_ms=60, text="a", score=0.5)],
+        words_per_line=[[AlignedWord(start_ms=40, end_ms=60, text="a", prob=0.5)]],
+        quality_score=0.5,
+    )
+    shifted = shift_result(result, -80)
+    assert (shifted.lines[0].start_ms, shifted.lines[0].end_ms) == (0, 0)
+    assert shifted.words_per_line[0][0].start_ms == 0
+
+
+def test_align_applies_the_offset_it_resolved(monkeypatch, configure, tmp_path):
+    """The resolver can be right while align() forgets to apply it."""
+    import sys
+    import types
+
+    from kashi_server.pipeline import alignment
+
+    configure({"tur": {"checkpoint": TR_MODEL, "romanize": False, "offset_ms": -80}})
+    monkeypatch.setitem(
+        sys.modules,
+        "ctc_forced_aligner",
+        types.SimpleNamespace(load_audio=lambda *a, **k: object()),
+    )
+    fake_model = types.SimpleNamespace(dtype=None, device="cpu")
+    monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
+    monkeypatch.setattr(
+        alignment,
+        "_align_texts",
+        lambda *a, **k: [{"text": "gel", "start": 1.0, "end": 1.8, "score": -0.1}],
+    )
+
+    result = alignment.align(tmp_path / "x.wav", ["gel"], "tur")
+
+    assert result.words_per_line[0][0].start_ms == 920
+    assert result.lines[0].start_ms == 920

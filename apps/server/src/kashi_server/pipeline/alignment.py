@@ -14,7 +14,7 @@ import logging
 import math
 import os
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from kashi_server.pipeline import japanese
@@ -72,16 +72,19 @@ class AlignResult:
 
 @dataclass(frozen=True)
 class AlignerSpec:
-    """What the aligner is: a checkpoint and the text form it expects."""
+    """What the aligner is: a checkpoint, the text form it expects, and the
+    constant bias its output carries."""
 
     model_name: str
     romanize: bool
+    offset_ms: int = 0
 
 
 def resolve_aligner(
     language: str | None = None,
     model_name: str | None = None,
     romanize: bool | None = None,
+    offset_ms: int | None = None,
 ) -> AlignerSpec:
     """Which aligner this run uses. The single place that answers it.
 
@@ -97,8 +100,10 @@ def resolve_aligner(
        behaviour. Both are still the answer when nothing above matches, which
        is why an empty table changes nothing.
 
-    An explicit `romanize` argument wins over whatever supplied the model, so
-    a benchmark can still measure one checkpoint both ways.
+    An explicit `romanize` or `offset_ms` argument wins over whatever supplied
+    the model, so a benchmark can measure one checkpoint several ways — and can
+    measure it with the correction OFF, which is how the correction is fitted
+    in the first place.
     """
     from kashi_server.config import settings
     from kashi_server.pipeline.langid import to_iso639_3
@@ -111,7 +116,11 @@ def resolve_aligner(
         romanize = choice.romanize if choice else None
     if romanize is None:
         romanize = settings.align_romanize
-    return AlignerSpec(name or MODEL_NAME, romanize)
+    if offset_ms is None:
+        offset_ms = choice.offset_ms if choice else None
+    if offset_ms is None:
+        offset_ms = settings.align_offset_ms
+    return AlignerSpec(name or MODEL_NAME, romanize, offset_ms)
 
 
 def resolve_model_name(override: str | None = None) -> str:
@@ -276,6 +285,39 @@ def regroup_words_into_lines(
     return lines, words_per_line
 
 
+def shift_result(result: AlignResult, offset_ms: int) -> AlignResult:
+    """Move every timing by `offset_ms`. Pure; 0 returns the input untouched.
+
+    The correction for the measured lateness of sung alignment (Faz 9 P1).
+    Whole SPANS move, not just their starts: the model did not mishear where
+    the word ended relative to where it began, it heard the whole thing late,
+    and stretching every word by 80 ms instead of moving it would inflate the
+    sustain the P1 end-trim exists to control.
+
+    Time cannot go negative, so a span that would cross zero is clamped there —
+    it loses duration rather than the document losing its monotonicity.
+    """
+    if not offset_ms:
+        return result
+
+    def span(start_ms: int, end_ms: int) -> tuple[int, int]:
+        start = max(0, start_ms + offset_ms)
+        return start, max(start, end_ms + offset_ms)
+
+    lines = []
+    for line in result.lines:
+        start, end = span(line.start_ms, line.end_ms)
+        lines.append(replace(line, start_ms=start, end_ms=end))
+    words_per_line = []
+    for chunk in result.words_per_line:
+        shifted = []
+        for word in chunk:
+            start, end = span(word.start_ms, word.end_ms)
+            shifted.append(replace(word, start_ms=start, end_ms=end))
+        words_per_line.append(shifted)
+    return replace(result, lines=lines, words_per_line=words_per_line)
+
+
 def _line_only_fallback(
     line_texts: list[str], results: list[dict], windowed: bool, model_name: str = MODEL_NAME
 ) -> AlignResult:
@@ -395,6 +437,7 @@ def align(
     synced_starts_ms: list[int | None] | None = None,
     model_name: str | None = None,
     romanize: bool | None = None,
+    offset_ms: int | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -403,12 +446,15 @@ def align(
     as the whole-audio mode."""
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
-    spec = resolve_aligner(language, model_name, romanize)
+    spec = resolve_aligner(language, model_name, romanize, offset_ms)
     model_name, romanize = spec.model_name, spec.romanize
     # Per job, because per-language routing means the answer can differ
     # between two jobs of the same worker; the document only records the
-    # checkpoint, so the romanize half would otherwise leave no trace.
-    logger.info("aligner for %s: %s (romanize=%s)", language, model_name, romanize)
+    # checkpoint, so the romanize and offset halves would leave no trace.
+    logger.info(
+        "aligner for %s: %s (romanize=%s, offset=%+d ms)",
+        language, model_name, romanize, spec.offset_ms,
+    )
     model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
 
@@ -464,18 +510,28 @@ def align(
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:
-        return _line_only_fallback(line_texts, results, plan is not None, model_name)
+        return shift_result(
+            _line_only_fallback(line_texts, results, plan is not None, model_name),
+            spec.offset_ms,
+        )
 
     lines, words_per_line = regrouped
     all_words = [word for chunk in words_per_line for word in chunk]
     if not all_words:
         raise PipelineError("alignment_failed", "no words survived regrouping")
     quality = quality_from_probs([word.prob for word in all_words])
-    return AlignResult(
-        sync="word",
-        lines=lines,
-        words_per_line=words_per_line,
-        quality_score=quality,
-        windowed=plan is not None,
-        model_name=model_name,
+    # The lateness correction rides here, at the aligner's own exit, so that
+    # EVERYTHING downstream — anchors, the arbiter, line QA, the benchmark —
+    # sees the corrected clock. Applying it later would leave each of those
+    # judging a bias the pipeline already knows about.
+    return shift_result(
+        AlignResult(
+            sync="word",
+            lines=lines,
+            words_per_line=words_per_line,
+            quality_score=quality,
+            windowed=plan is not None,
+            model_name=model_name,
+        ),
+        spec.offset_ms,
     )

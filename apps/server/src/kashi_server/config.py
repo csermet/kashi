@@ -40,6 +40,7 @@ class AlignerChoice(BaseModel):
 
     checkpoint: str = Field(min_length=1)
     romanize: bool | None = None  # None -> fall back to settings.align_romanize
+    offset_ms: int | None = None  # None -> fall back to settings.align_offset_ms
 
     @model_validator(mode="before")
     @classmethod
@@ -84,7 +85,26 @@ class Settings(BaseSettings):
     # the one it learned. Measuring such a model with this left on understates
     # it, so the flag rides with the checkpoint.
     align_romanize: bool = True
-    # PER-LANGUAGE routing over the two fields above (Faz 8.1). Empty by
+    # Constant shift applied to every aligned word and line, in ms (Faz 9 P1).
+    # Negative moves timings EARLIER. 0 by default: a value here changes every
+    # timing the pipeline produces, so it is set per language after being
+    # measured, never inherited.
+    #
+    # It exists because alignment error on SINGING is not centred on zero.
+    # Measured on JamendoLyrics English (full-precision human annotation, 5693
+    # words, 20 songs): 76% of words are marked LATE, median +80 ms, and all
+    # twenty songs carry it. The mechanism was predicted before it was
+    # measured — a sung note's onset lands on the syllable's VOWEL while the
+    # written word starts on a consonant, so a CTC model hears the vowel and
+    # reports the start about one consonant late.
+    #
+    # It is a property of singing rather than of a checkpoint: MMS-300m and
+    # jonatasgrosman's XLS-R 1B, with different separators, produce the same
+    # 76% / +80 ms / 20-of-20. Still measured per language before shipping,
+    # because "we expect it to transfer" is how unmeasured claims get in.
+    # Tool: `python -m benchmarks.lateness <run>.json` (leave-one-song-out).
+    align_offset_ms: int = 0
+    # PER-LANGUAGE routing over the three fields above (Faz 8.1, Faz 9 P1). Empty by
     # default: with no entry for a job's language, `align_model` /
     # `align_romanize` answer exactly as they did before, so every existing
     # measurement stays valid.

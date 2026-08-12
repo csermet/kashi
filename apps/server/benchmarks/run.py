@@ -109,13 +109,14 @@ def _align_song(
     anchors: list[int | None] | None = None,
     model_name: str | None = None,
     romanize: bool | None = None,
+    offset_ms: int | None = None,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
     with tempfile.TemporaryDirectory(prefix="kashi-bench-dec-") as tmp:
         wav = _decode_16k(audio, Path(tmp) / "align.wav")
         started = time.monotonic()
-        result = align(wav, line_texts, language, anchors, model_name, romanize)
+        result = align(wav, line_texts, language, anchors, model_name, romanize, offset_ms)
     return result, time.monotonic() - started
 
 
@@ -192,7 +193,7 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
             )
             result, align_s = _align_song(
                 audio, song.line_texts, song.language, anchors, args.align_model,
-                args.align_romanize,
+                args.align_romanize, args.align_offset_ms,
             )
         except Exception as exc:  # keep sweeping; a broken song is a data point
             logger.exception("%s failed", song.stem)
@@ -433,7 +434,7 @@ def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
             anchors = [start for start, _ in reference] if args.windowed else None
             result, align_s = _align_song(
                 source, line_texts, case.language, anchors, args.align_model,
-                args.align_romanize,
+                args.align_romanize, args.align_offset_ms,
             )
         except Exception as exc:
             logger.exception("case %s failed", case.id)
@@ -529,6 +530,19 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--align-offset-ms",
+        type=int,
+        help=(
+            "constant shift applied to every word and line, ms (default: "
+            "settings). Negative moves timings EARLIER. Sung alignment is "
+            "measurably LATE — 76%% of English words, median +80 ms, all 20 "
+            "songs — so this is the cheapest accuracy in the pipeline. Fit it "
+            "with `python -m benchmarks.lateness <run>.json`, then verify by "
+            "re-running WITH it: a correct offset drives the fitted residual "
+            "to zero. Pass 0 to measure a chain with the correction OFF."
+        ),
+    )
+    parser.add_argument(
         "--line-postprocess",
         choices=("none", "soft-median", "soft-pl"),
         default="none",
@@ -610,6 +624,13 @@ def main() -> int:
                 else None
             ),
             "align_romanize": args.align_romanize,
+            # The correction is part of the chain being measured: two runs of
+            # one checkpoint at different offsets are two different results.
+            "align_offset_ms": (
+                args.align_offset_ms
+                if args.align_offset_ms is not None
+                else settings.align_offset_ms
+            ),
             "separation": args.separation,
             "mixback": args.mixback if args.separation != "full-mix" else None,
             "windowed": args.windowed,
