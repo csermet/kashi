@@ -505,5 +505,16 @@
 #     honest LOSO, not the +0.013 previously labelled "cross-validated" (that
 #     was the in-sample fit). The constant -80 needs no correction: all 20
 #     folds chose it.
-PIPELINE_VERSION = "2.23.0"
+# 2.23.1: the audit round's two deferred operational fixes.
+#   · The model cache is BOUNDED: two checkpoints stay resident (the routed
+#     EN+TR pair), a third arrival evicts the least recently used. Unbounded,
+#     a mixed-language day held ~6.4 GB of weights under a measured 8.2 GB
+#     separation peak against a 12 Gi limit. A wrong eviction costs a ~90 s
+#     reload; no eviction costs an OOMKill mid-job.
+#   · A network-shaped failure while loading a cold model (unlisted languages
+#     are not warmed; the first such job downloads inside the job) is now
+#     classified transient and retried. It used to land in "other" ->
+#     permanent fail + a 7-day requeue block, for weather. A misspelled
+#     checkpoint stays permanent.
+PIPELINE_VERSION = "2.23.1"
 PIPELINE_MAJOR = 2

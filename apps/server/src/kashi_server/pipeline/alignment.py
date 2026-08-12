@@ -28,9 +28,16 @@ MODEL_NAME = "MahmoudAshraf/mms-300m-1130-forced-aligner"
 STAR_TOKEN = "<star>"
 
 # Model name -> (model, tokenizer). Keyed rather than a pair of globals so the
-# per-language routing of Faz 8.1 does not reload weights on every job; a
-# worker fed a mixed-language queue holds one entry per configured checkpoint.
+# per-language routing of Faz 8.1 does not reload weights on every job.
+# BOUNDED (2026-08-12 audit): weights never unloaded themselves, so a
+# mixed-language day could hold jg-1b (~3.9 GB) + mpoyraz (~1.3 GB) + the MMS
+# fallback (~1.2 GB) at once — with the measured 8.2 GB separation peak that
+# arithmetic lands at ~10.7 GB against a 12 Gi limit. Two resident models
+# cover the routed languages (EN+TR); a third arrival evicts the least
+# recently used. The cost of a wrong eviction is a ~90 s reload from the PVC;
+# the cost of no eviction is an OOMKill mid-job.
 _loaded: dict[str, tuple] = {}
+_MAX_LOADED_MODELS = 2
 
 
 @dataclass(frozen=True)
@@ -148,19 +155,48 @@ def resolve_model_name(override: str | None = None) -> str:
 
 
 def _load_model(model_name: str):
-    """Loaded once per worker process per model; the weights are ~1.2 GB."""
-    if model_name not in _loaded:
-        # The [align] extra — absent in plain dev installs, present in the image.
-        import torch  # pyright: ignore[reportMissingImports]
-        from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
+    """Loaded on demand, at most _MAX_LOADED_MODELS resident (LRU)."""
+    if model_name in _loaded:
+        # Refresh recency: dicts iterate in insertion order, so re-inserting
+        # makes "first key" mean "least recently used".
+        _loaded[model_name] = _loaded.pop(model_name)
+        return _loaded[model_name]
 
-        # Prod images ship CPU torch, so the default never changes behaviour;
-        # the GPU benchmark image opts in with KASHI_ALIGN_DEVICE=cuda.
-        device = os.environ.get("KASHI_ALIGN_DEVICE", "cpu")
-        logger.info("loading alignment model %s (%s)", model_name, device)
+    # The [align] extra — absent in plain dev installs, present in the image.
+    import torch  # pyright: ignore[reportMissingImports]
+    from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
+
+    while len(_loaded) >= _MAX_LOADED_MODELS:
+        evicted = next(iter(_loaded))  # insertion order: first = least recent
+        del _loaded[evicted]
+        logger.info("evicting alignment model %s (LRU, cap %d)", evicted, _MAX_LOADED_MODELS)
+        import gc
+
+        gc.collect()
+
+    # Prod images ship CPU torch, so the default never changes behaviour;
+    # the GPU benchmark image opts in with KASHI_ALIGN_DEVICE=cuda.
+    device = os.environ.get("KASHI_ALIGN_DEVICE", "cpu")
+    logger.info("loading alignment model %s (%s)", model_name, device)
+    try:
         _loaded[model_name] = load_alignment_model(
             device=device, model_path=model_name, dtype=torch.float32
         )
+    except Exception as exc:
+        # Unlisted-language models are not warmed at startup (warmup aligns
+        # "eng"), so the first such job downloads ~1.2 GB INSIDE the job. An
+        # HF hiccup (429, reset connection) used to land in the "other" class
+        # -> permanent fail + a 7-day requeue block, for weather. Classify:
+        # network-shaped failures retry, anything else (a misspelled
+        # checkpoint name, corrupt weights) stays honest and permanent.
+        from kashi_server.vdl_kit.errors import classify_error_message, is_transient_error
+
+        error_type = classify_error_message(str(exc))
+        if is_transient_error(error_type):
+            raise PipelineError(
+                error_type, f"alignment model load failed for {model_name}: {exc}"
+            ) from exc
+        raise
     return _loaded[model_name]
 
 
