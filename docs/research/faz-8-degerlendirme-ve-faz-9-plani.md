@@ -61,8 +61,8 @@ doğrulanmış kelime / 20 şarkı, MMS + kim-melband):
 Yanlılık **modele değil ŞARKIYA ait** — bu iddiayı iki bağımsız zincir
 doğruladı: MMS + kim-melband %76.4 / +81 ms, sevk edilen jg-1b + kim-base
 %76.3 / +78 ms. İki farklı model, iki farklı ayrıştırıcı, 40 fold'un 40'ı da
-aynı **−80 ms**'i seçiyor. Faz 8'de tahmin edilen mekanizma (nota onset'i
-hecenin ünlüsüne düşer, kelime ünsüzle başlar) böylece ölçümle desteklendi.
+aynı **−80 ms**'i seçiyor. (Faz 8'in bunun için önerdiği MEKANİZMA ise bir
+sonraki bölümde çürütüldü — yanlılığın varlığı ölçüm, açıklaması değildi.)
 
 `align_offset_ms` (pipeline 2.21.0) uygulandıktan sonra ölçülen:
 
@@ -119,12 +119,10 @@ söylemek gerek:** 0.70 hedefine kalan yol 100-300 ms bandında (kelimelerin
 %33'ü) ve kuyrukta (868 satırın 22'si toplam hatanın %38'ini taşıyor).
 Kanıt: `2026-08-12-wd-jg1b-byinitial.json`.
 
-**Tek satırlık bir kaydırma, algısal toleransta ~10 puan.** Ve sebebi Faz 8'de
-zaten araştırılıp not edilmişti: *şarkıda nota onset'i hecenin ÜNLÜSÜYLE
-hizalanır, baştaki ünsüzle değil* — CTC ünlüyü duyuyor, kelime ise ünsüzle
-başlıyor. Aradaki fark ünsüzün süresi, yani ~80 ms.
-
-Bu tesadüf değil, **mekanizması bilinen sistematik bir yanlılık.**
+**Tek satırlık bir kaydırma, algısal toleransta ~10 puan.** Yanlılığın kendisi
+sağlam: iki checkpoint, iki ayrıştırıcı, 40 fold'un 40'ı. Ama *neden* olduğu
+konusundaki Faz 8 açıklaması (ünsüz süresi) P2'de çürüdü — sistematik ama
+mekanizması HENÜZ bilinmeyen bir yanlılık.
 
 ## Faz 9 planı: algısal doğruluk (300 ms → 100-150 ms)
 
@@ -134,11 +132,12 @@ yapılır, Türkçe'de küçük bir yüksek-hassasiyet altkümesiyle doğrulanı
 
 ### Sıra (ucuzdan pahalıya, her adım ölçülür)
 
-1. **Sabit ofset kalibrasyonu** (~2 saat) — yukarıdaki −79 ms. Dil/model başına
-   ölçülüp config'e. Beklenen: PCO@0.1 +10 puan. *En yüksek getiri/maliyet.*
-2. **Ünlü-farkındalıklı düzeltme** (~1 gün) — sabit ofset yerine kelimenin
-   BAŞ SESİNE göre düzeltme (ünsüzle başlayan kelime daha çok geri, ünlüyle
-   başlayan az). Sabit ofsetin üstüne ne katıyor, ölçülür.
+1. ✅ **KAPANDI (2026-08-12, canlıda)** — sabit ofset −80 ms, pipeline 2.21.0.
+   Ölçülen: PCO@0.1 0.4892 → 0.5847 (+0.096).
+2. ✅ **KAPANDI (2026-08-12)** — ilk-ses sınıfına göre düzeltme,
+   pipeline 2.22.0. Ölçülen: 0.5847 → **0.5971** (+0.012). Beklentinin tersi
+   yönde çıktı: ünlüyle başlayan kelime daha çok geri gitmeli, ünsüzle
+   başlayan daha az.
 3. **Gross hata modları** (~2-3 gün) — kilit kaybı (BELLYDANCING) ve tekrarlı
    söz karışması (Berkcan). Bunlar PCO@0.3'ü de düşürüyor, ayrı sınıf.
 4. **0.5 kalite kapısı** — ölçülmüş kötü kapı (r=+0.36). Kaldırılması/
@@ -149,8 +148,10 @@ yapılır, Türkçe'de küçük bir yüksek-hassasiyet altkümesiyle doğrulanı
 
 ### Hedef
 
-**PCO@0.1 ≥ 0.70** (bugün 0.49). Adım 1+2 ile 0.60-0.65 bandı gerçekçi
-görünüyor; gerisi 3. maddeye ve model kalitesine bağlı.
+**PCO@0.1 ≥ 0.70.** Başlangıç 0.4892 → adım 1 ile 0.5847 → adım 2 ile
+**0.5971**. Kalan 0.10 puan: kelimelerin %33'ü 100-300 ms bandında duruyor
+(asıl havuz burası) ve 868 satırın 22'si toplam hatanın %38'ini taşıyor
+(3. madde). Ucuz kazançlar bitti; buradan sonrası mekanizma işi.
 
 ## Karar: fazı kapatalım mı?
 
