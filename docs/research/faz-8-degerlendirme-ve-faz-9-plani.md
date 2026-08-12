@@ -210,7 +210,9 @@ olabiliyorsa 80 altı."** Metrik çifti buna göre:
   0.7649 → 0.8358 → 0.8385 geldi). Sabit eşik konmadı; yön yukarı, 200 ms
   üstü kaçak şu an kelimelerin %16'sı.
 - **Medyan kelime hatası <100 ms** — şu an **84 ms** (esneme hedefi <80).
-- PCO@0.1 izlenmeye devam eder (0.5971) ama bar değil.
+- **PCO@0.1 ≥ 0.65 (yumuşak hedef)** — şu an 0.5971. 0.70'ten geri çekildi:
+  Caner "olmaya devam etsin ama aşırı emek vermeye gerek yok" dedi; kalan
+  ~0.05'lik yol için orantısız maliyet ödenmez.
 - Ortalama (192 ms) hedef metriği DEĞİL: ad-lib/tekrar belirsizliği şişiriyor,
   ortalamayı kovalamak çözümü olmayan satırları kovalamak olur.
 
