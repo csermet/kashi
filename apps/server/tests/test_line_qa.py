@@ -842,3 +842,140 @@ def test_without_onsets_the_old_rule_still_governs():
     assert outcome.flagged == [3]
     assert outcome.result.words_per_line[3] == []
     assert outcome.uncertain == []
+
+
+# --- sub-threshold drift nudge (Faz 9, field report 2026-08-12) ------------
+
+
+def _nudge_case(line_start_ms: int, onsets: list[int]):
+    """One 4-word line whose anchor sits at 10 000 ms, plus enough clean
+    reference lines for QA to run at all."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
+
+    words = [
+        AlignedWord(start_ms=line_start_ms + k * 400, end_ms=line_start_ms + k * 400 + 300,
+                    text=t, prob=0.9)
+        for k, t in enumerate(["oh", "i", "oh", "i"])
+    ]
+    lines = [
+        LineTiming(start_ms=1_000, end_ms=2_000, text="first line here", score=0.9),
+        LineTiming(start_ms=5_000, end_ms=6_000, text="second line here", score=0.9),
+        LineTiming(
+            start_ms=line_start_ms, end_ms=line_start_ms + 1_500, text="oh i oh i", score=0.9
+        ),
+        LineTiming(start_ms=20_000, end_ms=21_000, text="last line here", score=0.9),
+    ]
+    per_line = [
+        [AlignedWord(start_ms=1_000, end_ms=1_500, text="first", prob=0.9)],
+        [AlignedWord(start_ms=5_000, end_ms=5_500, text="second", prob=0.9)],
+        words,
+        [AlignedWord(start_ms=20_000, end_ms=20_500, text="last", prob=0.9)],
+    ]
+    result = AlignResult(sync="word", lines=lines, words_per_line=per_line, quality_score=0.9)
+    texts = [line.text for line in lines]
+    refs = [1_000, 5_000, 10_000, 20_000]
+    return apply_line_qa(result, texts, refs, onsets)
+
+
+def test_a_line_drifting_under_the_flag_threshold_moves_when_the_audio_agrees():
+    """The field case: a line 700 ms late is too close to be flagged and far
+    enough to be seen. The anchor says 10 000; the onsets are there, not where
+    the aligner put the words."""
+    onsets = [1_000, 5_000, 10_000, 10_400, 10_800, 11_200, 20_000]
+    out = _nudge_case(10_700, onsets)
+    assert out.nudged == [2]
+    assert out.result.lines[2].start_ms == 10_000
+    assert out.result.words_per_line[2][0].start_ms == 10_000  # words came along
+    assert out.flagged == []  # never flagged, never deleted
+
+
+def test_the_line_stays_when_the_audio_backs_the_ALIGNER(monkeypatch):
+    """The anchor is crowd-sourced and can simply be wrong. Onsets sitting
+    where the aligner put the words must win — the point is evidence, not
+    obedience to lrclib."""
+    onsets = [1_000, 5_000, 10_700, 11_100, 11_500, 11_900, 20_000]
+    out = _nudge_case(10_700, onsets)
+    assert out.nudged == []
+    assert out.result.lines[2].start_ms == 10_700
+
+
+def test_no_onsets_means_no_nudge():
+    """Without the independent signal there is no argument to settle, and the
+    aligner keeps what it produced."""
+    out = _nudge_case(10_700, [])
+    assert out.nudged == []
+    assert out.result.lines[2].start_ms == 10_700
+
+
+def test_a_drift_too_small_to_see_is_left_alone():
+    """Below the band the line is where it belongs; moving it would be churn.
+
+    The onsets here would REWARD the move (0.25 support becomes 1.0), so only
+    the band keeps the line still — otherwise this test would pass for the
+    wrong reason."""
+    onsets = [1_000, 5_000, 10_000, 10_400, 10_800, 11_200, 20_000]
+    out = _nudge_case(10_150, onsets)  # 150 ms: under SUBTHRESHOLD_DRIFT_MS
+    assert out.nudged == []
+    assert out.result.lines[2].start_ms == 10_150
+
+
+def test_the_band_sits_above_the_evidence_it_depends_on():
+    """The lower bound is a cheap skip, not the protection, and the two must
+    not be confused by the next person to tune them: below the arbiter's
+    onset tolerance a shift cannot change support at all — every word stays
+    inside tolerance before AND after — so a smaller band would only ask
+    questions whose answer is already known."""
+    from kashi_server.pipeline.alignment import AlignedWord
+    from kashi_server.pipeline.arbiter import ONSET_TOLERANCE_MS, better_supported_position
+    from kashi_server.pipeline.line_qa import SUBTHRESHOLD_DRIFT_MS
+
+    assert SUBTHRESHOLD_DRIFT_MS > ONSET_TOLERANCE_MS
+    # ...and here is the fact behind the rule: onsets exactly on the shifted
+    # starts still lose, because the current position is already supported.
+    tiny = ONSET_TOLERANCE_MS - 50
+    words = [
+        AlignedWord(start_ms=10_000 + tiny + k * 400, end_ms=10_100 + tiny + k * 400,
+                    text="w", prob=0.9)
+        for k in range(4)
+    ]
+    onsets = [10_000 + k * 400 for k in range(4)]
+    assert better_supported_position(words, -tiny, onsets) is False
+
+
+def test_a_marginal_win_is_not_a_win():
+    """Evidence has to be MEANINGFULLY better, not better by one word: moving
+    a line the listener can see is not free, and a single-word difference is
+    noise. Eight words, four supported where they are, five if moved — a
+    0.125 gain, under the 0.15 margin."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
+
+    start = 10_700  # 700 ms drift: inside the band
+    words = [
+        AlignedWord(start_ms=start + k * 400, end_ms=start + k * 400 + 300, text="w", prob=0.9)
+        for k in range(8)
+    ]
+    lines = [
+        LineTiming(start_ms=1_000, end_ms=2_000, text="first line here", score=0.9),
+        LineTiming(start_ms=5_000, end_ms=6_000, text="second line here", score=0.9),
+        LineTiming(start_ms=start, end_ms=start + 3_200, text="w w w w w w w w", score=0.9),
+        LineTiming(start_ms=20_000, end_ms=21_000, text="last line here", score=0.9),
+    ]
+    per_line = [
+        [AlignedWord(start_ms=1_000, end_ms=1_500, text="first", prob=0.9)],
+        [AlignedWord(start_ms=5_000, end_ms=5_500, text="second", prob=0.9)],
+        words,
+        [AlignedWord(start_ms=20_000, end_ms=20_500, text="last", prob=0.9)],
+    ]
+    # Four onsets sit on the CURRENT starts, five on the shifted ones.
+    onsets = sorted(
+        [1_000, 5_000, 20_000]
+        + [start + k * 400 for k in (0, 1, 2, 3)]
+        + [10_000 + k * 400 for k in (4, 5, 6, 7)]
+        + [10_000 + 400 * 3 - 1]
+    )
+    result = AlignResult(sync="word", lines=lines, words_per_line=per_line, quality_score=0.9)
+    out = apply_line_qa(
+        result, [line.text for line in lines], [1_000, 5_000, 10_000, 20_000], onsets
+    )
+    assert out.nudged == []
+    assert out.result.lines[2].start_ms == start

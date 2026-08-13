@@ -535,5 +535,27 @@
 # sung — but it loses a time nothing can support, and a stampless line
 # already has a defined meaning downstream (it inherits its neighbour's
 # span). One second of slack absorbs honest rounding.
-PIPELINE_VERSION = "2.24.1"
+# 2.25.0: the sub-threshold drift nudge — the band nothing was watching.
+# A line more than DRIFT_THRESHOLD_MS (2.5 s) from its anchor is flagged and
+# judged; a line within it is passed through untouched. Field report
+# 2026-08-12 landed squarely in between: "Oh I, oh I" arriving noticeably
+# late, measured at +0.6..+0.9 s against its anchor across all six
+# occurrences. A QUARTER of that document's lines sit 0.3-2.5 s from their
+# anchors, and no layer looked at any of them — too close to be called
+# misplaced, far enough for a listener to see.
+# The anchor and the aligner disagree there, and neither can settle it: one
+# is crowd-sourced, the other is the model under review. The audio can, since
+# vocal onsets come from neither. So the line's words are scored where they
+# are and where the anchor says they belong, and the line moves only when the
+# anchor's position holds MEANINGFULLY more onsets (15 points; a one-word
+# difference is noise and moving a visible line is not free). Ties, missing
+# onsets, and lines under three words all leave the aligner's timing alone.
+#   · Nothing is deleted and nothing is flagged: a nudged line was never in
+#     doubt as CONTENT, only as position, so it carries no `uncertain` mark —
+#     just a count in alignment.qa.nudged (schema additive).
+#   · Block shift, line and words together, on the flagged-rescue precedent.
+#   · The band's lower bound is a cheap skip, not the protection: below the
+#     arbiter's 200 ms onset tolerance a shift cannot change support at all,
+#     so the evidence gate is what holds. A test pins that relationship.
+PIPELINE_VERSION = "2.25.0"
 PIPELINE_MAJOR = 2

@@ -68,7 +68,7 @@
         },
         "qa": {
           "type": "object",
-          "description": "Line-QA repair provenance (Faz 5): counts of lines snapped/dropped/shifted/rederived, the compensated median offset and the number of sustain-trimmed word ends. Consumers judging timing trustworthiness (e.g. a publish gate) read this; absent on documents older than pipeline 2.3.0.",
+          "description": "Line-QA repair provenance (Faz 5): counts of lines snapped/dropped/shifted/rederived, the compensated median offset and the number of sustain-trimmed word ends. `uncertain` counts lines the drift threshold flagged but the audio vouched for (2.19.0); `nudged` counts lines that drifted BELOW the flag threshold and were moved onto their anchor because the audio backed that position (2.25.0) — a nudged line was never in doubt as content, only as position. Consumers judging timing trustworthiness (e.g. a publish gate) read this; absent on documents older than pipeline 2.3.0.",
           "required": ["flagged", "density_dropped", "adlib_shifted", "adlib_rederived", "offset_ms", "trimmed_ends"],
           "properties": {
             "flagged": { "type": "integer", "minimum": 0 },
@@ -76,7 +76,8 @@
             "adlib_shifted": { "type": "integer", "minimum": 0 },
             "adlib_rederived": { "type": "integer", "minimum": 0 },
             "offset_ms": { "type": "integer" },
-            "trimmed_ends": { "type": "integer", "minimum": 0 }
+            "trimmed_ends": { "type": "integer", "minimum": 0 },
+            "nudged": { "type": "integer", "minimum": 0 }
           }
         }
       }

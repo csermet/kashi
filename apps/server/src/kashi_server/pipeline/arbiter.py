@@ -33,7 +33,7 @@ boundary in `onsets.py` so this stays testable without librosa.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +117,39 @@ def onset_support(words: list, onset_ms: list[int] | None) -> float | None:
         if abs(onset_ms[cursor] - start) <= ONSET_TOLERANCE_MS:
             hits += 1
     return hits / len(starts)
+
+
+def better_supported_position(
+    words: list, shift_ms: int, onset_ms: list[int] | None, *, margin: float = 0.15
+) -> bool:
+    """Would moving this line by `shift_ms` put its words on MORE vocal onsets?
+
+    The sub-threshold drift decision (Faz 9, 2026-08-13). A line sitting
+    0.3-2.5 s from its lrclib anchor is invisible to `judge_line`: too close
+    to be flagged, far enough to be heard. Two positions are on the table —
+    where the aligner put the line, and where the anchor says it belongs —
+    and the argument between an aligner and a crowd-sourced stamp cannot be
+    settled by either of them. The audio can: onsets come from neither.
+
+    So this asks the only question evidence can answer — which of the two
+    candidate positions has more word starts landing on a sung onset — and
+    answers False on a tie. `margin` makes "more" mean meaningfully more
+    (15 percentage points): a one-word difference on a five-word line is
+    noise, and moving a line the listener can see is not free.
+
+    Pure: it is handed onsets, never audio.
+    """
+    if not onset_ms or not words:
+        return False
+    here = onset_support(words, onset_ms)
+    if here is None:
+        return False
+    moved = onset_support(
+        [replace(w, start_ms=max(0, w.start_ms + shift_ms)) for w in words], onset_ms
+    )
+    if moved is None:
+        return False
+    return moved >= here + margin
 
 
 def judge_line(words: list, line_span_ms: int, onset_ms: list[int] | None) -> LineVerdict:

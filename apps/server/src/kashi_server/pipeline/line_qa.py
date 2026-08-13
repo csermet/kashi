@@ -24,7 +24,11 @@ from dataclasses import dataclass, field, replace
 from statistics import median
 
 from kashi_server.pipeline.alignment import AlignResult, LineTiming, quality_from_probs
-from kashi_server.pipeline.arbiter import judge_line
+from kashi_server.pipeline.arbiter import (
+    MIN_WORDS_FOR_EVIDENCE,
+    better_supported_position,
+    judge_line,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +36,23 @@ logger = logging.getLogger(__name__)
 # The median absorbs any systematic shift between the lrclib source and the
 # audio we downloaded (duration matching already bounds it to a few seconds).
 DRIFT_THRESHOLD_MS = 2500
+# The band BELOW the flag threshold, where a line is too close to be called
+# misplaced and far enough for a listener to see it late (field report
+# 2026-08-12: "Oh I, oh I" arriving noticeably late; measured at +0.6..+0.9 s
+# against its anchor, six occurrences, all the same direction). A quarter of
+# that document's lines sit in this band, and nothing looked at any of them.
+# Nothing here is deleted or even flagged: the audio is asked whether the
+# ANCHOR's position holds more vocal onsets than the aligner's, and only a
+# clear win moves the line (arbiter.better_supported_position).
+#
+# This bound is a cheap skip, NOT the protection — and the distinction
+# matters to whoever tunes it next. The evidence gate is what protects the
+# line, and it cannot even speak below the arbiter's 200 ms onset tolerance:
+# a drift smaller than that leaves every word inside tolerance both before
+# and after the move, so support is identical and no nudge can happen
+# whatever this number says. Keeping it comfortably above the tolerance just
+# avoids asking a question with a known answer. A test pins the relationship.
+SUBTHRESHOLD_DRIFT_MS = 300
 # Below this many stamped reference lines the median is meaningless — QA is
 # skipped and only the monotonicity clamp runs.
 MIN_REFERENCE_LINES = 3
@@ -125,6 +146,10 @@ class LineQAOutcome:
     # Lines the drift threshold flagged but the audio vouched for: their words
     # survive, shifted onto the anchor, carrying a warning instead of a hole.
     uncertain: list[int] = field(default_factory=list)
+    # Sub-threshold drifts the audio settled in the anchor's favour (Faz 9).
+    # Counted, not marked: the line was never in doubt as CONTENT, it just
+    # sat in the wrong place, and it is now where the evidence says it goes.
+    nudged: list[int] = field(default_factory=list)
 
 
 def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
@@ -389,6 +414,41 @@ def apply_line_qa(
         if ref is not None and abs(line.start_ms - ref - offset_ms) > DRIFT_THRESHOLD_MS
     ]
 
+    # Sub-threshold drift: the anchor and the aligner disagree by a visible
+    # but unflagged amount. Neither can settle it, so the audio does.
+    nudged: list[int] = []
+    if onset_ms:
+        nudge_lines = list(result.lines)
+        nudge_words = [list(chunk) for chunk in result.words_per_line]
+        for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True)):
+            if ref is None or i in set(flagged):
+                continue
+            delta = (ref + offset_ms) - line.start_ms
+            if not (SUBTHRESHOLD_DRIFT_MS <= abs(delta) <= DRIFT_THRESHOLD_MS):
+                continue
+            words = result.words_per_line[i] if i < len(result.words_per_line) else []
+            if len(words) < MIN_WORDS_FOR_EVIDENCE or not better_supported_position(
+                words, delta, onset_ms
+            ):
+                continue
+            # Block shift: line and words move together, exactly as the flagged
+            # rescue path does, so the two never end up on different clocks.
+            nudge_lines[i] = replace(
+                line, start_ms=max(0, line.start_ms + delta), end_ms=max(0, line.end_ms + delta)
+            )
+            nudge_words[i] = [
+                replace(w, start_ms=max(0, w.start_ms + delta), end_ms=max(0, w.end_ms + delta))
+                for w in words
+            ]
+            nudged.append(i)
+        if nudged:
+            result = replace(result, lines=nudge_lines, words_per_line=nudge_words)
+            logger.info(
+                "line QA nudge: %d line(s) moved onto their anchor — the audio "
+                "backs the anchor's position over the aligner's",
+                len(nudged),
+            )
+
     referenced = sum(ref is not None for ref in refs)
     if result.sync == "line" or len(flagged) > MAX_FLAGGED_FRACTION * referenced:
         return replace(
@@ -411,6 +471,7 @@ def apply_line_qa(
             flagged=[],
             offset_ms=offset_ms,
             degraded_to_line=False,
+            nudged=nudged,
             adlib_shifted=adlib_shifted,
             adlib_rederived=rederived,
             trimmed_ends=trimmed,
@@ -501,6 +562,7 @@ def apply_line_qa(
         degraded_to_line=False,
         density_dropped=sorted(density_dropped),
         uncertain=uncertain,
+        nudged=nudged,
         adlib_shifted=adlib_shifted,
         adlib_rederived=rederived,
         trimmed_ends=trimmed,

@@ -186,6 +186,7 @@ def build_document(
             "flagged": len(qa.flagged),
             "density_dropped": len(qa.density_dropped),
             "adlib_shifted": len(qa.adlib_shifted),
+            "nudged": len(qa.nudged),
             "adlib_rederived": len(qa.adlib_rederived),
             "offset_ms": qa.offset_ms,
             "trimmed_ends": qa.trimmed_ends,

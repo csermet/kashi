@@ -357,6 +357,9 @@ def test_qa_provenance_block_and_words_derived_flag():
         # Faz 8 B4: how many flagged lines the audio vouched for. Zero here —
         # this fixture predates the arbiter and none were rescued.
         "uncertain": 0,
+        # Faz 9: lines that drifted BELOW the flag threshold and were moved
+        # onto their anchor because the audio backed that position.
+        "nudged": 0,
     }
     assert doc["lines"][0]["words_derived"] is True  # rederived AND word-carrying
     assert "words_derived" not in doc["lines"][1]
