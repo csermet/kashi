@@ -485,7 +485,8 @@ function reportFirstFill(span: HTMLElement | undefined): void {
   firstFillReported = true;
   const computed = getComputedStyle(span);
   window.kashi.log(
-    `fill paint: classes=[${span.className}] --fx-color=${computed.getPropertyValue('--fx-color').trim() || '(bos)'}` +
+    `fill paint: body=[${document.body.className}] classes=[${span.className}]` +
+      ` --fx-color=${computed.getPropertyValue('--fx-color').trim() || '(bos)'}` +
       ` fill=${computed.getPropertyValue('--kashi-fill').trim() || '(bos)'}` +
       ` bg=${computed.backgroundImage.slice(0, 120)}`,
   );

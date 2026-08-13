@@ -312,12 +312,18 @@ body.fx-hype .word-fill {
 }
 
 /* Neutral dialect: the unfilled tail matches the resting text tone (the
-   themed tone only ever appears inside the advancing fill). */
+   themed tone only ever appears inside the advancing fill).
+   The HEAD still carries `--fx-color` — neutral is a statement about the TAIL,
+   not a licence to strip a word's identity. Field diagnosis 2026-08-13: this
+   rule outranks the themed one (two body classes), so a neutral-dialect user
+   saw the fx fix have no effect at all — the computed gradient came back
+   `rgb(68,213,217) ... color(srgb 1 1 1 / 0.55)`, which is this rule exactly. */
 body.fx-simple.fill-neutral .word-fill,
-body.fx-full.fill-neutral .word-fill {
+body.fx-full.fill-neutral .word-fill,
+body.fx-hype.fill-neutral .word-fill {
   background-image: linear-gradient(
     90deg,
-    var(--kashi-primary, #fff) calc(var(--kashi-fill, 0) * 100%),
+    var(--fx-color, var(--kashi-primary, #fff)) calc(var(--kashi-fill, 0) * 100%),
     color-mix(in srgb, var(--kashi-text, #fff) 55%, transparent)
       calc(var(--kashi-fill, 0) * 100%)
   );
