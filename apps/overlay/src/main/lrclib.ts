@@ -33,7 +33,24 @@ export interface LyricLine {
 }
 
 export type LyricsResult =
-  | { found: true; source: 'lrclib'; sourceId: number; lines: LyricLine[] }
+  | {
+      found: true;
+      source: 'lrclib';
+      sourceId: number;
+      lines: LyricLine[];
+      /**
+       * The MATCHED RECORD's own duration, in ms — the only evidence we get
+       * about which EDIT of the song these stamps were written against.
+       *
+       * Field bug (Caner, 2026-08-13): "sözler inanılmaz kaymış, sanki başka
+       * şarkı ile karışıyor". It is another edit: nightcore, sped-up, extended,
+       * a live take. The duration filter was the ONLY thing standing between
+       * the screen and a foreign clock — and the duration-less retry below
+       * removes exactly that filter. Carrying the record's duration up is what
+       * lets the caller notice. null = lrclib had none to give.
+       */
+      recordDurationMs: number | null;
+    }
   | { found: false };
 
 interface LrclibRecord {
@@ -61,7 +78,7 @@ const SEARCH_DURATION_TOLERANCE_S = 3;
 const LAST_LINE_FALLBACK_MS = 5000;
 
 type CacheEntry =
-  | { found: true; sourceId: number; lines: LyricLine[] }
+  | { found: true; sourceId: number; lines: LyricLine[]; recordDurationMs?: number | null }
   | { found: false; at: number };
 
 export class LrclibClient {
@@ -89,7 +106,16 @@ export class LrclibClient {
     const cached = await this.readCache(key);
     if (cached) {
       if (cached.found) {
-        return { found: true, source: 'lrclib', sourceId: cached.sourceId, lines: cached.lines };
+        return {
+          found: true,
+          source: 'lrclib',
+          sourceId: cached.sourceId,
+          lines: cached.lines,
+          // Entries written before the edit check shipped carry no duration.
+          // undefined -> null: "lrclib gave none" and "we never stored one"
+          // are the same thing to the caller, and both mean unverifiable.
+          recordDurationMs: cached.recordDurationMs ?? null,
+        };
       }
       if (this.now() - cached.at < (this.opts.negativeTtlMs ?? NEGATIVE_TTL_MS)) {
         return { found: false };
@@ -112,8 +138,9 @@ export class LrclibClient {
       return { found: false };
     }
 
-    await this.writeCache(key, { found: true, sourceId: record.id, lines });
-    return { found: true, source: 'lrclib', sourceId: record.id, lines };
+    const recordDurationMs = record.duration == null ? null : Math.round(record.duration * 1000);
+    await this.writeCache(key, { found: true, sourceId: record.id, lines, recordDurationMs });
+    return { found: true, source: 'lrclib', sourceId: record.id, lines, recordDurationMs };
   }
 
   private async exactGet(

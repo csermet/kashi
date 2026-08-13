@@ -9,6 +9,8 @@
  * Staleness is guarded twice: the per-lookup AbortController (a newer track
  * aborts the old lookup) and the isCurrent(key) check on every response.
  */
+import { classifyEdit } from './edit-check.js';
+import type { LyricLine } from './lrclib.js';
 import type { TrackInfo } from '@kashi/protocol';
 import type { ServerLyricsResult } from './kashi-server-logic.js';
 import {
@@ -31,7 +33,21 @@ export interface LookupDeps {
   getProcessed:
     | ((type: string, id: string, signal: AbortSignal) => Promise<ServerLyricsResult>)
     | null;
-  getLyrics: (query: LrclibQuery, signal: AbortSignal) => Promise<{ found: boolean }>;
+  /**
+   * `lines`/`recordDurationMs` are optional so a fake in a test that only
+   * cares about the ladder need not invent them — but when they ARE present
+   * the different-edit check reads them, so an integration-shaped fake gets
+   * the real behavior.
+   */
+  getLyrics: (
+    query: LrclibQuery,
+    signal: AbortSignal,
+  ) => Promise<{
+    found: boolean;
+    lines?: readonly LyricLine[];
+    sourceId?: number;
+    recordDurationMs?: number | null;
+  }>;
   /** Emit a kashi:lyrics payload (already carries the track key). */
   send: (payload: { key: string } & Record<string, unknown>) => void;
   /** Genuine server 404 for the CURRENT track — arm the enqueue gate. */
@@ -154,6 +170,28 @@ export class LookupOrchestrator {
           );
           result = await this.deps.getLyrics({ ...query, duration_ms: undefined }, abort.signal);
           if (!this.deps.isCurrent(key)) return;
+        }
+        if (result.found) {
+          // The unscoped retry above removes the ONLY filter that keeps another
+          // edit's stamps off the screen, so whatever came back gets checked
+          // against this track before it is allowed to drive a clock.
+          const verdict = classifyEdit(
+            query.duration_ms,
+            result.recordDurationMs ?? null,
+            result.lines ?? [],
+          );
+          if (verdict === 'different-edit') {
+            this.deps.log(
+              `lrclib record ${result.sourceId} is a different edit` +
+                ` (record ${result.recordDurationMs ?? 'sure yok'}ms vs track ${query.duration_ms}ms)` +
+                ' — discarded, wrong stamps are worse than none',
+            );
+            this.deps.emit?.('lyrics_outcome', { source: 'different-edit' });
+            // Treated as a miss, not as a display: the enqueue gate is already
+            // armed, so the server will align this track against its OWN audio
+            // and the screen fills properly a few minutes later.
+            result = { found: false };
+          }
         }
         if (!result.found) {
           this.deps.log(

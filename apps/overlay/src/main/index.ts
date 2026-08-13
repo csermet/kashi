@@ -36,7 +36,7 @@ import { KashiServerClient } from './kashi-server.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
-import { AnchorGuard } from './position-sanity.js';
+import { AnchorGuard , positionTooDeepForAFreshTrack } from './position-sanity.js';
 import { TelemetryClient } from './telemetry.js';
 import { sessionEnvelope, serverHostOf } from './telemetry-logic.js';
 import { ReplayStore } from './replay-store.js';
@@ -219,9 +219,18 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
         'position_ms' in decision.msg &&
         anchorGuard.rejects(decision.msg.position_ms, lastTrack?.track.duration_ms, Date.now())
       ) {
+        // Name the rule that actually fired. The two look nothing alike in the
+        // log and mean different things: 337 s into a 366 s track is NOT past
+        // the end, it is a fresh track being handed the previous one's
+        // playhead — and printing "past track end" for it sent the 2026-08-13
+        // diagnosis down the wrong road for a while.
+        const deep = positionTooDeepForAFreshTrack(decision.msg.position_ms);
         log(
-          `position ${decision.msg.position_ms}ms is past track end` +
-            ` (${lastTrack?.track.duration_ms}ms) — dropped before anchoring`,
+          `position ${decision.msg.position_ms}ms rejected: ` +
+            (deep
+              ? 'too deep for a track that just changed'
+              : `past track end (${lastTrack?.track.duration_ms}ms)`) +
+            ' — dropped before anchoring',
         );
         telemetry?.record('position_anomaly', {
           reason: 'past_track_end',

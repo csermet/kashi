@@ -349,3 +349,65 @@ describe('a stale cache hit is not an answer (P7)', () => {
     expect(payload).not.toHaveProperty('stale');
   });
 });
+
+describe('different-edit guard on the duration-less retry', () => {
+  const track = {
+    title: 'Hey Mama',
+    artist: 'David Guetta',
+    duration_ms: 366_451, // the PREVIOUS video's duration, leaked by auto-advance
+    source: { type: 'youtube', id: 'Hsz6hL_a69Q' },
+  };
+
+  function harness(second: { found: boolean; [k: string]: unknown }) {
+    const sent: Record<string, unknown>[] = [];
+    const logs: string[] = [];
+    const orchestrator = new LookupOrchestrator({
+      getProcessed: null,
+      // Scoped lookup misses (no six-minute record exists), unscoped answers.
+      getLyrics: async (query) => (query.duration_ms ? { found: false } : second),
+      send: (payload) => void sent.push(payload),
+      onServerMiss: () => {},
+      isCurrent: () => true,
+      log: (line) => void logs.push(line),
+      retryDelaysMs: [0],
+    });
+    return { orchestrator, sent, logs };
+  }
+
+  it('discards the foreign edit instead of driving a clock with it', async () => {
+    const { orchestrator, sent, logs } = harness({
+      found: true,
+      sourceId: 12345,
+      recordDurationMs: 193_000,
+      lines: [{ start_ms: 1000, end_ms: 3000, text: 'hey mama' }],
+    });
+    await orchestrator.lookup('youtube:Hsz6hL_a69Q', track as never);
+    const shown = sent[sent.length - 1];
+    expect(shown?.found).toBe(false);
+    expect(shown?.lines).toBeUndefined();
+    expect(logs.some((l) => l.includes('different edit'))).toBe(true);
+  });
+
+  it('still shows a record that matches this edit', async () => {
+    const ok = { ...track, duration_ms: 193_000 };
+    const { orchestrator, sent } = harness({
+      found: true,
+      sourceId: 12345,
+      recordDurationMs: 193_000,
+      lines: [{ start_ms: 1000, end_ms: 3000, text: 'hey mama' }],
+    });
+    await orchestrator.lookup('youtube:Hsz6hL_a69Q', ok as never);
+    expect(sent[sent.length - 1]?.found).toBe(true);
+  });
+
+  it('leaves an unverifiable record alone — no duration is not a conviction', async () => {
+    const { orchestrator, sent } = harness({
+      found: true,
+      sourceId: 12345,
+      recordDurationMs: null,
+      lines: [{ start_ms: 1000, end_ms: 3000, text: 'hey mama' }],
+    });
+    await orchestrator.lookup('youtube:Hsz6hL_a69Q', track as never);
+    expect(sent[sent.length - 1]?.found).toBe(true);
+  });
+});
