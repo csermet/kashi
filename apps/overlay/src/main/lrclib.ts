@@ -125,7 +125,24 @@ export class LrclibClient {
     // Fall through to search when the exact hit exists but carries no synced
     // lyrics (plain-only/instrumental records) — a synced variant may exist.
     const exact = await this.exactGet(query, signal);
-    const record = exact?.syncedLyrics ? exact : await this.search(query, signal);
+    let record = exact?.syncedLyrics ? exact : await this.search(query, signal);
+
+    // Multi-artist rung. Runs ONLY when the joined string actually splits, and
+    // keeps the duration filter — so it can recover a track the conjunction
+    // hid without opening the door the duration-less retry opens (another
+    // edit's stamps). The primary artist is enough: lrclib credits it either
+    // alone or first.
+    if (!record?.syncedLyrics) {
+      const [primary] = splitArtists(normalizeArtist(query.artist));
+      if (primary) {
+        const scoped = { ...query, artist: primary };
+        const retry = await this.exactGet(scoped, signal);
+        record = retry?.syncedLyrics ? retry : await this.search(scoped, signal);
+        if (record?.syncedLyrics) {
+          this.opts.log?.(`[lrclib] "${query.artist}" missed; "${primary}" hit`);
+        }
+      }
+    }
 
     if (!record?.syncedLyrics) {
       await this.writeCache(key, { found: false, at: this.now() });
@@ -248,6 +265,35 @@ export class LrclibClient {
 /** Strip YTM "Topic" channel suffix: "Rick Astley - Topic" → "Rick Astley". */
 export function normalizeArtist(artist: string): string {
   return artist.replace(/\s*-\s*Topic\s*$/i, '').trim();
+}
+
+/**
+ * YTM joins collaborators with a LOCALE conjunction — " ve " on a Turkish UI,
+ * " & " / " and " elsewhere — plus commas and feat./ft./x credits. lrclib
+ * credits either the primary artist alone or a differently-joined list, so the
+ * joined string matches NOTHING structurally.
+ *
+ * Measured on 2026-08-13, against lrclib itself:
+ *   "Sean Paul ve David Guetta" + Mad Love  ->  0 records
+ *   "Sean Paul & David Guetta"  + Mad Love  -> 20 records, 19 synced, exact
+ *   "Jim Yosef ve Scarlett"     + Carousel  ->  0 records
+ *   "Jim Yosef"                 + Carousel  ->  4 records, all synced, exact
+ *
+ * The pipeline has had `split_artists` since Faz 4 (pipeline/lrclib.py), which
+ * is why these tracks resolve once the SERVER processes them — but the overlay
+ * fallback is what fills the screen on first listen, and it never learned.
+ *
+ * Returns [] for a single-artist string: the caller gates an extra request on
+ * "there is actually something to split", so an ordinary track costs nothing.
+ */
+const ARTIST_SEPARATORS = /\s+(?:ve|and|x|feat\.?|ft\.?|&)\s+|\s*,\s*/i;
+
+export function splitArtists(artist: string): string[] {
+  const parts = artist
+    .split(ARTIST_SEPARATORS)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 1 ? parts : [];
 }
 
 /**

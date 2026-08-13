@@ -2,7 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LrclibClient, normalizeArtist, parseLrc } from './lrclib.js';
+import { LrclibClient, normalizeArtist, parseLrc,
+  splitArtists,
+} from './lrclib.js';
 
 const LRC = '[00:12.34] First line\n[00:15.20] Second line\n';
 
@@ -217,5 +219,100 @@ describe('LrclibClient', () => {
     expect(await client2.getLyrics(QUERY)).toMatchObject({ found: true });
     expect(calls).toHaveLength(1);
     expect(calls2).toHaveLength(1);
+  });
+});
+
+describe('splitArtists', () => {
+  it('splits the conjunctions YTM actually emits', () => {
+    // Every one of these is a real string from the 2026-08-13 field log.
+    expect(splitArtists('Sean Paul ve David Guetta')).toEqual(['Sean Paul', 'David Guetta']);
+    expect(splitArtists('Jim Yosef ve Scarlett')).toEqual(['Jim Yosef', 'Scarlett']);
+    expect(splitArtists('TheFatRat ve Maisy Kay')).toEqual(['TheFatRat', 'Maisy Kay']);
+    expect(splitArtists('Topic & Bebe Rexha')).toEqual(['Topic', 'Bebe Rexha']);
+    expect(splitArtists('MXZI, Dj Samir ve DJ Javi26')).toEqual(['MXZI', 'Dj Samir', 'DJ Javi26']);
+    expect(splitArtists('Don Omar ft. Lucenzo')).toEqual(['Don Omar', 'Lucenzo']);
+  });
+
+  it('says nothing about a single artist', () => {
+    // The caller spends a request per non-empty answer, so "no split" has to
+    // mean no split — not a one-element list that reruns the same query.
+    expect(splitArtists('Ed Sheeran')).toEqual([]);
+    expect(splitArtists('twenty one pilots')).toEqual([]);
+    expect(splitArtists('')).toEqual([]);
+  });
+
+  it('does not tear apart a name that merely contains a separator word', () => {
+    // Bare substrings must not split: only a SURROUNDED conjunction does.
+    expect(splitArtists('Xavier')).toEqual([]);
+    expect(splitArtists('Vevo')).toEqual([]);
+    expect(splitArtists('Bandit')).toEqual([]);
+  });
+});
+
+describe('multi-artist rung', () => {
+  let cacheDir: string;
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(join(tmpdir(), 'kashi-lrclib-multi-'));
+  });
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  /** The 2026-08-13 field case, with the counts lrclib actually returned. */
+  const MAD_LOVE = {
+    title: 'Mad Love',
+    artist: 'Sean Paul ve David Guetta',
+    duration_ms: 200_000,
+  };
+
+  it('recovers a track the conjunction hid', async () => {
+    const { fetchFn, calls } = makeFetch((url) => {
+      if (url.includes('Sean+Paul+ve+David+Guetta')) {
+        return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
+      }
+      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: LRC });
+    });
+    const client = new LrclibClient({ cacheDir, fetchFn });
+
+    const result = await client.getLyrics(MAD_LOVE);
+    expect(result).toMatchObject({ found: true, sourceId: 77 });
+    expect(calls.some((c) => c.url.includes('artist_name=Sean+Paul&'))).toBe(true);
+  });
+
+  it('keeps the duration filter on the retry', async () => {
+    // The whole point of retrying HERE rather than leaning on the
+    // duration-less rung: the scope that keeps another edit out stays on.
+    const { fetchFn, calls } = makeFetch((url) => {
+      if (url.includes('Sean+Paul+ve+David+Guetta')) {
+        return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
+      }
+      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: LRC });
+    });
+    const client = new LrclibClient({ cacheDir, fetchFn });
+
+    await client.getLyrics(MAD_LOVE);
+    const retries = calls.filter((c) => c.url.includes('artist_name=Sean+Paul&'));
+    expect(retries.length).toBeGreaterThan(0);
+    expect(retries.every((c) => c.url.includes('duration=200'))).toBe(true);
+  });
+
+  it('spends no extra request on a single-artist track', async () => {
+    const { fetchFn, calls } = makeFetch((url) =>
+      url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []),
+    );
+    const client = new LrclibClient({ cacheDir, fetchFn });
+
+    await client.getLyrics({ title: 'Shape of You', artist: 'Ed Sheeran', duration_ms: 233_000 });
+    expect(calls).toHaveLength(2); // get + search, and nothing more
+  });
+
+  it('never runs when the first rung already answered', async () => {
+    const { fetchFn, calls } = makeFetch(() =>
+      jsonResponse(200, { id: 5, duration: 200, syncedLyrics: LRC }),
+    );
+    const client = new LrclibClient({ cacheDir, fetchFn });
+
+    await client.getLyrics(MAD_LOVE);
+    expect(calls).toHaveLength(1);
   });
 });
