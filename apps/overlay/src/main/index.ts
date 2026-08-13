@@ -37,6 +37,7 @@ import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
 import { isDurationCorrection } from './edit-check.js';
+import { DurationLedger, type DurationVerdict } from './duration-ledger.js';
 import { AnchorGuard, positionTooDeepForAFreshTrack } from './position-sanity.js';
 import { TelemetryClient } from './telemetry.js';
 import { sessionEnvelope, serverHostOf } from './telemetry-logic.js';
@@ -109,6 +110,19 @@ let publishable: { key: string; source: { type: string; id: string } } | null = 
 // The current track's lookup inputs — replayed after a live server-settings
 // re-init (Faz 6 P6) so lyrics refresh without waiting for a track change.
 let lastTrack: { key: string; track: TrackInfo } | null = null;
+/**
+ * What the PAGE said about the current and the previous track, before the
+ * ledger had its say. Only these raw numbers can expose a carry-over: once a
+ * remembered duration has been substituted in, `lastTrack` no longer describes
+ * what the extension would repeat if it were reporting a stale value.
+ */
+let observedDurationMs: number | undefined;
+let previousObservedDurationMs: number | undefined;
+/** videoId -> its real duration, learned across plays. Loaded in whenReady. */
+const durations = new DurationLedger({
+  cacheDir: join(app.getPath('userData'), 'cache', 'duration-ledger'),
+  log: makeLogger('ledger'),
+});
 /** Armed at every track change; screens the report the clock anchors on. */
 const anchorGuard = new AnchorGuard();
 /** Non-null only when settings carry a server_url — otherwise the code path
@@ -148,6 +162,40 @@ function clearSource(reason: string): void {
   send('kashi:source-gone', {});
 }
 
+/**
+ * Settle which duration this track gets judged by, and learn it when it is the
+ * page's own fresh report.
+ *
+ * One decision point on purpose: everything downstream reads the duration off
+ * the track object — the lrclib query scope, the different-edit verdict, the
+ * clock's overshoot guard, and the hints the enqueue sends to the server. Each
+ * of those used to inherit whatever the announce happened to carry, so a single
+ * stale number reached all four at once (2026-08-13).
+ */
+function settleDuration(
+  key: string,
+  track: TrackInfo,
+  carriedOverIfEqualToMs: number | undefined,
+): { track: TrackInfo; verdict: DurationVerdict } {
+  const decided = durations.resolve(key, track.duration_ms, carriedOverIfEqualToMs);
+  if (decided.verdict === 'observed') durations.learn(key, decided.ms, 'announce');
+  if (decided.verdict === 'remembered' && track.duration_ms !== undefined) {
+    log(
+      `duration ${track.duration_ms}ms for ${key} repeats the previous track's` +
+        ` — using the remembered ${decided.ms}ms instead`,
+    );
+  } else if (decided.verdict === 'observed-suspect') {
+    log(
+      `duration ${decided.ms}ms for ${key} repeats the previous track's, but` +
+        ' nothing better is known — using it without learning it',
+    );
+  }
+  return {
+    track: decided.ms === track.duration_ms ? track : { ...track, duration_ms: decided.ms },
+    verdict: decided.verdict,
+  };
+}
+
 function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): void {
   if (msg.type === 'log') {
     logExt(`[${msg.context}] ${msg.line}`);
@@ -184,18 +232,36 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
           // track, and everything decided from the old number (which lrclib
           // edit to show, where the clock anchored) was decided on a lie.
           if (isDurationCorrection(lastTrack.track.duration_ms, track.duration_ms)) {
-            const corrected = {
-              key: decision.key,
-              track: { ...lastTrack.track, duration_ms: track.duration_ms },
-            };
+            // A correction is only worth a re-lookup if it survives the ledger:
+            // an older extension build can send the previous track's number
+            // here too, and acting on THAT would re-run the lookup against the
+            // very value this whole chain exists to keep out.
+            const settled = settleDuration(
+              decision.key,
+              { ...lastTrack.track, duration_ms: track.duration_ms },
+              previousObservedDurationMs,
+            );
+            observedDurationMs = track.duration_ms;
+            if (
+              settled.verdict === 'observed-suspect' ||
+              !isDurationCorrection(lastTrack.track.duration_ms, settled.track.duration_ms)
+            ) {
+              log(
+                `duration refresh for ${decision.key} did not survive the ledger` +
+                  ` (${track.duration_ms}ms) — treated as an ordinary refresh`,
+              );
+              send('kashi:track', lastTrack);
+              return;
+            }
+            const corrected = { key: decision.key, track: settled.track };
             log(
               `duration corrected for ${decision.key}: ` +
-                `${lastTrack.track.duration_ms ?? 'yok'}ms -> ${track.duration_ms}ms` +
+                `${lastTrack.track.duration_ms ?? 'yok'}ms -> ${corrected.track.duration_ms}ms` +
                 ' — re-anchoring and looking up again',
             );
             telemetry?.record('position_anomaly', {
               reason: 'duration_corrected',
-              duration_ms: track.duration_ms,
+              duration_ms: corrected.track.duration_ms,
               previous_duration_ms: lastTrack.track.duration_ms,
               action: 'relookup',
               source: 'overlay_track_refresh',
@@ -217,25 +283,32 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
         }
         return;
       }
-      lastTrack = { key: decision.key, track: decision.track };
+      // The track that just ended is the one a carried-over duration would be
+      // describing, so its raw number becomes the reference before we overwrite
+      // it with this announce's.
+      previousObservedDurationMs = observedDurationMs;
+      observedDurationMs = decision.track.duration_ms;
+      const { track: settled } = settleDuration(
+        decision.key,
+        decision.track,
+        previousObservedDurationMs,
+      );
+      lastTrack = { key: decision.key, track: settled };
       telemetry?.record('track_changed', {
-        video_id: decision.track.source.id,
-        title: decision.track.title,
-        artist: decision.track.artist,
-        duration_ms: decision.track.duration_ms,
-        id_source: decision.track.source.type,
+        video_id: settled.source.id,
+        title: settled.title,
+        artist: settled.artist,
+        duration_ms: settled.duration_ms,
+        id_source: settled.source.type,
       });
       anchorGuard.arm(Date.now()); // screen the next position — it becomes the anchor
       enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
-      send('kashi:track', { key: decision.key, track: decision.track });
+      send('kashi:track', { key: decision.key, track: settled });
 
       // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
       if (debounceTimer) clearTimeout(debounceTimer);
       lookups.cancel();
-      debounceTimer = setTimeout(
-        () => void lookups.lookup(decision.key, decision.track),
-        TRACK_DEBOUNCE_MS,
-      );
+      debounceTimer = setTimeout(() => void lookups.lookup(decision.key, settled), TRACK_DEBOUNCE_MS);
       return;
     }
     case 'playback': {
@@ -879,6 +952,7 @@ function buildServerConnections(): void {
       publishable = { key, source };
       tray?.refresh(); // the Report entry appears while this doc is on screen
     },
+    onServerDuration: (key, durationMs) => durations.learn(key, durationMs, 'server'),
     isCurrent: (key) => key === latch.currentTrackKey,
     emit: (kind, payload) => telemetry?.record(kind, payload),
     log: makeLogger('lookup'),
@@ -903,6 +977,10 @@ function reinitServerConnections(): void {
 
 app.whenReady().then(async () => {
   settings = settingsStore;
+
+  // Before any track can arrive: an empty ledger is not wrong, but it would
+  // spend the first song of the session re-learning what it already knew.
+  await durations.load();
 
   lrclib = new LrclibClient({
     cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
@@ -1005,6 +1083,7 @@ app.whenReady().then(async () => {
 
   app.on('before-quit', () => {
     settings?.flush();
+    void durations.flush(); // best-effort, like the rest: quitting never waits
     stopTelemetry(); // best-effort final batch; quitting never waits on it
     void server.stop();
   });

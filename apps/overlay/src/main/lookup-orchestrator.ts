@@ -54,6 +54,12 @@ export interface LookupDeps {
   onServerMiss: (key: string, track: TrackInfo) => void;
   /** Word-sync server hit — the only publishable moment (Faz 5 P6). */
   onServerWordHit?: (key: string, source: { type: string; id: string }) => void;
+  /**
+   * The server's own measurement of this track's audio. Worth learning even
+   * from a stale cache hit: the number describes the audio the server probed,
+   * and it is the only one that never came through the page.
+   */
+  onServerDuration?: (key: string, durationMs: number) => void;
   isCurrent: (key: string) => boolean;
   log: (line: string) => void;
   /** Retry delays for transient lrclib failures (timeout/network). */
@@ -127,6 +133,7 @@ export class LookupOrchestrator {
         if (result.sync === 'word') {
           this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
         }
+        if (result.trackDurationMs) this.deps.onServerDuration?.(key, result.trackDurationMs);
         this.displayed = {
           key,
           state: { source: 'kashi-server', sync: result.sync, qualityScore: result.qualityScore },
@@ -304,6 +311,7 @@ export class LookupOrchestrator {
         if (result.sync === 'word') {
           this.deps.onServerWordHit?.(key, { type: track.source.type, id: track.source.id });
         }
+        if (result.trackDurationMs) this.deps.onServerDuration?.(key, result.trackDurationMs);
         this.displayed = {
           key,
           state: {

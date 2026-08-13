@@ -52,6 +52,13 @@ export interface ServerLyricsFound {
   sections?: SectionData[];
   /** Alignment slice (Faz 6.5 P5): nightcore speed factor for the aesthetics. */
   alignment?: AlignmentData;
+  /**
+   * What the SERVER measured this audio to be (ffprobe on the file it actually
+   * downloaded) — the one duration for this video that never passed through the
+   * page, and so the only one immune to the auto-advance carry-over. The
+   * renderer ignores it; the duration ledger learns from it.
+   */
+  trackDurationMs?: number;
 }
 
 export type ServerLyricsResult = ServerLyricsFound | { found: false } | { error: true };
@@ -179,6 +186,12 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
   if (energy) payload.energy = energy;
   const sections = mapSections(d['sections']);
   if (sections) payload.sections = sections;
+  const trackMeta =
+    typeof d['track'] === 'object' && d['track'] !== null
+      ? (d['track'] as Record<string, unknown>)
+      : null;
+  const measured = trackMeta?.['duration_ms'];
+  if (isMs(measured) && measured > 0) payload.trackDurationMs = measured;
   // Nightcore provenance (Faz 6.5 P5): only a sane positive factor rides —
   // enrichment tolerance, absent on garbage like everything above.
   const speed = alignment?.['speed_factor'];
