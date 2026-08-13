@@ -1074,7 +1074,10 @@ class TestLyricsByEar:
         "id": 1,
         "trackName": "Heathens",
         "artistName": "twenty one pilots",
-        "plainLyrics": "All my friends are heathens, take it slow\nWait for them to ask you who you know",
+        "plainLyrics": (
+            "All my friends are heathens, take it slow\n"
+            "Wait for them to ask you who you know"
+        ),
     }
     WRONG = {
         "id": 2,
