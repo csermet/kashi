@@ -131,7 +131,10 @@ class TestPick:
     def test_refuses_when_none_of_them_is_the_song(self):
         # The common case: a title-only search returns twenty records for a
         # title that merely resembles this one.
-        assert pick_by_transcript("completely unrelated speech", self.CANDIDATES, threshold=0.4) is None
+        picked = pick_by_transcript(
+            "completely unrelated speech", self.CANDIDATES, threshold=0.4
+        )
+        assert picked is None
 
     def test_refuses_a_near_tie_rather_than_guessing(self):
         # Two records scoring alike is either a harmless duplicate or the right
