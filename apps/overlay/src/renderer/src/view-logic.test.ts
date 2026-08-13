@@ -246,9 +246,10 @@ describe('findDisplayLine', () => {
     { start_ms: 30_000, end_ms: 33_000 }, // line 2 (22 s break: interlude)
   ];
 
-  it('is -1 during the intro', () => {
+  it('is -1 during the intro, until the first line leads in', () => {
     expect(findDisplayLine(lines, 0)).toBe(-1);
-    expect(findDisplayLine(lines, 999)).toBe(-1);
+    expect(findDisplayLine(lines, 499)).toBe(-1);
+    expect(findDisplayLine(lines, 999)).toBe(0); // inside the lead-in
   });
 
   it('returns the covering line', () => {
@@ -257,7 +258,51 @@ describe('findDisplayLine', () => {
   });
 
   it('HOLDS the previous line through a short gap (no ♪ flash)', () => {
-    expect(findDisplayLine(lines, 4500)).toBe(0); // between 0 and 1
+    expect(findDisplayLine(lines, 4400)).toBe(0); // between 0 and 1, pre-lead
+  });
+
+  it('hands over to the next line during its lead-in', () => {
+    // The whole point: the text lands BEFORE its first word lights, so the
+    // reader sees the word unlit and then watches it light.
+    expect(findDisplayLine(lines, 4499)).toBe(0);
+    expect(findDisplayLine(lines, 4500)).toBe(1); // 500 ms early
+    expect(findDisplayLine(lines, 5000)).toBe(1);
+  });
+
+  it('borrows the lead from SILENCE only — never from a line still singing', () => {
+    // Back-to-back lines: cutting line 0 short to preview line 1 would drop a
+    // word that is still being sung. The gap is what pays for the lead.
+    const tight = [
+      { start_ms: 1000, end_ms: 4000 },
+      { start_ms: 4000, end_ms: 8000 },
+    ];
+    expect(findDisplayLine(tight, 3900)).toBe(0);
+    expect(findDisplayLine(tight, 3999)).toBe(0);
+    expect(findDisplayLine(tight, 4000)).toBe(1);
+  });
+
+  it('shrinks the lead to fit a narrow gap instead of skipping it', () => {
+    const narrow = [
+      { start_ms: 1000, end_ms: 4000 },
+      { start_ms: 4300, end_ms: 8000 }, // 300 ms gap: lead is 300, not 500
+    ];
+    expect(findDisplayLine(narrow, 3999)).toBe(0);
+    expect(findDisplayLine(narrow, 4000)).toBe(1);
+  });
+
+  it('does not flicker on a gap too small to read', () => {
+    const hair = [
+      { start_ms: 1000, end_ms: 4000 },
+      { start_ms: 4050, end_ms: 8000 }, // 50 ms < LINE_LEAD_MIN_MS
+    ];
+    expect(findDisplayLine(hair, 4000)).toBe(0);
+    expect(findDisplayLine(hair, 4049)).toBe(0);
+    expect(findDisplayLine(hair, 4050)).toBe(1);
+  });
+
+  it('leads out of a long interlude too', () => {
+    expect(findDisplayLine(lines, 29_499)).toBe(-1); // still ♪
+    expect(findDisplayLine(lines, 29_500)).toBe(2);
   });
 
   it('shows the interlude during a long instrumental break', () => {

@@ -166,14 +166,39 @@ export interface LineSpan {
 export const INTERLUDE_GAP_MS = 5_000;
 
 /**
- * Which line to DISPLAY at `pos`: the covering line, or the previous one held
- * through a short gap. -1 means interlude territory (intro, a long break, or
- * long past the last line).
+ * A line arrives on screen up to this long BEFORE its first word lights.
+ *
+ * Field bug (Caner, 2026-08-13): "geçti, tüm yazıyı görüyorum ve ilk kelime
+ * söylenişi 0.5-1 sn sonra — bu sürede ilk kelime söylenmiş gibi duruyor".
+ * Measured, and the mechanism is a coincidence of three exact zeros: a line's
+ * start_ms EQUALS its first word's start_ms (0 ms apart in every live
+ * document), and the display swapped lines at exactly that instant. So the
+ * text and its first highlight landed on the SAME frame — the reader never saw
+ * the word unlit, and any lateness in the vocal read as "it already sang".
+ * (Line-initial words are also biased early: median -42 ms and 17.1% land
+ * 200 ms+ early vs 6.1% elsewhere — but no offset survived cross-validation,
+ * so the fix here is legibility, not timing.)
+ *
+ * The lead is BORROWED FROM SILENCE ONLY — never from a line whose words are
+ * still running — so back-to-back lines behave exactly as before.
+ */
+export const LINE_LEAD_IN_MS = 500;
+/**
+ * Below this the early swap is a flicker, not a lead: two text changes inside
+ * a tenth of a second read as a glitch, and there is no time to read anyway.
+ */
+export const LINE_LEAD_MIN_MS = 120;
+
+/**
+ * Which line to DISPLAY at `pos`: the covering line, the NEXT one during its
+ * lead-in, or the previous one held through a short gap. -1 means interlude
+ * territory (intro, a long break, or long past the last line).
  */
 export function findDisplayLine(
   lines: readonly LineSpan[],
   pos: number,
   gapMs: number = INTERLUDE_GAP_MS,
+  leadMs: number = LINE_LEAD_IN_MS,
 ): number {
   let lo = 0;
   let hi = lines.length - 1;
@@ -188,6 +213,17 @@ export function findDisplayLine(
     } else {
       hi = mid - 1;
     }
+  }
+  // Lead-in FIRST: it is the only branch that can look forward, and it must
+  // also fire from the intro (found === -1) and from inside a long interlude,
+  // both of which return -1 below.
+  const upcoming = lines[found + 1];
+  if (upcoming) {
+    // Silence in front of `upcoming`. From the intro there is no previous
+    // line, so the whole run-up is silence.
+    const silence = found === -1 ? Infinity : upcoming.start_ms - (lines[found]?.end_ms ?? 0);
+    const lead = Math.min(leadMs, silence);
+    if (lead >= LINE_LEAD_MIN_MS && pos >= upcoming.start_ms - lead) return found + 1;
   }
   if (found === -1) return -1; // intro — nothing sung yet
   const line = lines[found];
