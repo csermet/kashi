@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -314,5 +314,53 @@ describe('multi-artist rung', () => {
 
     await client.getLyrics(MAD_LOVE);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('negative cache is tied to the ladder that produced it', () => {
+  let cacheDir: string;
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(join(tmpdir(), 'kashi-lrclib-ladder-'));
+  });
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  const QUERY = { title: 'Mad Love', artist: 'Sean Paul ve David Guetta', duration_ms: 200_000 };
+
+  it('re-asks when the stored miss predates the current ladder', async () => {
+    // The 0.27.3 field failure exactly: the multi-artist rung shipped and
+    // changed nothing for the track it was built from, because the miss was
+    // cached the day before. A stale-ladder miss must not answer.
+    const { fetchFn, calls } = makeFetch((url) => {
+      if (url.includes('Sean+Paul+ve+David+Guetta')) {
+        return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
+      }
+      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: LRC });
+    });
+    const client = new LrclibClient({ cacheDir, fetchFn });
+
+    // A miss written by an older build carries no ladder version at all.
+    const key = (client as unknown as { cacheKey: (q: typeof QUERY) => string }).cacheKey(QUERY);
+    await writeFile(join(cacheDir, `${key}.json`), JSON.stringify({ found: false, at: Date.now() }));
+
+    const result = await client.getLyrics(QUERY);
+    expect(result.found).toBe(true);
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it('still honours a miss the CURRENT ladder produced', async () => {
+    // The cache has to keep working, or every skipped track re-asks lrclib.
+    let requests = 0;
+    const { fetchFn } = makeFetch((url) => {
+      requests++;
+      return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
+    });
+    const client = new LrclibClient({ cacheDir, fetchFn });
+
+    await client.getLyrics(QUERY);
+    const afterFirst = requests;
+    await client.getLyrics(QUERY);
+    expect(requests).toBe(afterFirst); // second call never left the disk
   });
 });

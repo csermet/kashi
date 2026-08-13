@@ -73,13 +73,35 @@ export interface LrclibClientOptions {
 }
 
 const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Which lookup ladder produced a MISS. Bump it whenever a rung is added,
+ * removed or reordered.
+ *
+ * Field bug (Caner, 2026-08-13): the multi-artist rung shipped in 0.27.3 and
+ * changed nothing for Mad Love — the very track it was built from. The log gave
+ * it away by its timing: server 404, then "duration-scoped lookup missed" 9 ms
+ * later and "no synced lyrics" 6 ms after that. Nothing reaches lrclib in 9 ms.
+ * The track had failed the day before, the miss was cached for seven days, and
+ * the new rung never ran.
+ *
+ * So a negative is only honoured while it describes a ladder that still exists.
+ * Positives are deliberately NOT versioned: an lrclib record is immutable for
+ * our purposes (the header contract), so a better ladder cannot improve an
+ * answer that was already right, and re-fetching every stored hit on each bump
+ * would be a lot of traffic for a service that asks us to be gentle.
+ *
+ * An entry with no version predates this rule and counts as stale — which is
+ * exactly the state the 0.27.3 rung needs to escape.
+ */
+const LOOKUP_LADDER_VERSION = 2;
 const REQUEST_TIMEOUT_MS = 12_000; // field data: cold lrclib responses can exceed 8s
 const SEARCH_DURATION_TOLERANCE_S = 3;
 const LAST_LINE_FALLBACK_MS = 5000;
 
 type CacheEntry =
   | { found: true; sourceId: number; lines: LyricLine[]; recordDurationMs?: number | null }
-  | { found: false; at: number };
+  | { found: false; at: number; ladder?: number };
 
 export class LrclibClient {
   private readonly inFlight = new Map<string, Promise<LyricsResult>>();
@@ -117,7 +139,10 @@ export class LrclibClient {
           recordDurationMs: cached.recordDurationMs ?? null,
         };
       }
-      if (this.now() - cached.at < (this.opts.negativeTtlMs ?? NEGATIVE_TTL_MS)) {
+      if (
+        cached.ladder === LOOKUP_LADDER_VERSION &&
+        this.now() - cached.at < (this.opts.negativeTtlMs ?? NEGATIVE_TTL_MS)
+      ) {
         return { found: false };
       }
     }
@@ -145,13 +170,13 @@ export class LrclibClient {
     }
 
     if (!record?.syncedLyrics) {
-      await this.writeCache(key, { found: false, at: this.now() });
+      await this.writeCache(key, { found: false, at: this.now(), ladder: LOOKUP_LADDER_VERSION });
       return { found: false };
     }
 
     const lines = parseLrc(record.syncedLyrics, query.duration_ms);
     if (lines.length === 0) {
-      await this.writeCache(key, { found: false, at: this.now() });
+      await this.writeCache(key, { found: false, at: this.now(), ladder: LOOKUP_LADDER_VERSION });
       return { found: false };
     }
 
