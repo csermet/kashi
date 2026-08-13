@@ -576,5 +576,19 @@
 # (103 vs 287 ms). Ad-libs are where the human stamp is right and the model
 # is lost; that asymmetry is why this path existed, and why two missing
 # token shapes cost so much.
-PIPELINE_VERSION = "2.25.1"
+# 2.26.0: sustained hooks are HELD to the next line. With the ad-lib snap
+# finally reaching them (2.25.1) the placement was right and the pace was
+# not: "it goes by in 4 seconds when it should take 5". The numbers agree —
+# Shape of You's hook covered 1.66 s of a 2.35 s phrase and then sat there.
+# Measured across the archive (435 lines): an ad-lib line leaves a median
+# 747 ms hole before the next line, 44% of its own span, where a LEXICAL line
+# leaves 30 ms; 82% of ad-lib lines leave more than 300 ms against 31% of
+# lexical ones. The aligner hears the part of a held note it can segment, not
+# the note. So an ad-lib line now extends to a breath short of the next line
+# before its words are redistributed across that span.
+# Bounded at 1500 ms: a longer silence after a hook is an instrumental break,
+# and stretching words over one is precisely the hanging word the sustain
+# trim exists to prevent. The hold only ever LENGTHENS — a hole smaller than
+# the breath margin is already closed, and a hold that shortens is not a hold.
+PIPELINE_VERSION = "2.26.0"
 PIPELINE_MAJOR = 2

@@ -104,6 +104,21 @@ ADLIB_SNAP_THRESHOLD_MS = 600
 # matter; single words keep the whole span implicitly.
 ADLIB_REDERIVE_MIN_SPAN_MS = 500
 ADLIB_REDERIVE_MIN_WORDS = 2
+# A sustained hook is HELD until the next line; the aligner does not hear it
+# that way. Measured across the archive (435 lines, 2026-08-13): an ad-lib
+# line leaves a median 747 ms hole before the next line — 44% of its own span
+# — where a lexical line leaves 30 ms. 82% of ad-lib lines leave more than
+# 300 ms, against 31% of lexical ones. So the karaoke sweep finishes at ~70%
+# of the phrase and then sits there while the singer is still on the note
+# (field report 2026-08-13: "it goes by in 4 seconds when it should take 5").
+# The hold closes that hole before the redistribution below spreads words
+# across the span. Bounded, because a long silence after a hook is an
+# instrumental break rather than a held note, and stretching words over it is
+# the "hanging word" the sustain trim exists to prevent.
+ADLIB_HOLD_MAX_GAP_MS = 1500
+# ...and it stops just short of the next line, matching the breath a lexical
+# line leaves (measured median 30 ms).
+ADLIB_HOLD_BREATH_MS = 60
 # Word-END sustain trim (Faz 5 P1, ear-test finding: words "hang" past their
 # sung duration — CTC over-extends an end into a gap and the karaoke sweep
 # reads it as a long hold). Ends are only ever SHORTENED, and the cap scales
@@ -219,21 +234,35 @@ def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
 
 
 def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
-    """Redistribute word boundaries of ad-lib lines across the line span,
-    weighted by character length (Faz 4 aesthetics — see the constants above).
+    """Hold ad-lib lines to the next line, then redistribute their words
+    across that span, weighted by character length (Faz 4 aesthetics).
 
     Runs AFTER anchor corrections so the span it trusts is the final one.
     Guarantees monotonic, gap-free, span-covering word timings; probs are
     preserved (quality math is unaffected). Pure, unit-tested.
+
+    The HOLD is the 2026-08-13 half: a sustained hook rings until the next
+    line and the aligner measures only the part it can segment, so the sweep
+    used to finish at ~70% of the phrase and wait. Bounded by
+    ADLIB_HOLD_MAX_GAP_MS so a real instrumental break is never filled.
     """
     if result.sync != "word":
         return result, []
     words_out = [list(chunk) for chunk in result.words_per_line]
+    lines_out = list(result.lines)
     changed: list[int] = []
     for i, line in enumerate(result.lines):
         words = words_out[i] if i < len(words_out) else []
         if len(words) < ADLIB_REDERIVE_MIN_WORDS or not is_adlib(line.text):
             continue
+        # Hold to the next line when the hole is hook-sized, not break-sized.
+        next_start = result.lines[i + 1].start_ms if i + 1 < len(result.lines) else None
+        if next_start is not None:
+            gap = next_start - line.end_ms
+            if 0 < gap <= ADLIB_HOLD_MAX_GAP_MS:
+                held_end = max(line.end_ms, next_start - ADLIB_HOLD_BREATH_MS)
+                line = replace(line, end_ms=held_end)
+                lines_out[i] = line
         span = line.end_ms - line.start_ms
         if span < ADLIB_REDERIVE_MIN_SPAN_MS:
             continue
@@ -251,6 +280,8 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
         if rederived != words:
             words_out[i] = rederived
             changed.append(i)
+        elif lines_out[i] is not result.lines[i]:
+            changed.append(i)  # the hold moved the line even if the words tied
             logger.info(
                 "line QA adlib rederive: line %d %r words respread over %dms",
                 i,
@@ -259,7 +290,8 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
             )
     if not changed:
         return result, []
-    return replace(result, words_per_line=words_out), changed
+    # Lines travel with their words: the hold moved line ends too.
+    return replace(result, lines=lines_out, words_per_line=words_out), changed
 
 
 def _match_references(

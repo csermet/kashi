@@ -10,6 +10,7 @@ from kashi_server.pipeline.line_qa import (
     TRIM_MAX_HOLD_MS,
     apply_line_qa,
     is_adlib,
+    rederive_adlib_words,
     trim_word_ends,
 )
 
@@ -1031,3 +1032,75 @@ def test_lexical_lines_that_merely_start_with_oh_stay_lexical():
     assert not is_adlib("Oh, I'm in love with your body")
     assert not is_adlib("I am the one")
     assert not is_adlib("Come on boy, move that body")
+
+
+# --- ad-lib hold: the sweep that finished before the singer did ------------
+
+
+def _adlib_pair(line_end_ms: int, next_start_ms: int):
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
+
+    words = [
+        AlignedWord(start_ms=70_030 + k * 221, end_ms=70_030 + (k + 1) * 221, text=t, prob=0.9)
+        for k, t in enumerate(["Oh", "I,", "oh", "I,", "oh", "I,", "oh", "I"])
+    ]
+    lines = [
+        LineTiming(start_ms=70_030, end_ms=line_end_ms, text="Oh I, oh I, oh I, oh I", score=0.9),
+        LineTiming(start_ms=next_start_ms, end_ms=next_start_ms + 2_000, text="in love", score=0.9),
+    ]
+    return AlignResult(sync="word", lines=lines, words_per_line=[words, []], quality_score=0.9)
+
+
+def test_a_held_hook_fills_the_phrase_instead_of_finishing_early():
+    """Field numbers, Shape of You line 26: the sweep covered 1.66 s of a
+    2.35 s phrase and then waited. Across the archive an ad-lib line leaves a
+    median 747 ms hole where a lexical one leaves 30 ms — the aligner hears
+    only the part it can segment, not the held note."""
+    out, changed = rederive_adlib_words(_adlib_pair(71_690, 72_380))
+    assert changed == [0]
+    assert out.lines[0].end_ms == 72_380 - 60  # stops a breath short
+    assert out.lines[1].start_ms - out.lines[0].end_ms == 60
+    spans = [w.end_ms - w.start_ms for w in out.words_per_line[0]]
+    assert min(spans[:-1]) > 290  # 221 ms each before; the last is a short "I"
+    assert out.words_per_line[0][-1].end_ms == out.lines[0].end_ms  # covers the span
+
+
+def test_a_real_break_after_a_hook_is_not_filled():
+    """A long silence after a hook is an instrumental break, not a held note.
+    Stretching words over it would be exactly the hanging word the sustain
+    trim exists to prevent."""
+    out, changed = rederive_adlib_words(_adlib_pair(71_690, 71_690 + 4_000))
+    assert out.lines[0].end_ms == 71_690  # untouched
+
+
+def test_the_hold_never_shortens_a_line():
+    """A hole smaller than the breath margin is already closed. Subtracting
+    the margin anyway would PULL THE LINE BACK — a hold that shortens is not
+    a hold, and the words would then stop before the sung note again."""
+    out, _ = rederive_adlib_words(_adlib_pair(71_690, 71_720))  # 30 ms hole
+    assert out.lines[0].end_ms == 71_690
+
+
+def test_a_line_running_into_the_next_one_is_left_to_the_clamp():
+    """Overlaps are the monotonic clamp's business, not the hold's."""
+    out, _ = rederive_adlib_words(_adlib_pair(72_500, 72_380))
+    assert out.lines[0].end_ms == 72_500
+
+
+def test_lexical_lines_are_never_held():
+    """The hold is a claim about sustained vocalization. A sung sentence that
+    ends early ended early."""
+    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
+
+    words = [
+        AlignedWord(start_ms=1_000, end_ms=1_400, text="hold", prob=0.9),
+        AlignedWord(start_ms=1_400, end_ms=1_800, text="me", prob=0.9),
+    ]
+    lines = [
+        LineTiming(start_ms=1_000, end_ms=1_800, text="hold me", score=0.9),
+        LineTiming(start_ms=3_000, end_ms=4_000, text="closer now", score=0.9),
+    ]
+    result = AlignResult(sync="word", lines=lines, words_per_line=[words, []], quality_score=0.9)
+    out, changed = rederive_adlib_words(result)
+    assert changed == []
+    assert out.lines[0].end_ms == 1_800
