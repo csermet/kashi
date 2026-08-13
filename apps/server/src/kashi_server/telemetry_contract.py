@@ -66,7 +66,27 @@ TELEMETRY_FIELDS: dict[str, frozenset[str]] = {
     # The event the timing work exists for: how far a position report was off
     # and what the client did about it.
     "position_anomaly": frozenset(
-        {"reason", "position_ms", "duration_ms", "delta_ms", "action", "source"}
+        {
+            "reason",
+            "position_ms",
+            "duration_ms",
+            "delta_ms",
+            "action",
+            "source",
+            # Which video it happened on. Identity is already sent to this same
+            # server for every lookup (see track_changed), and without it an
+            # anomaly cannot be tied to the audio that produced it: the
+            # 2026-08-13 carry-over reads exactly like an ordinary deep seek
+            # until you can see that two neighbouring events name two different
+            # videos with one duration between them.
+            "video_id",
+            # What the duration was corrected FROM. The client has sent this
+            # since overlay 0.26.4 and the server has been dropping it, which
+            # left the correction event unable to answer the one question it
+            # exists for — whether the number it replaced was the previous
+            # track's.
+            "previous_duration_ms",
+        }
     ),
     "error": frozenset({"scope", "code", "message"}),
     "watchdog": frozenset({"reason", "elapsed_ms", "cleared"}),

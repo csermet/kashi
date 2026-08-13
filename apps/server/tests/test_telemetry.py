@@ -97,6 +97,15 @@ def test_position_anomaly_carries_what_the_timing_fix_needs():
     assert {"reason", "position_ms", "duration_ms"} <= TELEMETRY_FIELDS["position_anomaly"]
 
 
+def test_position_anomaly_can_name_the_video_and_the_number_it_replaced():
+    # The 2026-08-13 carry-over reads exactly like an ordinary deep seek unless
+    # the data can show WHICH video each event belongs to — the whole bug is one
+    # video's duration turning up under another one's id. `previous_duration_ms`
+    # is the same story for the correction event: without it you can see that a
+    # duration was replaced but not whether it was the previous track's.
+    assert {"video_id", "previous_duration_ms"} <= TELEMETRY_FIELDS["position_anomaly"]
+
+
 # --- the endpoint ----------------------------------------------------------
 
 

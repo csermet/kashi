@@ -261,6 +261,7 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
             );
             telemetry?.record('position_anomaly', {
               reason: 'duration_corrected',
+              video_id: corrected.track.source.id,
               duration_ms: corrected.track.duration_ms,
               previous_duration_ms: lastTrack.track.duration_ms,
               action: 'relookup',
@@ -350,6 +351,10 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
         );
         telemetry?.record('position_anomaly', {
           reason: 'past_track_end',
+          // The track the report was rejected FOR. A carry-over reads like an
+          // ordinary deep seek until the field data can show that the position
+          // belongs to the video named by the event before this one.
+          video_id: lastTrack?.track.source.id,
           position_ms: decision.msg.position_ms,
           duration_ms: lastTrack?.track.duration_ms,
           action: 'dropped',
@@ -800,6 +805,8 @@ ipcMain.on('kashi:anomaly', (_event, raw: unknown) => {
     delta_ms: Math.round(deltaMs),
     position_ms: Math.round(positionMs),
     duration_ms: sameTrack ? lastTrack?.track.duration_ms : undefined,
+    // Same rule as the duration: only the track this report actually belongs to.
+    video_id: sameTrack ? lastTrack?.track.source.id : undefined,
     action: 'snapped',
     source: 'position_clock',
   });
