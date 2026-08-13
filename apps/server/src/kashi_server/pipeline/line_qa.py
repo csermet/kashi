@@ -119,18 +119,42 @@ TRIM_MIN_SAMPLE_WORDS = 8
 
 
 _NONLEXICAL_TOKEN = re.compile(
-    r"^(?:o+h*|o*o+h+|wh?o+a+h*|a+h+|ha+h*|la+|na+h*|y+e+a+h*|ye+|hey+|u+h+|hu+h*|m+h*m+|"
+    r"^(?:o+h*|o*o+h+|wh?o+a+h*|a+h+|a+w+|ha+h*|la+|na+h*|y+e+a+h*|ye+|hey+|u+h+|hu+h*|m+h*m+|"
     r"e+h+|a+y+|do+|du+|ba+|pa+|sha+)$",
     re.IGNORECASE,
 )
+# A one-letter word that IS a vowel. "I" and "a" are lexical to a reader and
+# pure vocalization to a singer: no consonant, no landmark, nothing for CTC to
+# lock onto — acoustically they behave exactly like the tokens above. They
+# cannot make a line an ad-lib on their own (a bare "I" line is not a hook),
+# so at least one true nonlexical token is still required.
+_VOWEL_WORD = re.compile(r"^[ia]$", re.IGNORECASE)
 
 
 def is_adlib(text: str) -> bool:
-    """Every alphabetic token is a nonlexical vocalization. Public: document
-    assembly writes the per-line `adlib` schema flag with the same predicate
-    (single source of truth for what counts as an ad-lib)."""
+    """Every alphabetic token is a nonlexical vocalization (or a bare vowel
+    word beside one). Public: document assembly writes the per-line `adlib`
+    schema flag with the same predicate (single source of truth).
+
+    The vowel-word clause is a 2026-08-13 field fix. "Oh I, oh I, oh I, oh I"
+    failed the old all-nonlexical test on its four "I"s and so never reached
+    the ad-lib snap — measured at +0.6..+0.9 s from its anchor across all six
+    occurrences in the archive, and reported by ear as arriving late. "aw" was
+    simply missing from the table, which cost more: on JamendoLyrics the line
+    "aw ah aw ah aw aw ah" sits 40 SECONDS from its anchor, the single worst
+    placement in the set.
+
+    Measured on that benchmark, for lines drifting into the ad-lib snap band:
+    the anchor beats the aligner on 67% of ad-lib lines (median 378 -> 182 ms)
+    and on 80% of nonlexical lines overall (785 -> 216 ms), while on LEXICAL
+    lines the aligner wins by the same margin (103 vs 287 ms). Ad-libs are
+    where the human stamp is right and the model is lost — which is exactly
+    why this path existed already, and why missing two token shapes mattered.
+    """
     tokens = re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ']+", text)
-    return bool(tokens) and all(_NONLEXICAL_TOKEN.match(t) for t in tokens)
+    if not tokens or not any(_NONLEXICAL_TOKEN.match(t) for t in tokens):
+        return False
+    return all(_NONLEXICAL_TOKEN.match(t) or _VOWEL_WORD.match(t) for t in tokens)
 
 
 @dataclass(frozen=True)

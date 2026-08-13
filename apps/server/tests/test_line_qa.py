@@ -9,6 +9,7 @@ from kashi_server.pipeline.line_qa import (
     DRIFT_THRESHOLD_MS,
     TRIM_MAX_HOLD_MS,
     apply_line_qa,
+    is_adlib,
     trim_word_ends,
 )
 
@@ -855,13 +856,16 @@ def _nudge_case(line_start_ms: int, onsets: list[int]):
     words = [
         AlignedWord(start_ms=line_start_ms + k * 400, end_ms=line_start_ms + k * 400 + 300,
                     text=t, prob=0.9)
-        for k, t in enumerate(["oh", "i", "oh", "i"])
+        for k, t in enumerate(["hold", "me", "closer", "now"])
     ]
     lines = [
         LineTiming(start_ms=1_000, end_ms=2_000, text="first line here", score=0.9),
         LineTiming(start_ms=5_000, end_ms=6_000, text="second line here", score=0.9),
         LineTiming(
-            start_ms=line_start_ms, end_ms=line_start_ms + 1_500, text="oh i oh i", score=0.9
+            start_ms=line_start_ms,
+            end_ms=line_start_ms + 1_500,
+            text="hold me closer now",
+            score=0.9,
         ),
         LineTiming(start_ms=20_000, end_ms=21_000, text="last line here", score=0.9),
     ]
@@ -979,3 +983,51 @@ def test_a_marginal_win_is_not_a_win():
     )
     assert out.nudged == []
     assert out.result.lines[2].start_ms == start
+
+
+# --- ad-lib detection: the two shapes it was missing (field fix 2026-08-13) -
+
+
+def test_a_hook_of_oh_and_i_is_an_adlib():
+    """"Oh I, oh I, oh I, oh I" failed the old all-nonlexical test on its four
+    "I"s and never reached the ad-lib snap. Measured at +0.6..+0.9 s from its
+    anchor across all six occurrences in the archive, and reported by ear as
+    late — the exact line this clause exists for."""
+    assert is_adlib("Oh I, oh I, oh I, oh I")
+    assert is_adlib("Oh, I")
+
+
+def test_aw_is_a_vocalization():
+    """"aw" was simply missing from the table. On JamendoLyrics the line
+    "aw ah aw ah aw aw ah" sits FORTY SECONDS from its anchor — the single
+    worst placement in the set, and unreachable by the repair built for it."""
+    assert is_adlib("aw ah aw ah aw aw ah")
+    assert is_adlib("Aww")
+
+
+def test_a_bare_vowel_word_is_not_a_hook_on_its_own():
+    """"I" and "a" are only ad-lib-compatible BESIDE a real vocalization; a
+    line that is nothing but them is ordinary text that happens to be short."""
+    assert not is_adlib("I")
+    assert not is_adlib("a")
+    assert not is_adlib("I I I")
+
+
+def test_only_the_vowel_letters_get_the_exemption():
+    """The clause is about ACOUSTICS: "I" and "a" are pure vowels, which is
+    why they behave like "oh". A consonant letter is a different thing — "Oh
+    b" is not a hook, and widening this to any single letter would start
+    swallowing initialisms and stray letters."""
+    assert not is_adlib("Oh b")
+    assert not is_adlib("Oh, k")
+    assert is_adlib("Oh, i")
+
+
+def test_lexical_lines_that_merely_start_with_oh_stay_lexical():
+    """The clause must not swallow sung sentences: an ad-lib line loses its
+    aligner timing to the anchor, and doing that to a real line would be the
+    worst trade in the pipeline."""
+    assert not is_adlib("Oh I love you")
+    assert not is_adlib("Oh, I'm in love with your body")
+    assert not is_adlib("I am the one")
+    assert not is_adlib("Come on boy, move that body")

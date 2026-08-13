@@ -557,5 +557,24 @@
 #   · The band's lower bound is a cheap skip, not the protection: below the
 #     arbiter's 200 ms onset tolerance a shift cannot change support at all,
 #     so the evidence gate is what holds. A test pins that relationship.
-PIPELINE_VERSION = "2.25.0"
+# 2.25.1: the ad-lib detector was missing two token shapes, and the repair
+# built for exactly this case could not reach the lines that needed it most.
+#   · "Oh I, oh I, oh I, oh I" failed the all-nonlexical test on its four
+#     "I"s. A one-letter vowel word is lexical to a reader and pure
+#     vocalization to a singer — no consonant, no landmark, nothing for CTC
+#     to lock onto — so it now counts as ad-lib-compatible BESIDE a real
+#     vocalization (never on its own, and only i/a: "Oh b" is not a hook).
+#     Measured in the archive at +0.6..+0.9 s from its anchor across all six
+#     occurrences, and reported by ear as arriving late.
+#   · "aw" was simply absent from the table. On JamendoLyrics the line
+#     "aw ah aw ah aw aw ah" sits FORTY SECONDS from its anchor — the worst
+#     single placement in the set, and the ad-lib snap could not see it.
+# Why the anchor is the right authority here, measured on the same set: for
+# lines drifting into the snap band the anchor beats the aligner on 67% of
+# ad-lib lines (median 378 -> 182 ms) and 80% of nonlexical ones overall
+# (785 -> 216 ms), while on LEXICAL lines the aligner wins by the same margin
+# (103 vs 287 ms). Ad-libs are where the human stamp is right and the model
+# is lost; that asymmetry is why this path existed, and why two missing
+# token shapes cost so much.
+PIPELINE_VERSION = "2.25.1"
 PIPELINE_MAJOR = 2
