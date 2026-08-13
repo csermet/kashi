@@ -283,14 +283,23 @@ body.fx-full .word-sung {
 }
 
 body.fx-simple .word-fill,
-body.fx-full .word-fill {
+body.fx-full .word-fill,
+body.fx-hype .word-fill {
   /* Tail = a dim of the THEME hue (secondary derives from the primary) at
      55% alpha; the #fff default computes to exactly the old
-     rgba(255,255,255,0.55), so unthemed tracks are pixel-identical. */
+     rgba(255,255,255,0.55), so unthemed tracks are pixel-identical.
+
+     `--fx-color` FIRST, theme hue as the fallback (field report 2026-08-13,
+     Rihanna "Don't Stop The Music"): a sweeping word used to be painted by
+     the gradient alone, which is theme-coloured, so an fx word LOST its
+     identity colour the moment it started sweeping — the popping repeats of
+     the same line stayed purple while the sweeping ones turned pale. The
+     variable is only defined on .fx-word, so an ordinary word still resolves
+     to exactly the old values. */
   background-image: linear-gradient(
     90deg,
-    var(--kashi-primary, #fff) calc(var(--kashi-fill, 0) * 100%),
-    color-mix(in srgb, var(--kashi-secondary, #fff) 55%, transparent)
+    var(--fx-color, var(--kashi-primary, #fff)) calc(var(--kashi-fill, 0) * 100%),
+    color-mix(in srgb, var(--fx-color, var(--kashi-secondary, #fff)) 55%, transparent)
       calc(var(--kashi-fill, 0) * 100%)
   );
   -webkit-background-clip: text;

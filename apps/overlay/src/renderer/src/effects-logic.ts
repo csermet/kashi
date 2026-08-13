@@ -679,3 +679,73 @@ export function computeFxTintVars(
   }
   return vars;
 }
+
+/**
+ * One fill plan per DISTINCT LINE TEXT, so a repeated line looks the same
+ * every time it comes round.
+ *
+ * Field report (Caner, 2026-08-13, Rihanna "Don't Stop The Music"): the same
+ * chorus opens the song four times and rendered four different ways — some
+ * words sweeping, some popping, in a different pattern each pass. The cause is
+ * that `planWordFills` reads MEASURED durations, and the aligner's measurement
+ * of one repeated word is noisy far beyond the threshold that decides the look:
+ *
+ *   pass 1  music=1092  (music=1029  music=1029  music=1050  music=903)  -> 5 sweep
+ *   pass 2  music= 336  (music= 756  music=1029  music=1029  music=1323) -> 3 sweep
+ *   pass 3  music=1092  (music=1029  music=1029  music=1029  music=882)  -> 5 sweep
+ *   pass 4  music= 315  (music= 735  music= 273  music= 735  music=903)  -> 1 sweep
+ *
+ * Same words, same melody, 273–1092 ms. The look should follow the SONG, not
+ * the measurement error, so identical text gets one plan built from the MEDIAN
+ * duration of each word across its instances — the median because one wild
+ * pass (that 273 ms) must not drag the shared answer with it.
+ *
+ * Groups that disagree on word COUNT are left alone: same text with a
+ * different number of words means the lines are not really the same line.
+ */
+export function planFillsByLineIdentity(
+  lines: readonly {
+    text: string;
+    adlib?: boolean;
+    words?: readonly { start_ms: number; end_ms: number }[];
+  }[],
+  level: EffectLevel,
+): (boolean[] | undefined)[] {
+  const groups = new Map<string, number[]>();
+  for (const [index, line] of lines.entries()) {
+    if (!line.words || line.words.length === 0) continue;
+    const key = `${line.adlib === true ? 'a' : 'l'}|${line.words.length}|${line.text.trim().toLowerCase()}`;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(index);
+    else groups.set(key, [index]);
+  }
+
+  const plans: (boolean[] | undefined)[] = lines.map(() => undefined);
+  for (const indices of groups.values()) {
+    const first = lines[indices[0] as number];
+    const words = first?.words;
+    if (!words) continue;
+    const typical = words.map((_, wordIndex) => {
+      const spans = indices
+        .map((lineIndex) => {
+          const word = lines[lineIndex]?.words?.[wordIndex];
+          return word ? word.end_ms - word.start_ms : null;
+        })
+        .filter((span): span is number => span !== null)
+        .sort((a, b) => a - b);
+      const middle = Math.floor(spans.length / 2);
+      const median =
+        spans.length === 0
+          ? 0
+          : spans.length % 2 === 1
+            ? (spans[middle] as number)
+            : (((spans[middle - 1] as number) + (spans[middle] as number)) / 2);
+      // planWordFills only ever reads end-start, so a synthetic span carrying
+      // the median is the whole input it needs.
+      return { start_ms: 0, end_ms: median };
+    });
+    const shared = planWordFills(typical, first?.adlib === true, level);
+    for (const lineIndex of indices) plans[lineIndex] = shared;
+  }
+  return plans;
+}

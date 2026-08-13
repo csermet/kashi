@@ -36,6 +36,7 @@ import {
   paletteToCssVars,
   planWordFills,
   relativeLuminance,
+  planFillsByLineIdentity,
 } from './effects-logic.js';
 import { NEUTRAL_BG_TRIPLET, PARTICLE_BANDS, hexToOklch, hueDistance } from './color-tone.js';
 
@@ -647,5 +648,75 @@ describe('nightcore gate + ramp sections (Faz 6.5 P5)', () => {
     expect(inRampSection(sections, 3000)).toBe(false); // verse is not a ramp type
     expect(inRampSection(sections, 4500)).toBe(false);
     expect(inRampSection(undefined, 0)).toBe(false);
+  });
+});
+
+describe('planFillsByLineIdentity', () => {
+  /** The four opening passes of Rihanna "Don't Stop The Music", as measured. */
+  const spans = (durations: number[]) =>
+    durations.map((d, i) => ({ start_ms: i * 2000, end_ms: i * 2000 + d }));
+  const CHORUS = 'Please don\'t stop the music (music, music, music, music)';
+  const PASSES = [
+    [273, 189, 231, 147, 1092, 1029, 1029, 1050, 903],
+    [252, 147, 252, 126, 336, 756, 1029, 1029, 1323],
+    [294, 168, 252, 147, 1092, 1029, 1029, 1029, 882],
+    [294, 126, 273, 147, 315, 735, 273, 735, 903],
+  ];
+  const lines = PASSES.map((p) => ({ text: CHORUS, words: spans(p) }));
+
+  it('renders every pass of a repeated line the same way', () => {
+    // The bug, stated as a property: four identical passes rendered 5/3/5/1
+    // sweeping words because the aligner measured the same word anywhere from
+    // 273 ms to 1092 ms.
+    const plans = planFillsByLineIdentity(lines, 'full');
+    const rendered = plans.map((p) => JSON.stringify(p));
+    expect(new Set(rendered).size).toBe(1);
+  });
+
+  it('does not simply fill everything to achieve that', () => {
+    // Consistency is cheap if you give up and sweep every word — the short
+    // words at the front must still pop.
+    const plan = planFillsByLineIdentity(lines, 'full')[0];
+    expect(plan?.slice(0, 4)).toEqual([false, false, false, false]);
+    expect(plan?.some(Boolean)).toBe(true);
+  });
+
+  it('answers for the GROUP, not for whichever pass came first', () => {
+    // Word 5 was measured 1092/336/1092/315. The first pass alone says
+    // "sweep"; the group's middle says otherwise, and the group is the truth
+    // about the song.
+    const plan = planFillsByLineIdentity(lines, 'full')[0];
+    expect(plan?.[4]).toBe(false);
+  });
+
+  it('takes the MIDDLE, so one wild pass cannot drag the answer', () => {
+    // Three passes agree the word is held; one measurement collapsed it. A
+    // mean lets that outlier decide (775 ms -> pop); the median leaves it
+    // outvoted 3 to 1 (1000 ms -> sweep).
+    const outlier = [1000, 1000, 1000, 100].map((d) => ({
+      text: 'held',
+      words: [{ start_ms: 0, end_ms: d }],
+    }));
+    expect(planFillsByLineIdentity(outlier, 'full')[0]).toEqual([true]);
+  });
+
+  it('keeps lines apart when the same text carries a different word count', () => {
+    // Same words, different line: "please don't stop the, please don't stop
+    // the music" is not the chorus even when the text normalises close.
+    const odd = [
+      { text: CHORUS, words: spans([900, 900]) },
+      { text: CHORUS, words: spans([900, 900, 900]) },
+    ];
+    const plans = planFillsByLineIdentity(odd, 'full');
+    expect(plans[0]).toHaveLength(2);
+    expect(plans[1]).toHaveLength(3);
+  });
+
+  it('leaves a line with no words unplanned', () => {
+    expect(planFillsByLineIdentity([{ text: 'x' }], 'full')[0]).toBeUndefined();
+  });
+
+  it('respects the effect level', () => {
+    expect(planFillsByLineIdentity(lines, 'off')[0]?.every((f) => f === false)).toBe(true);
   });
 });

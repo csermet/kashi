@@ -33,6 +33,7 @@ import {
   inRampSection,
   isNightcore,
   paletteToCssVars,
+  planFillsByLineIdentity,
   planWordFills,
   quantizedEnergy,
   type BeatFrame,
@@ -500,6 +501,13 @@ function updateWordFill(words: readonly WordTiming[], index: number, pos: number
   wordSpans[index]?.style.setProperty('--kashi-fill', fillProgress(word, pos).toFixed(3));
 }
 
+/** One plan per distinct line text; rebuilt when the document or level changes. */
+let sharedFillPlans: (boolean[] | undefined)[] = [];
+
+function rebuildFillPlans(): void {
+  sharedFillPlans = planFillsByLineIdentity(lines, effectLevel);
+}
+
 function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   if (!lineEl) return;
   lineEl.replaceChildren();
@@ -508,7 +516,14 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   // spans: planned words carry their base dialect from the first paint — the
   // base must never change mid-line (field feedback 2026-07-14: the grey ->
   // dim-theme snap at activation read as a glitch).
-  fillPlan = planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
+  // The plan comes from the LINE'S IDENTITY, not this instance's measured
+  // durations: a repeated chorus must not change its look pass to pass just
+  // because the aligner measured the same word 273 ms one time and 1092 ms
+  // the next (field report 2026-08-13). The per-instance call remains the
+  // fallback for a line that belongs to no group.
+  fillPlan =
+    sharedFillPlans[lineIndex] ??
+    planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
   const fxHits = fxIndex.get(lineIndex) ?? [];
   // The halo's colour is NOT chosen here: ambientColors() takes the line's
   // primary hit itself, so a two-category line cannot repaint it mid-line.
@@ -778,6 +793,7 @@ window.kashi.onLyrics((payload) => {
   searching = false;
   if (data.found && data.lines) {
     lines = data.lines;
+    rebuildFillPlans();
     // Server enrichment (Faz 4): palette themes the box, beats drive the
     // pulse; fx tags feed the hype level (Faz 6). lrclib results carry
     // none of them — defaults keep the plain look.
@@ -915,6 +931,7 @@ window.kashi.onSettings((payload) => {
     // Instant switch: a body class + variable/cursor reset — nothing rebuilt
     // except the word spans (their fill plan depends on the level).
     effectLevel = parseEffectLevel(effect_level);
+    rebuildFillPlans(); // the plan depends on the level ('off' fills nothing)
     applyEffectLevelClass();
     applyPaletteVars();
     rebuildBeatCursor();
