@@ -204,14 +204,46 @@ export const FILL_MIN_RUN = 2;
  *     an isolated long word mid-line pops like its neighbours.
  * Computed once per line (span build time), not per frame.
  */
+/** Letters only, so "music", "(music," and "music)" are one word repeated. */
+function repeatKey(text: string | undefined): string {
+  return (text ?? '').toLowerCase().replace(/[^\p{L}]/gu, '');
+}
+
 export function planWordFills(
-  words: readonly { start_ms: number; end_ms: number }[],
+  words: readonly { start_ms: number; end_ms: number; text?: string }[],
   lineAdlib: boolean,
   level: EffectLevel,
 ): boolean[] {
   if (level === 'off' || words.length === 0) return words.map(() => false);
   if (lineAdlib) return words.map(() => true);
   const sustained = words.map((w) => w.end_ms - w.start_ms >= FILL_MIN_WORD_DURATION_MS);
+
+  // A word REPEATED back to back is one gesture, so it gets one answer (field
+  // report 2026-08-13, Rihanna "(music, music, music, music)"): five identical
+  // words straddled the threshold at 714/892/1029/1029/903 ms and rendered two
+  // popping next to three sweeping, which reads as arbitrary — the ear hears no
+  // such distinction. The run's own middle decides for all of it, so one
+  // clipped measurement cannot split a hook down the middle. Punctuation is
+  // ignored: "music", "(music," and "music)" are the same word.
+  for (let start = 0; start < words.length; ) {
+    const key = repeatKey(words[start]?.text);
+    let end = start;
+    while (end + 1 < words.length && key && repeatKey(words[end + 1]?.text) === key) end += 1;
+    if (end > start) {
+      const spans = words
+        .slice(start, end + 1)
+        .map((w) => w.end_ms - w.start_ms)
+        .sort((a, b) => a - b);
+      const middle = Math.floor(spans.length / 2);
+      const median =
+        spans.length % 2 === 1
+          ? (spans[middle] as number)
+          : (((spans[middle - 1] as number) + (spans[middle] as number)) / 2);
+      const together = median >= FILL_MIN_WORD_DURATION_MS;
+      for (let i = start; i <= end; i += 1) sustained[i] = together;
+    }
+    start = end + 1;
+  }
   const plan = words.map(() => false);
   let runStart = -1;
   for (let i = 0; i <= sustained.length; i += 1) {
@@ -707,7 +739,7 @@ export function planFillsByLineIdentity(
   lines: readonly {
     text: string;
     adlib?: boolean;
-    words?: readonly { start_ms: number; end_ms: number }[];
+    words?: readonly { start_ms: number; end_ms: number; text?: string }[];
   }[],
   level: EffectLevel,
 ): (boolean[] | undefined)[] {
@@ -742,7 +774,7 @@ export function planFillsByLineIdentity(
             : (((spans[middle - 1] as number) + (spans[middle] as number)) / 2);
       // planWordFills only ever reads end-start, so a synthetic span carrying
       // the median is the whole input it needs.
-      return { start_ms: 0, end_ms: median };
+      return { start_ms: 0, end_ms: median, text: words[wordIndex]?.text };
     });
     const shared = planWordFills(typical, first?.adlib === true, level);
     for (const lineIndex of indices) plans[lineIndex] = shared;

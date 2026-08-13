@@ -467,6 +467,30 @@ function clearRunFill(): void {
   fillActiveIndex = -1;
 }
 
+/**
+ * One-shot: what the BROWSER actually computed for the first sweeping fx word.
+ *
+ * The 2026-08-13 colour report could not be settled by reading CSS — every
+ * rule looked right and the screen disagreed. A computed value from the real
+ * renderer ends that argument in one line.
+ */
+let firstFillReported = false;
+
+export function resetFirstFillReport(): void {
+  firstFillReported = false;
+}
+
+function reportFirstFill(span: HTMLElement | undefined): void {
+  if (firstFillReported || !span || !span.classList.contains('fx-word')) return;
+  firstFillReported = true;
+  const computed = getComputedStyle(span);
+  window.kashi.log(
+    `fill paint: classes=[${span.className}] --fx-color=${computed.getPropertyValue('--fx-color').trim() || '(bos)'}` +
+      ` fill=${computed.getPropertyValue('--kashi-fill').trim() || '(bos)'}` +
+      ` bg=${computed.backgroundImage.slice(0, 120)}`,
+  );
+}
+
 function updateWordFill(words: readonly WordTiming[], index: number, pos: number): void {
   const word = index >= 0 ? words[index] : undefined;
   if (!word || fillPlan[index] !== true) {
@@ -496,7 +520,9 @@ function updateWordFill(words: readonly WordTiming[], index: number, pos: number
       wordSpans[fillActiveIndex]?.style.setProperty('--kashi-fill', '1');
     }
     fillActiveIndex += 1;
-    wordSpans[fillActiveIndex]?.classList.add('word-fill');
+    const filling = wordSpans[fillActiveIndex];
+    filling?.classList.add('word-fill');
+    reportFirstFill(filling);
   }
   wordSpans[index]?.style.setProperty('--kashi-fill', fillProgress(word, pos).toFixed(3));
 }
@@ -809,6 +835,7 @@ window.kashi.onLyrics((payload) => {
   searching = false;
   if (data.found && data.lines) {
     lines = data.lines;
+    resetFirstFillReport();
     rebuildFillPlans();
     // Server enrichment (Faz 4): palette themes the box, beats drive the
     // pulse; fx tags feed the hype level (Faz 6). lrclib results carry

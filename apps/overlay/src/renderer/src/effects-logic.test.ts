@@ -720,3 +720,63 @@ describe('planFillsByLineIdentity', () => {
     expect(planFillsByLineIdentity(lines, 'off')[0]?.every((f) => f === false)).toBe(true);
   });
 });
+
+describe('a repeated word is one gesture', () => {
+  const w = (text: string, ms: number) => ({ text, start_ms: 0, end_ms: ms });
+
+  it('does not split an identical repeat down the middle', () => {
+    // Field report (Rihanna, "(music, music, music, music)"): five identical
+    // words measured 714/892/1029/1029/903 ms and rendered two popping next to
+    // three sweeping. The ear hears one gesture; the screen showed a coin toss.
+    const plan = planWordFills(
+      [
+        w('music', 714),
+        w('(music,', 892),
+        w('music,', 1029),
+        w('music,', 1029),
+        w('music)', 903),
+      ],
+      false,
+      'full',
+    );
+    expect(new Set(plan).size).toBe(1);
+    expect(plan[0]).toBe(true); // the run's middle is 903 ms — held
+  });
+
+  it('ignores punctuation when deciding what counts as the same word', () => {
+    const plan = planWordFills([w('music', 900), w('(music,', 200)], false, 'full');
+    expect(plan[0]).toBe(plan[1]);
+  });
+
+  it('lets the run decide, not its loudest member', () => {
+    // Three short and one long: the middle says pop, and one stretched
+    // measurement must not carry the whole run.
+    const plan = planWordFills(
+      [w('na', 200), w('na', 200), w('na', 200), w('na', 2000)],
+      false,
+      'full',
+    );
+    expect(plan.every((f) => f === false)).toBe(true);
+  });
+
+  it('judges DIFFERENT neighbouring words on their own merits', () => {
+    // The rule is about repetition, not about smoothing the line: two held
+    // words that are not the same word still answer for themselves (and a
+    // sustained PAIR sweeps, per the pre-existing run rule).
+    const plan = planWordFills(
+      [w('hold', 1200), w('me', 1200), w('now', 200)],
+      false,
+      'full',
+    );
+    expect(plan).toEqual([true, true, false]);
+  });
+
+  it('still works when words carry no text at all', () => {
+    const plan = planWordFills(
+      [{ start_ms: 0, end_ms: 900 }, { start_ms: 0, end_ms: 900 }],
+      false,
+      'full',
+    );
+    expect(plan).toEqual([true, true]);
+  });
+});
