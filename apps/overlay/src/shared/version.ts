@@ -2,7 +2,7 @@
  * Single source of truth for user-visible overlay version strings.
  * Bump IN LOCKSTEP with apps/overlay/package.json "version".
  */
-export const KASHI_VERSION = '0.27.4';
+export const KASHI_VERSION = '0.27.5';
 
 /**
  * The extension build this overlay was tested against. A hello from any other

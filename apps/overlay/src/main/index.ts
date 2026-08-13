@@ -1002,6 +1002,11 @@ app.whenReady().then(async () => {
     // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)
     // — Node's fetch stalls for seconds on broken IPv6 routes.
     fetchFn: net.fetch.bind(net) as typeof fetch,
+    // Without this the client's own rung notes go nowhere: the multi-artist
+    // rung logs which artist string finally hit, and that line is the only
+    // way to tell from a field log WHICH rung answered (2026-08-13 — the
+    // rung shipped and its log never appeared, because there was no sink).
+    log: makeLogger('lookup'),
   });
 
   buildServerConnections();
