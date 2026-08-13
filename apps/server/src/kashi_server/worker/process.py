@@ -21,7 +21,20 @@ from sqlalchemy.orm import Session
 from kashi_server import queue
 from kashi_server.config import settings
 from kashi_server.db.models import Job, UploadedAudio
-from kashi_server.pipeline.alignment import AlignResult, align, quality_from_probs
+from kashi_server.pipeline.alignment import (
+    AlignResult,
+    align,
+    quality_from_probs,
+    resolve_aligner,
+    transcribe,
+)
+from kashi_server.pipeline.asr import (
+    DEFAULT_MATCH_THRESHOLD,
+    SLICE_SECONDS,
+    pick_by_transcript,
+    similarity,
+    slice_window,
+)
 from kashi_server.pipeline.audio_source import fetch_audio
 from kashi_server.pipeline.beats import extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
@@ -177,12 +190,28 @@ def checkpoint(s: Session, job: Job) -> None:
     s.commit()
 
 
-def _decode(src: Path, dest: Path, rate: int, *, tempo: float = 1.0) -> Path:
+def _decode(
+    src: Path,
+    dest: Path,
+    rate: int,
+    *,
+    tempo: float = 1.0,
+    start_s: float | None = None,
+    length_s: float | None = None,
+) -> Path:
     """Decode to mono wav; tempo != 1 additionally rubberband-stretches BOTH
     tempo and pitch (nightcore slow-down; librubberband is in the image).
     Rubberband runs near realtime, hence its own timeout (20-min cap tracks
     would blow the plain 300 s budget)."""
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(src)]
+    cmd = ["ffmpeg", "-y", "-v", "error"]
+    # Seek BEFORE -i: ffmpeg then skips to the keyframe instead of decoding
+    # everything up to it, which is the difference between a slice costing
+    # milliseconds and costing the whole file.
+    if start_s is not None:
+        cmd += ["-ss", f"{start_s:.3f}"]
+    cmd += ["-i", str(src)]
+    if length_s is not None:
+        cmd += ["-t", f"{length_s:.3f}"]
     if tempo != 1.0:
         cmd += ["-af", rubberband_filter(tempo)]
     cmd += ["-ar", str(rate), "-ac", "1", str(dest)]
@@ -374,6 +403,70 @@ def _caller_lyrics(job: Job) -> LyricsText | None:
     if isinstance(text, str) and text.strip():
         return lyrics_from_text(text)
     return None
+
+
+def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText | None:
+    """LAST rung: pick the record whose words match what the audio SINGS.
+
+    Every rung above this one reasons about metadata, and for a cover, remix or
+    fan edit the metadata is about the UPLOADER rather than the song — the words
+    are the original's, the credits are not. Measured 2026-08-13: a title-only
+    lrclib search does return the original ("Heathens (But It hits different)"
+    -> twenty one pilots), it just cannot tell which of twenty records that is.
+    The audio can.
+
+    Returns None rather than raising: this rung is a bonus, and its failure must
+    leave the original lyrics_not_found error — with the hints the user actually
+    sent — as the thing the caller reports.
+    """
+    hints = dict(job.hints or {})
+    title = (
+        (job.options or {}).get("original_title")
+        or clean_title(hints.get("title") or "")
+        or hints.get("title")
+        or ""
+    )
+    artist = normalize_artist(hints.get("artist") or "")
+    candidates = [
+        rec for rec in _original_song_candidates(title, artist) if rec.get("plainLyrics")
+    ]
+    if not candidates:
+        return None
+
+    start_s, length_s = slice_window(download.duration_s, SLICE_SECONDS)
+    if length_s <= 0:
+        return None
+    try:
+        wav = _decode(
+            download.path, tmp / "ear.wav", rate=16000, start_s=start_s, length_s=length_s
+        )
+        # English on purpose: the language is UNKNOWN here — langid reads the
+        # LYRICS, and having none is why this rung is running. English is the
+        # roadmap's first language and the model most likely already resident.
+        transcript = transcribe(wav, resolve_aligner("eng", None, None, None, None).model_name)
+    except Exception as exc:  # a bonus rung must never fail the job
+        logger.info("job %s: by-ear rung could not transcribe (%s)", job.id, exc)
+        return None
+
+    scored = [(similarity(transcript, rec.get("plainLyrics") or ""), rec) for rec in candidates]
+    best_score = max((score for score, _ in scored), default=0.0)
+    picked = pick_by_transcript(
+        transcript,
+        [(rec, rec.get("plainLyrics") or "") for rec in candidates],
+        threshold=DEFAULT_MATCH_THRESHOLD,
+    )
+    # Logged on BOTH paths: the threshold rests on five songs, and the only way
+    # it ever improves is field scores next to their outcome.
+    logger.info(
+        "job %s: by-ear best=%.3f over %d candidates -> %s",
+        job.id,
+        best_score,
+        len(candidates),
+        "accepted" if picked is not None else "rejected",
+    )
+    if picked is None:
+        return None
+    return lyrics_from_record(picked)
 
 
 def _plain_lyrics(job: Job) -> LyricsText:
@@ -607,7 +700,23 @@ def process_job(s: Session, job: Job) -> None:
         # a doomed lyrics_not_found no longer pays for separation first
         # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
         detection = _detect_nightcore(job, download)
-        plain_lyrics = _plain_lyrics(job) if detection[0] == 1.0 else None
+        if detection[0] == 1.0:
+            try:
+                plain_lyrics = _plain_lyrics(job)
+            except PipelineError as exc:
+                # Every metadata rung has now failed. The words themselves are
+                # the last thing left to ask, and they only get asked here so
+                # that a job which WOULD have found lyrics never pays for a
+                # transcription pass.
+                if exc.error_type != "lyrics_not_found":
+                    raise
+                by_ear = _lyrics_by_ear(job, download, tmp)
+                if by_ear is None:
+                    raise
+                logger.info("job %s: lyrics resolved BY EAR", job.id)
+                plain_lyrics = by_ear
+        else:
+            plain_lyrics = None
         fast_result = (
             alignresult_from_lyricsfile(plain_lyrics.lyricsfile_raw, download.duration_s)
             if plain_lyrics is not None and plain_lyrics.source == "lrclib"

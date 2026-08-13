@@ -127,6 +127,18 @@ def similarity(transcript: str, lyrics: str) -> float:
     return len(heard & written) / len(heard)
 
 
+def usable_columns(emission_width: int, vocab_size: int) -> int:
+    """How many emission columns are real tokens.
+
+    ctc_forced_aligner APPENDS a <star> column to the emissions it returns, and
+    that column wins every single frame: argmax over the full width returned the
+    star id 2250 times out of 2250 on the first probe run (2026-08-13) and the
+    transcript came back empty. The vocabulary size is the truth about how wide
+    the real distribution is; anything past it belongs to the aligner.
+    """
+    return min(emission_width, vocab_size)
+
+
 def greedy_ctc_decode(
     ids: Sequence[int],
     id_to_token: Mapping[int, str],

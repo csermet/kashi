@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from kashi_server.pipeline import japanese
+from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
 from kashi_server.pipeline.windows import plan_windows, reconcile_seams
 from kashi_server.vdl_kit.errors import PipelineError
@@ -539,6 +540,36 @@ def _align_texts(
 
 
 SAMPLES_PER_MS = 16  # load_audio normalizes to 16 kHz mono
+
+
+def transcribe(wav_path: Path, model_name: str) -> str:
+    """Rough CTC transcript of `wav_path` — what the audio SAYS, not when.
+
+    Free in the sense that matters: the emissions this decodes are the same
+    ones alignment already knows how to produce, and the model is one this
+    process may already hold. No new dependency, no new licence question.
+
+    Never shown to anyone and never becomes lyrics: it exists only to rank
+    candidate lyric sheets (pipeline/asr.py), and a greedy decode with no
+    language model over a full mix reads closer to phonetics than to text.
+    """
+    from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
+        generate_emissions,
+        load_audio,
+    )
+
+    model, tokenizer = _load_model(model_name)
+    audio = load_audio(str(wav_path), model.dtype, model.device)
+    emissions, _stride = generate_emissions(model, audio, batch_size=4)
+    vocab = tokenizer.get_vocab()
+    # ctc_forced_aligner APPENDS a <star> column to the emissions, and it wins
+    # every frame — argmax over the full width returns the star id 2250 times
+    # out of 2250 and decodes to an empty string. Measured, not guessed: the
+    # first probe run on 2026-08-13 produced exactly that.
+    keep = usable_columns(int(emissions.shape[-1]), len(vocab))
+    ids = emissions[:, :keep].argmax(dim=-1).squeeze().tolist()
+    id_to_token = {token_id: token for token, token_id in vocab.items()}
+    return greedy_ctc_decode(ids, id_to_token, vocab.get("<pad>", 0))
 
 
 def align(

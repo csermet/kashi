@@ -1064,3 +1064,95 @@ def test_credible_duration_hint_rejects_junk():
     assert wp.credible_duration_hint({"duration_ms": True}) is None  # bool is an int
     assert wp.credible_duration_hint({"duration_ms": "200000"}) is None
     assert wp.credible_duration_hint({"duration_ms": 200_000}) == 200_000
+
+
+class TestLyricsByEar:
+    """The last rung: pick the record whose words match what the audio sings."""
+
+    HEARD = "all my frends ar hethens tak it slo weit for them to ask you who you no"
+    RIGHT = {
+        "id": 1,
+        "trackName": "Heathens",
+        "artistName": "twenty one pilots",
+        "plainLyrics": "All my friends are heathens, take it slow\nWait for them to ask you who you know",
+    }
+    WRONG = {
+        "id": 2,
+        "trackName": "Heathens",
+        "artistName": "Somebody Else",
+        "plainLyrics": "Girl I got that mad love for you\nTell me what you wanna do",
+    }
+
+    @pytest.fixture
+    def job(self):
+        class _Job:
+            id = "job-1"
+            hints = {"title": "Heathens (But It hits different)", "artist": "Eiden XII"}
+            options = {}
+
+        return _Job()
+
+    @pytest.fixture
+    def download(self, tmp_path):
+        return DownloadResult(
+            path=tmp_path / "audio.m4a", abr=128.0, acodec="aac", duration_s=180.0, info={}
+        )
+
+    def _wire(self, monkeypatch, candidates, transcript=HEARD):
+        monkeypatch.setattr(wp, "_original_song_candidates", lambda *a, **k: candidates)
+        monkeypatch.setattr(wp, "_decode", lambda *a, **k: Path("/tmp/ear.wav"))
+        monkeypatch.setattr(wp, "transcribe", lambda *a, **k: transcript)
+        monkeypatch.setattr(
+            wp, "resolve_aligner", lambda *a, **k: type("S", (), {"model_name": "m"})()
+        )
+
+    def test_picks_the_record_the_audio_agrees_with(self, monkeypatch, job, download, tmp_path):
+        # The 2026-08-13 field case: the upload is credited to the cover
+        # artist, so only the words can point at the original.
+        self._wire(monkeypatch, [self.WRONG, self.RIGHT])
+        result = wp._lyrics_by_ear(job, download, tmp_path)
+        assert result is not None
+        assert "heathens" in " ".join(result.line_texts).lower()
+
+    def test_returns_none_rather_than_guessing_when_nothing_matches(
+        self, monkeypatch, job, download, tmp_path
+    ):
+        self._wire(monkeypatch, [self.WRONG])
+        assert wp._lyrics_by_ear(job, download, tmp_path) is None
+
+    def test_a_failed_transcription_is_not_a_failed_job(
+        self, monkeypatch, job, download, tmp_path
+    ):
+        # A bonus rung must never turn a clean lyrics_not_found into a crash —
+        # the caller re-raises the ORIGINAL error, which names the real hints.
+        self._wire(monkeypatch, [self.RIGHT])
+
+        def boom(*a, **k):
+            raise RuntimeError("no model")
+
+        monkeypatch.setattr(wp, "transcribe", boom)
+        assert wp._lyrics_by_ear(job, download, tmp_path) is None
+
+    def test_spends_nothing_when_there_is_nobody_to_choose_between(
+        self, monkeypatch, job, download, tmp_path
+    ):
+        # No candidates -> no decode, no model load. The rung is free when it
+        # cannot possibly help.
+        calls: list[str] = []
+        monkeypatch.setattr(wp, "_original_song_candidates", lambda *a, **k: [])
+        monkeypatch.setattr(wp, "_decode", lambda *a, **k: calls.append("decode"))
+        assert wp._lyrics_by_ear(job, download, tmp_path) is None
+        assert calls == []
+
+    def test_a_record_without_plain_lyrics_costs_no_transcription(
+        self, monkeypatch, job, download, tmp_path
+    ):
+        # Filtering FIRST is what makes this free: a pool of records with no
+        # text to compare against must not load a model and decode audio to
+        # discover that. Without the filter the pool is non-empty and the
+        # whole pass runs before scoring zero.
+        calls: list[str] = []
+        self._wire(monkeypatch, [{"id": 3, "trackName": "Heathens", "artistName": "x"}])
+        monkeypatch.setattr(wp, "_decode", lambda *a, **k: calls.append("decode"))
+        assert wp._lyrics_by_ear(job, download, tmp_path) is None
+        assert calls == []

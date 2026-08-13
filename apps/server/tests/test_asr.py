@@ -9,6 +9,7 @@ from kashi_server.pipeline.asr import (
     pick_by_transcript,
     similarity,
     slice_window,
+    usable_columns,
 )
 
 # What a language-model-free CTC decode over a MIX actually looks like — the
@@ -168,3 +169,17 @@ class TestMeasuredThreshold:
         # +0.134 narrowest margin): spreading reaches instrumental stretches
         # and decodes them into noise.
         assert SLICE_SECONDS == 45.0
+
+
+class TestUsableColumns:
+    def test_drops_the_aligner_star_column(self):
+        # 33-token vocabulary, 34 emission columns — the extra one is <star>
+        # and it wins every frame. The first probe run decoded to an empty
+        # string for exactly this reason.
+        assert usable_columns(34, 33) == 33
+
+    def test_never_reads_past_the_end(self):
+        assert usable_columns(20, 33) == 20
+
+    def test_leaves_an_exact_width_alone(self):
+        assert usable_columns(33, 33) == 33
