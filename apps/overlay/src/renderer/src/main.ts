@@ -506,6 +506,22 @@ let sharedFillPlans: (boolean[] | undefined)[] = [];
 
 function rebuildFillPlans(): void {
   sharedFillPlans = planFillsByLineIdentity(lines, effectLevel);
+  // Report how many lines the identity rule actually CORRECTED. Without this
+  // the mechanism is invisible: a repeated line looking consistent proves
+  // nothing on its own, since it may simply have measured consistently
+  // (2026-08-13 — a field check stalled for exactly this reason).
+  let corrected = 0;
+  for (const [index, plan] of sharedFillPlans.entries()) {
+    const words = lines[index]?.words;
+    if (!plan || !words || words.length === 0) continue;
+    const own = planWordFills(words, lines[index]?.adlib === true, effectLevel);
+    if (own.join() !== plan.join()) corrected += 1;
+  }
+  if (sharedFillPlans.length > 0) {
+    window.kashi.log(
+      `fill plan: ${corrected}/${sharedFillPlans.length} line(s) took their group's shared sweep pattern`,
+    );
+  }
 }
 
 function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
