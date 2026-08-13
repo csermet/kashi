@@ -36,7 +36,8 @@ import { KashiServerClient } from './kashi-server.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
-import { AnchorGuard , positionTooDeepForAFreshTrack } from './position-sanity.js';
+import { isDurationCorrection } from './edit-check.js';
+import { AnchorGuard, positionTooDeepForAFreshTrack } from './position-sanity.js';
 import { TelemetryClient } from './telemetry.js';
 import { sessionEnvelope, serverHostOf } from './telemetry-logic.js';
 import { ReplayStore } from './replay-store.js';
@@ -178,6 +179,40 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
         // already accepted for this key — a duplicate decision carries no
         // normalized track of its own.
         if (lastTrack && lastTrack.key === decision.key) {
+          // ...unless the refresh CORRECTS the duration. Then it is not a
+          // duplicate at all: it is the first honest description of this
+          // track, and everything decided from the old number (which lrclib
+          // edit to show, where the clock anchored) was decided on a lie.
+          if (isDurationCorrection(lastTrack.track.duration_ms, track.duration_ms)) {
+            const corrected = {
+              key: decision.key,
+              track: { ...lastTrack.track, duration_ms: track.duration_ms },
+            };
+            log(
+              `duration corrected for ${decision.key}: ` +
+                `${lastTrack.track.duration_ms ?? 'yok'}ms -> ${track.duration_ms}ms` +
+                ' — re-anchoring and looking up again',
+            );
+            telemetry?.record('position_anomaly', {
+              reason: 'duration_corrected',
+              duration_ms: track.duration_ms,
+              previous_duration_ms: lastTrack.track.duration_ms,
+              action: 'relookup',
+              source: 'overlay_track_refresh',
+            });
+            lastTrack = corrected;
+            // The clock anchored inside the stale window — screen the next
+            // report the same way a genuine track change does.
+            anchorGuard.arm(Date.now());
+            send('kashi:track', corrected);
+            if (debounceTimer) clearTimeout(debounceTimer);
+            lookups.cancel();
+            debounceTimer = setTimeout(
+              () => void lookups.lookup(corrected.key, corrected.track),
+              TRACK_DEBOUNCE_MS,
+            );
+            return;
+          }
           send('kashi:track', lastTrack);
         }
         return;

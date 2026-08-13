@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyEdit, EDIT_DURATION_TOLERANCE_MS } from './edit-check.js';
+import { classifyEdit, isDurationCorrection, EDIT_DURATION_TOLERANCE_MS } from './edit-check.js';
 
 const line = (start_ms: number) => ({ start_ms, end_ms: start_ms + 2000, text: 'x' });
 
@@ -52,5 +52,35 @@ describe('classifyEdit', () => {
     // A matching duration with stamps past the end means parseLrc's clamp or a
     // trailing credit line — not a different edit. The direct signal wins.
     expect(classifyEdit(193_000, 193_000, [line(250_000)])).toBe('match');
+  });
+});
+
+describe('isDurationCorrection', () => {
+  it('catches the field case: the real duration arrives 11 s late', () => {
+    expect(isDurationCorrection(366_451, 193_000)).toBe(true);
+  });
+
+  it('ignores the ordinary metadata refresh', () => {
+    // YTM re-announces the playing track constantly; only a MATERIAL change
+    // may cost the user a re-lookup (and the lyric flash that comes with it).
+    expect(isDurationCorrection(193_000, 193_000)).toBe(false);
+    expect(isDurationCorrection(193_000, 193_400)).toBe(false);
+  });
+
+  it('treats a first duration as news — the lookup that ran had no filter', () => {
+    expect(isDurationCorrection(undefined, 193_000)).toBe(true);
+    expect(isDurationCorrection(0, 193_000)).toBe(true);
+  });
+
+  it('never acts on a refresh that carries no duration', () => {
+    // Losing a duration we already have would re-run the lookup UNFILTERED —
+    // the exact weakening this whole guard exists to prevent.
+    expect(isDurationCorrection(193_000, undefined)).toBe(false);
+    expect(isDurationCorrection(193_000, 0)).toBe(false);
+  });
+
+  it('holds the same tolerance as the edit check', () => {
+    expect(isDurationCorrection(193_000, 193_000 + EDIT_DURATION_TOLERANCE_MS)).toBe(false);
+    expect(isDurationCorrection(193_000, 193_000 + EDIT_DURATION_TOLERANCE_MS + 1)).toBe(true);
   });
 });

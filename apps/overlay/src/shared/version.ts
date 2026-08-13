@@ -9,4 +9,4 @@ export const KASHI_VERSION = '0.26.1';
  * client version prints a loud terminal warning (stale-extension detector —
  * the extension does NOT auto-rebuild from source).
  */
-export const EXPECTED_EXTENSION = 'kashi-extension/0.1.13';
+export const EXPECTED_EXTENSION = 'kashi-extension/0.1.14';

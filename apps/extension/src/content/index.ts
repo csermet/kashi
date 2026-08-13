@@ -15,6 +15,7 @@ import {
   durationIsAuthoritative,
   PositionClamp,
   shouldDeferAnnouncePosition,
+  shouldHoldStalePlayhead,
 } from './position-guard.js';
 
 const TRACK_DEBOUNCE_MS = 500;
@@ -34,12 +35,22 @@ let videoIdChangedAt = 0;
  * duration-tolerance match, so only trust it when `durationchange` fired
  * after (or shortly before) the current videoId appeared.
  */
-function freshDurationMs(): number | undefined {
+function freshDurationMs(midSession = true): number | undefined {
   const durationS = video?.duration;
   if (!durationS || !Number.isFinite(durationS)) return undefined;
   const fresh =
     lastDurationChangeAt >= videoIdChangedAt ||
-    videoIdChangedAt - lastDurationChangeAt < 8000;
+    // The permissive window belongs to COLD LOAD only, where the id is noticed
+    // a moment after metadata already landed. Mid-session it is the opposite
+    // situation with the same shape: a durationchange from before the id
+    // change can ONLY describe the track that just ended.
+    //
+    // Field case (Caner, 2026-08-13): Hey Mama was announced with 366451 ms —
+    // the previous video's duration — which sent the lrclib lookup past its
+    // duration filter and put another EDIT's stamps on screen. The comment at
+    // the announce ("undefined beats a stale value") was already the right
+    // rule; this window was quietly breaking it.
+    (!midSession && videoIdChangedAt - lastDurationChangeAt < 8000);
   return fresh ? Math.round(durationS * 1000) : undefined;
 }
 
@@ -82,12 +93,15 @@ function positionEvent(
   // timeline. Only armed once durationchange fired for the current track —
   // clamping against the previous track's duration would suppress the
   // legitimate positions of a longer one.
-  const authoritativeDuration = durationIsAuthoritative(
-    lastDurationChangeAt,
-    videoIdChangedAt,
-  )
-    ? freshDurationMs()
-    : undefined;
+  const authoritative = durationIsAuthoritative(lastDurationChangeAt, videoIdChangedAt);
+  const authoritativeDuration = authoritative ? freshDurationMs() : undefined;
+  // Guard 3: while the duration has not landed, a deep report is the PREVIOUS
+  // track's playhead — guard 1 cannot see it, because the number it would
+  // compare against is the very thing that has not arrived.
+  if (shouldHoldStalePlayhead(authoritative, positionMs, Date.now() - videoIdChangedAt)) {
+    log(`position ${positionMs}ms held — too deep for a track whose duration has not landed`);
+    return null;
+  }
   const verdict = clamp.decide(positionMs, authoritativeDuration, Date.now());
   if (verdict.note) log(verdict.note);
   if (!verdict.send) return null;
@@ -163,7 +177,7 @@ function maybeAnnounceTrack(): void {
     lastAnnouncedTitle = meta.title;
     log(
       `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'},` +
-        ` duration=${freshDurationMs() ?? 'n/a'}, currentTime=${video?.currentTime.toFixed(2) ?? 'n/a'}s)`,
+        ` duration=${freshDurationMs(wasMidSession) ?? 'n/a'}, currentTime=${video?.currentTime.toFixed(2) ?? 'n/a'}s)`,
     );
     sendEvent({
       kind: 'track_changed',
@@ -173,7 +187,7 @@ function maybeAnnounceTrack(): void {
       album: meta.album ?? undefined,
       // undefined beats a stale value: the overlay's search fallback still
       // finds lyrics without a duration, but a WRONG duration rejects all.
-      duration_ms: freshDurationMs(),
+      duration_ms: freshDurationMs(wasMidSession),
       artwork_url: meta.artworkUrl ?? undefined,
       sent_at: Date.now(),
     });

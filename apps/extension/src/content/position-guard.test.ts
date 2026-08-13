@@ -6,6 +6,8 @@ import {
   PositionClamp,
   positionOvershootsTrack,
   shouldDeferAnnouncePosition,
+  shouldHoldStalePlayhead,
+  DURATION_LANDING_BUDGET_MS,
 } from './position-guard.js';
 
 describe('positionOvershootsTrack', () => {
@@ -114,5 +116,30 @@ describe('shouldDeferAnnouncePosition', () => {
 
   it('leaves cold start and refresh untouched — nothing to leak from', () => {
     expect(shouldDeferAnnouncePosition(false)).toBe(false);
+  });
+});
+
+describe('shouldHoldStalePlayhead', () => {
+  it('holds the field case: 337 s reported for a track that just changed', () => {
+    expect(shouldHoldStalePlayhead(false, 337_803, 200)).toBe(true);
+  });
+
+  it('lets a real fresh start through untouched', () => {
+    expect(shouldHoldStalePlayhead(false, 150, 200)).toBe(false);
+    expect(shouldHoldStalePlayhead(false, 14_000, 200)).toBe(false);
+  });
+
+  it('stands down the moment the duration describes THIS track', () => {
+    // Once the duration has landed, guard 1 owns the question and it has a
+    // real number to compare against — this one must not double-judge.
+    expect(shouldHoldStalePlayhead(true, 337_803, 200)).toBe(false);
+  });
+
+  it('covers the 11.5 s the field case actually took', () => {
+    expect(shouldHoldStalePlayhead(false, 337_803, 11_500)).toBe(true);
+  });
+
+  it('gives up rather than starve the clock', () => {
+    expect(shouldHoldStalePlayhead(false, 337_803, DURATION_LANDING_BUDGET_MS + 1)).toBe(false);
   });
 });

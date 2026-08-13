@@ -58,6 +58,49 @@ export function durationIsAuthoritative(
   return lastDurationChangeAt >= videoIdChangedAt;
 }
 
+/**
+ * A track that just changed cannot already be this deep. Same threshold and
+ * same reasoning as the overlay's AnchorGuard — applied here so the stale
+ * playhead never leaves the page in the first place.
+ */
+export const FRESH_TRACK_MAX_POSITION_MS = 15_000;
+/**
+ * How long we are willing to sit on deep reports waiting for the duration to
+ * land. The field case took 11.5 s (YTM rebuilt the <video> element), so a
+ * shorter budget would release the stale playhead just before the truth
+ * arrived. The renderer's starvation watchdog is 60 s, so this can never cost
+ * the user their clock — and SHALLOW reports flow the whole time anyway.
+ */
+export const DURATION_LANDING_BUDGET_MS = 12_000;
+
+/**
+ * Guard 3 (field bug, Caner 2026-08-13 — Hey Mama): hold a report that is
+ * implausibly deep for a track that JUST changed, while its duration has not
+ * landed yet.
+ *
+ * The 0.1.13 fix deferred the position carried BY the announce, but YTM keeps
+ * streaming `timeupdate` reports from the old timeline, and those were still
+ * going out. Downstream the overlay's AnchorGuard rejected them correctly —
+ * then its anti-deadlock budget released one anyway and the clock anchored
+ * 352 s into a 193 s song, showed one line, and fell to the interlude mark
+ * until a reload.
+ *
+ * Deliberately narrow: it needs no duration (the duration is exactly what is
+ * missing), it only fires in the window where the page is known to be
+ * self-contradictory, and a real fresh position (0-15 s) is never touched.
+ */
+export function shouldHoldStalePlayhead(
+  durationAuthoritative: boolean,
+  positionMs: number,
+  msSinceVideoIdChanged: number,
+  maxPositionMs: number = FRESH_TRACK_MAX_POSITION_MS,
+  budgetMs: number = DURATION_LANDING_BUDGET_MS,
+): boolean {
+  if (durationAuthoritative) return false; // the duration describes THIS track
+  if (msSinceVideoIdChanged > budgetMs) return false; // give up, never starve
+  return positionMs > maxPositionMs;
+}
+
 /** `note`, when present, is a line worth logging; `send` is the decision. */
 export interface ClampDecision {
   send: boolean;

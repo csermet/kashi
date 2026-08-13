@@ -44,6 +44,29 @@ export type EditVerdict =
   /** Positive evidence that the sheet was written against a different edit. */
   | 'different-edit';
 
+/**
+ * Did a re-announce of the SAME track bring a materially different duration?
+ *
+ * The other half of the 2026-08-13 field case. YTM announces the new video id
+ * while player-api still holds the previous video's metadata, then re-announces
+ * the same id with the real numbers once its video element attaches — 11.5 s
+ * later in the field log. That correction used to be discarded as a duplicate,
+ * so a track that started life with a foreign duration kept it forever: wrong
+ * lrclib edit on screen, clock anchored past the end, and only F5 fixed it.
+ *
+ * A duration arriving where we had NONE counts too: the lookup that already
+ * ran had no duration filter at all, which is the weakest possible match.
+ */
+export function isDurationCorrection(
+  knownMs: number | undefined,
+  incomingMs: number | undefined,
+  toleranceMs: number = EDIT_DURATION_TOLERANCE_MS,
+): boolean {
+  if (!incomingMs || incomingMs <= 0) return false; // nothing new to learn
+  if (!knownMs || knownMs <= 0) return true; // we had none — this IS news
+  return Math.abs(incomingMs - knownMs) > toleranceMs;
+}
+
 export function classifyEdit(
   trackDurationMs: number | undefined,
   recordDurationMs: number | null,
