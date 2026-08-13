@@ -1051,7 +1051,12 @@ function frame(): void {
   const pos = rawPos + timingOffsetMs;
   let activeText: string | null = null;
   let lineIndex = -1;
-  if (!adActive && lines.length > 0) {
+  // `clock.anchored` and not just `lines.length`: an unanchored clock reads 0,
+  // which is indistinguishable from a track that genuinely just started. Drawing
+  // that guess puts line one on screen for as long as the anchor guard holds the
+  // line — and then takes it away again the moment a real position lands. The ♪
+  // already means "no line applies right now", which is exactly the truth here.
+  if (!adActive && lines.length > 0 && clock.anchored) {
     // Short gaps HOLD the previous line; only long breaks yield the interlude
     // mark (Caner's feedback — the ♪ was flashing between every section).
     lineIndex = findDisplayLine(lines, pos);

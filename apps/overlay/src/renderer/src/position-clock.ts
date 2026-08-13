@@ -120,6 +120,21 @@ export class PositionClock {
     return this.playing;
   }
 
+  /**
+   * False until the first report lands — and the difference matters, because
+   * `positionAt()` answers 0 either way.
+   *
+   * A caller that cannot tell "the track is at the start" from "nobody has told
+   * us anything yet" paints the first line of the song and leaves it up until a
+   * real report arrives, then loses it in a jump. That is the second half of
+   * the 2026-08-13 field case: while the anchor guard was (correctly) holding
+   * back the previous track's playhead, the screen had already committed to
+   * line one of a song that was 337 s from where it claimed to be.
+   */
+  get anchored(): boolean {
+    return this.hasAnchor;
+  }
+
   /** Forget everything (track change). */
   reset(): void {
     this.hasAnchor = false;

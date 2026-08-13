@@ -191,4 +191,21 @@ describe('PositionClock', () => {
     t.clock.update(report(t, 0, { playing: false }));
     expect(t.clock.positionAt(t.now)).toBe(0);
   });
+
+  it('says whether its 0 means "the start" or "nobody has said yet"', () => {
+    // Both read 0 from positionAt, and the renderer draws very different things
+    // for them: the first line of the song, or the ♪ that says it does not know.
+    const t = makeClock();
+    expect(t.clock.anchored).toBe(false);
+    expect(t.clock.positionAt(t.now)).toBe(0);
+
+    t.clock.update(report(t, 0, { playing: true }));
+    expect(t.clock.anchored).toBe(true);
+    expect(t.clock.positionAt(t.now)).toBe(0);
+
+    // A track change forgets the anchor, so the next song starts out unknown
+    // again rather than inheriting the last one's certainty.
+    t.clock.reset();
+    expect(t.clock.anchored).toBe(false);
+  });
 });
