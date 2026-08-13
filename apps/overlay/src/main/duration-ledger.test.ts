@@ -101,8 +101,13 @@ describe('DurationLedger', () => {
     await rm(cacheDir, { recursive: true, force: true });
   });
 
+  /**
+   * Long debounce on purpose: the tests that care about the file call `flush()`
+   * themselves, and a timer that fires on its own would race the temp-directory
+   * cleanup (it recreates the directory as it writes).
+   */
   const ledger = (now = 1000) =>
-    new DurationLedger({ cacheDir, nowFn: () => now, flushDelayMs: 0 });
+    new DurationLedger({ cacheDir, nowFn: () => now, flushDelayMs: 60_000 });
 
   it('learns a first sighting and answers with it', () => {
     const l = ledger();

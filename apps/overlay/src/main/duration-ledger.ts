@@ -236,6 +236,9 @@ export class DurationLedger {
       this.write(key, { ms, source, at: now });
       return 'learned';
     }
+    // Neither branch below schedules a write: `pending` is evidence we are
+    // still collecting, and `flush` strips it on the way out, so a write here
+    // would rewrite the file byte for byte to record nothing.
     if (entry.pending && agrees(entry.pending.ms, ms)) {
       entry.pending.seen++;
       if (entry.pending.seen >= CONTRADICTION_CONFIRMATIONS) {
@@ -243,13 +246,9 @@ export class DurationLedger {
         this.opts.log?.(`[ledger] ${key}: ${entry.ms}ms -> ${ms}ms (confirmed)`);
         return 'learned';
       }
-      this.dirty = true;
-      this.scheduleFlush();
       return 'pending';
     }
     entry.pending = { ms, seen: 1 };
-    this.dirty = true;
-    this.scheduleFlush();
     return 'pending';
   }
 
