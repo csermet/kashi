@@ -180,7 +180,7 @@ function maybeAnnounceTrack(): void {
     // Guard 2: this report becomes the overlay's clock anchor, so a stale
     // currentTime here misplaces the whole song. The next timeupdate
     // (~250 ms) anchors instead — imperceptible, lyrics are still "searching".
-    if (shouldDeferAnnouncePosition(wasMidSession, freshDurationMs())) {
+    if (shouldDeferAnnouncePosition(wasMidSession)) {
       announcePositionPending = true;
       log('announce position deferred (duration for this track has not landed)');
       return;

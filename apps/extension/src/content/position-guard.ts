@@ -144,10 +144,21 @@ export class PositionClamp {
  * A deferred report is not lost: the caller flushes one as soon as
  * `durationchange` lands, which also covers a track changed while PAUSED
  * (no `timeupdate` would ever arrive to replace it).
+ *
+ * The fresh duration used to exempt a mid-session change too — "metadata has
+ * landed, so currentTime can be trusted". Field-diagnosed as wrong on
+ * 2026-08-13, with the arithmetic to prove it: on AUTO-ADVANCE, YTM keeps the
+ * same <video> and its timeline does not reset, so `currentTime` still reads
+ * the PREVIOUS track's end (270.91 s — exactly the finished track's duration)
+ * while the new duration is already correct. Metadata landing says nothing
+ * about the playhead. That report anchored the clock 4.5 minutes into a song
+ * that had just started, past its last line, and the overlay showed a
+ * blinking interlude for two and a half minutes until a reload.
+ *
+ * Every guard downstream compares position against DURATION, so this only
+ * escapes when the finished track is SHORTER than the new one — which is why
+ * it read as "happens a lot, but not always".
  */
-export function shouldDeferAnnouncePosition(
-  wasMidSession: boolean,
-  freshDurationMs: number | undefined,
-): boolean {
-  return wasMidSession && freshDurationMs === undefined;
+export function shouldDeferAnnouncePosition(wasMidSession: boolean): boolean {
+  return wasMidSession;
 }

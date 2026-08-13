@@ -167,7 +167,21 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
           ` (tab ${(msg as { tab_id: number }).tab_id}, client ${clientId})` +
           `${dup && decision.key === wasKey ? ' [dup]' : ''}`,
       );
-      if (dup) return; // metadata refresh for same track
+      if (dup) {
+        // A metadata refresh for the track already playing — nothing to look
+        // up. But the renderer may have dropped to idle in the meantime (the
+        // position-starvation watchdog does that), and there it discards
+        // every incoming payload because it holds no key. Re-sending the
+        // track is idempotent on the normal path (same key = the renderer
+        // keeps everything) and is the only signal that can bring an idled
+        // renderer back before the NEXT track change. The payload is the one
+        // already accepted for this key — a duplicate decision carries no
+        // normalized track of its own.
+        if (lastTrack && lastTrack.key === decision.key) {
+          send('kashi:track', lastTrack);
+        }
+        return;
+      }
       lastTrack = { key: decision.key, track: decision.track };
       telemetry?.record('track_changed', {
         video_id: decision.track.source.id,

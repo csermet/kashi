@@ -97,16 +97,22 @@ describe('PositionClamp', () => {
 });
 
 describe('shouldDeferAnnouncePosition', () => {
-  it('defers a mid-session switch with no fresh duration', () => {
-    expect(shouldDeferAnnouncePosition(true, undefined)).toBe(true);
+  it('defers every mid-session switch — a landed duration is not a landed playhead', () => {
+    expect(shouldDeferAnnouncePosition(true)).toBe(true);
   });
 
-  it('sends when the new duration already landed', () => {
-    expect(shouldDeferAnnouncePosition(true, 180_000)).toBe(false);
+  it('defers the auto-advance case a fresh duration used to exempt', () => {
+    // Field case 2026-08-13, with the arithmetic on the wire: YTM auto-advanced
+    // from a 270 s track to a 300 s one, keeping the same <video>. The new
+    // duration was already correct while currentTime still read 270.91 s — the
+    // finished track's end. That report anchored the clock four and a half
+    // minutes into a song that had just started, and the overlay blinked an
+    // interlude for two and a half minutes. Metadata landing says nothing
+    // about where the playhead is.
+    expect(shouldDeferAnnouncePosition(true)).toBe(true);
   });
 
-  it('leaves cold start and refresh untouched', () => {
-    expect(shouldDeferAnnouncePosition(false, undefined)).toBe(false);
-    expect(shouldDeferAnnouncePosition(false, 180_000)).toBe(false);
+  it('leaves cold start and refresh untouched — nothing to leak from', () => {
+    expect(shouldDeferAnnouncePosition(false)).toBe(false);
   });
 });

@@ -75,9 +75,31 @@ describe('AnchorGuard', () => {
     expect(guard.rejects(275_000, 180_000, ANCHOR_GUARD_BUDGET_MS)).toBe(false);
   });
 
-  it('cannot deadlock a track whose duration is unknown', () => {
+  it('screens a deep first position even with no duration to compare against', () => {
+    // The 2026-08-13 leak carries a perfectly plausible duration: the finished
+    // track's playhead sits INSIDE the new track's range whenever the new
+    // track is longer, so every duration comparison waves it through. A first
+    // report minutes into a track that just changed is the tell, and it needs
+    // no duration at all.
     const guard = new AnchorGuard();
     guard.arm(0);
-    expect(guard.rejects(999_999, undefined, 0)).toBe(false);
+    expect(guard.rejects(270_910, 299_584, 0)).toBe(true); // the field case
+    expect(guard.rejects(999_999, undefined, 0)).toBe(true);
+  });
+
+  it('still cannot deadlock — the budget releases it, not the duration', () => {
+    // Anti-deadlock was never the unknown-duration exemption; it is the
+    // budget. A clock left unanchored freezes on the first line with nothing
+    // to notice it, which is worse than a misplaced anchor.
+    const guard = new AnchorGuard();
+    guard.arm(0);
+    expect(guard.rejects(999_999, undefined, 0)).toBe(true);
+    expect(guard.rejects(999_999, undefined, ANCHOR_GUARD_BUDGET_MS)).toBe(false);
+  });
+
+  it('lets a normal track start through untouched', () => {
+    const guard = new AnchorGuard();
+    guard.arm(0);
+    expect(guard.rejects(640, 234_000, 0)).toBe(false); // a real fresh start
   });
 });
