@@ -740,23 +740,36 @@ describe('a repeated word is one gesture', () => {
       'full',
     );
     expect(new Set(plan).size).toBe(1);
-    expect(plan[0]).toBe(true); // the run's middle is 903 ms — held
+    // ...and it declines to sweep, because one member came back at 714 ms: a
+    // sweep would draw that word being consumed over a duration the aligner is
+    // not sure about, which is exactly where the error becomes visible.
+    expect(plan[0]).toBe(false);
   });
 
   it('ignores punctuation when deciding what counts as the same word', () => {
+    // Same word either way, so one answer — and the 200 ms member decides it.
     const plan = planWordFills([w('music', 900), w('(music,', 200)], false, 'full');
-    expect(plan[0]).toBe(plan[1]);
+    expect(plan).toEqual([false, false]);
   });
 
-  it('lets the run decide, not its loudest member', () => {
-    // Three short and one long: the middle says pop, and one stretched
-    // measurement must not carry the whole run.
+  it('one short member is enough to make the whole run pop', () => {
+    // The rule is unanimity, not majority: three held words and one clipped
+    // one still pop, because the clipped one is the reason to doubt the run.
     const plan = planWordFills(
-      [w('na', 200), w('na', 200), w('na', 200), w('na', 2000)],
+      [w('na', 1200), w('na', 1200), w('na', 1200), w('na', 200)],
       false,
       'full',
     );
     expect(plan.every((f) => f === false)).toBe(true);
+  });
+
+  it('sweeps a repeat only when EVERY member is held', () => {
+    const plan = planWordFills(
+      [w('ooh', 1200), w('ooh', 1200), w('ooh', 1200)],
+      false,
+      'full',
+    );
+    expect(plan.every((f) => f === true)).toBe(true);
   });
 
   it('judges DIFFERENT neighbouring words on their own merits', () => {

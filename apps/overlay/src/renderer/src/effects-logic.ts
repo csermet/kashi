@@ -230,16 +230,16 @@ export function planWordFills(
     let end = start;
     while (end + 1 < words.length && key && repeatKey(words[end + 1]?.text) === key) end += 1;
     if (end > start) {
-      const spans = words
+      // UNANIMOUS, not majority (Caner's call, 2026-08-13): a sweep ASSERTS a
+      // duration — it draws the word being consumed over exactly that long — so
+      // sweeping a word whose measurement is wrong puts the error on screen.
+      // A pop asserts nothing. When one member of a repeat came back short, the
+      // run's timing is the thing in doubt, and the whole run should decline to
+      // make a claim about it. "The run is only as trustworthy as its weakest
+      // measurement."
+      const together = words
         .slice(start, end + 1)
-        .map((w) => w.end_ms - w.start_ms)
-        .sort((a, b) => a - b);
-      const middle = Math.floor(spans.length / 2);
-      const median =
-        spans.length % 2 === 1
-          ? (spans[middle] as number)
-          : (((spans[middle - 1] as number) + (spans[middle] as number)) / 2);
-      const together = median >= FILL_MIN_WORD_DURATION_MS;
+        .every((w) => w.end_ms - w.start_ms >= FILL_MIN_WORD_DURATION_MS);
       for (let i = start; i <= end; i += 1) sustained[i] = together;
     }
     start = end + 1;
