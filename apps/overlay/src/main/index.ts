@@ -325,7 +325,15 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
       // it without a delta check (the extension guards this from 0.1.12).
       if (
         'position_ms' in decision.msg &&
-        anchorGuard.rejects(decision.msg.position_ms, lastTrack?.track.duration_ms, Date.now())
+        anchorGuard.rejects(
+          decision.msg.position_ms,
+          lastTrack?.track.duration_ms,
+          Date.now(),
+          // A seek carries no rate; 1 only narrows the window the guard will
+          // recognise the outgoing clock in, which fails toward the old
+          // budget-based behavior rather than toward holding too much.
+          'playback_rate' in decision.msg ? decision.msg.playback_rate : 1,
+        )
       ) {
         // Name the rule that actually fired. The two look nothing alike in the
         // log and mean different things: 337 s into a 366 s track is NOT past
