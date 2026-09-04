@@ -63,6 +63,7 @@ from kashi_server.pipeline.onsets import detect_onsets
 from kashi_server.pipeline.palette import extract_palette
 from kashi_server.pipeline.structure import extract_structure
 from kashi_server.pipeline.titles import clean_title, parse_composite_title
+from kashi_server.pipeline.vocal_energy import measure_vocal_energy
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,10 @@ LINE_QA_ADLIB_SHIFTED_LINES = Counter(
 LINE_QA_ADLIB_REDERIVED_LINES = Counter(
     "kashi_line_qa_adlib_rederived_lines_total",
     "Ad-lib lines whose word spans were redistributed across the line (Faz 4)",
+)
+LINE_QA_RESPONSE_SHIFTED_LINES = Counter(
+    "kashi_line_qa_response_shifted_lines_total",
+    "Parenthetical responses moved onto the answering voice (Faz 9, 2.27.0)",
 )
 NIGHTCORE_JOBS = Counter(
     "kashi_nightcore_jobs_total",
@@ -774,11 +779,16 @@ def process_job(s: Session, job: Job) -> None:
             # The arbiter's only aligner-independent evidence (Faz 8 B4).
             # Measured on the audio the winning alignment actually heard; a
             # failure returns None and line QA falls back to today's rule.
+            # The response rule reads LOUDNESS, and only a separated stem has
+            # the silences it looks for — on a full mix the drums fill every
+            # breath. So it is handed a contour only when separation actually
+            # produced the audio the alignment won on.
             qa = apply_line_qa(
                 result,
                 lyrics.line_texts,
                 lyrics.synced_starts_ms,
                 detect_onsets(aligned_wav),
+                energy=measure_vocal_energy(aligned_wav) if vocals_separated else None,
             )
             result = qa.result
             if speed_factor != 1.0:
@@ -815,6 +825,7 @@ def process_job(s: Session, job: Job) -> None:
                 LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
             LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
             LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
+            LINE_QA_RESPONSE_SHIFTED_LINES.inc(len(qa.response_shifted))
             WORD_END_TRIMS.inc(qa.trimmed_ends)
             checkpoint(s, job)
 

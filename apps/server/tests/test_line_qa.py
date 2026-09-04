@@ -7,12 +7,15 @@ block dumped ~15 s ahead of the audio while the surrounding lines were fine.
 from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
 from kashi_server.pipeline.line_qa import (
     DRIFT_THRESHOLD_MS,
+    RESPONSE_SCAN_MS,
     TRIM_MAX_HOLD_MS,
     apply_line_qa,
     is_adlib,
     rederive_adlib_words,
+    shift_call_response,
     trim_word_ends,
 )
+from kashi_server.pipeline.vocal_energy import VocalEnergy
 
 
 def _words(start_ms: int, texts: list[str], *, prob: float = 0.2) -> list[AlignedWord]:
@@ -391,9 +394,7 @@ def test_density_skips_implausibly_long_reference_windows():
 
 def _windowed_result(n_lines=4, quality=0.01):
     lines = [LineTiming(i * 10_000, i * 10_000 + 3_000, f"line {i}", 0.5) for i in range(n_lines)]
-    words = [
-        [AlignedWord(i * 10_000, i * 10_000 + 3_000, f"w{i}", 0.01)] for i in range(n_lines)
-    ]
+    words = [[AlignedWord(i * 10_000, i * 10_000 + 3_000, f"w{i}", 0.01)] for i in range(n_lines)]
     return AlignResult(
         sync="word", lines=lines, words_per_line=words, quality_score=quality, windowed=True
     )
@@ -451,9 +452,7 @@ def test_adlib_line_block_shifts_onto_its_anchor():
     result = AlignResult(
         sync="word", lines=lines, words_per_line=words, quality_score=0.8, windowed=True
     )
-    outcome = apply_line_qa(
-        result, [line.text for line in lines], [0, 10_000, 20_000, 30_000]
-    )
+    outcome = apply_line_qa(result, [line.text for line in lines], [0, 10_000, 20_000, 30_000])
     assert outcome.adlib_shifted == [1]
     assert outcome.flagged == []  # shifted BEFORE flagging -> no snap/word-drop
     shifted = outcome.result.lines[1]
@@ -805,9 +804,7 @@ def test_flagged_line_with_audio_backing_keeps_its_words_shifted(monkeypatch):
     # …and they moved WITH the line: the first word starts where the line does.
     assert kept[0].start_ms == outcome.result.lines[3].start_ms
     # The shift is rigid — internal spacing is the aligner's, untouched.
-    assert [w.end_ms - w.start_ms for w in kept] == [
-        w.end_ms - w.start_ms for w in words[3]
-    ]
+    assert [w.end_ms - w.start_ms for w in kept] == [w.end_ms - w.start_ms for w in words[3]]
 
 
 def test_flagged_line_the_audio_disowns_still_loses_its_words():
@@ -855,8 +852,9 @@ def _nudge_case(line_start_ms: int, onsets: list[int]):
     from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
 
     words = [
-        AlignedWord(start_ms=line_start_ms + k * 400, end_ms=line_start_ms + k * 400 + 300,
-                    text=t, prob=0.9)
+        AlignedWord(
+            start_ms=line_start_ms + k * 400, end_ms=line_start_ms + k * 400 + 300, text=t, prob=0.9
+        )
         for k, t in enumerate(["hold", "me", "closer", "now"])
     ]
     lines = [
@@ -939,8 +937,9 @@ def test_the_band_sits_above_the_evidence_it_depends_on():
     # starts still lose, because the current position is already supported.
     tiny = ONSET_TOLERANCE_MS - 50
     words = [
-        AlignedWord(start_ms=10_000 + tiny + k * 400, end_ms=10_100 + tiny + k * 400,
-                    text="w", prob=0.9)
+        AlignedWord(
+            start_ms=10_000 + tiny + k * 400, end_ms=10_100 + tiny + k * 400, text="w", prob=0.9
+        )
         for k in range(4)
     ]
     onsets = [10_000 + k * 400 for k in range(4)]
@@ -990,7 +989,7 @@ def test_a_marginal_win_is_not_a_win():
 
 
 def test_a_hook_of_oh_and_i_is_an_adlib():
-    """"Oh I, oh I, oh I, oh I" failed the old all-nonlexical test on its four
+    """ "Oh I, oh I, oh I, oh I" failed the old all-nonlexical test on its four
     "I"s and never reached the ad-lib snap. Measured at +0.6..+0.9 s from its
     anchor across all six occurrences in the archive, and reported by ear as
     late — the exact line this clause exists for."""
@@ -999,7 +998,7 @@ def test_a_hook_of_oh_and_i_is_an_adlib():
 
 
 def test_aw_is_a_vocalization():
-    """"aw" was simply missing from the table. On JamendoLyrics the line
+    """ "aw" was simply missing from the table. On JamendoLyrics the line
     "aw ah aw ah aw aw ah" sits FORTY SECONDS from its anchor — the single
     worst placement in the set, and unreachable by the repair built for it."""
     assert is_adlib("aw ah aw ah aw aw ah")
@@ -1007,7 +1006,7 @@ def test_aw_is_a_vocalization():
 
 
 def test_a_bare_vowel_word_is_not_a_hook_on_its_own():
-    """"I" and "a" are only ad-lib-compatible BESIDE a real vocalization; a
+    """ "I" and "a" are only ad-lib-compatible BESIDE a real vocalization; a
     line that is nothing but them is ordinary text that happens to be short."""
     assert not is_adlib("I")
     assert not is_adlib("a")
@@ -1104,3 +1103,159 @@ def test_lexical_lines_are_never_held():
     out, changed = rederive_adlib_words(result)
     assert changed == []
     assert out.lines[0].end_ms == 1_800
+
+
+# --- call-and-response (Faz 9, 2.27.0) -------------------------------------
+
+
+def _contour(spans: list[tuple[int, int, float]], *, hop_ms: float = 11.61) -> VocalEnergy:
+    """Frames every hop_ms; each (start, end, dB) span paints that level."""
+    frames = []
+    t = 0
+    end = max(e for _, e, _ in spans)
+    while t <= end:
+        level = -80.0
+        for a, b, db in spans:
+            if a <= t <= b:
+                level = db
+        frames.append((t, level))
+        t = round(t + hop_ms)
+    return VocalEnergy(hop_ms=hop_ms, frames=tuple(frames))
+
+
+def _call_response(t_open: int, *, n_after: int = 2, next_start: int | None = None):
+    """'call call (resp resp)' with the response group starting at t_open."""
+    words = [
+        AlignedWord(0, 400, "I'm", 0.9),
+        AlignedWord(400, 800, "hot", 0.9),
+        AlignedWord(t_open, t_open + 300, "(hot", 0.9),
+        AlignedWord(t_open + 300, t_open + 600, "damn)", 0.9),
+    ][: 2 + n_after]
+    lines = [LineTiming(0, words[-1].end_ms, "I'm hot (hot damn)", 0.9)]
+    wpl = [words]
+    if next_start is not None:
+        lines.append(LineTiming(next_start, next_start + 500, "next line", 0.9))
+        wpl.append([AlignedWord(next_start, next_start + 500, "next", 0.9)])
+    return AlignResult(sync="word", lines=lines, words_per_line=wpl, quality_score=0.9)
+
+
+def test_response_moves_forward_onto_the_voice_after_the_breath():
+    # call loud to 900, breath 900-1200, response voice from 1200.
+    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
+    result = _call_response(850)
+    out, changed = shift_call_response(result, energy)
+    assert changed == [0]
+    assert out.words_per_line[0][2].start_ms >= 1200
+    assert out.words_per_line[0][0].start_ms == 0  # the call never moves
+
+
+def test_response_dropped_inside_the_silence_walks_BACK_to_the_burst():
+    # The one instance in eight that was LATE: we placed it in the gap itself.
+    energy = _contour([(0, 600, -4.0), (600, 900, -45.0), (900, 1400, -5.0), (1400, 1700, -45.0)])
+    result = _call_response(1500)  # inside the second silence
+    out, changed = shift_call_response(result, energy)
+    assert changed == [0]
+    assert 850 <= out.words_per_line[0][2].start_ms <= 950  # start of the 900-1400 burst
+
+
+def test_no_breath_means_no_opinion():
+    energy = _contour([(0, 3000, -4.0)])  # unbroken voice
+    assert shift_call_response(_call_response(850), energy)[1] == []
+
+
+def test_a_consonant_sized_dip_is_not_a_breath():
+    # 30 ms below the floor — under RESPONSE_MIN_GAP_MS.
+    energy = _contour([(0, 900, -4.0), (900, 930, -45.0), (930, 3000, -5.0)])
+    assert shift_call_response(_call_response(850), energy)[1] == []
+
+
+def test_it_refuses_rather_than_pushing_into_the_next_line():
+    # The guard that actually fires in the field: three real lines would
+    # otherwise be shoved 391-748 ms into the line after them.
+    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
+    crowded = _call_response(850, next_start=1300)
+    assert shift_call_response(crowded, energy)[1] == []
+
+
+def test_the_call_still_finishes_before_its_answer():
+    # A backward shift may never put the response before the call's last word.
+    energy = _contour([(0, 200, -4.0), (200, 400, -45.0), (400, 700, -5.0), (700, 900, -45.0)])
+    result = _call_response(800)
+    out, changed = shift_call_response(result, energy)
+    for chunk in out.words_per_line:
+        for a, b in zip(chunk, chunk[1:], strict=False):
+            assert b.start_ms >= a.start_ms
+
+
+def test_a_whole_line_backing_vocal_is_not_a_response():
+    # "(ooh ooh)" opening the line has no call to be stuck to.
+    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
+    words = [AlignedWord(850, 1150, "(ooh", 0.9), AlignedWord(1150, 1450, "ooh)", 0.9)]
+    result = AlignResult("word", [LineTiming(850, 1450, "(ooh ooh)", 0.9)], [words], 0.9)
+    assert shift_call_response(result, energy)[1] == []
+
+
+def test_adlib_lines_belong_to_the_rederive_step():
+    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
+    words = [AlignedWord(0, 400, "ooh", 0.9), AlignedWord(850, 1150, "(ooh)", 0.9)]
+    result = AlignResult("word", [LineTiming(0, 1150, "ooh (ooh)", 0.9)], [words], 0.9)
+    assert shift_call_response(result, energy)[1] == []
+
+
+def test_no_contour_and_line_sync_are_both_no_ops():
+    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
+    assert shift_call_response(_call_response(850), None)[1] == []
+    line_mode = AlignResult("line", _call_response(850).lines, [], 0.9)
+    assert shift_call_response(line_mode, energy)[1] == []
+
+
+def test_a_shift_beyond_the_cap_is_refused():
+    # Voice returns 1.6 s later: INSIDE the 1800 ms scan but past the 1500 ms
+    # cap, so the cap is what refuses it. (A 1.7 s gap would have been thrown
+    # out by the scan first and never exercised the cap at all — the first
+    # version of this test made exactly that mistake and a mutation escaped.)
+    energy = _contour([(0, 900, -4.0), (900, 2440, -45.0), (2440, 4000, -6.0)])
+    result = _call_response(850)
+    assert 1500 < 2440 - 850 <= RESPONSE_SCAN_MS
+    assert shift_call_response(result, energy)[1] == []
+
+
+def test_the_eight_annotated_instances():
+    """The measurement this rule exists for, pinned to the numbers.
+
+    Real word timings from the shipped document, real loudness windows from
+    the separated vocal stem, and the positions Caner marked by ear.
+    """
+    import json
+    from pathlib import Path
+    from statistics import median
+
+    data = json.loads((Path(__file__).parent / "data" / "uptown_response_windows.json").read_text())
+    energy = VocalEnergy(hop_ms=data["hop_ms"], frames=tuple((a, b) for a, b in data["frames"]))
+    expected = {16: -81, 18: -12, 20: -850, 22: 215, 47: -43, 49: -23, 51: -550, 53: -550}
+
+    before, after = [], []
+    for case in data["cases"]:
+        words = [AlignedWord(a, b, t, 0.9) for a, b, t in case["words"]]
+        lines = [LineTiming(words[0].start_ms, words[-1].end_ms, "I'm too hot (hot damn)", 0.9)]
+        wpl = [words]
+        if case["next_start"] is not None:
+            # The following line is part of the evidence: it is what refuses
+            # line 53, whose words already end 10 ms short of it.
+            lines.append(LineTiming(case["next_start"], case["next_start"] + 500, "next", 0.9))
+            wpl.append([AlignedWord(case["next_start"], case["next_start"] + 500, "next", 0.9)])
+        result = AlignResult(sync="word", lines=lines, words_per_line=wpl, quality_score=0.9)
+        out, _ = shift_call_response(result, energy)
+        k = next(i for i, w in enumerate(words) if "(" in w.text)
+        moved = out.words_per_line[0][k].start_ms
+        before.append(abs(case["ours"] - case["truth"]))
+        after.append(abs(moved - case["truth"]))
+        assert abs((moved - case["truth"]) - expected[case["line"]]) <= 5, (
+            case["line"],
+            moved - case["truth"],
+        )
+
+    assert median(before) == 750
+    assert median(after) <= 250
+    assert sum(1 for x in after if x <= 200) >= 4
+    assert not any(a > b + 50 for a, b in zip(after, before, strict=True))  # nothing worsens

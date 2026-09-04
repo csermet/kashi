@@ -52,7 +52,7 @@ export interface KashiProcessedTrackV1 {
      */
     speed_factor?: number;
     /**
-     * Line-QA repair provenance (Faz 5): counts of lines snapped/dropped/shifted/rederived, the compensated median offset and the number of sustain-trimmed word ends. `uncertain` counts lines the drift threshold flagged but the audio vouched for (2.19.0); `nudged` counts lines that drifted BELOW the flag threshold and were moved onto their anchor because the audio backed that position (2.25.0) — a nudged line was never in doubt as content, only as position. Consumers judging timing trustworthiness (e.g. a publish gate) read this; absent on documents older than pipeline 2.3.0.
+     * Line-QA repair provenance (Faz 5): counts of lines snapped/dropped/shifted/rederived, the compensated median offset and the number of sustain-trimmed word ends. `uncertain` counts lines the drift threshold flagged but the audio vouched for (2.19.0); `nudged` counts lines that drifted BELOW the flag threshold and were moved onto their anchor because the audio backed that position (2.25.0) — a nudged line was never in doubt as content, only as position; `response_shifted` counts parenthetical responses moved onto the answering voice using the vocal loudness contour (2.27.0) — the aligner tends to staple a response to the tail of its call, and only loudness separates them. Consumers judging timing trustworthiness (e.g. a publish gate) read this; absent on documents older than pipeline 2.3.0.
      */
     qa?: {
       flagged: number;
@@ -62,6 +62,7 @@ export interface KashiProcessedTrackV1 {
       offset_ms: number;
       trimmed_ends: number;
       nudged?: number;
+      response_shifted?: number;
     };
   };
   lines: {

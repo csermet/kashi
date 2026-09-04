@@ -20,6 +20,7 @@ unit-tested with synthetic data.
 
 import logging
 import re
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field, replace
 from statistics import median
 
@@ -29,6 +30,7 @@ from kashi_server.pipeline.arbiter import (
     better_supported_position,
     judge_line,
 )
+from kashi_server.pipeline.vocal_energy import VocalEnergy
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,36 @@ ADLIB_HOLD_BREATH_MS = 60
 # in slow ballads. The factor is deliberately generous — a wrongly shortened
 # real hold is worse than a surviving hang (calibration knob for the P1 ear
 # test).
+#: Call-and-response (Faz 9, 2026-09-04). A parenthetical response — "I'm too
+#: hot (HOT DAMN)" — is a second voice answering across a short silence, and
+#: the aligner routinely staples it to the tail of the call instead. Measured
+#: on 8 human-annotated instances: the response's first word sat 550-850 ms
+#: early in 7 of them and, in the one case we had dropped it INSIDE the
+#: silence, 800 ms late.
+#:
+#: Loudness settles it where nothing else could. Every internal-consistency
+#: signal was measured and killed first: the beat grid is indistinguishable
+#: from random at beat/8th/16th resolution over 87k words; repeat-consistency
+#: CONFIRMS the wrong answer because 7 of the 8 instances are wrong
+#: identically; onsets are one per 344 ms, so every position has one.
+#: Below this, relative to the song's loudest frame, nobody is singing.
+RESPONSE_SILENCE_DB = -25.0
+#: The window `level_at` maxes over — one frame is 11.6 ms and a single quiet
+#: frame inside a sung word is not a silence.
+RESPONSE_LEVEL_WINDOW_MS = 60
+#: How far to look for the breath. Past this the next line is usually the
+#: better explanation than a late response.
+RESPONSE_SCAN_MS = 1800
+#: A dip shorter than this is a consonant, not a breath.
+RESPONSE_MIN_GAP_MS = 60
+#: Same ceiling as the ad-lib hold: past 1.5 s a hole is an instrumental
+#: break, and moving a response across one would be a different edit, not a
+#: correction.
+RESPONSE_MAX_SHIFT_MS = 1500
+#: The block must still land clear of the next line by this much — the same
+#: breath the ad-lib hold leaves.
+RESPONSE_BREATH_MS = ADLIB_HOLD_BREATH_MS
+
 TRIM_SUSTAIN_FACTOR = 3.0
 TRIM_MIN_HOLD_MS = 350
 TRIM_MAX_HOLD_MS = 4000
@@ -185,6 +217,9 @@ class LineQAOutcome:
     # Lines the drift threshold flagged but the audio vouched for: their words
     # survive, shifted onto the anchor, carrying a warning instead of a hole.
     uncertain: list[int] = field(default_factory=list)
+    # Parenthetical responses moved off the call's tail onto the voice that
+    # actually answers, using the vocal loudness contour (Faz 9, 2.27.0).
+    response_shifted: list[int] = field(default_factory=list)
     # Sub-threshold drifts the audio settled in the anchor's favour (Faz 9).
     # Counted, not marked: the line was never in doubt as CONTENT, it just
     # sat in the wrong place, and it is now where the evidence says it goes.
@@ -227,9 +262,7 @@ def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
                 trimmed += 1
     if not trimmed:
         return result, 0
-    logger.info(
-        "line QA end trim: %d word end(s) capped (med %.0fms/char)", trimmed, med_char_ms
-    )
+    logger.info("line QA end trim: %d word end(s) capped (med %.0fms/char)", trimmed, med_char_ms)
     return replace(result, words_per_line=words_out), trimmed
 
 
@@ -291,6 +324,145 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
     if not changed:
         return result, []
     # Lines travel with their words: the hold moved line ends too.
+    return replace(result, lines=lines_out, words_per_line=words_out), changed
+
+
+def _level_at(frames: list[tuple[int, float]], t_ms: int) -> float | None:
+    """Loudest dB within RESPONSE_LEVEL_WINDOW_MS of `t_ms`, or None off-contour."""
+    lo = bisect_left(frames, (t_ms - RESPONSE_LEVEL_WINDOW_MS, -1e9))
+    hi = bisect_right(frames, (t_ms + RESPONSE_LEVEL_WINDOW_MS, 1e9))
+    if hi <= lo:
+        return None
+    return max(db for _, db in frames[lo:hi])
+
+
+def _voice_entry(frames: list[tuple[int, float]], t0: int) -> int | None:
+    """When does the answering voice actually come in, relative to `t0`?
+
+    Two directions, because the aligner fails in two ways and the loudness at
+    `t0` says which one happened:
+
+      * LOUD at t0 — we are on the tail of the CALL. Walk forward to the first
+        silence, then to the voice returning after it: that return is the
+        response. (7 of the 8 measured instances.)
+      * SILENT at t0 — we dropped the response into the gap itself. Walk
+        BACKWARD past that silence and past the burst before it to that
+        burst's start. (1 of the 8, and it was 800 ms late rather than early.)
+    """
+    level = _level_at(frames, t0)
+    if level is None:
+        return None
+    i = bisect_left(frames, (t0, -1e9))
+
+    if level >= RESPONSE_SILENCE_DB:
+        j = i
+        while (
+            j < len(frames)
+            and frames[j][0] <= t0 + RESPONSE_SCAN_MS
+            and frames[j][1] >= RESPONSE_SILENCE_DB
+        ):
+            j += 1
+        if j >= len(frames) or frames[j][0] > t0 + RESPONSE_SCAN_MS:
+            return None
+        k = j
+        while (
+            k < len(frames)
+            and frames[k][0] <= t0 + RESPONSE_SCAN_MS
+            and frames[k][1] < RESPONSE_SILENCE_DB
+        ):
+            k += 1
+        if k >= len(frames) or frames[k][0] > t0 + RESPONSE_SCAN_MS:
+            return None
+        if frames[k][0] - frames[j][0] < RESPONSE_MIN_GAP_MS:
+            return None  # a consonant, not a breath
+        return frames[k][0]
+
+    j = i
+    while j >= 0 and frames[j][0] >= t0 - RESPONSE_SCAN_MS and frames[j][1] < RESPONSE_SILENCE_DB:
+        j -= 1
+    if j < 0 or frames[j][0] < t0 - RESPONSE_SCAN_MS:
+        return None
+    k = j
+    while k >= 0 and frames[k][0] >= t0 - RESPONSE_SCAN_MS and frames[k][1] >= RESPONSE_SILENCE_DB:
+        k -= 1
+    if k < 0 or frames[k][0] < t0 - RESPONSE_SCAN_MS:
+        return None
+    return frames[k + 1][0]
+
+
+def shift_call_response(
+    result: AlignResult, energy: "VocalEnergy | None"
+) -> tuple[AlignResult, list[int]]:
+    """Move a parenthetical response onto the voice that answers. Pure.
+
+    Runs AFTER the anchor corrections and the ad-lib rederive, so the spans it
+    reads are final. Ad-lib lines are skipped on purpose: `rederive_adlib_words`
+    owns those, and two owners for one line's spans is how a future bug gets
+    built.
+
+    REFUSES rather than half-applies. When the shifted block will not fit
+    before the next line, the rule does nothing — measured 2026-09-04, this is
+    not a theoretical guard: on the validation song three parenthetical lines
+    would otherwise be pushed 391-748 ms INTO the following line, and clamping
+    them to the available room produced exactly the same 8-instance result as
+    refusing (the one line that needed clamping had negative room). A refusal
+    is a placement we did not guess.
+    """
+    if energy is None or result.sync != "word":
+        return result, []
+    frames = list(energy.frames)
+    if not frames:
+        return result, []
+
+    lines_out = list(result.lines)
+    words_out = [list(chunk) for chunk in result.words_per_line]
+    changed: list[int] = []
+
+    for i, line in enumerate(result.lines):
+        words = words_out[i] if i < len(words_out) else []
+        if len(words) < 2 or is_adlib(line.text):
+            continue
+        opens = [k for k, w in enumerate(words) if "(" in w.text]
+        # k >= 1: a line that OPENS with "(" is a whole-line backing vocal, not
+        # a call and its answer — there is no call tail for it to be stuck on.
+        if not opens or opens[0] < 1:
+            continue
+        k = opens[0]
+        if not any(")" in w.text for w in words[k:]):
+            continue  # unbalanced parens are lyric-typo territory
+
+        t0 = words[k].start_ms
+        entry = _voice_entry(frames, t0)
+        if entry is None:
+            continue
+        delta = entry - t0
+        if delta == 0 or abs(delta) > RESPONSE_MAX_SHIFT_MS:
+            continue
+        # The call must still finish before its answer starts.
+        if t0 + delta < words[k - 1].end_ms:
+            continue
+        # ...and the answer must still finish before the next line begins.
+        next_start = result.lines[i + 1].start_ms if i + 1 < len(result.lines) else None
+        if next_start is not None and words[-1].end_ms + delta > next_start - RESPONSE_BREATH_MS:
+            continue
+
+        block = [
+            replace(w, start_ms=max(0, w.start_ms + delta), end_ms=max(0, w.end_ms + delta))
+            for w in words[k:]
+        ]
+        words_out[i] = words[:k] + block
+        if block[-1].end_ms > line.end_ms:
+            lines_out[i] = replace(line, end_ms=block[-1].end_ms)
+        changed.append(i)
+        logger.info(
+            "line QA response shift: line %d %r moved %+dms onto the answering voice",
+            i,
+            line.text[:40],
+            delta,
+        )
+
+    if not changed:
+        return result, []
     return replace(result, lines=lines_out, words_per_line=words_out), changed
 
 
@@ -404,9 +576,7 @@ def _degrade_to_line(
             end = starts[i] + max(0, line.end_ms - line.start_ms)
         lines.append(replace(line, start_ms=starts[i], end_ms=max(end, starts[i])))
     referenced = sum(ref is not None for ref in refs)
-    agreement = (
-        round(1 - len(set(flagged)) / referenced, 4) if referenced else result.quality_score
-    )
+    agreement = round(1 - len(set(flagged)) / referenced, 4) if referenced else result.quality_score
     return LineQAOutcome(
         result=AlignResult(
             sync="line",
@@ -428,6 +598,7 @@ def apply_line_qa(
     line_texts: list[str],
     synced_starts_ms: list[int | None] | None,
     onset_ms: list[int] | None = None,
+    energy: VocalEnergy | None = None,
 ) -> LineQAOutcome:
     refs: list[int | None] | None = None
     if synced_starts_ms is not None:
@@ -446,12 +617,12 @@ def apply_line_qa(
         # No reference ≠ no ad-libs: document assembly still writes the adlib
         # flag and the overlay still sweeps, so the rederive must run here too
         # (retro finding — QA-less docs swept CTC's scattered spans).
-        clamped, trimmed = trim_word_ends(
-            replace(result, lines=_clamp_monotonic(result.lines))
-        )
+        clamped, trimmed = trim_word_ends(replace(result, lines=_clamp_monotonic(result.lines)))
         clamped, rederived = rederive_adlib_words(clamped)
+        clamped, responses = shift_call_response(clamped, energy)
         return LineQAOutcome(
             result=clamped,
+            response_shifted=responses,
             flagged=[],
             offset_ms=0,
             degraded_to_line=False,
@@ -522,8 +693,10 @@ def apply_line_qa(
         clean = replace(clean, quality_score=score, quality_basis=basis)
         clean, trimmed = trim_word_ends(clean)
         clean, rederived = rederive_adlib_words(clean)
+        clean, responses = shift_call_response(clean, energy)
         return LineQAOutcome(
             result=clean,
+            response_shifted=responses,
             flagged=[],
             offset_ms=offset_ms,
             degraded_to_line=False,
@@ -611,8 +784,10 @@ def apply_line_qa(
     )
     snapped, trimmed = trim_word_ends(snapped)
     snapped, rederived = rederive_adlib_words(snapped)
+    snapped, responses = shift_call_response(snapped, energy)
     return LineQAOutcome(
         result=snapped,
+        response_shifted=responses,
         flagged=flagged,
         offset_ms=offset_ms,
         degraded_to_line=False,

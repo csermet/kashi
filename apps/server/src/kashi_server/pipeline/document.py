@@ -188,6 +188,7 @@ def build_document(
             "adlib_shifted": len(qa.adlib_shifted),
             "nudged": len(qa.nudged),
             "adlib_rederived": len(qa.adlib_rederived),
+            "response_shifted": len(qa.response_shifted),
             "offset_ms": qa.offset_ms,
             "trimmed_ends": qa.trimmed_ends,
             "uncertain": len(qa.uncertain),

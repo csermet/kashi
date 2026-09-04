@@ -590,5 +590,23 @@
 # and stretching words over one is precisely the hanging word the sustain
 # trim exists to prevent. The hold only ever LENGTHENS — a hole smaller than
 # the breath margin is already closed, and a hold that shortens is not a hold.
-PIPELINE_VERSION = "2.26.0"
+# 2.27.0: a parenthetical response is moved onto the voice that ANSWERS.
+# "I'm too hot (hot damn)" is two voices across a short breath, and the
+# aligner staples the second to the tail of the first. Measured on 8
+# human-annotated instances of that figure: the response's first word sat
+# 550-850 ms EARLY in seven, and 800 ms LATE in the one where we had dropped
+# it inside the silence itself. Loudness settles it — and only loudness does.
+# Everything cheaper was measured and killed first: the beat grid is
+# indistinguishable from random at beat/8th/16th resolution over 87k words;
+# repeat-consistency CONFIRMS the wrong answer, because seven of the eight
+# instances are wrong identically; onsets fire once every 344 ms, so every
+# candidate position already sits on one.
+# Result with the guards on: median |error| 750 -> 148 ms, 0/8 -> 4/8 within
+# 200 ms, and NOTHING worsened. The guards are not decoration: without the
+# next-line bound the same rule pushes three other parenthetical lines
+# 391-748 ms INTO the line after them. It refuses rather than clamps —
+# clamping scored identically on the one line that needed it (its room was
+# already negative), so the simpler rule wins and never half-guesses.
+# Ad-lib lines are skipped: rederive_adlib_words owns those spans.
+PIPELINE_VERSION = "2.27.0"
 PIPELINE_MAJOR = 2
