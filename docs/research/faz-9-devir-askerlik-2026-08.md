@@ -158,6 +158,59 @@ yedekli): `eval-pop/uptown_vocal_energy.json` (vokal RMS dB, hop 11.6 ms,
 ref=max — kaynağı worker pod'undaki geçici `vocals.wav`, o pod silinince
 yeniden üretmek 14 dk ayrıştırma demek) ve `eval-pop/uptown_response_truth.json`.
 
+## 🚨 DÖNÜNCE İLK İŞ: yt-dlp 403 — hiçbir şarkı işlenemiyor
+
+**2026-09-04'te bulundu, düzeltilmedi.** Tek şarkılık doğrulama denemesi
+(Uptown Funk) üç denemede de düştü:
+
+```
+ERROR: unable to download video data: HTTP Error 403: Forbidden
+```
+
+Sebep bizim kodumuz değil, **sabitlenmiş yt-dlp sürümü**:
+
+```
+worker imajı : yt-dlp 2026.07.04   (pyproject.toml:14, `yt-dlp==2026.7.4`)
+güncel       : yt-dlp 2026.08.19   ← aynı iki videoyu yerelde sorunsuz indiriyor
+```
+
+YouTube iki ay içinde bir şey değiştirdi ve pinlediğimiz sürüm ses indiremiyor.
+
+**Kapsamı geniş:** bu yalnız arşiv taramasını değil, **yeni dinlenen her
+şarkıyı** da vuruyor. Sunucu bugün hiçbir belge üretemez.
+
+**Arşiv zarar GÖRMEDİ:** indirme başarısız olunca belge hiç yazılmıyor; 277
+belge olduğu gibi duruyor.
+
+### Neden kanarya uyarmadı (ve bu bir tasarım açığı)
+
+`.github/workflows/ytdlp-canary.yml` bilinçli olarak **yalnız metadata**
+çekiyor — GitHub runner IP'leri bot kontrolüne takıldığı için tam indirme
+"kurt geldi" alarmı üretiyordu. Ama 403 tam da **veri indirmede** oluyor,
+metadata'da değil. Yani kanarya bu sınıfı yapısal olarak göremez.
+
+Dosyanın kendi yorumu çözümü zaten yazmış: *"If even metadata-only proves
+flaky here, move this to a homelab CronJob + ntfy instead."* Ev sunucusundan
+koşan, kısa bir gerçek indirme yapan bir kanarya bu boşluğu kapatır.
+
+### Dönünce sıra
+
+1. `apps/server/pyproject.toml` içindeki pini güncelle (07.04 → o günün
+   sürümü), `uv lock`, imaj, rollout. **Sürüm atlaması davranış
+   değiştirebilir** — nightcore/`--extractor-args` yollarını da test et.
+2. Uptown Funk'ı yeniden işlet ve **2.27.0 kuralını sahada doğrula**:
+   `eval-pop/uptown_response_truth.json` ile karşılaştır, beklenen
+   hata −81/−12/−850/+215/−43/−23/−550/−550 (±5 ms).
+3. Ancak ondan sonra arşiv taraması (249 belge eski hatta, ~41 saat).
+4. Kanaryayı ev sunucusuna taşı.
+
+### 2.27.0'ın durumu
+
+Kod **canlıda** (`server 0.30.0 / pipeline 2.27.0`, worker pod'unda teyit
+edildi: kural bağlı, eşik −25 dB, tavan 1500 ms). Testler geçiyor (534
+sunucu testi, 6/6 mutasyon), ama **sahada tek bir belge üretilmedi** — 403
+yüzünden. Yani laboratuvarda doğru, sahada doğrulanmamış.
+
 ## Kapanmış olanlar (dokunma)
 
 Faz 9 boyunca sevk edilen ve sahada doğrulanan işler: satır lead-in,
