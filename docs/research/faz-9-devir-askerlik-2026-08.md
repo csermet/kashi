@@ -111,21 +111,52 @@ kural     34389 ms  → hata  −81 ms      (10 kat iyileşme)
 
 8 tekrarda önerilen kaydırmalar: +769, +788, —, +216, +657, +677, —, +504.
 
-### Neden SEVK EDİLMEDİ
+### n=8 DOĞRULAMASI — 2026-09-04
 
-**n=1.** Doğrulanmış tek örnek var, 8'in 2'sinde kural hiç çalışmıyor.
-"İşe yarıyor" denemez, "ilk kez ölmedi" denebilir. Bir aylık gözetimsiz
-döneme doğrulanmamış bir zamanlama değişikliği sokmak yanlış risk.
+Caner askerliğe gitmeden kalan 7 cevabı da anotladı (`edited: 3 → 37`).
+Kural artık 1 değil **8 örnekte** ölçüldü. Ama ilk okuduğum rakam yanlıştı ve
+bunu bilerek yazıyorum:
 
-### Dönünce ilk adım (~3 dk Caner + ~1 saat ölçüm)
+**Korumasız kural 9 satırı hareket ettiriyor ve 3'ünde blok sonraki satırın
+üzerine taşıyor** — `(aaaaaow!)` +511 ms, iki `(say what?)` +391 ve +748 ms.
+Yani "bir sonraki satırın başlangıcını aşma" koruması opsiyonel bir incelik
+değil, kuralın taşıyıcı parçası. Overlay tarafında satır N+1 ekrana gelirken
+satır N'in kelimeleri hâlâ akıyor olurdu.
 
-Uptown Funk'ı anotasyon aracında aç, **kalan 7 `(hot damn)` cevabının** ilk
-kelimesini yerine oturt (satır 18, 20, 22, 47, 49, 51, 53). n=1 → n=8 olur,
-kural gerçekten doğrulanabilir. Çıkarsa yaz; çıkmazsa bu sınıfı kapat ve
-"anotasyon şart" de.
+| | korumasız | **korumalı (geçerli olan)** |
+|---|---|---|
+| mutlak hata medyanı | 750 → 64 ms | 750 → **148 ms** |
+| 200 ms içinde | 5/8 | **4/8** |
+| kötüleşen | 0 | **0** |
+| sonraki satıra taşan | **3 satır** | **0** |
 
-Probe betikleri: `scratchpad/onset_probe.py`, `/tmp/gap_probe.py` deseni —
-ayrıştırma ~14 dk (worker pod, CPU), sonra librosa RMS + −25 dB eşiği.
+Örnek örnek (bizim → gerçek, hata önce → sonra):
+
+```
+satır 16   33620 → 34470   −850 → −81     (ileri, çukur 255 ms)
+satır 18   37780 → 38580   −800 → −12     (ileri)
+satır 20   41940 → 42790   −850 → −850    çukur bulunamadı, dokunulmadı
+satır 22   47780 → 46980   +800 → +215    GERİ (bizim yer sessizlikteydi, −34.8 dB)
+satır 47  108860 → 109560  −700 → −43     (ileri)
+satır 49  113020 → 113720  −700 → −23     (ileri)
+satır 51  117340 → 117890  −550 → −550    çukur bulunamadı, dokunulmadı
+satır 53  121540 → 122090  −550 → −550    SIĞMADI (oda −50 ms), dokunulmadı
+```
+
+**Tasarım kararı veriye bağlandı:** "sığmıyorsa hiç dokunma" (SKIP) ile
+"sığdığı kadar kaydır" (CLAMP) bu veride **aynı sonucu** veriyor — satır 53'ün
+odası zaten negatif. O halde daha basit ve asla yarı-tahmin yapmayan SKIP.
+
+### Dürüstlük kaydı
+
+8 örnek ama **1 şarkı, 1 figür**. Genelleme kanıtlanmadı: `(say what?)` ve
+`(aaaaaow!)` satırlarında kural bir şey öneriyor ama doğruluğunu ölçecek yer
+gerçeği yok. İkinci bir şarkıda parantezli satırları anotlamak bunu kapatır.
+
+Fixture'lar (git-ignore'lu, `/mnt/storage/arsiv/kashi-eval-2026-08/` altında
+yedekli): `eval-pop/uptown_vocal_energy.json` (vokal RMS dB, hop 11.6 ms,
+ref=max — kaynağı worker pod'undaki geçici `vocals.wav`, o pod silinince
+yeniden üretmek 14 dk ayrıştırma demek) ve `eval-pop/uptown_response_truth.json`.
 
 ## Kapanmış olanlar (dokunma)
 
