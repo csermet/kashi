@@ -3,7 +3,8 @@ name: ytm-scout
 description: Read-only web researcher for YouTube Music integration in the Kashi project. Investigates the CURRENT music.youtube.com DOM/mediaSession behavior, selector and injection patterns used by web-scrobbler and WebNowPlaying, and Chrome extension platform changes (MV3 service-worker lifecycle, Local Network Access for loopback WebSockets). Use before building extension features and whenever a YTM update breaks detection. Returns a sourced report; never edits.
 tools: WebSearch, WebFetch, Read, Grep, Glob
 disallowedTools: Write, Edit, NotebookEdit
-model: sonnet
+model: opus
+effort: high
 maxTurns: 50
 color: purple
 ---
