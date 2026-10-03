@@ -224,9 +224,42 @@ pins `["default"]` and fails with the old cascade). Also fixed a pyright
 error that had been on `main` since the by-ear rung (`pick_by_transcript`
 is now generic).
 
-Open: steps 2-4 below. A metadata-only canary would not have seen this
-failure either — the format list is non-empty (storyboards), only the
-audio formats are gone.
+A metadata-only canary would not have seen this failure either — the
+format list is non-empty (storyboards), only the audio formats are gone.
+
+### 2.27.0 verified in the field — 2026-10-03 (step 2 done)
+
+Uptown Funk re-processed alone on server 0.30.1 (download opus/251, the
+same bytes as the local check). The base alignment reproduced August's
+exactly: all 8 response words sat on the same pre-shift positions as the
+2.26.0 document. The rule then moved 6 lines (`qa.response_shifted` = 6,
+all six are ground-truth lines; no `(say what?)` / `(aaaaaow!)` line moved).
+
+```
+line   2.26.0   lab 2.27.0   field 2.27.0
+ 16     −850       −81          −81
+ 18     −800       −12          −12
+ 20     −850      −850          −54    ← lab found no dip; the field did (+796 ms)
+ 22     +800      +215         +215
+ 47     −700       −43          −31
+ 49     −700       −23          −23
+ 51     −550      −550         −550    (no dip, untouched — as in the lab)
+ 53     −550      −550         −550    (no room, refused — as in the lab)
+```
+
+6/8 identical to the lab within ±5 ms; the two that differ are both better.
+Median |error| 750 → **67.5 ms** (lab: 148), within 200 ms 0/8 → **5/8**
+(lab: 4/8), worsened 0, spilled into the next line 0.
+
+Why 20 and 47 differ is not proven. The difference is in the loudness
+contour, not the aligner (base positions are identical). The lab contour
+came from a separately produced vocals file (23 229 frames vs the
+pipeline's 23 228 — a slightly different decode); the field contour is
+computed on the pipeline's own separated `align.wav`, which is deleted
+with the job. The acceptance fixture stays the lab contour.
+
+Still true: 1 song, 1 figure — generalisation needs a second annotated song.
+Open: step 3 (archive re-scan) waits for the owner; step 4 (canary).
 
 ### Dönünce sıra
 
