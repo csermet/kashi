@@ -106,7 +106,9 @@ def test_ytdlp_options_carry_the_vdl_policy(tmp_path):
 
     download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert captured["js_runtimes"] == {"deno": {}, "node": {}}  # dict form, not list
-    assert captured["extractor_args"]["youtube"]["player_client"][0] == "tv"
+    # yt-dlp's own set, not the dead VDL cascade (tv/mweb/web/android_vr all
+    # returned storyboards only on 2026.8.19 — see ytdlp_opts).
+    assert captured["extractor_args"]["youtube"]["player_client"] == ["default"]
     assert captured["extractor_retries"] == 0
     assert captured["format"].startswith("bestaudio[acodec^=opus][abr>200]")
 

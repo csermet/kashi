@@ -102,8 +102,9 @@ file:line and the checklist item it violates.
 - Downloaded audio is deleted after processing — any code path that persists audio is a violation.
   The worker's per-job tmp dir must be removed in a `finally` (success, failure AND exception
   paths), backed by a startup orphan sweep.
-- VDL kit fidelity: `ytdlp_opts.py` core policies untouched (player_client cascade, `js_runtimes`
-  dict format, fail-fast retry); cookie-less mode keeps download concurrency 1–2.
+- VDL kit fidelity: `ytdlp_opts.py` core policies untouched (`js_runtimes` dict format, fail-fast
+  retry); cookie-less mode keeps download concurrency 1–2. `player_client` is yt-dlp's `"default"`
+  set since the VDL cascade died (2026-10): changing it needs a measured per-client run, not a guess.
 - Documents are validated against `processed-track.v1.schema.json` BEFORE persist (hard gate);
   `sync:"line"` documents must not contain any `words` arrays.
 - Server-side lrclib calls carry the `kashi-server/x.y (+repo url)` User-Agent; the server never

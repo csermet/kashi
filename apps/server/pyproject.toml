@@ -1,6 +1,6 @@
 [project]
 name = "kashi-server"
-version = "0.30.0"
+version = "0.30.1"
 description = "Kashi processing server: lyrics alignment, beat grid and palette extraction"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,7 +11,7 @@ dependencies = [
     "sqlalchemy==2.0.51",
     "alembic==1.18.5",
     "psycopg[binary,pool]==3.3.4",
-    "yt-dlp==2026.7.4",
+    "yt-dlp==2026.8.19",
     "librosa==0.11.0",
     "pillow==12.3.0",
     "fast-langdetect==1.0.1",

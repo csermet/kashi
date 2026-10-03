@@ -193,6 +193,41 @@ Dosyanın kendi yorumu çözümü zaten yazmış: *"If even metadata-only proves
 flaky here, move this to a homelab CronJob + ntfy instead."* Ev sunucusundan
 koşan, kısa bir gerçek indirme yapan bir kanarya bu boşluğu kapatır.
 
+### Status 2026-10-03 — server 0.30.1 (pipeline unchanged, 2.27.0)
+
+The pin bump alone did **not** fix it. With `yt-dlp==2026.8.19` (still the
+latest stable on 2026-10-03; only nightlies since) our own download path
+failed differently: `Requested format is not available`. Cause: the
+`player_client` cascade ported from VDL was dead on every client. Measured
+per client on Uptown Funk, cookie-less, no PO Token provider:
+
+```
+tv          UNPLAYABLE ("The page needs to be reloaded")
+mweb        skipped: needs a GVS PO Token
+web         skipped: SABR forced, formats carry no URL
+android_vr  skipped: needs a GVS PO Token
+visionos    5 audio formats with URLs   (new in 2026.8.19)
+default     5 audio formats with URLs   (= visionos + web in 2026.8.19)
+```
+
+The "08.19 downloads fine locally" check above was most likely run with
+yt-dlp's default clients, not ours. Fix: `player_client = ["default"]`
+(`vdl_kit/ytdlp_opts.py` explains why; yt-dlp queries every listed client,
+so dead fallbacks cost requests, and `default` moves with the monthly bump).
+
+Verified before release: real downloads through `download_audio` —
+Uptown Funk opus/251 126 kbps, probed 269.681 s (= the eval packet's
+269 681 ms, same audio); a nightcore upload (r≈1.33) opus/251, probed
+duration equal to its archived document, title intact for detection.
+Server gate green (642 tests with a throwaway Postgres; the policy test
+pins `["default"]` and fails with the old cascade). Also fixed a pyright
+error that had been on `main` since the by-ear rung (`pick_by_transcript`
+is now generic).
+
+Open: steps 2-4 below. A metadata-only canary would not have seen this
+failure either — the format list is non-empty (storyboards), only the
+audio formats are gone.
+
 ### Dönünce sıra
 
 1. `apps/server/pyproject.toml` içindeki pini güncelle (07.04 → o günün

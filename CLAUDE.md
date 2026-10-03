@@ -56,6 +56,8 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   0.9.1 must not be deployed.
 - yt-dlp needs its EJS remote components and a persistent cache, or fresh containers return a
   misleading 403. The canary only fetches metadata, so it cannot see download 403s.
+  "Requested format is not available" with only storyboards left means the player clients died:
+  measure each `player_client` on its own before changing anything else.
 - Postgres `now()` is frozen per transaction — job claim/lease SQL uses `clock_timestamp()`;
   after a raw-SQL claim, refresh ORM objects (identity map is stale).
 - Turkish dotless `ı` does not decompose under NFKD. `ctc_forced_aligner` emissions carry a

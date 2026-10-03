@@ -178,13 +178,13 @@ def slice_window(duration_s: float, want_s: float = 45.0) -> tuple[float, float]
     return start, want_s
 
 
-def pick_by_transcript(
+def pick_by_transcript[T](
     transcript: str,
-    candidates: Iterable[tuple[object, str]],
+    candidates: Iterable[tuple[T, str]],
     *,
     threshold: float,
     margin: float = 0.0,
-) -> object | None:
+) -> T | None:
     """The candidate the audio agrees with, or None.
 
     Two independent bars, because they answer different failure modes:

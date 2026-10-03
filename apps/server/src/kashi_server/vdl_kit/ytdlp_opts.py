@@ -2,9 +2,15 @@
 
 Policy notes carried over verbatim, do not "optimize" them away:
 
-* player_client cascade: `tv` is the SABR-free main path, `mweb`/`web` are
-  fallbacks, `android_vr` is the last resort for videos falsely flagged
-  DRM-protected.
+* player_client is yt-dlp's own "default" set (KASHI CHANGE, 2026-10, yt-dlp
+  2026.8.19). The VDL cascade `tv, mweb, web, android_vr` went dead on every
+  client: `tv` is UNPLAYABLE, `mweb`/`android_vr` now demand a GVS PO Token
+  (bgutil is off), `web` is forced onto SABR — so formats came back as
+  storyboards only and downloads failed ("Requested format is not
+  available"). yt-dlp queries EVERY listed client rather than stopping at the
+  first that works, so dead fallbacks are not free: each one is extra requests
+  per video against a bot check. "default" tracks the maintainers' current
+  choice (visionos + web in 2026.8.19) and moves with the monthly bump.
 * js_runtimes MUST be a dict. yt-dlp changed the format in 2026-05; the old
   list form now raises "Invalid js_runtimes format". Without a JS runtime the
   EJS signature/n-challenge solver fails and downloads degrade to storyboards.
@@ -25,7 +31,7 @@ CONCURRENT_FRAGMENT_DOWNLOADS = 10
 
 THROTTLED_RATE_LIMIT = 102_400  # 100 KB/s
 
-PLAYER_CLIENTS = ["tv", "mweb", "web", "android_vr"]
+PLAYER_CLIENTS = ["default"]
 
 JS_RUNTIMES = {"deno": {}, "node": {}}
 
