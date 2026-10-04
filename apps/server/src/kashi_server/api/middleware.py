@@ -47,14 +47,7 @@ class ContentLengthLimitMiddleware:
             return
 
         headers = Headers(scope=scope)
-        limit = self.overrides.get(scope.get("path", ""), self.max_bytes)
-        if limit != self.max_bytes and not headers.get("authorization"):
-            # The big-body override is for AUTHENTICATED uploads; auth deps
-            # run only after the body is parsed, so an anonymous client could
-            # otherwise stream the full cap before every 401 (reviewer).
-            # Header PRESENCE is enough here — the real key check still
-            # happens in deps; this only denies the free bandwidth.
-            limit = self.max_bytes
+        limit = self._limit_for(scope, headers)
 
         declared = headers.get("content-length")
         if declared is not None and declared.isdigit() and int(declared) > limit:
@@ -62,26 +55,46 @@ class ContentLengthLimitMiddleware:
             return
 
         # No/lying Content-Length (chunked upload): count what actually streams.
-        received = 0
-        exceeded = False
+        cap = _BodyCap(receive, send, limit)
+        await self.app(scope, cap.receive, cap.send)
 
-        async def limited_receive() -> Message:
-            nonlocal received, exceeded
-            message = await receive()
-            if message["type"] == "http.request":
-                received += len(message.get("body", b""))
-                if received > limit:
-                    exceeded = True
-                    # Cut the stream short; the guard below sends 413.
-                    return {"type": "http.disconnect"}
-            return message
+    def _limit_for(self, scope: Scope, headers: Headers) -> int:
+        limit = self.overrides.get(scope.get("path", ""), self.max_bytes)
+        if limit != self.max_bytes and not headers.get("authorization"):
+            # The big-body override is for AUTHENTICATED uploads; auth deps
+            # run only after the body is parsed, so an anonymous client could
+            # otherwise stream the full cap before every 401 (reviewer).
+            # Header PRESENCE is enough here — the real key check still
+            # happens in deps; this only denies the free bandwidth.
+            return self.max_bytes
+        return limit
 
-        async def guarded_send(message: Message) -> None:
-            if exceeded and message["type"] == "http.response.start":
-                await _reject(send)
-                return
-            if exceeded and message["type"] == "http.response.body":
-                return
-            await send(message)
 
-        await self.app(scope, limited_receive, guarded_send)
+class _BodyCap:
+    """Counts the request body as it streams. Past the limit it cuts the
+    stream short and turns whatever the app answers into the 413."""
+
+    def __init__(self, receive: Receive, send: Send, limit: int) -> None:
+        self._receive = receive
+        self._send = send
+        self._limit = limit
+        self._received = 0
+        self._exceeded = False
+
+    async def receive(self) -> Message:
+        message = await self._receive()
+        if message["type"] == "http.request":
+            self._received += len(message.get("body", b""))
+            if self._received > self._limit:
+                self._exceeded = True
+                # Cut the stream short; send() below answers 413.
+                return {"type": "http.disconnect"}
+        return message
+
+    async def send(self, message: Message) -> None:
+        if self._exceeded and message["type"] == "http.response.start":
+            await _reject(self._send)
+            return
+        if self._exceeded and message["type"] == "http.response.body":
+            return
+        await self._send(message)

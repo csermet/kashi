@@ -61,8 +61,17 @@ def publish_gate_coded(doc: dict) -> list[tuple[str, str]]:
 
     Codes come from GATE_REASON_CODES; messages stay human-readable.
     """
-    reasons: list[tuple[str, str]] = []
     alignment = doc.get("alignment") or {}
+    return [
+        *_provenance_reasons(doc, alignment),
+        *_qa_reasons(alignment),
+        *_content_reasons(doc),
+    ]
+
+
+def _provenance_reasons(doc: dict, alignment: dict) -> list[tuple[str, str]]:
+    """Where the lyrics came from, which clock, and how well they aligned."""
+    reasons: list[tuple[str, str]] = []
     if alignment.get("lyrics_source") != "lrclib":
         reasons.append(
             ("lyrics_source", f"lyrics_source is {alignment.get('lyrics_source')!r}, not 'lrclib'")
@@ -81,6 +90,12 @@ def publish_gate_coded(doc: dict) -> list[tuple[str, str]]:
                 f"quality {quality!r} under the {PUBLISH_QUALITY_FLOOR} publish floor",
             )
         )
+    return reasons
+
+
+def _qa_reasons(alignment: dict) -> list[tuple[str, str]]:
+    """Line QA must have left the document untouched."""
+    reasons: list[tuple[str, str]] = []
     qa = alignment.get("qa")
     if not isinstance(qa, dict):
         reasons.append(
@@ -91,6 +106,12 @@ def publish_gate_coded(doc: dict) -> list[tuple[str, str]]:
             reasons.append(("qa_flagged", "line QA snapped lines (aligner lost lock)"))
         if qa.get("density_dropped", 1) != 0:
             reasons.append(("qa_density_dropped", "line QA dropped damaged word runs"))
+    return reasons
+
+
+def _content_reasons(doc: dict) -> list[tuple[str, str]]:
+    """Measured words and complete track metadata."""
+    reasons: list[tuple[str, str]] = []
     if not any(
         line.get("words") and not line.get("words_derived") for line in doc.get("lines") or []
     ):
