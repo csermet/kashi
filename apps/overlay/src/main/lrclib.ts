@@ -304,9 +304,19 @@ export class LrclibClient {
   }
 }
 
-/** Strip YTM "Topic" channel suffix: "Rick Astley - Topic" → "Rick Astley". */
+/**
+ * Strip YTM "Topic" channel suffix: "Rick Astley - Topic" → "Rick Astley".
+ *
+ * Twin of the server's _TOPIC_SUFFIX (lrclib.py). The (?<!\s) lookbehind lets
+ * a match start only at the beginning of a whitespace run: the same matches
+ * (fuzz-verified), but a long run that never reaches "Topic" is scanned once
+ * instead of once per position — without it 40 000 spaces took 3.5 s on the
+ * main process.
+ */
+const TOPIC_SUFFIX = /(?<!\s)\s*-\s*Topic\s*$/i;
+
 export function normalizeArtist(artist: string): string {
-  return artist.replace(/\s*-\s*Topic\s*$/i, '').trim();
+  return artist.replace(TOPIC_SUFFIX, '').trim();
 }
 
 /**

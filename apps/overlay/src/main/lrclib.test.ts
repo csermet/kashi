@@ -66,6 +66,15 @@ describe('normalizeArtist', () => {
     expect(normalizeArtist('Rick Astley')).toBe('Rick Astley');
     expect(normalizeArtist('Topic - Band')).toBe('Topic - Band');
   });
+
+  it('stays linear on a long whitespace run (ReDoS)', () => {
+    // Without the (?<!\s) lookbehind every position in the run restarted the
+    // scan: 40 000 spaces took 3.5 s on the MAIN process. Now well under 1 ms.
+    const artist = `a${' '.repeat(60_000)}b`;
+    const started = performance.now();
+    expect(normalizeArtist(artist)).toBe(artist);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });
 
 describe('LrclibClient', () => {
