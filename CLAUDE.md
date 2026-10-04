@@ -33,6 +33,12 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 - Schema change ⇒ `pnpm --filter @kashi/schemas codegen` and commit the generated output.
 - Guards are proven by mutation: remove the fix, the test must fail. Several first-draft guards
   here were toothless until checked this way.
+- Refactors are proven the same way: run a copy of the old module and the new one side by side
+  under a seeded differential harness (fakes for I/O, models and clocks), feed it values that sit
+  EXACTLY on every threshold, then mutate one line of the new code — the harness must notice.
+  Random generators miss `<` vs `<=`; three 2026-10 harnesses were blind until boundary cases
+  were added. Do not run `ruff format` on a file that was not already format-clean: it rewrites
+  unrelated hand-formatted code.
 - After a reprocess wave starts, inspect the **first** finished document immediately; the
   selection-stats log line usually names the bug.
 - If a unit is introduced (e.g. a "gesture" instead of a word), convert every step that counts.
