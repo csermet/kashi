@@ -69,7 +69,15 @@ def _ffprobe_duration_s(path: Path) -> float | None:
     return duration if duration > 0 else None
 
 
-@router.post("/uploads", status_code=201, response_model=UploadResponse)
+@router.post(
+    "/uploads",
+    status_code=201,
+    response_model=UploadResponse,
+    responses={
+        413: {"description": "Upload exceeds the byte cap"},
+        422: {"description": "Empty, not decodable audio, or over the duration cap"},
+    },
+)
 async def upload_audio(
     file: UploadFile,
     key: Annotated[ApiKey, Depends(rate_limited("uploads"))],

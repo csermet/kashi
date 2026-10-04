@@ -27,7 +27,13 @@ def _etag_matches(request: Request, etag: str) -> bool:
     return etag in tags
 
 
-@router.get("/lyrics/{source_type}/{source_id}")
+@router.get(
+    "/lyrics/{source_type}/{source_id}",
+    responses={
+        400: {"description": "Unsupported schema version"},
+        404: {"description": "No processed document for this source"},
+    },
+)
 def get_lyrics(
     source_type: str,
     source_id: str,

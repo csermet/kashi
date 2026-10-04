@@ -26,7 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1")
 
 
-@router.post("/telemetry", status_code=202, response_model=TelemetryAck)
+@router.post(
+    "/telemetry",
+    status_code=202,
+    response_model=TelemetryAck,
+    responses={503: {"description": "Telemetry is disabled on this server"}},
+)
 def ingest_telemetry(
     body: TelemetryBatchIn,
     key: Annotated[ApiKey, Depends(rate_limited("telemetry"))],

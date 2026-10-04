@@ -38,7 +38,9 @@ def list_keys(db: Session = Depends(get_db)):
     return db.scalars(select(ApiKey).order_by(ApiKey.created_at)).all()
 
 
-@router.delete("/keys/{key_id}", status_code=204)
+@router.delete(
+    "/keys/{key_id}", status_code=204, responses={404: {"description": "No such key"}}
+)
 def disable_key(key_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
     key = db.get(ApiKey, key_id)
     if key is None:

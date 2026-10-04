@@ -54,7 +54,9 @@ def _owned(job: Job | None, key: ApiKey) -> Job:
     return job
 
 
-@router.get("/jobs/{job_id}", response_model=JobOut)
+@router.get(
+    "/jobs/{job_id}", response_model=JobOut, responses={404: {"description": "No such job"}}
+)
 def get_job(
     job_id: uuid.UUID,
     key: ApiKey = Depends(require_key("user")),
@@ -63,7 +65,11 @@ def get_job(
     return _to_out(_readable(db.get(Job, job_id)))
 
 
-@router.get("/jobs", response_model=list[JobOut])
+@router.get(
+    "/jobs",
+    response_model=list[JobOut],
+    responses={400: {"description": "Unknown status filter"}},
+)
 def list_jobs(
     status: str | None = None,
     limit: int = 20,
@@ -80,7 +86,14 @@ def list_jobs(
     return [_to_out(j) for j in db.scalars(stmt).all()]
 
 
-@router.delete("/jobs/{job_id}", status_code=204)
+@router.delete(
+    "/jobs/{job_id}",
+    status_code=204,
+    responses={
+        404: {"description": "No such job"},
+        409: {"description": "Job is no longer queued"},
+    },
+)
 def cancel_job(
     job_id: uuid.UUID,
     key: ApiKey = Depends(require_key("user")),

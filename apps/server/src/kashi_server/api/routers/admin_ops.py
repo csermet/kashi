@@ -22,7 +22,15 @@ from kashi_server.version import PIPELINE_MAJOR
 router = APIRouter(prefix="/v1/admin")
 
 
-@router.post("/reprocess", status_code=202, response_model=IngestResponse)
+@router.post(
+    "/reprocess",
+    status_code=202,
+    response_model=IngestResponse,
+    responses={
+        404: {"description": "Source has no job history - pass hints explicitly"},
+        503: {"description": "Queue full - retry later"},
+    },
+)
 def reprocess(
     body: ReprocessRequest,
     key: Annotated[ApiKey, Depends(require_key("admin"))],

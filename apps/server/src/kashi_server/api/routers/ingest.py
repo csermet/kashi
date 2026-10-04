@@ -17,7 +17,15 @@ from kashi_server.version import PIPELINE_MAJOR
 router = APIRouter(prefix="/v1")
 
 
-@router.post("/ingest", status_code=202, response_model=IngestResponse)
+@router.post(
+    "/ingest",
+    status_code=202,
+    response_model=IngestResponse,
+    responses={
+        422: {"description": "Hints describe a track over the processing cap"},
+        503: {"description": "Queue full - retry later"},
+    },
+)
 def ingest(
     body: IngestRequest,
     key: Annotated[ApiKey, Depends(rate_limited("ingest"))],

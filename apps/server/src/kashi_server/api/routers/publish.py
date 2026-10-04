@@ -21,7 +21,16 @@ from kashi_server.pipeline.publish import publish_gate
 router = APIRouter(prefix="/v1")
 
 
-@router.post("/publish-requests", status_code=202, response_model=PublishRequestOut)
+@router.post(
+    "/publish-requests",
+    status_code=202,
+    response_model=PublishRequestOut,
+    responses={
+        404: {"description": "No processed document for this source"},
+        409: {"description": "lrclib publishing is disabled on this server"},
+        422: {"description": "Document is not publishable (reasons in detail)"},
+    },
+)
 def request_publish(
     body: PublishRequestIn,
     key: Annotated[ApiKey, Depends(rate_limited("ingest"))],
