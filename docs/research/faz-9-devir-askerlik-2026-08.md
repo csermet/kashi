@@ -278,6 +278,43 @@ current errors 0 / −200 / −350 ms — queued for re-processing on 2.27.0.)
   self-hosted deployment, alert on two consecutive failures) is waiting for
   review.
 
+### Archive re-scan, first quarter — results (2026-10-04)
+
+62 of the 249 documents older than 2.26.0 (most recently added first), plus
+Stressed Out as a measurement run. 60 re-processed, 2 failed as
+`video_unavailable` — region/copyright blocks (every player client refuses,
+oEmbed still answers); their old documents keep serving.
+
+- All 60 stayed in word mode; word-bearing lines net +33 (18 songs gained,
+  8 lost); 6 lrclib records had changed upstream since the last run.
+- English lines moved ~80-105 ms (the lateness correction), Turkish ~21 ms.
+- The 2.27 response rule fired in 2 more songs (8 lines, both Rihanna).
+- Listen-test candidates: a nightcore upload whose lines moved 1.45 s
+  (quality 0.22 -> 0.34, still poor) and a Japanese track (0.86 -> 0.74).
+- 47 documents were produced by 2.27.0, the last 13 by 2.27.1 (rolled out
+  mid-run).
+
+### Stressed Out — the second-song check did not test the rule
+
+The three `(oh)` responses inside the annotation's valid region were meant
+to show whether 2.27 generalises. It did not fire on any of them
+(`response_shifted` 0): `(oh)` is sung legato, with no silence dip for the
+rule to find. So Stressed Out neither confirms nor refutes it.
+
+Two things did change against the August document, neither caused by the
+rule or the nudge (both 0 here):
+
+- Gross errors fell: words more than 500 ms off 15 -> 3 (the -6.15 s line-0
+  failure is gone), within 200 ms 85.5% -> 94.2% of the 138 valid words.
+- Two line-final `(oh)` now land ~0.9 s late with zero length, past the next
+  line's anchor, pushing that line's first words into a zero-length pile.
+  Candidates, unverified: the lrclib record gained two `♪` lines, and the
+  audio format may differ since the yt-dlp client change. Needs a look.
+
+(The August document scores a median error of 0 on this region only because
+the annotation copies our output wherever the annotator accepted it — the
+scope trap above; compare gross errors, not medians, here.)
+
 ### "Word-duration collapse" — measured, not decided
 
 The roadmap's cheap candidate is a render-side minimum display time per
