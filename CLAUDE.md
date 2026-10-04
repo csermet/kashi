@@ -21,7 +21,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 - Server gate is four commands, all of them (in `apps/server`, plus the root script): `uv run pytest`, `uv run ruff check .` (read the
   exit code, not the last line), `uv run pyright`, `node scripts/check-versions.mjs`. CI's TS
   path runs locally in the same order: validate → codegen drift → check-versions → typecheck →
-  lint → test → build.
+  lint → test → build. Before tagging a release, confirm the CI run on `main` is green (Actions
+  API): `main` was red for seven weeks in 2026-08/09 — pyright failed, so CI never reached pytest —
+  and nobody looked.
 - DB-backed tests are **skipped** unless `DATABASE_URL` points at a throwaway Postgres 17
   (`postgresql+psycopg://USER:PASS@localhost:PORT/kashi`). A green run without it proves little.
 - `/v1/health`'s version string is cosmetic; `pipeline_version` (`kashi_server/version.py`) is

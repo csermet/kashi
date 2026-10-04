@@ -259,7 +259,42 @@ computed on the pipeline's own separated `align.wav`, which is deleted
 with the job. The acceptance fixture stays the lab contour.
 
 Still true: 1 song, 1 figure — generalisation needs a second annotated song.
-Open: step 3 (archive re-scan) waits for the owner; step 4 (canary).
+(Stressed Out already has one: three `(oh)` words inside its valid region,
+current errors 0 / −200 / −350 ms — queued for re-processing on 2.27.0.)
+
+### Corrections and findings — 2026-10-04
+
+- **The outage started on 2026-08-13, not 09-04.** The last successful job
+  before the fix finished 2026-08-13 22:37 UTC; every job after it failed
+  with 403. 09-04 is the day it was noticed. 53 songs first played between
+  08-13 and 09-01 never got a document at all.
+- **`main`'s CI was red for seven weeks** (from the by-ear rung, 2026-08-13,
+  to `bc232ad`): pyright failed, so the `pytest` step after it never ran in
+  CI. Nobody looked. Rule added to `CLAUDE.md`: confirm the CI run on `main`
+  is green before tagging.
+- **Step 3 started:** a quarter of the archive (62 of the 249 documents older
+  than 2.26.0, most recently added first) is being re-processed.
+- **Step 4 prepared:** a real-download canary (scheduled job on the
+  self-hosted deployment, alert on two consecutive failures) is waiting for
+  review.
+
+### "Word-duration collapse" — measured, not decided
+
+The roadmap's cheap candidate is a render-side minimum display time per
+word. Measured on the pop set's valid region (4 songs, 197 word-to-word
+intervals, start to start):
+
+- No collapse in aggregate: our intervals < 120 ms 9.6 %, human 8.1 %;
+  p5 97 vs 104 ms.
+- Real collapses (human ≥ 120 ms, ours under half of it) are 15/197 = 7.6 %
+  and mostly *placement* errors — Uptown's stapled `(hot damn)` (80 vs
+  770 ms). On the same 34 Uptown intervals 2.27.0 cut them 9 → 4.
+- 13 of our 19 intervals under 120 ms are under 120 ms for the human too:
+  a short interval is usually genuinely fast singing.
+
+So a display-time floor would not close the real collapses (260 vs 740 ms)
+and would distort genuinely fast words. Weak candidate on this data; small
+sample, Uptown-heavy — re-measure once the pop set has 2.27.0 documents.
 
 ### Dönünce sıra
 

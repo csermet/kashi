@@ -28,7 +28,7 @@ One general system, calibrated per language.
 | Phase | Theme | State |
 |---|---|---|
 | 8 / 8.1 | Lyric alignment review + licence-clean model chain | done (chain live since 2026-08-12) |
-| 9 | Perceived accuracy, English | open — audio downloads unblocked (server 0.30.1) and the 2.27.0 response-onset rule verified in the field on one song; the archive re-scan waits for the owner. Remaining perceived complaints: repeated sections, and word-duration collapse (cheap candidate: a render-side minimum display time per word) |
+| 9 | Perceived accuracy, English | open — audio downloads unblocked (server 0.30.1) and the 2.27.0 response-onset rule verified in the field on one song; the archive re-scan waits for the owner. Remaining perceived complaints: repeated sections, and word-duration collapse (cheap candidate: a render-side minimum display time per word — measured weak on the pop set, where collapses are mostly placement errors; see the hand-off note) |
 | 9.5 | Turkish parity (calibration) | planned |
 | 10 | Effects (incl. the unfinished "poison" archetype and song-mood-aware effects; leave the lexicon alone until then) | planned |
 | 11 | Hardening | planned |
