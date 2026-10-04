@@ -54,6 +54,7 @@ from kashi_server.pipeline.lrclib import (
 from kashi_server.pipeline.lyricsfile import alignresult_from_lyricsfile
 from kashi_server.pipeline.nightcore import (
     detect_speed_factor,
+    is_original_speed,
     pick_record_for_factor,
     rescale_result,
     rubberband_filter,
@@ -217,13 +218,13 @@ def _decode(
     cmd += ["-i", str(src)]
     if length_s is not None:
         cmd += ["-t", f"{length_s:.3f}"]
-    if tempo != 1.0:
+    if not is_original_speed(tempo):
         cmd += ["-af", rubberband_filter(tempo)]
     cmd += ["-ar", str(rate), "-ac", "1", str(dest)]
     result = subprocess.run(
         cmd,
         capture_output=True,
-        timeout=300 if tempo == 1.0 else 1800,
+        timeout=300 if is_original_speed(tempo) else 1800,
     )
     if result.returncode != 0:
         raise PipelineError("other", f"ffmpeg decode failed: {result.stderr.decode()[:500]}")
@@ -599,7 +600,7 @@ def resolve_nightcore(
     speed_factor, detection_record, nc_outcome = (
         detection if detection is not None else _detect_nightcore(job, download)
     )
-    if speed_factor == 1.0 or nc_outcome is None:
+    if is_original_speed(speed_factor) or nc_outcome is None:
         return NightcorePlan(1.0, plain_lyrics or _plain_lyrics(job), None, None)
     # Lyrics resolve BEFORE the near-realtime rubberband stretch: a doomed
     # lyrics_not_found must not cost a 30-minute decode first (retro finding
@@ -715,7 +716,7 @@ def process_job(s: Session, job: Job) -> None:
         # a doomed lyrics_not_found no longer pays for separation first
         # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
         detection = _detect_nightcore(job, download)
-        if detection[0] == 1.0:
+        if is_original_speed(detection[0]):
             try:
                 plain_lyrics = _plain_lyrics(job)
             except PipelineError as exc:
@@ -740,7 +741,8 @@ def process_job(s: Session, job: Job) -> None:
         checkpoint(s, job)
         qa: LineQAOutcome | None = None
         if fast_result is not None:
-            assert plain_lyrics is not None
+            if plain_lyrics is None:  # fast_result is only ever built from plain_lyrics
+                raise PipelineError("other", "lyricsfile fast path reached without lyrics")
             lyrics = replace(plain_lyrics, source="lyricsfile")
             result = fast_result
             vocals_separated = False
@@ -801,7 +803,7 @@ def process_job(s: Session, job: Job) -> None:
                 energy=measure_vocal_energy(aligned_wav) if vocals_separated else None,
             )
             result = qa.result
-            if speed_factor != 1.0:
+            if not is_original_speed(speed_factor):
                 if lyrics.source != "caller":
                     # Wrong-song gate: detection can only vouch for
                     # title+duration ratio; the CTC probs are the honest

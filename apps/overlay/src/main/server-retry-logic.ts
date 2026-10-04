@@ -53,7 +53,7 @@ export function enrichmentKeys(incoming: ServerLyricsResult): string[] {
   if (incoming.energy) keys.push('energy');
   if (incoming.sections?.length) keys.push('sections');
   if (incoming.alignment) keys.push('alignment');
-  return keys.sort();
+  return keys.sort((a, b) => a.localeCompare(b));
 }
 
 /**

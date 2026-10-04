@@ -76,7 +76,11 @@ async def upload_audio(
 ):
     hasher = hashlib.sha256()
     size = 0
-    with tempfile.NamedTemporaryFile(suffix="-kashi-upload") as spool:
+    # Off the event loop end to end: creating and filling the spool is disk I/O
+    # too, not just the ffprobe and the read-back below (health probes share
+    # this loop — liveness-kill risk on a slow disk with a 64MB body).
+    spool = await asyncio.to_thread(tempfile.NamedTemporaryFile, suffix="-kashi-upload")
+    with spool:
         while chunk := await file.read(_CHUNK_BYTES):
             size += len(chunk)
             if size > settings.upload_max_bytes:
@@ -87,10 +91,10 @@ async def upload_audio(
                     detail=f"upload exceeds the {settings.upload_max_bytes}-byte cap",
                 )
             hasher.update(chunk)
-            spool.write(chunk)
+            await asyncio.to_thread(spool.write, chunk)
         if size == 0:
             raise HTTPException(status_code=422, detail="empty upload")
-        spool.flush()
+        await asyncio.to_thread(spool.flush)
         # Thread offload: a 30s ffprobe or a 64MB read must not pin the
         # event loop (health probes share it — liveness-kill risk).
         duration_s = await asyncio.to_thread(_ffprobe_duration_s, Path(spool.name))

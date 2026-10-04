@@ -178,7 +178,7 @@ def judge_line(words: list, line_span_ms: int, onset_ms: list[int] | None) -> Li
             span_coverage=coverage,
         )
 
-    if ZERO_SUPPORT_IS_DAMNING and support == 0.0:
+    if ZERO_SUPPORT_IS_DAMNING and support <= 0.0:  # a fraction in [0, 1]
         # The one asymmetry. Coverage cannot vouch for a line the audio places
         # nowhere near singing, so it does not get a vote here.
         return LineVerdict(drop_words=True, onset_support=support, span_coverage=coverage)

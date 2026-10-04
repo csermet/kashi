@@ -14,6 +14,7 @@ never ahead of time.
 
 import hashlib
 import logging
+import math
 
 import httpx
 import yaml
@@ -68,7 +69,7 @@ def publish_gate_coded(doc: dict) -> list[tuple[str, str]]:
         )
     if doc.get("sync") != "word":
         reasons.append(("not_word_sync", "document is not word-sync"))
-    if alignment.get("speed_factor", 1.0) != 1.0:
+    if not math.isclose(alignment.get("speed_factor", 1.0), 1.0, abs_tol=1e-9):
         reasons.append(
             ("nightcore_clock", "nightcore clock (speed_factor != 1) cannot be published")
         )

@@ -16,7 +16,7 @@ RATE_LIMITS: dict[str, tuple[float, float]] = {
     "uploads": (10.0, 10.0 / 3600.0),  # 10/h — 64MB bodies deserve a tighter tap
     # Diagnostics batch every 5-10 s, so ~6-12/min in steady state. The burst
     # capacity covers a client draining its buffer after a network gap.
-    "telemetry": (120.0, 60.0 / 60.0),  # 1/s sustained, 120 burst
+    "telemetry": (120.0, 1.0),  # 1/s sustained (60/min), 120 burst
 }
 
 

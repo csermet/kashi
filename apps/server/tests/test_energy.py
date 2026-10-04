@@ -51,7 +51,9 @@ def test_quiet_loud_quiet_yields_one_high_section(tmp_path):
 def test_extraction_is_deterministic(tmp_path):
     wav = tmp_path / "song.wav"
     _write_wav(wav, [(10, 0.1), (10, 0.8)])
-    assert extract_energy(wav) == extract_energy(wav)
+    first = extract_energy(wav)
+    second = extract_energy(wav)  # a separate run, not the same object
+    assert first == second
 
 
 def test_too_short_clip_is_omitted(tmp_path):

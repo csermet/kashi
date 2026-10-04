@@ -16,6 +16,7 @@ everything on the nightcore clock that actually plays. Beats and palette are
 computed from the nightcore audio/artwork and are never rescaled.
 """
 
+import math
 from dataclasses import replace
 
 from kashi_server.pipeline.alignment import AlignResult
@@ -107,10 +108,21 @@ def slow_duration_ok(slow_duration_s: float, nightcore_duration_s: float, r: flo
     return abs(slow_duration_s - nightcore_duration_s * r) <= SLOW_DURATION_TOLERANCE_S
 
 
+def is_original_speed(r: float) -> bool:
+    """True for the identity factor: no nightcore, nothing to stretch.
+
+    A tolerance instead of `r == 1.0`. The factor is produced as an exact 1.0
+    for "no stretch", but it also travels through settings, documents and
+    arithmetic, and an equality test on a float is one rounding away from
+    silently taking the stretch path (SPEED_FACTOR_MIN keeps real factors far
+    from this band)."""
+    return math.isclose(r, 1.0, abs_tol=1e-9)
+
+
 def rescale_result(result: AlignResult, r: float) -> AlignResult:
     """Map aligned times (slowed ~= original clock) onto the nightcore clock:
     t -> round(t / r), with a monotonic clamp against rounding inversions."""
-    if r == 1.0:
+    if is_original_speed(r):
         return result
 
     def ms(t: int) -> int:
