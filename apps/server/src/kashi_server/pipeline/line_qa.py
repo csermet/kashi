@@ -232,6 +232,16 @@ class LineQAOutcome:
     nudged: list[int] = field(default_factory=list)
 
 
+def _line_words(chunks: list[list[AlignedWord]], i: int) -> list[AlignedWord]:
+    """Line ``i``'s words; a word list shorter than the lines reads as empty."""
+    return chunks[i] if i < len(chunks) else []
+
+
+def _next_start(lines: list[LineTiming], i: int) -> int | None:
+    """Start of the line after ``i``, or None for the last line."""
+    return lines[i + 1].start_ms if i + 1 < len(lines) else None
+
+
 def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
     """Cap each word's end at start + clamp(chars × med_char_ms × factor).
 
@@ -305,10 +315,10 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
     lines_out = list(result.lines)
     changed: list[int] = []
     for i, line in enumerate(result.lines):
-        words = words_out[i] if i < len(words_out) else []
+        words = _line_words(words_out, i)
         if len(words) < ADLIB_REDERIVE_MIN_WORDS or not is_adlib(line.text):
             continue
-        next_start = result.lines[i + 1].start_ms if i + 1 < len(result.lines) else None
+        next_start = _next_start(result.lines, i)
         line = _hold_to_next(line, next_start)
         if line is not result.lines[i]:
             lines_out[i] = line
@@ -474,11 +484,11 @@ def shift_call_response(
     changed: list[int] = []
 
     for i, line in enumerate(result.lines):
-        words = words_out[i] if i < len(words_out) else []
+        words = _line_words(words_out, i)
         k = _response_index(words, line.text)
         if k is None:
             continue
-        next_start = result.lines[i + 1].start_ms if i + 1 < len(result.lines) else None
+        next_start = _next_start(result.lines, i)
         delta = _response_delta(frames, words, k, next_start)
         if delta is None:
             continue
@@ -798,7 +808,7 @@ def _nudge_delta(
     delta = (ref + offset_ms) - result.lines[i].start_ms
     if not (SUBTHRESHOLD_DRIFT_MS <= abs(delta) <= DRIFT_THRESHOLD_MS):
         return None
-    words = result.words_per_line[i] if i < len(result.words_per_line) else []
+    words = _line_words(result.words_per_line, i)
     if len(words) < MIN_WORDS_FOR_EVIDENCE or not better_supported_position(words, delta, onset_ms):
         return None
     return delta
@@ -817,7 +827,7 @@ def _nudge_fits(
     # line moved on top of them. Landing there interleaves word starts
     # across two lines (2026-10 review). Refuse, never clamp.
     if i > 0:
-        prev_words = words_per_line[i - 1] if i - 1 < len(words_per_line) else []
+        prev_words = _line_words(words_per_line, i - 1)
         prev_end = max(w.end_ms for w in prev_words) if prev_words else lines[i - 1].end_ms
         if words[0].start_ms + delta < prev_end:
             return False
@@ -843,7 +853,7 @@ def _nudge_subthreshold_drift(
         delta = _nudge_delta(result, i, ref, flagged_set, offset_ms, onset_ms)
         if delta is None:
             continue
-        words = result.words_per_line[i] if i < len(result.words_per_line) else []
+        words = _line_words(result.words_per_line, i)
         if not _nudge_fits(i, words, delta, nudge_lines, nudge_words):
             continue
         # Block shift: line and words move together, exactly as the flagged
@@ -1065,23 +1075,24 @@ def _border_case_drops(
     }
     drops: set[int] = set()
     for i in sorted(neighborhood):
-        words = result.words_per_line[i] if i < len(result.words_per_line) else []
+        words = _line_words(result.words_per_line, i)
         if not words:
             continue
         # Signal B: zero score right next to a lock loss (no stamp needed —
         # it reads only the aligner's own confidence).
-        if result.lines[i].score < NEIGHBOR_SCORE_FLOOR:
-            drops.add(i)
-            continue
-        # Signal A: words compressed into a fraction of the lrclib reference
-        # duration (needs this line's stamp AND the next one's).
-        ref = refs[i]
-        next_ref = refs[i + 1] if i + 1 < len(refs) else None
-        if len(words) < MIN_DENSITY_WORDS:
-            continue
-        if ref is None or next_ref is None or not 0 < next_ref - ref <= MAX_PLAUSIBLE_LINE_MS:
-            continue
-        coverage = (words[-1].end_ms - words[0].start_ms) / (next_ref - ref)
-        if coverage < MIN_WORD_DENSITY:
+        if result.lines[i].score < NEIGHBOR_SCORE_FLOOR or _compressed_words(words, refs, i):
             drops.add(i)
     return drops
+
+
+def _compressed_words(words: list[AlignedWord], refs: list[int | None], i: int) -> bool:
+    """Signal A: words compressed into a fraction of the lrclib reference
+    duration (needs this line's stamp AND the next one's)."""
+    ref = refs[i]
+    next_ref = refs[i + 1] if i + 1 < len(refs) else None
+    if len(words) < MIN_DENSITY_WORDS:
+        return False
+    if ref is None or next_ref is None or not 0 < next_ref - ref <= MAX_PLAUSIBLE_LINE_MS:
+        return False
+    coverage = (words[-1].end_ms - words[0].start_ms) / (next_ref - ref)
+    return coverage < MIN_WORD_DENSITY
