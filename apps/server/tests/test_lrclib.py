@@ -674,3 +674,20 @@ def test_the_overrun_filter_runs_on_the_real_extract_path():
     lyrics = _fetch(handler)
     assert lyrics.synced_starts_ms == [10_000, None]
     assert lyrics.line_texts == ["first", "outro past the end"]  # line kept
+
+
+def test_a_failed_probe_keeps_the_get_record():
+    """2026-10 review: the probe improves lyrics we already HAVE. A 5xx on it
+    used to escape as a transient network error, failing the job — and every
+    retry paid get + probe again for lyrics that were in hand."""
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return httpx.Response(200, json=_record(997232, 242))  # different edit: probes
+        return httpx.Response(503)
+
+    lyrics = _fetch(handler)
+    assert calls == ["/api/get", "/api/search"]
+    assert lyrics.source_id == 997232  # kept, not failed

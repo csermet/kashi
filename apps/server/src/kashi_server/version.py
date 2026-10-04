@@ -608,5 +608,19 @@
 # clamping scored identically on the one line that needed it (its room was
 # already negative), so the simpler rule wins and never half-guesses.
 # Ad-lib lines are skipped: rederive_adlib_words owns those spans.
-PIPELINE_VERSION = "2.27.0"
+# 2.27.1: the 2026-10 review round (everything shipped after the 2026-08-12
+# audit, which no independent eye had seen — CI was red the whole time).
+#   · The 2.25.0 nudge had no neighbour guard. Onsets fire every ~344 ms, so
+#     the PREVIOUS line's own sung words counted as "support" for moving a line
+#     on top of them, and word starts then interleaved across two lines (both
+#     directions reproduced). It now refuses exactly as the response shift
+#     does: never before the previous line's last word end, never into the next
+#     line minus a breath. Refuse, never clamp.
+#   · A failed different-edit probe no longer fails the job: /api/get had
+#     already returned usable lyrics.
+#   · The by-ear rung no longer swallows a TRANSIENT cold-model load into a
+#     permanent lyrics_not_found (cec3a33's fix, undone there by a broad except).
+#   · _voice_entry could index past the contour's last frame; an ad-lib hold
+#     under the breath margin no longer counts as a change.
+PIPELINE_VERSION = "2.27.1"
 PIPELINE_MAJOR = 2

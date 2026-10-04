@@ -985,6 +985,83 @@ def test_a_marginal_win_is_not_a_win():
     assert out.result.lines[2].start_ms == start
 
 
+def _nudge_between(specs: list[tuple[int, int, int]], onsets: list[int]):
+    """specs: (line start, n words, anchor) per line; words every 400 ms, 300
+    long. Lines 0 and the last are plain far-away references."""
+    lines, per_line, refs = [], [], []
+    for n, (start, count, anchor) in enumerate(specs):
+        words = [
+            AlignedWord(
+                start_ms=start + k * 400, end_ms=start + k * 400 + 300, text=f"w{n}{k}", prob=0.9
+            )
+            for k in range(count)
+        ]
+        text = " ".join(w.text for w in words)
+        lines.append(LineTiming(start_ms=start, end_ms=words[-1].end_ms, text=text, score=0.9))
+        per_line.append(words)
+        refs.append(anchor)
+    result = AlignResult(sync="word", lines=lines, words_per_line=per_line, quality_score=0.9)
+    return apply_line_qa(result, [line.text for line in lines], refs, onsets)
+
+
+def _starts_never_go_backwards(out) -> bool:
+    starts = [w.start_ms for chunk in out.result.words_per_line for w in chunk]
+    return starts == sorted(starts)
+
+
+def test_a_nudge_never_lands_on_the_previous_lines_sung_words():
+    """2026-10 review: the nudge had no neighbour guard. The anchor says 11 000
+    for a line the aligner put at 13 000, and the onsets agree — but they are
+    the PREVIOUS line's own words (10 000 … 12 300). Moving there interleaves
+    word starts across the two lines, so the move is refused."""
+    specs = [
+        (1_000, 1, 1_000),
+        (5_000, 1, 5_000),
+        (10_000, 6, 10_000),  # previous line: words 10 000 … 12 000, last ends 12 300
+        (13_000, 4, 11_000),  # target: 2 s late per the anchor, inside the band
+        (20_000, 1, 20_000),
+    ]
+    onsets = [1_000, 5_000, 11_000, 11_400, 11_800, 12_200, 20_000]
+    out = _nudge_between(specs, onsets)
+    assert out.nudged == []
+    assert out.result.lines[3].start_ms == 13_000
+    assert _starts_never_go_backwards(out)
+
+
+def test_a_nudge_never_runs_into_the_next_line():
+    """The forward twin: the anchor pulls the line 2 s later, onto audio the
+    NEXT line already owns. The old code moved it and left the next line's
+    words starting before their own line."""
+    specs = [
+        (1_000, 1, 1_000),
+        (5_000, 1, 5_000),
+        (13_000, 4, 15_000),  # target: 2 s early per the anchor
+        (14_500, 4, 14_500),  # next line starts inside the target's shifted span
+        (20_000, 1, 20_000),
+    ]
+    onsets = [1_000, 5_000, 14_500, 14_900, 15_000, 15_300, 15_400, 15_700, 15_800, 16_200, 20_000]
+    out = _nudge_between(specs, onsets)
+    assert 2 not in out.nudged
+    assert out.result.lines[2].start_ms == 13_000
+    assert _starts_never_go_backwards(out)
+
+
+def test_the_neighbour_guard_still_lets_a_line_with_room_move():
+    """The guard must not become a ban: with the neighbours far away the same
+    2 s move goes through (this is the 2.25.0 behaviour the guard keeps)."""
+    specs = [
+        (1_000, 1, 1_000),
+        (5_000, 1, 5_000),
+        (13_000, 4, 11_000),
+        (20_000, 1, 20_000),
+    ]
+    onsets = [1_000, 5_000, 11_000, 11_400, 11_800, 12_200, 20_000]
+    out = _nudge_between(specs, onsets)
+    assert out.nudged == [2]
+    assert out.result.lines[2].start_ms == 11_000
+    assert _starts_never_go_backwards(out)
+
+
 # --- ad-lib detection: the two shapes it was missing (field fix 2026-08-13) -
 
 
@@ -1259,3 +1336,31 @@ def test_the_eight_annotated_instances():
     assert median(after) <= 250
     assert sum(1 for x in after if x <= 200) >= 4
     assert not any(a > b + 50 for a, b in zip(after, before, strict=True))  # nothing worsens
+
+
+def test_voice_entry_just_past_the_last_frame_does_not_crash():
+    """2026-10 review: t0 inside the level window but past the last frame, on
+    silence, started the backward walk at len(frames) — an IndexError that
+    would fail the whole job as "other"."""
+    from kashi_server.pipeline.line_qa import _voice_entry
+
+    frames = [(t, -10.0) for t in range(0, 900, 12)] + [(t, -60.0) for t in range(900, 1_001, 12)]
+    _voice_entry(frames, 1_030)  # must simply not raise
+
+
+def test_a_hold_under_the_breath_is_not_counted_as_a_change():
+    """A hole smaller than the breath leaves the line exactly as it was. It used
+    to build an equal copy anyway, and identity said "changed" — inflating
+    qa.adlib_rederived for lines nothing touched."""
+    words = [
+        AlignedWord(start_ms=70_000, end_ms=70_500, text="oh", prob=0.9),
+        AlignedWord(start_ms=70_500, end_ms=71_000, text="oh", prob=0.9),
+    ]
+    lines = [
+        LineTiming(start_ms=70_000, end_ms=71_000, text="oh oh", score=0.9),
+        LineTiming(start_ms=71_030, end_ms=73_000, text="in love", score=0.9),  # 30 ms hole
+    ]
+    result = AlignResult(sync="word", lines=lines, words_per_line=[words, []], quality_score=0.9)
+    out, changed = rederive_adlib_words(result)
+    assert changed == []
+    assert out.lines[0].end_ms == 71_000

@@ -1136,6 +1136,22 @@ class TestLyricsByEar:
         monkeypatch.setattr(wp, "transcribe", boom)
         assert wp._lyrics_by_ear(job, download, tmp_path) is None
 
+    def test_a_transient_model_load_is_raised_not_swallowed(
+        self, monkeypatch, job, download, tmp_path
+    ):
+        # 2026-10 review: cec3a33 made a network-shaped cold-model load
+        # TRANSIENT; this rung swallowed it into a permanent lyrics_not_found
+        # with a 7-day block. Weather must stay weather.
+        self._wire(monkeypatch, [self.RIGHT])
+
+        def cold_load(*a, **k):
+            raise PipelineError("network", "model load: connection reset")
+
+        monkeypatch.setattr(wp, "transcribe", cold_load)
+        with pytest.raises(PipelineError) as exc:
+            wp._lyrics_by_ear(job, download, tmp_path)
+        assert exc.value.error_type == "network"
+
     def test_spends_nothing_when_there_is_nobody_to_choose_between(
         self, monkeypatch, job, download, tmp_path
     ):

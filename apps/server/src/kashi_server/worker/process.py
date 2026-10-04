@@ -420,9 +420,12 @@ def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText 
     -> twenty one pilots), it just cannot tell which of twenty records that is.
     The audio can.
 
-    Returns None rather than raising: this rung is a bonus, and its failure must
+    Returns None when the rung cannot help: it is a bonus, and "no match" must
     leave the original lyrics_not_found error — with the hints the user actually
-    sent — as the thing the caller reports.
+    sent — as the thing the caller reports. Network weather is the exception
+    and is RAISED as transient, from lrclib or from a cold model load alike:
+    swallowing it would turn a hiccup into a permanent lyrics_not_found with a
+    7-day block (2026-10 review; the same reason as cec3a33).
     """
     hints = dict(job.hints or {})
     title = (
@@ -449,12 +452,19 @@ def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText 
         # LYRICS, and having none is why this rung is running. English is the
         # roadmap's first language and the model most likely already resident.
         transcript = transcribe(wav, resolve_aligner("eng", None, None, None, None).model_name)
+    except PipelineError as exc:
+        if is_transient_error(exc.error_type):
+            raise  # weather, not "no match" — see the docstring
+        logger.info("job %s: by-ear rung could not transcribe (%s)", job.id, exc)
+        return None
     except Exception as exc:  # a bonus rung must never fail the job
         logger.info("job %s: by-ear rung could not transcribe (%s)", job.id, exc)
         return None
 
     scored = [(similarity(transcript, rec.get("plainLyrics") or ""), rec) for rec in candidates]
     best_score = max((score for score, _ in scored), default=0.0)
+    # No `margin`: the threshold rests on five songs and there is no data yet to
+    # set a near-tie margin, so that check is wired but deliberately off.
     picked = pick_by_transcript(
         transcript,
         [(rec, rec.get("plainLyrics") or "") for rec in candidates],

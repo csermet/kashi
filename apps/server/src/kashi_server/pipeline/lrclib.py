@@ -286,7 +286,15 @@ def fetch_lyrics(
             and record.get("duration") is not None
             and abs(float(record["duration"]) - duration_s) > DIFFERENT_EDIT_TOLERANCE_S
         ):
-            candidate = _search(http, title, artist, duration_s)
+            try:
+                candidate = _search(http, title, artist, duration_s)
+            except httpx.HTTPError as exc:
+                # The probe improves a result we already HAVE: /api/get returned
+                # usable lyrics. Its failure must not become a transient job
+                # failure (2026-10 review) — every retry would pay get + probe
+                # again for lyrics that were in hand.
+                logger.info("different-edit probe failed (%s); keeping the get record", exc)
+                candidate = None
             candidate_extracted = _extract(candidate) if candidate else None
             if candidate_extracted is not None and candidate_extracted[2]:  # synced only
                 rung = "get+edit-probe"

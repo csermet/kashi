@@ -293,9 +293,10 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
         if next_start is not None:
             gap = next_start - line.end_ms
             if 0 < gap <= ADLIB_HOLD_MAX_GAP_MS:
-                held_end = max(line.end_ms, next_start - ADLIB_HOLD_BREATH_MS)
-                line = replace(line, end_ms=held_end)
-                lines_out[i] = line
+                held_end = next_start - ADLIB_HOLD_BREATH_MS
+                if held_end > line.end_ms:  # a gap under the breath changes nothing
+                    line = replace(line, end_ms=held_end)
+                    lines_out[i] = line
         span = line.end_ms - line.start_ms
         if span < ADLIB_REDERIVE_MIN_SPAN_MS:
             continue
@@ -312,15 +313,15 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
         ]
         if rederived != words:
             words_out[i] = rederived
-            changed.append(i)
-        elif lines_out[i] is not result.lines[i]:
-            changed.append(i)  # the hold moved the line even if the words tied
-            logger.info(
-                "line QA adlib rederive: line %d %r words respread over %dms",
-                i,
-                line.text[:40],
-                span,
-            )
+        elif lines_out[i] is result.lines[i]:
+            continue  # neither the words nor the held line end moved
+        changed.append(i)  # the hold can move the line even when the words tie
+        logger.info(
+            "line QA adlib rederive: line %d %r words respread over %dms",
+            i,
+            line.text[:40],
+            span,
+        )
     if not changed:
         return result, []
     # Lines travel with their words: the hold moved line ends too.
@@ -377,7 +378,8 @@ def _voice_entry(frames: list[tuple[int, float]], t0: int) -> int | None:
             return None  # a consonant, not a breath
         return frames[k][0]
 
-    j = i
+    # i can be len(frames): t0 inside the level window just past the last frame.
+    j = min(i, len(frames) - 1)
     while j >= 0 and frames[j][0] >= t0 - RESPONSE_SCAN_MS and frames[j][1] < RESPONSE_SILENCE_DB:
         j -= 1
     if j < 0 or frames[j][0] < t0 - RESPONSE_SCAN_MS:
@@ -656,6 +658,23 @@ def apply_line_qa(
             words = result.words_per_line[i] if i < len(result.words_per_line) else []
             if len(words) < MIN_WORDS_FOR_EVIDENCE or not better_supported_position(
                 words, delta, onset_ms
+            ):
+                continue
+            # The neighbours bound the move, exactly as they bound the response
+            # shift — and onsets cannot be trusted to: one fires every ~344 ms,
+            # so the previous line's OWN sung words count as "support" for a
+            # line moved on top of them. Landing there interleaves word starts
+            # across two lines (2026-10 review). Refuse, never clamp.
+            if i > 0:
+                prev_words = nudge_words[i - 1] if i - 1 < len(nudge_words) else []
+                prev_end = (
+                    max(w.end_ms for w in prev_words) if prev_words else nudge_lines[i - 1].end_ms
+                )
+                if words[0].start_ms + delta < prev_end:
+                    continue
+            if (
+                i + 1 < len(nudge_lines)
+                and words[-1].end_ms + delta > nudge_lines[i + 1].start_ms - RESPONSE_BREATH_MS
             ):
                 continue
             # Block shift: line and words move together, exactly as the flagged
