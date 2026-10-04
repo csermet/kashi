@@ -1111,32 +1111,14 @@ let loopActive = false;
 let timingOffsetMs = 0;
 
 function frame(): void {
-  // Data-loss watchdog: a "playing" clock with no position reports for 60 s
-  // means the source vanished mid-play (tab closed, browser gone) — don't
-  // keep scrolling ghost lyrics forever, drop to the idle badge. Ads get a
-  // 3-minute leash instead (see watchdogShouldReset).
-  if (watchdogShouldReset(clock.isPlaying, adActive, performance.now() - lastPlaybackMono)) {
-    window.kashi.log('data-loss watchdog: position stream starved -> idle');
-    resetToIdle();
-  }
+  checkWatchdog();
   // Lyrics render on the user-offset clock; the beat pulse must stay on the
   // RAW clock — a +150 ms offset would detach every pulse from the heard
   // beat (the window is only [-30,+60] ms).
   const rawPos = clock.positionAt();
   const pos = rawPos + timingOffsetMs;
-  let activeText: string | null = null;
-  let lineIndex = -1;
-  // `clock.anchored` and not just `lines.length`: an unanchored clock reads 0,
-  // which is indistinguishable from a track that genuinely just started. Drawing
-  // that guess puts line one on screen for as long as the anchor guard holds the
-  // line — and then takes it away again the moment a real position lands. The ♪
-  // already means "no line applies right now", which is exactly the truth here.
-  if (!adActive && lines.length > 0 && clock.anchored) {
-    // Short gaps HOLD the previous line; only long breaks yield the interlude
-    // mark (Caner's feedback — the ♪ was flashing between every section).
-    lineIndex = findDisplayLine(lines, pos);
-    activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
-  }
+  const lineIndex = displayLineAt(pos);
+  const activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   const activeAdlib = lineIndex >= 0 && lines[lineIndex]?.adlib === true;
   // Read BEFORE applyView: whether this line has a word clock decides how it
   // is painted, and asking after the fact is what made the plain tint miss.
@@ -1158,6 +1140,39 @@ function frame(): void {
     }),
   );
 
+  paintBeat(rawPos);
+  paintWordKaraoke(words, lineIndex, activeText, pos);
+  paintEnergy(rawPos);
+  scheduleNextFrame();
+}
+
+function checkWatchdog(): void {
+  // Data-loss watchdog: a "playing" clock with no position reports for 60 s
+  // means the source vanished mid-play (tab closed, browser gone) — don't
+  // keep scrolling ghost lyrics forever, drop to the idle badge. Ads get a
+  // 3-minute leash instead (see watchdogShouldReset).
+  if (watchdogShouldReset(clock.isPlaying, adActive, performance.now() - lastPlaybackMono)) {
+    window.kashi.log('data-loss watchdog: position stream starved -> idle');
+    resetToIdle();
+  }
+}
+
+/** The line to display at `pos`, or -1 (ad, no lyrics, or no anchor yet). */
+function displayLineAt(pos: number): number {
+  // `clock.anchored` and not just `lines.length`: an unanchored clock reads 0,
+  // which is indistinguishable from a track that genuinely just started. Drawing
+  // that guess puts line one on screen for as long as the anchor guard holds the
+  // line — and then takes it away again the moment a real position lands. The ♪
+  // already means "no line applies right now", which is exactly the truth here.
+  if (!adActive && lines.length > 0 && clock.anchored) {
+    // Short gaps HOLD the previous line; only long breaks yield the interlude
+    // mark (Caner's feedback — the ♪ was flashing between every section).
+    return findDisplayLine(lines, pos);
+  }
+  return -1;
+}
+
+function paintBeat(rawPos: number): void {
   // Beat pulse BEFORE word karaoke: the ambient flash suppresses itself
   // while a beat pulse is up, and reading appliedBeat one block later left
   // that check a frame stale exactly on the beat's opening edge (reviewer).
@@ -1169,7 +1184,14 @@ function frame(): void {
   } else {
     setBeatClasses(BEAT_IDLE);
   }
+}
 
+function paintWordKaraoke(
+  words: readonly WordTiming[] | undefined,
+  lineIndex: number,
+  activeText: string | null,
+  pos: number,
+): void {
   // Word karaoke (kashi-server word-sync documents): applyView's change
   // detection leaves the spans alone on quiet frames; a line change repaints
   // the text and clears the span cache, and they are rebuilt here once.
@@ -1179,7 +1201,9 @@ function frame(): void {
     highlightWord(wordIndex);
     updateWordFill(words, wordIndex, pos);
   }
+}
 
+function paintEnergy(rawPos: number): void {
   // Energy ramp + section dynamics (hype, Faz 6 P5): the played clock like
   // beats. Style writes happen only on QUANTIZED step changes / section
   // edges — a few times per second, never per frame.
@@ -1188,7 +1212,9 @@ function frame(): void {
   } else {
     setEnergyState(0, false);
   }
+}
 
+function scheduleNextFrame(): void {
   if (clock.isPlaying && !adActive) {
     requestAnimationFrame(frame);
   } else {
