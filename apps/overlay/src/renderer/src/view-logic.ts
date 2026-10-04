@@ -200,31 +200,49 @@ export function findDisplayLine(
   gapMs: number = INTERLUDE_GAP_MS,
   leadMs: number = LINE_LEAD_IN_MS,
 ): number {
+  const found = lastStartedAt(lines, pos);
+  // Lead-in FIRST: it is the only branch that can look forward, and it must
+  // also fire from the intro (found === -1) and from inside a long interlude,
+  // both of which return -1 below.
+  if (inLeadIn(lines, found, pos, leadMs)) return found + 1;
+  return heldLine(lines, found, pos, gapMs);
+}
+
+/**
+ * Index of the LAST item whose start_ms <= pos, or -1 before the first.
+ * Binary search; a hole in the array ends it early, as it always did.
+ */
+function lastStartedAt(items: readonly { start_ms: number }[], pos: number): number {
   let lo = 0;
-  let hi = lines.length - 1;
+  let hi = items.length - 1;
   let found = -1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    const line = lines[mid];
-    if (!line) break;
-    if (line.start_ms <= pos) {
+    const item = items[mid];
+    if (!item) break;
+    if (item.start_ms <= pos) {
       found = mid;
       lo = mid + 1;
     } else {
       hi = mid - 1;
     }
   }
-  // Lead-in FIRST: it is the only branch that can look forward, and it must
-  // also fire from the intro (found === -1) and from inside a long interlude,
-  // both of which return -1 below.
+  return found;
+}
+
+/** Is `pos` inside the lead-in of the line after `found`? */
+function inLeadIn(lines: readonly LineSpan[], found: number, pos: number, leadMs: number): boolean {
   const upcoming = lines[found + 1];
-  if (upcoming) {
-    // Silence in front of `upcoming`. From the intro there is no previous
-    // line, so the whole run-up is silence.
-    const silence = found === -1 ? Infinity : upcoming.start_ms - (lines[found]?.end_ms ?? 0);
-    const lead = Math.min(leadMs, silence);
-    if (lead >= LINE_LEAD_MIN_MS && pos >= upcoming.start_ms - lead) return found + 1;
-  }
+  if (!upcoming) return false;
+  // Silence in front of `upcoming`. From the intro there is no previous
+  // line, so the whole run-up is silence.
+  const silence = found === -1 ? Infinity : upcoming.start_ms - (lines[found]?.end_ms ?? 0);
+  const lead = Math.min(leadMs, silence);
+  return lead >= LINE_LEAD_MIN_MS && pos >= upcoming.start_ms - lead;
+}
+
+/** The covering line, or the last one held through a short gap; -1 otherwise. */
+function heldLine(lines: readonly LineSpan[], found: number, pos: number, gapMs: number): number {
   if (found === -1) return -1; // intro — nothing sung yet
   const line = lines[found];
   if (!line) return -1;
@@ -241,25 +259,10 @@ export function findDisplayLine(
 /**
  * Index of the word covering `pos` — the LAST word whose start_ms <= pos, so
  * the previous word stays lit through inter-word gaps (no flicker between
- * words). -1 before the first word. Binary search, same pattern as
- * findActiveLine in main.ts.
+ * words). -1 before the first word.
  */
 export function findActiveWord(words: readonly WordTiming[], pos: number): number {
-  let lo = 0;
-  let hi = words.length - 1;
-  let found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const word = words[mid];
-    if (!word) break;
-    if (word.start_ms <= pos) {
-      found = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return found;
+  return lastStartedAt(words, pos);
 }
 
 // 60 s, not 10 s (field bug, Caner 2026-07-24): a big SEEK stalls YTM's MSE
