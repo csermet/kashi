@@ -59,17 +59,8 @@ def _str_list(cat: dict, key: str) -> list[str]:
 def lint_lexicon(raw: object) -> LintReport:
     """Validate a parsed fx_lexicon.yaml document. Deterministic; no I/O."""
     report = LintReport()
-    if not isinstance(raw, dict):
-        report.error("top level must be a mapping")
-        return report
-
-    version = raw.get("version")
-    if not isinstance(version, str) or not VERSION_RE.match(version):
-        report.error(f"version must match kashi-fx/X.Y.Z (got {version!r})")
-
-    categories = raw.get("categories")
-    if not isinstance(categories, list) or not categories:
-        report.error("categories must be a non-empty list")
+    categories = _check_header(raw, report)
+    if categories is None:
         return report
 
     seen_ids: set[str] = set()
@@ -81,104 +72,156 @@ def lint_lexicon(raw: object) -> LintReport:
         if not isinstance(cat, dict):
             report.error(f"categories[{index}] must be a mapping")
             continue
-        cid = cat.get("id")
-        label = cid if isinstance(cid, str) else f"categories[{index}]"
-        if not isinstance(cid, str) or not TAG_ID_RE.match(cid):
-            report.error(f"{label}: id must match {TAG_ID_RE.pattern}")
-        elif cid in seen_ids:
-            report.error(f"{label}: duplicate category id")
-        else:
-            seen_ids.add(cid)
-
-        icon = cat.get("icon")
-        if not isinstance(icon, str) or not icon.strip():
-            report.error(f"{label}: icon must be a non-empty string")
-
-        intensity = cat.get("base_intensity")
-        if not isinstance(intensity, (int, float)) or not 0 <= float(intensity) <= 1:
-            report.error(f"{label}: base_intensity must be a number in [0, 1]")
-
-        for key in _LIST_FIELDS:
-            value = cat.get(key)
-            if value is not None and (
-                not isinstance(value, list) or any(not isinstance(v, str) for v in value)
-            ):
-                report.error(f"{label}: {key} must be a list of strings")
-
-        unknown = set(cat) - {"id", "icon", "base_intensity", *_LIST_FIELDS}
-        if unknown:
-            report.error(f"{label}: unknown fields {sorted(unknown)}")
+        cid, label = _check_category_shape(index, cat, seen_ids, report)
 
         # --- entry discipline ------------------------------------------------
         keywords = _str_list(cat, "keywords_en") + _str_list(cat, "keywords_tr")
         variants = _str_list(cat, "variants_tr")
         stems = _str_list(cat, "stems_en") + _str_list(cat, "stems_tr")
-
-        for entry in keywords + variants + stems:
-            if entry != normalize(entry):
-                # Written non-normalized (uppercase İ/I etc.): production
-                # would still match, but the file must show the exact string
-                # the matcher sees — this is where the İ/I trap gets caught.
-                report.error(
-                    f"{label}: entry {entry!r} is not normalized "
-                    f"(write it as {normalize(entry)!r})"
-                )
-            if not _TOKEN_RE.match(normalize(entry)):
-                report.error(
-                    f"{label}: entry {entry!r} is not a single letter-only token"
-                )
-
-        for stem in stems:
-            if len(normalize(stem)) < MIN_STEM_LEN:
-                report.error(
-                    f"{label}: stem {stem!r} is shorter than {MIN_STEM_LEN} chars "
-                    f"(the matcher would ignore it silently)"
-                )
-
-        # Duplicates inside the category (keywords + variants share the
-        # exact-match namespace in load_lexicon).
-        exact = [normalize(e) for e in keywords + variants]
-        for dup in sorted({e for e in exact if exact.count(e) > 1}):
-            report.warn(f"{label}: duplicate exact entry {dup!r} within the category")
-        norm_stems = [normalize(s) for s in stems]
-        for dup in sorted({s for s in norm_stems if norm_stems.count(s) > 1}):
-            report.warn(f"{label}: duplicate stem {dup!r} within the category")
-        for entry in sorted(set(exact)):
-            covering = [s for s in norm_stems if entry.startswith(s)]
-            if covering:
-                report.warn(
-                    f"{label}: keyword {entry!r} is already covered by own stem "
-                    f"{covering[0]!r} (redundant, harmless)"
-                )
+        _check_entries(label, keywords + variants + stems, stems, report)
+        exact, norm_stems = _check_duplicates(label, keywords + variants, stems, report)
 
         # --- cross-category collisions --------------------------------------
         if isinstance(cid, str):
-            for entry in sorted(set(exact)):
-                owner = keyword_owner.setdefault(entry, cid)
-                if owner != cid:
-                    report.error(
-                        f"keyword {entry!r} claimed by both '{owner}' and '{cid}' "
-                        f"— one word, one category"
-                    )
-            for stem in sorted(set(norm_stems)):
-                owner = stem_owner.setdefault(stem, cid)
-                if owner != cid:
-                    report.error(
-                        f"stem {stem!r} claimed by both '{owner}' and '{cid}'"
-                    )
+            _claim_entries(cid, exact, norm_stems, keyword_owner, stem_owner, report)
 
-        # --- prototypes (embedding centroids need real sentences) -----------
-        for key in ("prototypes_en", "prototypes_tr"):
-            protos = _str_list(cat, key)
-            if not protos:
-                report.error(f"{label}: {key} must have at least one sentence")
-            for proto in protos:
-                if len(proto.split()) < 3:
-                    report.warn(
-                        f"{label}: {key} entry {proto!r} looks like a bare word — "
-                        f"prototypes should be short definition sentences (R2)"
-                    )
+        _check_prototypes(label, cat, report)
 
+    _check_shadowing(keyword_owner, stem_owner, report)
+    return report
+
+
+def _check_header(raw: object, report: LintReport) -> list | None:
+    """Top-level shape and version; the category list, or None to stop."""
+    if not isinstance(raw, dict):
+        report.error("top level must be a mapping")
+        return None
+
+    version = raw.get("version")
+    if not isinstance(version, str) or not VERSION_RE.match(version):
+        report.error(f"version must match kashi-fx/X.Y.Z (got {version!r})")
+
+    categories = raw.get("categories")
+    if not isinstance(categories, list) or not categories:
+        report.error("categories must be a non-empty list")
+        return None
+    return categories
+
+
+def _check_category_shape(
+    index: int, cat: dict, seen_ids: set[str], report: LintReport
+) -> tuple[object, str]:
+    """id, icon, intensity, list fields, unknown keys. Returns (id, label)."""
+    cid = cat.get("id")
+    label = cid if isinstance(cid, str) else f"categories[{index}]"
+    if not isinstance(cid, str) or not TAG_ID_RE.match(cid):
+        report.error(f"{label}: id must match {TAG_ID_RE.pattern}")
+    elif cid in seen_ids:
+        report.error(f"{label}: duplicate category id")
+    else:
+        seen_ids.add(cid)
+
+    icon = cat.get("icon")
+    if not isinstance(icon, str) or not icon.strip():
+        report.error(f"{label}: icon must be a non-empty string")
+
+    intensity = cat.get("base_intensity")
+    if not isinstance(intensity, (int, float)) or not 0 <= float(intensity) <= 1:
+        report.error(f"{label}: base_intensity must be a number in [0, 1]")
+
+    for key in _LIST_FIELDS:
+        value = cat.get(key)
+        if value is not None and (
+            not isinstance(value, list) or any(not isinstance(v, str) for v in value)
+        ):
+            report.error(f"{label}: {key} must be a list of strings")
+
+    unknown = set(cat) - {"id", "icon", "base_intensity", *_LIST_FIELDS}
+    if unknown:
+        report.error(f"{label}: unknown fields {sorted(unknown)}")
+    return cid, label
+
+
+def _check_entries(label: str, entries: list[str], stems: list[str], report: LintReport) -> None:
+    for entry in entries:
+        if entry != normalize(entry):
+            # Written non-normalized (uppercase İ/I etc.): production
+            # would still match, but the file must show the exact string
+            # the matcher sees — this is where the İ/I trap gets caught.
+            report.error(
+                f"{label}: entry {entry!r} is not normalized "
+                f"(write it as {normalize(entry)!r})"
+            )
+        if not _TOKEN_RE.match(normalize(entry)):
+            report.error(f"{label}: entry {entry!r} is not a single letter-only token")
+
+    for stem in stems:
+        if len(normalize(stem)) < MIN_STEM_LEN:
+            report.error(
+                f"{label}: stem {stem!r} is shorter than {MIN_STEM_LEN} chars "
+                f"(the matcher would ignore it silently)"
+            )
+
+
+def _check_duplicates(
+    label: str, exact_entries: list[str], stems: list[str], report: LintReport
+) -> tuple[list[str], list[str]]:
+    """Duplicates inside the category (keywords + variants share the
+    exact-match namespace in load_lexicon). Returns the normalized lists."""
+    exact = [normalize(e) for e in exact_entries]
+    for dup in sorted({e for e in exact if exact.count(e) > 1}):
+        report.warn(f"{label}: duplicate exact entry {dup!r} within the category")
+    norm_stems = [normalize(s) for s in stems]
+    for dup in sorted({s for s in norm_stems if norm_stems.count(s) > 1}):
+        report.warn(f"{label}: duplicate stem {dup!r} within the category")
+    for entry in sorted(set(exact)):
+        covering = [s for s in norm_stems if entry.startswith(s)]
+        if covering:
+            report.warn(
+                f"{label}: keyword {entry!r} is already covered by own stem "
+                f"{covering[0]!r} (redundant, harmless)"
+            )
+    return exact, norm_stems
+
+
+def _claim_entries(
+    cid: str,
+    exact: list[str],
+    norm_stems: list[str],
+    keyword_owner: dict[str, str],
+    stem_owner: dict[str, str],
+    report: LintReport,
+) -> None:
+    for entry in sorted(set(exact)):
+        owner = keyword_owner.setdefault(entry, cid)
+        if owner != cid:
+            report.error(
+                f"keyword {entry!r} claimed by both '{owner}' and '{cid}' "
+                f"— one word, one category"
+            )
+    for stem in sorted(set(norm_stems)):
+        owner = stem_owner.setdefault(stem, cid)
+        if owner != cid:
+            report.error(f"stem {stem!r} claimed by both '{owner}' and '{cid}'")
+
+
+def _check_prototypes(label: str, cat: dict, report: LintReport) -> None:
+    """Prototypes: embedding centroids need real sentences."""
+    for key in ("prototypes_en", "prototypes_tr"):
+        protos = _str_list(cat, key)
+        if not protos:
+            report.error(f"{label}: {key} must have at least one sentence")
+        for proto in protos:
+            if len(proto.split()) < 3:
+                report.warn(
+                    f"{label}: {key} entry {proto!r} looks like a bare word — "
+                    f"prototypes should be short definition sentences (R2)"
+                )
+
+
+def _check_shadowing(
+    keyword_owner: dict[str, str], stem_owner: dict[str, str], report: LintReport
+) -> None:
     # Cross-category prefix shadowing: cat A's stem being a PREFIX of cat B's
     # exact keyword means A steals B's word at match time (stem check runs on
     # the same token). Deterministic outcome, but a human must intend it.
@@ -198,4 +241,3 @@ def lint_lexicon(raw: object) -> LintReport:
                     f"stem {stem_b!r} ('{owner_b}') is shadowed by shorter stem "
                     f"{stem_a!r} ('{owner_a}') — higher base_intensity wins; confirm intent"
                 )
-    return report
