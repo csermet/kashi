@@ -818,75 +818,86 @@ window.kashi.onTrack((payload) => {
 
 window.kashi.onLyrics(applyLyrics);
 
+interface LyricsPayload {
+  key: string;
+  found?: boolean;
+  searching?: boolean;
+  error?: boolean;
+  lines?: LyricLine[];
+  palette?: PaletteLike;
+  beats?: BeatsLike;
+  fx?: FxData;
+  energy?: EnergyData;
+  sections?: SectionData[];
+  alignment?: AlignmentData;
+}
+
+function showSearching(): void {
+  // Keep an already-shown lyric visible during a BACKGROUND re-lookup (SW
+  // flap / reconnect re-runs the lookup for the current song): only surface
+  // the searching dots when there is nothing on screen yet. Otherwise a
+  // re-lookup would blink a playing lyric to dots (Caner field bug).
+  if (lines.length === 0) {
+    searching = true;
+    statusText = trackLabel;
+    statusDim = false;
+  }
+  ensureLoop();
+}
+
+function applyFoundLyrics(data: LyricsPayload, found: LyricLine[]): void {
+  lines = found;
+  resetFirstFillReport();
+  rebuildFillPlans();
+  // Server enrichment (Faz 4): palette themes the box, beats drive the
+  // pulse; fx tags feed the hype level (Faz 6). lrclib results carry
+  // none of them — defaults keep the plain look.
+  serverPalette = data.palette;
+  currentBeats = data.beats;
+  currentFx = data.fx;
+  currentEnergy = data.energy;
+  currentSections = data.sections;
+  setNightcoreClass(isNightcore(data.alignment));
+  rebuildFxIndex();
+  rebuildBeatCursor();
+  refreshPalette();
+  window.kashi.log(
+    `lyrics applied: ${lines.length} lines` +
+      (data.beats ? ' +beats' : '') +
+      (data.palette ? ' +palette' : '') +
+      (data.fx?.words?.length ? ` +fx(${data.fx.words.length})` : ''),
+  );
+}
+
+function applyMissingLyrics(data: LyricsPayload): void {
+  lines = [];
+  // Keep the artwork theme: palette is about the PLAYING track, not about
+  // whether lyrics exist. Only server enrichment resets here.
+  serverPalette = undefined;
+  currentBeats = undefined;
+  currentFx = undefined;
+  currentEnergy = undefined;
+  currentSections = undefined;
+  setNightcoreClass(false);
+  rebuildFxIndex();
+  rebuildBeatCursor();
+  refreshPalette();
+  statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
+  statusDim = true;
+  window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
+}
+
 function applyLyrics(payload: unknown): void {
-  const data = payload as {
-    key: string;
-    found?: boolean;
-    searching?: boolean;
-    error?: boolean;
-    lines?: LyricLine[];
-    palette?: PaletteLike;
-    beats?: BeatsLike;
-    fx?: FxData;
-    energy?: EnergyData;
-    sections?: SectionData[];
-    alignment?: AlignmentData;
-  };
+  const data = payload as LyricsPayload;
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
-    // Keep an already-shown lyric visible during a BACKGROUND re-lookup (SW
-    // flap / reconnect re-runs the lookup for the current song): only surface
-    // the searching dots when there is nothing on screen yet. Otherwise a
-    // re-lookup would blink a playing lyric to dots (Caner field bug).
-    if (lines.length === 0) {
-      searching = true;
-      statusText = trackLabel;
-      statusDim = false;
-    }
-    ensureLoop();
+    showSearching();
     return;
   }
   idleStash.remember(data.key, payload);
   searching = false;
-  if (data.found && data.lines) {
-    lines = data.lines;
-    resetFirstFillReport();
-    rebuildFillPlans();
-    // Server enrichment (Faz 4): palette themes the box, beats drive the
-    // pulse; fx tags feed the hype level (Faz 6). lrclib results carry
-    // none of them — defaults keep the plain look.
-    serverPalette = data.palette;
-    currentBeats = data.beats;
-    currentFx = data.fx;
-    currentEnergy = data.energy;
-    currentSections = data.sections;
-    setNightcoreClass(isNightcore(data.alignment));
-    rebuildFxIndex();
-    rebuildBeatCursor();
-    refreshPalette();
-    window.kashi.log(
-      `lyrics applied: ${lines.length} lines` +
-        (data.beats ? ' +beats' : '') +
-        (data.palette ? ' +palette' : '') +
-        (data.fx?.words?.length ? ` +fx(${data.fx.words.length})` : ''),
-    );
-  } else {
-    lines = [];
-    // Keep the artwork theme: palette is about the PLAYING track, not about
-    // whether lyrics exist. Only server enrichment resets here.
-    serverPalette = undefined;
-    currentBeats = undefined;
-    currentFx = undefined;
-    currentEnergy = undefined;
-    currentSections = undefined;
-    setNightcoreClass(false);
-    rebuildFxIndex();
-    rebuildBeatCursor();
-    refreshPalette();
-    statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
-    statusDim = true;
-    window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
-  }
+  if (data.found && data.lines) applyFoundLyrics(data, data.lines);
+  else applyMissingLyrics(data);
   ensureLoop();
 }
 
@@ -960,23 +971,13 @@ function flashBoxScale(scale: string): void {
   }, 900);
 }
 
-window.kashi.onSettings((payload) => {
-  // Captured BEFORE the timing-offset branch flips it: branches below the
-  // flip would otherwise treat the startup replay as a live change.
-  const live = settingsSeen;
-  const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
-    payload as {
-      box_alpha?: unknown;
-      timing_offset_ms?: unknown;
-      effect_level?: unknown;
-      theme_scope?: unknown;
-      fill_style?: unknown;
-      text_scale?: unknown;
-      box_scale?: unknown;
-    };
+function applyBoxAlpha(box_alpha: unknown): void {
   if (typeof box_alpha === 'number' && Number.isFinite(box_alpha)) {
     document.documentElement.style.setProperty('--kashi-box-alpha', String(box_alpha));
   }
+}
+
+function applyTimingOffset(timing_offset_ms: unknown): void {
   if (typeof timing_offset_ms === 'number' && Number.isFinite(timing_offset_ms)) {
     // positive = lyrics fire earlier (clamped main-side; belt here)
     const next = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
@@ -984,7 +985,9 @@ window.kashi.onSettings((payload) => {
     if (settingsSeen && next !== timingOffsetMs) flashTimingOffset(next);
     timingOffsetMs = next;
   }
-  settingsSeen = true;
+}
+
+function applyEffectLevelSetting(effect_level: unknown): void {
   if (effect_level !== undefined && parseEffectLevel(effect_level) !== effectLevel) {
     // Instant switch: a body class + variable/cursor reset — nothing rebuilt
     // except the word spans (their fill plan depends on the level).
@@ -999,20 +1002,32 @@ window.kashi.onSettings((payload) => {
     clearRunFill();
     clearWordSpans(); // next frame rebuilds spans + fill plan for the new level
   }
+}
+
+function applyThemeScopeSetting(theme_scope: unknown): void {
   if (theme_scope !== undefined && parseThemeScope(theme_scope) !== themeScope) {
     themeScope = parseThemeScope(theme_scope);
     applyPaletteVars();
   }
+}
+
+function applyFillStyleSetting(fill_style: unknown): void {
   if (fill_style !== undefined && parseFillStyle(fill_style) !== fillStyle) {
     fillStyle = parseFillStyle(fill_style);
     // Pure CSS dialect switch — the gradient tail and the pre-base both key
     // off this one class; spans and plans stay as they are.
     document.body.classList.toggle('fill-neutral', fillStyle === 'neutral');
   }
+}
+
+function applyTextScaleSetting(text_scale: unknown): void {
   if (text_scale !== undefined && parseTextScale(text_scale) !== textScale) {
     textScale = parseTextScale(text_scale);
     applySizeVars();
   }
+}
+
+function applyBoxScaleSetting(box_scale: unknown, live: boolean): void {
   if (box_scale !== undefined && parseBoxScale(box_scale) !== boxScale) {
     boxScale = parseBoxScale(box_scale);
     applySizeVars();
@@ -1022,6 +1037,30 @@ window.kashi.onSettings((payload) => {
     // telling that the zone moved.
     fxCanvas?.setFallbackBox(boxZoneFor(boxScale));
   }
+}
+
+window.kashi.onSettings((payload) => {
+  // Captured BEFORE the timing-offset branch flips it: branches below the
+  // flip would otherwise treat the startup replay as a live change.
+  const live = settingsSeen;
+  const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
+    payload as {
+      box_alpha?: unknown;
+      timing_offset_ms?: unknown;
+      effect_level?: unknown;
+      theme_scope?: unknown;
+      fill_style?: unknown;
+      text_scale?: unknown;
+      box_scale?: unknown;
+    };
+  applyBoxAlpha(box_alpha);
+  applyTimingOffset(timing_offset_ms);
+  settingsSeen = true;
+  applyEffectLevelSetting(effect_level);
+  applyThemeScopeSetting(theme_scope);
+  applyFillStyleSetting(fill_style);
+  applyTextScaleSetting(text_scale);
+  applyBoxScaleSetting(box_scale, live);
   // Paused screens must repaint NOW, not on the 1 Hz self-heal — the user is
   // looking at the box exactly when they change a setting (retro finding).
   ensureLoop();
