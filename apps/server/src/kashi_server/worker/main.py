@@ -55,15 +55,7 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     )
     os.environ.setdefault("HF_HOME", str(settings.model_cache_dir))
 
-    # Warmup gate: a worker that cannot align must not claim jobs.
-    from kashi_server.worker.warmup import ensure_model, ensure_semantics, ensure_separator
-
-    ensure_model()
-    if settings.separation_mode != "off":
-        ensure_separator()
-    if settings.fx_embeddings:
-        ensure_semantics()  # loads the singleton process.py reuses
-
+    _warm_up()
     sweep_orphans(settings.data_dir)
     start_http_server(settings.metrics_port)
     logger.info(
@@ -87,43 +79,67 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
 
     while not stopping["flag"]:
         with SessionLocal() as session:
-            queue.reclaim_expired(session)
-            purged = queue.purge_expired_uploads(session)
-            if purged:
-                logger.info("purged %d expired staged upload(s)", purged)
-            if (
-                last_telemetry_sweep is None
-                or time.monotonic() - last_telemetry_sweep > TELEMETRY_SWEEP_INTERVAL_S
-            ):
-                last_telemetry_sweep = time.monotonic()
-                expired = queue.purge_old_telemetry(session, settings.telemetry_retention_days)
-                if expired:
-                    logger.info(
-                        "purged %d telemetry row(s) older than %d days",
-                        expired,
-                        settings.telemetry_retention_days,
-                    )
-            session.commit()
+            last_telemetry_sweep = _housekeeping(session, last_telemetry_sweep)
             job = queue.claim_next(session)
             if job is None:
-                # Idle slot: drain at most one lrclib publish request (P6) —
-                # PoW may cost minutes and must never delay a lyrics job.
-                from kashi_server.worker.publisher import process_one_publish
-
-                if process_one_publish(session, should_stop=lambda: stopping["flag"]):
-                    continue
-                QUEUE_DEPTH.set(queue.queue_depth(session))
-                session.commit()
-                time.sleep(settings.worker_poll_interval_s)
+                _idle_slot(session, should_stop=lambda: stopping["flag"])
                 continue
-
-            logger.info("claimed job %s (%s:%s)", job.id, job.source_type, job.source_id)
-            session.commit()
-            started = time.monotonic()
-            with HeartbeatThread(job.id, SessionLocal):
-                process_job(session, job)
-            JOB_SECONDS.observe(time.monotonic() - started)
-            session.refresh(job)
-            JOBS_TOTAL.labels(status=job.status).inc()
+            _run_claimed(session, job, SessionLocal, HeartbeatThread, process_job)
 
     logger.info("worker stopped")
+
+
+def _warm_up() -> None:  # pragma: no cover - loads models
+    # Warmup gate: a worker that cannot align must not claim jobs.
+    from kashi_server.worker.warmup import ensure_model, ensure_semantics, ensure_separator
+
+    ensure_model()
+    if settings.separation_mode != "off":
+        ensure_separator()
+    if settings.fx_embeddings:
+        ensure_semantics()  # loads the singleton process.py reuses
+
+
+def _housekeeping(session, last_telemetry_sweep: float | None) -> float | None:
+    """Per-iteration upkeep before a claim; returns when telemetry was last swept."""
+    queue.reclaim_expired(session)
+    purged = queue.purge_expired_uploads(session)
+    if purged:
+        logger.info("purged %d expired staged upload(s)", purged)
+    if (
+        last_telemetry_sweep is None
+        or time.monotonic() - last_telemetry_sweep > TELEMETRY_SWEEP_INTERVAL_S
+    ):
+        last_telemetry_sweep = time.monotonic()
+        expired = queue.purge_old_telemetry(session, settings.telemetry_retention_days)
+        if expired:
+            logger.info(
+                "purged %d telemetry row(s) older than %d days",
+                expired,
+                settings.telemetry_retention_days,
+            )
+    session.commit()
+    return last_telemetry_sweep
+
+
+def _idle_slot(session, should_stop) -> None:
+    """No job to claim: drain at most one lrclib publish request (P6) — PoW
+    may cost minutes and must never delay a lyrics job — else wait a poll."""
+    from kashi_server.worker.publisher import process_one_publish
+
+    if process_one_publish(session, should_stop=should_stop):
+        return
+    QUEUE_DEPTH.set(queue.queue_depth(session))
+    session.commit()
+    time.sleep(settings.worker_poll_interval_s)
+
+
+def _run_claimed(session, job, session_factory, heartbeat_cls, process_job) -> None:
+    logger.info("claimed job %s (%s:%s)", job.id, job.source_type, job.source_id)
+    session.commit()
+    started = time.monotonic()
+    with heartbeat_cls(job.id, session_factory):
+        process_job(session, job)
+    JOB_SECONDS.observe(time.monotonic() - started)
+    session.refresh(job)
+    JOBS_TOTAL.labels(status=job.status).inc()
