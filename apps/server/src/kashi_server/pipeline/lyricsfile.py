@@ -138,8 +138,7 @@ def _offset_or_reject(doc: dict, duration_s: float) -> int | None:
         and abs(declared / 1000 - duration_s) > DURATION_SLACK_S
     ):
         logger.info(
-            "lyricsfile rejected: declares %dms but the audio is %.0fs "
-            "(timed to a different edit)",
+            "lyricsfile rejected: declares %dms but the audio is %.0fs (timed to a different edit)",
             declared,
             duration_s,
         )
@@ -206,17 +205,21 @@ def _resolve_word_ends(
             words_per_line.append([])
             continue
         boundary = starts[i + 1] if i + 1 < len(starts) else None
-        chunk: list[AlignedWord] = []
-        for k, (text, start, end) in enumerate(parsed):
-            if end is None:
-                end = parsed[k + 1][1] if k + 1 < len(parsed) else lines[i].end_ms
-            if boundary is not None:
-                end = min(end, boundary)
-            chunk.append(
-                AlignedWord(start_ms=start, end_ms=max(start, end), text=text, prob=1.0)
-            )
-        words_per_line.append(chunk)
+        words_per_line.append(_ended_words(parsed, lines[i].end_ms, boundary))
     return words_per_line
+
+
+def _ended_words(
+    parsed: list[tuple[str, int, int | None]], line_end: int, boundary: int | None
+) -> list[AlignedWord]:
+    chunk: list[AlignedWord] = []
+    for k, (text, start, end) in enumerate(parsed):
+        if end is None:
+            end = parsed[k + 1][1] if k + 1 < len(parsed) else line_end
+        if boundary is not None:
+            end = min(end, boundary)
+        chunk.append(AlignedWord(start_ms=start, end_ms=max(start, end), text=text, prob=1.0))
+    return chunk
 
 
 def _parse_words(
@@ -230,21 +233,36 @@ def _parse_words(
         return None
     parsed: list[tuple[str, int, int | None]] = []
     for w in raw_words:
-        if not isinstance(w, dict):
+        word = _shifted_word(w, offset_ms)
+        if word is None:
             return None
-        text = w.get("text")
-        start = _ms(w.get("start_ms"))
-        if not isinstance(text, str) or not text or start is None:
-            return None
-        end = _ms(w.get("end_ms"))
-        shifted_end = end + offset_ms if end is not None else None
-        parsed.append((text, max(0, start + offset_ms), shifted_end))
+        parsed.append(word)
 
     if not _texts_match("".join(t for t, _, _ in parsed), line_text):
         # The words don't spell the display text — keep the line, drop the
         # word data (never render a sweep over mismatched spans).
         return None
+    return _stripped_monotonic(parsed, line_start)
 
+
+def _shifted_word(w: object, offset_ms: int) -> tuple[str, int, int | None] | None:
+    """(text, offset start, offset end|None) for one raw word, or None if malformed."""
+    if not isinstance(w, dict):
+        return None
+    text = w.get("text")
+    start = _ms(w.get("start_ms"))
+    if not isinstance(text, str) or not text or start is None:
+        return None
+    end = _ms(w.get("end_ms"))
+    shifted_end = end + offset_ms if end is not None else None
+    return (text, max(0, start + offset_ms), shifted_end)
+
+
+def _stripped_monotonic(
+    parsed: list[tuple[str, int, int | None]], line_start: int
+) -> list[tuple[str, int, int | None]] | None:
+    """The words with their text stripped, or None when the starts go
+    backwards or a word strips to nothing."""
     out: list[tuple[str, int, int | None]] = []
     prev = line_start
     for text, start, end in parsed:
