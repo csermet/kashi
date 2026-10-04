@@ -50,6 +50,53 @@ def alignresult_from_lyricsfile(raw: str | None, duration_s: float) -> AlignResu
     None for ANY reason to fall back: absent/oversized/broken YAML, version
     major != 1, instrumental, no word-level content, non-monotonic times, or
     stamps timed to a different edit than the downloaded audio."""
+    doc = _load_document(raw)
+    if doc is None:
+        return None
+    offset_ms = _offset_or_reject(doc, duration_s)
+    if offset_ms is None:
+        return None
+    entries = doc.get("lines")
+    if not isinstance(entries, list) or not entries:
+        return None
+    parsed = _parse_entries(entries, offset_ms)
+    if parsed is None:
+        return None
+    starts, ends, texts, raw_words = parsed
+
+    if not any(raw_words):
+        # Line-only lyricsfile adds nothing over syncedLyrics — out of scope
+        # (Faz 5 discipline); the caller's normal path handles those.
+        return None
+
+    lines = _resolve_line_ends(starts, ends, texts, raw_words)
+
+    words_per_line = _resolve_word_ends(raw_words, starts, lines)
+
+    last_ms = max(
+        max((w.end_ms for chunk in words_per_line for w in chunk), default=0),
+        max(line.end_ms for line in lines),
+    )
+    if duration_s > 0 and last_ms > (duration_s + DURATION_SLACK_S) * 1000:
+        logger.info(
+            "lyricsfile rejected: stamps run to %dms but the audio is %.0fs "
+            "(timed to a different edit)",
+            last_ms,
+            duration_s,
+        )
+        return None
+
+    return AlignResult(
+        sync="word",
+        lines=lines,
+        words_per_line=words_per_line,
+        quality_score=1.0,  # no aligner uncertainty to model — human data
+        windowed=False,
+    )
+
+
+def _load_document(raw: str | None) -> dict | None:
+    """Size, YAML and major-version gates; the parsed mapping or None."""
     if not raw or not isinstance(raw, str):
         return None
     if len(raw.encode("utf-8", errors="ignore")) > MAX_LYRICSFILE_BYTES:
@@ -66,6 +113,12 @@ def alignresult_from_lyricsfile(raw: str | None, duration_s: float) -> AlignResu
     if not isinstance(version, str) or version.split(".")[0] != "1":
         logger.info("lyricsfile rejected: unsupported version %r", version)
         return None
+    return doc
+
+
+def _offset_or_reject(doc: dict, duration_s: float) -> int | None:
+    """The file's offset_ms, or None to reject (instrumental, or timed to a
+    different edit than the downloaded audio)."""
     metadata = doc.get("metadata") or {}
     if not isinstance(metadata, dict) or metadata.get("instrumental") is True:
         return None
@@ -91,10 +144,14 @@ def alignresult_from_lyricsfile(raw: str | None, duration_s: float) -> AlignResu
             duration_s,
         )
         return None
-    entries = doc.get("lines")
-    if not isinstance(entries, list) or not entries:
-        return None
+    return offset_ms
 
+
+def _parse_entries(
+    entries: list, offset_ms: int
+) -> tuple[list[int], list[int | None], list[str], list] | None:
+    """Per-line starts, explicit ends, texts and raw words; None on any
+    malformed or non-monotonic entry."""
     starts: list[int] = []
     ends: list[int | None] = []
     texts: list[str] = []
@@ -117,12 +174,12 @@ def alignresult_from_lyricsfile(raw: str | None, duration_s: float) -> AlignResu
         ends.append(max(start, end + offset_ms) if end is not None else None)
         texts.append(text.strip())
         raw_words.append(_parse_words(entry.get("words"), text.strip(), start, offset_ms))
+    return starts, ends, texts, raw_words
 
-    if not any(raw_words):
-        # Line-only lyricsfile adds nothing over syncedLyrics — out of scope
-        # (Faz 5 discipline); the caller's normal path handles those.
-        return None
 
+def _resolve_line_ends(
+    starts: list[int], ends: list[int | None], texts: list[str], raw_words: list
+) -> list[LineTiming]:
     # Resolve open LINE ends first: next line's start, else the line's last
     # explicit word end, else zero width (display-hold semantics).
     lines: list[LineTiming] = []
@@ -134,7 +191,12 @@ def alignresult_from_lyricsfile(raw: str | None, duration_s: float) -> AlignResu
             candidates = [v for v in (nxt, max(word_ends, default=None)) if v is not None]
             end = max(candidates) if candidates else start
         lines.append(LineTiming(start_ms=start, end_ms=max(start, end), text=texts[i], score=1.0))
+    return lines
 
+
+def _resolve_word_ends(
+    raw_words: list, starts: list[int], lines: list[LineTiming]
+) -> list[list[AlignedWord]]:
     # Then WORD ends: next word's start, else the (now resolved) line end;
     # explicit ends are clamped to the next LINE's start — garbage data must
     # not sweep across a line boundary.
@@ -154,27 +216,7 @@ def alignresult_from_lyricsfile(raw: str | None, duration_s: float) -> AlignResu
                 AlignedWord(start_ms=start, end_ms=max(start, end), text=text, prob=1.0)
             )
         words_per_line.append(chunk)
-
-    last_ms = max(
-        max((w.end_ms for chunk in words_per_line for w in chunk), default=0),
-        max(line.end_ms for line in lines),
-    )
-    if duration_s > 0 and last_ms > (duration_s + DURATION_SLACK_S) * 1000:
-        logger.info(
-            "lyricsfile rejected: stamps run to %dms but the audio is %.0fs "
-            "(timed to a different edit)",
-            last_ms,
-            duration_s,
-        )
-        return None
-
-    return AlignResult(
-        sync="word",
-        lines=lines,
-        words_per_line=words_per_line,
-        quality_score=1.0,  # no aligner uncertainty to model — human data
-        windowed=False,
-    )
+    return words_per_line
 
 
 def _parse_words(
