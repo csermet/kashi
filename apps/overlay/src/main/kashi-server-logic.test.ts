@@ -205,6 +205,18 @@ describe('mapDocument', () => {
     ).toBeNull();
   });
 
+  it('a null line or word is malformed, not a crash', () => {
+    // Indexing null threw, so getProcessed REJECTED instead of answering
+    // { error: true }: the lookup died before lrclib and the track sat on
+    // "searching" — and a cached copy did the same on every later play.
+    const word = { start_ms: 0, end_ms: 100, text: 'a' };
+    expect(mapDocument(doc({ lines: [null] }))).toBeNull();
+    expect(mapDocument(doc({ lines: ['x'] }))).toBeNull();
+    expect(
+      mapDocument(doc({ lines: [{ start_ms: 0, end_ms: 100, text: 'a', words: [word, null] }] })),
+    ).toBeNull();
+  });
+
   it('tolerates unknown extra fields (additive schema)', () => {
     expect(mapDocument(doc({ future_field: { anything: true } }))).not.toBeNull();
   });
@@ -254,6 +266,19 @@ describe('mapFx (Faz 6)', () => {
     expect(mapFx({ ...base }, 'word')).toBeUndefined();
     expect(mapFx('garbage', 'word')).toBeUndefined();
     expect(mapFx({ lexicon: 1, engine: 'keywords' }, 'word')).toBeUndefined();
+  });
+
+  it('drops null entries instead of throwing', () => {
+    const fx = mapFx(
+      {
+        ...base,
+        words: [null, { line: 0, word: 0, tag: 'fire', intensity: 0.5 }],
+        lines: [null, { line: 1, tag: 'night' }],
+      },
+      'word',
+    );
+    expect(fx!.words).toEqual([{ line: 0, word: 0, tag: 'fire', intensity: 0.5 }]);
+    expect(fx!.lines).toEqual([{ line: 1, tag: 'night' }]);
   });
 });
 

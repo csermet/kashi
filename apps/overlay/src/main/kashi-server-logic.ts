@@ -107,6 +107,11 @@ function isMs(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
+/** Indexing a null entry throws — every array element is checked with this first. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
 /** One processed-track line, or null when it (or one of its words) is malformed. */
 function mapLine(line: Record<string, unknown>): ServerLine | null {
   if (!isMs(line['start_ms']) || !isMs(line['end_ms']) || typeof line['text'] !== 'string') {
@@ -127,11 +132,9 @@ function mapLine(line: Record<string, unknown>): ServerLine | null {
   }
   if (Array.isArray(line['words']) && line['words'].length > 0) {
     const words: ServerWord[] = [];
-    for (const rawWord of line['words'] as unknown[]) {
-      const word = rawWord as Record<string, unknown>;
-      if (!isMs(word['start_ms']) || !isMs(word['end_ms']) || typeof word['text'] !== 'string') {
-        return null;
-      }
+    for (const word of line['words'] as unknown[]) {
+      if (!isRecord(word) || !isMs(word['start_ms']) || !isMs(word['end_ms'])) return null;
+      if (typeof word['text'] !== 'string') return null;
       words.push({ start_ms: word['start_ms'], end_ms: word['end_ms'], text: word['text'] });
     }
     mapped.words = words;
@@ -188,7 +191,7 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
 
   const lines: ServerLine[] = [];
   for (const raw of d['lines'] as unknown[]) {
-    const mapped = mapLine(raw as Record<string, unknown>);
+    const mapped = isRecord(raw) ? mapLine(raw) : null;
     if (mapped === null) return null;
     lines.push(mapped);
   }
@@ -291,7 +294,8 @@ function mapFxWords(entries: unknown[]): FxWordTag[] {
   const words: FxWordTag[] = [];
   for (const raw of entries) {
     if (words.length >= 60) break;
-    const t = raw as Record<string, unknown>;
+    if (!isRecord(raw)) continue;
+    const t = raw;
     if (
       Number.isInteger(t['line']) &&
       Number.isInteger(t['word']) &&
@@ -318,7 +322,8 @@ function mapFxLines(entries: unknown[]): FxLineTag[] {
   const lineTags: FxLineTag[] = [];
   for (const raw of entries) {
     if (lineTags.length >= 24) break;
-    const t = raw as Record<string, unknown>;
+    if (!isRecord(raw)) continue;
+    const t = raw;
     if (
       Number.isInteger(t['line']) &&
       (t['line'] as number) >= 0 &&
