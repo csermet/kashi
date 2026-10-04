@@ -14,7 +14,7 @@ import re
 NIGHTCORE_TOKENS = re.compile(r"\b(?:nightcore|sped[ -]?up|speed[ -]?up)\b", re.IGNORECASE)
 
 _EMPTY_BRACKETS = re.compile(r"[(\[{]\s*[)\]}]")
-_EDGE_SEPARATORS = re.compile(r"(?:^[\s\-–—|:~•/]+)|(?:(?<![\s\-–—|:~•/])[\s\-–—|:~•/]+$)")
+_EDGE_SEPARATORS = re.compile(r"^[\s\-–—|:~•/]+|(?<![\s\-–—|:~•/])[\s\-–—|:~•/]+$")
 _BRACKET_GROUP = re.compile(r"[(\[{]([^)\]}]*)[)\]}]")
 _TITLE_WORD = re.compile(r"[\w']+")
 # Upload-title noise ("(Lyrics)", "(Official Video)"): removed only when a
