@@ -217,7 +217,15 @@ export function planWordFills(
   if (level === 'off' || words.length === 0) return words.map(() => false);
   if (lineAdlib) return words.map(() => true);
   const sustained = words.map((w) => w.end_ms - w.start_ms >= FILL_MIN_WORD_DURATION_MS);
+  unifyRepeats(words, sustained);
+  return sweepRuns(sustained);
+}
 
+/** Give every back-to-back repeat of one word a single answer, in place. */
+function unifyRepeats(
+  words: readonly { start_ms: number; end_ms: number; text?: string }[],
+  sustained: boolean[],
+): void {
   // A word REPEATED back to back is one gesture, so it gets one answer (field
   // report 2026-08-13, Rihanna "(music, music, music, music)"): five identical
   // words straddled the threshold at 714/892/1029/1029/903 ms and rendered two
@@ -244,7 +252,11 @@ export function planWordFills(
     }
     start = end + 1;
   }
-  const plan = words.map(() => false);
+}
+
+/** Sustained runs that sweep: long enough, or reaching the line end. */
+function sweepRuns(sustained: readonly boolean[]): boolean[] {
+  const plan = sustained.map(() => false);
   let runStart = -1;
   for (let i = 0; i <= sustained.length; i += 1) {
     if (i < sustained.length && sustained[i]) {
@@ -466,6 +478,49 @@ export interface FxLineHit {
  */
 export const MAX_FX_PER_LINE = 6;
 
+type FxWordTagLike = NonNullable<FxData['words']>[number];
+
+/** A drawable hit for a word tag, or null when it points at no real word. */
+function fxHit(tag: FxWordTagLike, lines: readonly LyricLine[]): FxLineHit | null {
+  if (!Number.isInteger(tag.line) || !Number.isInteger(tag.word)) return null;
+  const words = lines[tag.line]?.words;
+  if (!words || tag.word < 0 || tag.word >= words.length) return null;
+  if (typeof tag.tag !== 'string' || !tag.tag) return null;
+  const intensity = typeof tag.intensity === 'number' ? Math.min(1, Math.max(0, tag.intensity)) : 0;
+  return { word: tag.word, effect: { tag: tag.tag, intensity } };
+}
+
+/** Strongest first, earliest on a tie — the one ordering every winner uses. */
+function outranks(hit: FxLineHit, best: FxLineHit | undefined): boolean {
+  return (
+    !best ||
+    hit.effect.intensity > best.effect.intensity ||
+    (hit.effect.intensity === best.effect.intensity && hit.word < best.word)
+  );
+}
+
+/** Legacy (no `select`): one winner per line. */
+function keepStrongest(index: Map<number, FxLineHit[]>, line: number, hit: FxLineHit): void {
+  if (outranks(hit, index.get(line)?.[0])) index.set(line, [hit]);
+}
+
+/** Server-chosen: every chosen word fires, once. */
+function addChosen(index: Map<number, FxLineHit[]>, line: number, hit: FxLineHit): void {
+  const current = index.get(line);
+  if (!current) {
+    index.set(line, [hit]);
+  } else if (!current.some((existing) => existing.word === hit.word)) {
+    current.push(hit);
+  }
+}
+
+function capChosen(index: Map<number, FxLineHit[]>): void {
+  for (const [line, hits] of index) {
+    hits.sort((a, b) => a.word - b.word);
+    if (hits.length > MAX_FX_PER_LINE) index.set(line, hits.slice(0, MAX_FX_PER_LINE));
+  }
+}
+
 export function buildFxIndex(
   fx: FxData | undefined,
   lines: readonly LyricLine[],
@@ -481,39 +536,12 @@ export function buildFxIndex(
   const serverChose = typeof fx.select === 'string' && fx.select.length > 0;
 
   for (const tag of fx.words) {
-    if (!Number.isInteger(tag.line) || !Number.isInteger(tag.word)) continue;
-    const words = lines[tag.line]?.words;
-    if (!words || tag.word < 0 || tag.word >= words.length) continue;
-    if (typeof tag.tag !== 'string' || !tag.tag) continue;
-    const intensity = typeof tag.intensity === 'number' ? Math.min(1, Math.max(0, tag.intensity)) : 0;
-    const hit: FxLineHit = { word: tag.word, effect: { tag: tag.tag, intensity } };
-    const current = index.get(tag.line);
-
-    if (!serverChose) {
-      // Legacy: one winner per line — strongest, earliest on a tie.
-      if (
-        !current?.[0] ||
-        intensity > current[0].effect.intensity ||
-        (intensity === current[0].effect.intensity && tag.word < current[0].word)
-      ) {
-        index.set(tag.line, [hit]);
-      }
-      continue;
-    }
-
-    if (!current) {
-      index.set(tag.line, [hit]);
-    } else if (!current.some((existing) => existing.word === tag.word)) {
-      current.push(hit);
-    }
+    const hit = fxHit(tag, lines);
+    if (!hit) continue;
+    if (serverChose) addChosen(index, tag.line, hit);
+    else keepStrongest(index, tag.line, hit);
   }
-
-  if (serverChose) {
-    for (const [line, hits] of index) {
-      hits.sort((a, b) => a.word - b.word);
-      if (hits.length > MAX_FX_PER_LINE) index.set(line, hits.slice(0, MAX_FX_PER_LINE));
-    }
-  }
+  if (serverChose) capChosen(index);
   return index;
 }
 
@@ -527,13 +555,7 @@ export function buildFxIndex(
 export function primaryFxHit(hits: readonly FxLineHit[] | undefined): FxLineHit | undefined {
   let best: FxLineHit | undefined;
   for (const hit of hits ?? []) {
-    if (
-      !best ||
-      hit.effect.intensity > best.effect.intensity ||
-      (hit.effect.intensity === best.effect.intensity && hit.word < best.word)
-    ) {
-      best = hit;
-    }
+    if (outranks(hit, best)) best = hit;
   }
   return best;
 }
