@@ -46,6 +46,7 @@ import {
   applyExtensionMessage,
   clearReasonOnDisconnect,
   emptyLatch,
+  type LatchDecision,
 } from './source-latch-logic.js';
 import { adjustAlpha, adjustTimingOffset, clampAlpha, isPositionVisible, clampTimingOffset,
   migrateWindowBounds, parseBoxScale, parseTextScale, DEFAULT_BOX_SCALE, DEFAULT_TEXT_SCALE,
@@ -217,159 +218,180 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
           `${dup && decision.key === wasKey ? ' [dup]' : ''}`,
       );
       if (dup) {
-        // A metadata refresh for the track already playing — nothing to look
-        // up. But the renderer may have dropped to idle in the meantime (the
-        // position-starvation watchdog does that), and there it discards
-        // every incoming payload because it holds no key. Re-sending the
-        // track is idempotent on the normal path (same key = the renderer
-        // keeps everything) and is the only signal that can bring an idled
-        // renderer back before the NEXT track change. The payload is the one
-        // already accepted for this key — a duplicate decision carries no
-        // normalized track of its own.
-        if (lastTrack?.key === decision.key) {
-          // ...unless the refresh CORRECTS the duration. Then it is not a
-          // duplicate at all: it is the first honest description of this
-          // track, and everything decided from the old number (which lrclib
-          // edit to show, where the clock anchored) was decided on a lie.
-          if (isDurationCorrection(lastTrack.track.duration_ms, track.duration_ms)) {
-            // A correction is only worth a re-lookup if it survives the ledger:
-            // an older extension build can send the previous track's number
-            // here too, and acting on THAT would re-run the lookup against the
-            // very value this whole chain exists to keep out.
-            const settled = settleDuration(
-              decision.key,
-              { ...lastTrack.track, duration_ms: track.duration_ms },
-              previousObservedDurationMs,
-            );
-            observedDurationMs = track.duration_ms;
-            if (
-              settled.verdict === 'observed-suspect' ||
-              !isDurationCorrection(lastTrack.track.duration_ms, settled.track.duration_ms)
-            ) {
-              log(
-                `duration refresh for ${decision.key} did not survive the ledger` +
-                  ` (${track.duration_ms}ms) — treated as an ordinary refresh`,
-              );
-              send('kashi:track', lastTrack);
-              return;
-            }
-            const corrected = { key: decision.key, track: settled.track };
-            log(
-              `duration corrected for ${decision.key}: ` +
-                `${lastTrack.track.duration_ms ?? 'yok'}ms -> ${corrected.track.duration_ms}ms` +
-                ' — re-anchoring and looking up again',
-            );
-            telemetry?.record('position_anomaly', {
-              reason: 'duration_corrected',
-              video_id: corrected.track.source.id,
-              duration_ms: corrected.track.duration_ms,
-              previous_duration_ms: lastTrack.track.duration_ms,
-              action: 'relookup',
-              source: 'overlay_track_refresh',
-            });
-            lastTrack = corrected;
-            // The clock anchored inside the stale window — screen the next
-            // report the same way a genuine track change does.
-            anchorGuard.arm(Date.now());
-            send('kashi:track', corrected);
-            if (debounceTimer) clearTimeout(debounceTimer);
-            lookups.cancel();
-            debounceTimer = setTimeout(
-              () => void lookups.lookup(corrected.key, corrected.track),
-              TRACK_DEBOUNCE_MS,
-            );
-            return;
-          }
-          send('kashi:track', lastTrack);
-        }
+        onDuplicateTrack(decision.key, track);
         return;
       }
-      // The track that just ended is the one a carried-over duration would be
-      // describing, so its raw number becomes the reference before we overwrite
-      // it with this announce's.
-      previousObservedDurationMs = observedDurationMs;
-      observedDurationMs = decision.track.duration_ms;
-      const { track: settled } = settleDuration(
-        decision.key,
-        decision.track,
-        previousObservedDurationMs,
-      );
-      lastTrack = { key: decision.key, track: settled };
-      telemetry?.record('track_changed', {
-        video_id: settled.source.id,
-        title: settled.title,
-        artist: settled.artist,
-        duration_ms: settled.duration_ms,
-        id_source: settled.source.type,
-      });
-      // Screen the next position — it becomes the anchor. Keyed, so a reconnect
-      // re-announcing the SAME track does not mistake its own clock for a leak.
-      anchorGuard.arm(Date.now(), decision.key);
-      enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
-      send('kashi:track', { key: decision.key, track: settled });
-
-      // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
-      if (debounceTimer) clearTimeout(debounceTimer);
-      lookups.cancel();
-      debounceTimer = setTimeout(() => void lookups.lookup(decision.key, settled), TRACK_DEBOUNCE_MS);
+      onNewTrack(decision);
       return;
     }
-    case 'playback': {
-      // Play/pause bookkeeping runs for EVERY report, including one whose
-      // position is about to be dropped: the position may be stale, the
-      // playing flag is not, and swallowing it would strand the enqueue gate.
-      if (decision.isPlaying !== null) {
-        lastIsPlaying = decision.isPlaying;
-        enqueueGate.playback(decision.isPlaying, Date.now());
-      }
-      // Until the first plausible position lands, screen out reports that sit
-      // past the end of the track — under gapless playback an older extension
-      // build reports the PREVIOUS track's time here, and the clock anchors on
-      // it without a delta check (the extension guards this from 0.1.12).
-      if (
-        'position_ms' in decision.msg &&
-        anchorGuard.rejects(
-          decision.msg.position_ms,
-          lastTrack?.track.duration_ms,
-          Date.now(),
-          // A seek carries no rate; 1 only narrows the window the guard will
-          // recognise the outgoing clock in, which fails toward the old
-          // budget-based behavior rather than toward holding too much.
-          'playback_rate' in decision.msg ? decision.msg.playback_rate : 1,
-        )
-      ) {
-        // Name the rule that actually fired. The two look nothing alike in the
-        // log and mean different things: 337 s into a 366 s track is NOT past
-        // the end, it is a fresh track being handed the previous one's
-        // playhead — and printing "past track end" for it sent the 2026-08-13
-        // diagnosis down the wrong road for a while.
-        const deep = positionTooDeepForAFreshTrack(decision.msg.position_ms);
-        log(
-          `position ${decision.msg.position_ms}ms rejected: ` +
-            (deep
-              ? 'too deep for a track that just changed'
-              : `past track end (${lastTrack?.track.duration_ms}ms)`) +
-            ' — dropped before anchoring',
-        );
-        telemetry?.record('position_anomaly', {
-          reason: 'past_track_end',
-          // The track the report was rejected FOR. A carry-over reads like an
-          // ordinary deep seek until the field data can show that the position
-          // belongs to the video named by the event before this one.
-          video_id: lastTrack?.track.source.id,
-          position_ms: decision.msg.position_ms,
-          duration_ms: lastTrack?.track.duration_ms,
-          action: 'dropped',
-          source: 'overlay_anchor_guard',
-        });
-        return;
-      }
-      send('kashi:playback', decision.msg);
+    case 'playback':
+      onPlayback(decision);
       return;
-    }
     default:
       return;
   }
+}
+
+/** A duplicate announce that corrects the duration: re-anchor and look up again —
+ * unless the new number fails the ledger, then it is an ordinary refresh. */
+function applyDurationCorrection(
+  key: string,
+  track: TrackInfo,
+  current: { key: string; track: TrackInfo },
+): void {
+  // A correction is only worth a re-lookup if it survives the ledger:
+  // an older extension build can send the previous track's number
+  // here too, and acting on THAT would re-run the lookup against the
+  // very value this whole chain exists to keep out.
+  const settled = settleDuration(
+    key,
+    { ...current.track, duration_ms: track.duration_ms },
+    previousObservedDurationMs,
+  );
+  observedDurationMs = track.duration_ms;
+  if (
+    settled.verdict === 'observed-suspect' ||
+    !isDurationCorrection(current.track.duration_ms, settled.track.duration_ms)
+  ) {
+    log(
+      `duration refresh for ${key} did not survive the ledger` +
+        ` (${track.duration_ms}ms) — treated as an ordinary refresh`,
+    );
+    send('kashi:track', current);
+    return;
+  }
+  const corrected = { key: key, track: settled.track };
+  log(
+    `duration corrected for ${key}: ` +
+      `${current.track.duration_ms ?? 'yok'}ms -> ${corrected.track.duration_ms}ms` +
+      ' — re-anchoring and looking up again',
+  );
+  telemetry?.record('position_anomaly', {
+    reason: 'duration_corrected',
+    video_id: corrected.track.source.id,
+    duration_ms: corrected.track.duration_ms,
+    previous_duration_ms: current.track.duration_ms,
+    action: 'relookup',
+    source: 'overlay_track_refresh',
+  });
+  lastTrack = corrected;
+  // The clock anchored inside the stale window — screen the next
+  // report the same way a genuine track change does.
+  anchorGuard.arm(Date.now());
+  send('kashi:track', corrected);
+  if (debounceTimer) clearTimeout(debounceTimer);
+  lookups.cancel();
+  debounceTimer = setTimeout(
+    () => void lookups.lookup(corrected.key, corrected.track),
+    TRACK_DEBOUNCE_MS,
+  );
+}
+
+function onDuplicateTrack(key: string, track: TrackInfo): void {
+  // A metadata refresh for the track already playing — nothing to look
+  // up. But the renderer may have dropped to idle in the meantime (the
+  // position-starvation watchdog does that), and there it discards
+  // every incoming payload because it holds no key. Re-sending the
+  // track is idempotent on the normal path (same key = the renderer
+  // keeps everything) and is the only signal that can bring an idled
+  // renderer back before the NEXT track change. The payload is the one
+  // already accepted for this key — a duplicate decision carries no
+  // normalized track of its own.
+  if (lastTrack?.key === key) {
+    // ...unless the refresh CORRECTS the duration. Then it is not a
+    // duplicate at all: it is the first honest description of this
+    // track, and everything decided from the old number (which lrclib
+    // edit to show, where the clock anchored) was decided on a lie.
+    if (isDurationCorrection(lastTrack.track.duration_ms, track.duration_ms)) {
+      applyDurationCorrection(key, track, lastTrack);
+      return;
+    }
+    send('kashi:track', lastTrack);
+  }
+}
+
+function onNewTrack(decision: Extract<LatchDecision, { action: 'new-track' }>): void {
+  // The track that just ended is the one a carried-over duration would be
+  // describing, so its raw number becomes the reference before we overwrite
+  // it with this announce's.
+  previousObservedDurationMs = observedDurationMs;
+  observedDurationMs = decision.track.duration_ms;
+  const { track: settled } = settleDuration(
+    decision.key,
+    decision.track,
+    previousObservedDurationMs,
+  );
+  lastTrack = { key: decision.key, track: settled };
+  telemetry?.record('track_changed', {
+    video_id: settled.source.id,
+    title: settled.title,
+    artist: settled.artist,
+    duration_ms: settled.duration_ms,
+    id_source: settled.source.type,
+  });
+  // Screen the next position — it becomes the anchor. Keyed, so a reconnect
+  // re-announcing the SAME track does not mistake its own clock for a leak.
+  anchorGuard.arm(Date.now(), decision.key);
+  enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
+  send('kashi:track', { key: decision.key, track: settled });
+
+  // Debounce: radio-mode skip chains must not spam LRCLIB (R-9).
+  if (debounceTimer) clearTimeout(debounceTimer);
+  lookups.cancel();
+  debounceTimer = setTimeout(() => void lookups.lookup(decision.key, settled), TRACK_DEBOUNCE_MS);
+}
+
+function onPlayback(decision: Extract<LatchDecision, { action: 'playback' }>): void {
+  // Play/pause bookkeeping runs for EVERY report, including one whose
+  // position is about to be dropped: the position may be stale, the
+  // playing flag is not, and swallowing it would strand the enqueue gate.
+  if (decision.isPlaying !== null) {
+    lastIsPlaying = decision.isPlaying;
+    enqueueGate.playback(decision.isPlaying, Date.now());
+  }
+  // Until the first plausible position lands, screen out reports that sit
+  // past the end of the track — under gapless playback an older extension
+  // build reports the PREVIOUS track's time here, and the clock anchors on
+  // it without a delta check (the extension guards this from 0.1.12).
+  if (
+    'position_ms' in decision.msg &&
+    anchorGuard.rejects(
+      decision.msg.position_ms,
+      lastTrack?.track.duration_ms,
+      Date.now(),
+      // A seek carries no rate; 1 only narrows the window the guard will
+      // recognise the outgoing clock in, which fails toward the old
+      // budget-based behavior rather than toward holding too much.
+      'playback_rate' in decision.msg ? decision.msg.playback_rate : 1,
+    )
+  ) {
+    // Name the rule that actually fired. The two look nothing alike in the
+    // log and mean different things: 337 s into a 366 s track is NOT past
+    // the end, it is a fresh track being handed the previous one's
+    // playhead — and printing "past track end" for it sent the 2026-08-13
+    // diagnosis down the wrong road for a while.
+    const deep = positionTooDeepForAFreshTrack(decision.msg.position_ms);
+    log(
+      `position ${decision.msg.position_ms}ms rejected: ` +
+        (deep
+          ? 'too deep for a track that just changed'
+          : `past track end (${lastTrack?.track.duration_ms}ms)`) +
+        ' — dropped before anchoring',
+    );
+    telemetry?.record('position_anomaly', {
+      reason: 'past_track_end',
+      // The track the report was rejected FOR. A carry-over reads like an
+      // ordinary deep seek until the field data can show that the position
+      // belongs to the video named by the event before this one.
+      video_id: lastTrack?.track.source.id,
+      position_ms: decision.msg.position_ms,
+      duration_ms: lastTrack?.track.duration_ms,
+      action: 'dropped',
+      source: 'overlay_anchor_guard',
+    });
+    return;
+  }
+  send('kashi:playback', decision.msg);
 }
 
 /** Poll the gate once per second while armed; fire-and-forget the ingest. */
