@@ -35,9 +35,12 @@ jobs:
             exit 0
           fi
           # Same pinned scanner image as the homelab CI template (amd64 only).
-          # Run as the runner's uid so the scanner can write its work dir.
+          # Run as the runner's uid, and keep the work dir inside the checkout:
+          # the image's default (/tmp/.scannerwork) belongs to the image's own
+          # user and is not writable for the runner uid (AccessDenied).
           docker run --rm --user "$(id -u):$(id -g)" \
             -e SONAR_HOST_URL -e SONAR_TOKEN -e SONAR_USER_HOME=/tmp/.sonar \
             -v "$PWD:/usr/src" \
             sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9 \
-            -Dsonar.projectVersion="${GITHUB_SHA::7}"
+            -Dsonar.projectVersion="${GITHUB_SHA::7}" \
+            -Dsonar.working.directory=.scannerwork
