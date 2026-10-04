@@ -13,3 +13,9 @@ __pycache__/
 # Benchmark ground truth + audio (CC NC/ND — must never enter git or an image)
 apps/server/benchmarks/data/
 apps/overlay/release/
+
+# Coverage reports (CI feeds them to SonarQube) and the scanner work dir
+coverage/
+coverage.xml
+.coverage
+.scannerwork/

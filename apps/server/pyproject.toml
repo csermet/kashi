@@ -61,6 +61,7 @@ bench = []
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
+    "pytest-cov==7.1.0",
     "ruff==0.15.20",
     "pyright==1.1.409",
 ]
@@ -110,6 +111,12 @@ pythonpath = ["src", "."]
 testpaths = ["tests"]
 markers = ["slow: needs the alignment extra (torch + ctc-forced-aligner)"]
 addopts = "-m 'not slow'"
+
+[tool.coverage.run]
+# CI feeds coverage.xml to SonarQube. Only shipped code counts; branch data
+# lets Sonar show conditions, not just lines.
+source = ["src/kashi_server"]
+branch = true
 
 [tool.ruff]
 line-length = 100

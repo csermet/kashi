@@ -31,7 +31,24 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       # Unit tests: the kashi-server live suite self-skips without KASHI_LIVE_URL.
-      - run: pnpm -r test
+      # Coverage for SonarQube comes from THIS run (no second test pass). No
+      # `--` before the flags: pnpm then hands them to the script verbatim and
+      # vitest never sees them (measured). lcov
+      # paths are package-relative ("src/..."); prefix them so Sonar, whose base
+      # dir is the repo root, can match them.
+      - run: >-
+          pnpm -r test --coverage --coverage.provider=v8 --coverage.reporter=lcov
+          '--coverage.include=src/**/*.ts' --coverage.reportsDirectory=coverage
+      - name: Repo-relative lcov paths
+        run: |
+          for pkg in apps/overlay apps/extension; do
+            sed -i "s#^SF:#SF:$pkg/#" "$pkg/coverage/lcov.info"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ts-coverage
+          path: apps/*/coverage/lcov.info
+          retention-days: 3
       - run: pnpm build
 
   python:
@@ -63,7 +80,12 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pyright
       - run: uv run alembic upgrade head
-      - run: uv run pytest -q
+      - run: uv run pytest -q --cov --cov-report=xml:coverage.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: py-coverage
+          path: apps/server/coverage.xml
+          retention-days: 3
 
 
   # A red main went unnoticed for seven weeks in 2026-08/09 (pyright failed, so
@@ -106,3 +128,51 @@ jobs:
             } else {
               await github.rest.issues.create({ owner, repo, title: 'CI on main is red', labels: ['ci-red'], body });
             }
+
+  # SonarQube (self-hosted), fed the coverage the jobs above just produced, so
+  # tests run once. Push to main only (secrets are not available to fork PRs).
+  # Informational, never the reason a run is red — like the homelab CI
+  # template's allow_failure.
+  sonar:
+    name: SonarQube scan
+    needs: [ts, python]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: blame data and new-code detection
+      - uses: actions/download-artifact@v4
+        with:
+          name: ts-coverage
+          path: apps
+      - uses: actions/download-artifact@v4
+        with:
+          name: py-coverage
+          path: apps/server
+      - name: Scan
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          # A pasted secret often carries a trailing newline, which the scanner
+          # sends verbatim and the HTTP layer rejects ("invalid header value").
+          SONAR_TOKEN="$(printf '%s' "$SONAR_TOKEN" | tr -d '[:space:]')"
+          SONAR_HOST_URL="$(printf '%s' "$SONAR_HOST_URL" | tr -d '[:space:]')"
+          export SONAR_TOKEN SONAR_HOST_URL
+          if [ -z "$SONAR_HOST_URL" ] || [ -z "$SONAR_TOKEN" ]; then
+            echo "SONAR_HOST_URL / SONAR_TOKEN not set - skipping the scan."
+            exit 0
+          fi
+          # Same pinned scanner image as the homelab CI template (amd64 only).
+          # The checkout is mounted at the SAME absolute path: coverage.xml names
+          # files under the runner's absolute source dir. Runner uid, and a work
+          # dir inside the checkout (the image's /tmp default is not writable).
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e SONAR_HOST_URL -e SONAR_TOKEN -e SONAR_USER_HOME=/tmp/.sonar \
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
+            sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9 \
+            -Dsonar.projectBaseDir="$GITHUB_WORKSPACE" \
+            -Dsonar.projectVersion="${GITHUB_SHA::7}" \
+            -Dsonar.working.directory=.scannerwork
