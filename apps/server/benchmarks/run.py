@@ -180,6 +180,14 @@ def _hyp_word_ends(result: AlignResult) -> list[tuple[int, str]]:
 
 
 def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
+    songs = _select_jamendo(args)
+    rows: list[dict] = []
+    for index, song in enumerate(songs, 1):
+        rows.append(_score_jamendo_song(args, song, tolerances_ms, index, len(songs)))
+    return rows, _jamendo_aggregate(rows)
+
+
+def _select_jamendo(args) -> list:
     root = datasets.ensure_jamendo(DATA_DIR, args.jamendo_root)
     songs = datasets.load_jamendo(
         root,
@@ -190,154 +198,188 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
     if not songs:
         raise SystemExit("no songs selected — check --languages/--songs/--limit")
     logger.info("jamendo: %d song(s), separation=%s", len(songs), args.separation)
+    return songs
 
-    rows: list[dict] = []
-    for index, song in enumerate(songs, 1):
-        entry: dict = {
-            "stem": song.stem,
-            "language": song.language,
-            "duration_s": round(song.duration_hint_s, 1),
-            "n_words": len(song.words),
-            "n_lines": len(song.line_texts),
-        }
-        try:
-            audio, separate_s = (
-                (song.audio_path, 0.0)
-                if args.separation == "full-mix"
-                else _separated_audio(song.audio_path, song.stem, args.separation, args.mixback)
-            )
-            anchors = (
-                _jittered(song.line_starts_ms, song.stem, args.anchor_jitter_ms)
-                if args.windowed
-                else None
-            )
-            result, align_s = _align_song(
-                audio, song.line_texts, song.language, anchors, args.align_model,
-                args.align_romanize, args.align_offset_ms, _by_initial(args),
-            )
-        except Exception as exc:  # keep sweeping; a broken song is a data point
-            logger.exception("%s failed", song.stem)
-            entry["error"] = f"{type(exc).__name__}: {exc}"
-            rows.append(entry)
-            continue
 
-        if args.line_postprocess != "none" and anchors is not None:  # P2 experiment
-            from benchmarks.softoffset import apply_soft_offset
+def _score_jamendo_song(args, song, tolerances_ms: tuple[int, ...], index: int, total: int) -> dict:
+    """One song's row. Errors become data points; the sweep never stops."""
+    entry: dict = {
+        "stem": song.stem,
+        "language": song.language,
+        "duration_s": round(song.duration_hint_s, 1),
+        "n_words": len(song.words),
+        "n_lines": len(song.line_texts),
+    }
+    try:
+        audio, separate_s, anchors, result, align_s = _align_jamendo_song(args, song)
+    except Exception as exc:  # keep sweeping; a broken song is a data point
+        logger.exception("%s failed", song.stem)
+        entry["error"] = f"{type(exc).__name__}: {exc}"
+        return entry
 
-            result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
-        if args.trim_ends:  # production line_qa order: trim precedes everything
-            result, trimmed = trim_word_ends(result)
-            entry["trimmed_ends"] = trimmed
-        entry["separate_s"] = round(separate_s, 1)
-        entry["align_s"] = round(align_s, 1)
-        # Per song, because per-language routing (Faz 8.1) means one run can
-        # use several checkpoints — the header can only name the default, and
-        # a header that names a model no song ran is exactly the confusion
-        # `model_name` was added to prevent.
-        entry["align_model"] = result.model_name
-        entry["sync"] = result.sync
-        entry["quality_score"] = round(result.quality_score, 4)
-        onset_ms = None
-        if args.signals:
-            # Candidate confidence signals, written NEXT TO the ground-truth
-            # error below so "does this signal know anything?" is a
-            # correlation rather than an opinion (Faz 8).
-            from benchmarks import signals as signal_probes
+    result = _postprocess_jamendo(args, result, anchors, entry)
+    entry["separate_s"] = round(separate_s, 1)
+    entry["align_s"] = round(align_s, 1)
+    # Per song, because per-language routing (Faz 8.1) means one run can
+    # use several checkpoints — the header can only name the default, and
+    # a header that names a model no song ran is exactly the confusion
+    # `model_name` was added to prevent.
+    entry["align_model"] = result.model_name
+    entry["sync"] = result.sync
+    entry["quality_score"] = round(result.quality_score, 4)
+    onset_ms = None
+    if args.signals:
+        # Candidate confidence signals, written NEXT TO the ground-truth
+        # error below so "does this signal know anything?" is a
+        # correlation rather than an opinion (Faz 8).
+        from benchmarks import signals as signal_probes
 
-            onset_ms = signal_probes.detect_onsets(audio)
-            entry["signals"] = signal_probes.collect(
-                result, audio, round(song.duration_hint_s * 1000), onset_ms
-            )
-        deviations = metrics.word_start_deviations(_hyp_words(result), song.words)
-        if deviations is None:
-            entry["error"] = "word count mismatch (sync degraded or token drift)"
-        else:
-            if song.verified is not None:
-                entry["verified_words"] = sum(song.verified)
-            stats = metrics.error_stats(
-                _verified_only(deviations, song.verified), tolerances_ms
-            )
-            if stats is None:
-                entry["error"] = "no verified words in this song"
-                rows.append(entry)
-                continue
-            entry["words"] = asdict(stats)
-            if args.dump_words:
-                # Per-word rows keyed by ANNOTATION INDEX — the join key for
-                # cross-model comparison. Everything else here reduces to
-                # summary statistics, which is why the first Qwen correlation
-                # could only be computed per song: the per-word errors were
-                # thrown away as soon as they were counted.
-                line_of = _word_line_indices(result)
-                entry["word_detail"] = [
-                    {
-                        "i": i,
-                        "token": token,
-                        "truth_ms": truth_ms,
-                        "hyp_ms": round(truth_ms + deviations[i]),
-                        "line": line_of[i],
-                        **({} if song.verified is None else {"verified": song.verified[i]}),
-                    }
-                    for i, (truth_ms, token) in enumerate(song.words)
-                ]
-            if args.signals:
-                # Per-LINE signals paired with per-line truth. The deviation
-                # list is positional over the same flattened word stream the
-                # signals are computed from, so slicing it by the per-line
-                # word counts pairs them exactly — no re-matching, nothing to
-                # drift.
-                from benchmarks import signals as signal_probes
-
-                lines = signal_probes.line_signals(result, onset_ms)
-                cursor = 0
-                for row in lines:
-                    count = row["n_words"]
-                    chunk = _verified_only(
-                        deviations[cursor : cursor + count],
-                        None if song.verified is None else song.verified[cursor : cursor + count],
-                    )
-                    cursor += count
-                    line_stats = metrics.error_stats(chunk, tolerances_ms) if chunk else None
-                    if line_stats is not None:
-                        row["truth"] = asdict(line_stats)
-                entry["lines_detail"] = lines
-            # END-time metrics (Faz 5 P1): same positional pairing, end axis.
-            tokens = [token for _, token in song.words]
-            end_deviations = metrics.word_start_deviations(
-                _hyp_word_ends(result), list(zip(song.word_ends_ms, tokens, strict=True))
-            )
-            if end_deviations is not None:
-                verified_ends = _verified_only(end_deviations, song.verified)
-                end_stats = metrics.error_stats(verified_ends, tolerances_ms)
-                if end_stats is not None:
-                    entry["word_ends"] = asdict(end_stats)
-                    entry["over_extension"] = round(
-                        metrics.over_extension_rate(verified_ends), 4
-                    )
-            line_report = metrics.line_start_report(
-                [(line.start_ms, line.text) for line in result.lines],
-                list(zip(song.line_starts_ms, song.line_texts, strict=True)),
-                threshold_ms=LINE_THRESHOLD_MS,
-                median_correction=False,  # same-audio ground truth: absolute errors
-            )
-            entry["lines"] = asdict(line_report.stats) if line_report.stats else None
-        rows.append(entry)
-        logger.info(
-            "[%d/%d] %s: %s",
-            index,
-            len(songs),
-            song.stem,
-            entry.get("error")
-            or f"MAE {entry['words']['mae_ms']:.0f}ms PCO@0.3 {entry['words']['pcs']['0.3']:.2f}"
-            + (
-                f" endMAE {entry['word_ends']['mae_ms']:.0f}ms"
-                f" ovx {entry['over_extension']:.2f}"
-                if "word_ends" in entry
-                else ""
-            )
-            + f" (align {align_s:.0f}s{f', sep {separate_s:.0f}s' if separate_s else ''})",
+        onset_ms = signal_probes.detect_onsets(audio)
+        entry["signals"] = signal_probes.collect(
+            result, audio, round(song.duration_hint_s * 1000), onset_ms
         )
+    if not _word_metrics(args, song, result, onset_ms, tolerances_ms, entry):
+        return entry  # no verified words: a row, but nothing to report
+    _log_jamendo_song(index, total, song, entry, align_s, separate_s)
+    return entry
 
+
+def _align_jamendo_song(args, song):
+    """(audio, separate_s, anchors, result, align_s) — may raise; the caller records it."""
+    audio, separate_s = (
+        (song.audio_path, 0.0)
+        if args.separation == "full-mix"
+        else _separated_audio(song.audio_path, song.stem, args.separation, args.mixback)
+    )
+    anchors = (
+        _jittered(song.line_starts_ms, song.stem, args.anchor_jitter_ms)
+        if args.windowed
+        else None
+    )
+    result, align_s = _align_song(
+        audio, song.line_texts, song.language, anchors, args.align_model,
+        args.align_romanize, args.align_offset_ms, _by_initial(args),
+    )
+    return audio, separate_s, anchors, result, align_s
+
+
+def _postprocess_jamendo(args, result: AlignResult, anchors, entry: dict) -> AlignResult:
+    if args.line_postprocess != "none" and anchors is not None:  # P2 experiment
+        from benchmarks.softoffset import apply_soft_offset
+
+        result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
+    if args.trim_ends:  # production line_qa order: trim precedes everything
+        result, trimmed = trim_word_ends(result)
+        entry["trimmed_ends"] = trimmed
+    return result
+
+
+def _word_metrics(args, song, result: AlignResult, onset_ms, tolerances_ms, entry: dict) -> bool:
+    """Ground-truth error rows into `entry`. False when no verified word is left."""
+    deviations = metrics.word_start_deviations(_hyp_words(result), song.words)
+    if deviations is None:
+        entry["error"] = "word count mismatch (sync degraded or token drift)"
+        return True
+    if song.verified is not None:
+        entry["verified_words"] = sum(song.verified)
+    stats = metrics.error_stats(
+        _verified_only(deviations, song.verified), tolerances_ms
+    )
+    if stats is None:
+        entry["error"] = "no verified words in this song"
+        return False
+    entry["words"] = asdict(stats)
+    if args.dump_words:
+        # Per-word rows keyed by ANNOTATION INDEX — the join key for
+        # cross-model comparison. Everything else here reduces to
+        # summary statistics, which is why the first Qwen correlation
+        # could only be computed per song: the per-word errors were
+        # thrown away as soon as they were counted.
+        line_of = _word_line_indices(result)
+        entry["word_detail"] = [
+            {
+                "i": i,
+                "token": token,
+                "truth_ms": truth_ms,
+                "hyp_ms": round(truth_ms + deviations[i]),
+                "line": line_of[i],
+                **({} if song.verified is None else {"verified": song.verified[i]}),
+            }
+            for i, (truth_ms, token) in enumerate(song.words)
+        ]
+    if args.signals:
+        entry["lines_detail"] = _line_signal_truth(
+            result, onset_ms, deviations, song.verified, tolerances_ms
+        )
+    _end_metrics(song, result, tolerances_ms, entry)
+    line_report = metrics.line_start_report(
+        [(line.start_ms, line.text) for line in result.lines],
+        list(zip(song.line_starts_ms, song.line_texts, strict=True)),
+        threshold_ms=LINE_THRESHOLD_MS,
+        median_correction=False,  # same-audio ground truth: absolute errors
+    )
+    entry["lines"] = asdict(line_report.stats) if line_report.stats else None
+    return True
+
+
+def _line_signal_truth(result: AlignResult, onset_ms, deviations, verified, tolerances_ms) -> list:
+    # Per-LINE signals paired with per-line truth. The deviation
+    # list is positional over the same flattened word stream the
+    # signals are computed from, so slicing it by the per-line
+    # word counts pairs them exactly — no re-matching, nothing to
+    # drift.
+    from benchmarks import signals as signal_probes
+
+    lines = signal_probes.line_signals(result, onset_ms)
+    cursor = 0
+    for row in lines:
+        count = row["n_words"]
+        chunk = _verified_only(
+            deviations[cursor : cursor + count],
+            None if verified is None else verified[cursor : cursor + count],
+        )
+        cursor += count
+        line_stats = metrics.error_stats(chunk, tolerances_ms) if chunk else None
+        if line_stats is not None:
+            row["truth"] = asdict(line_stats)
+    return lines
+
+
+def _end_metrics(song, result: AlignResult, tolerances_ms, entry: dict) -> None:
+    # END-time metrics (Faz 5 P1): same positional pairing, end axis.
+    tokens = [token for _, token in song.words]
+    end_deviations = metrics.word_start_deviations(
+        _hyp_word_ends(result), list(zip(song.word_ends_ms, tokens, strict=True))
+    )
+    if end_deviations is not None:
+        verified_ends = _verified_only(end_deviations, song.verified)
+        end_stats = metrics.error_stats(verified_ends, tolerances_ms)
+        if end_stats is not None:
+            entry["word_ends"] = asdict(end_stats)
+            entry["over_extension"] = round(
+                metrics.over_extension_rate(verified_ends), 4
+            )
+
+
+def _log_jamendo_song(index, total, song, entry, align_s, separate_s) -> None:
+    logger.info(
+        "[%d/%d] %s: %s",
+        index,
+        total,
+        song.stem,
+        entry.get("error")
+        or f"MAE {entry['words']['mae_ms']:.0f}ms PCO@0.3 {entry['words']['pcs']['0.3']:.2f}"
+        + (
+            f" endMAE {entry['word_ends']['mae_ms']:.0f}ms"
+            f" ovx {entry['over_extension']:.2f}"
+            if "word_ends" in entry
+            else ""
+        )
+        + f" (align {align_s:.0f}s{f', sep {separate_s:.0f}s' if separate_s else ''})",
+    )
+
+
+def _jamendo_aggregate(rows: list[dict]) -> dict:
     scored = [r for r in rows if "words" in r]
     aggregate: dict = {
         "songs": len(rows),
@@ -388,7 +430,7 @@ def _run_jamendo(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict
                 / sum(r["duration_s"] for r in separated),
                 3,
             )
-    return rows, aggregate
+    return aggregate
 
 
 def _case_audio(case: datasets.KashiCase) -> Path:
