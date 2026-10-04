@@ -25,6 +25,11 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
+          # A pasted secret often carries a trailing newline, which the scanner
+          # sends verbatim and the HTTP layer rejects ("invalid header value").
+          SONAR_TOKEN="$(printf '%s' "$SONAR_TOKEN" | tr -d '[:space:]')"
+          SONAR_HOST_URL="$(printf '%s' "$SONAR_HOST_URL" | tr -d '[:space:]')"
+          export SONAR_TOKEN SONAR_HOST_URL
           if [ -z "$SONAR_HOST_URL" ] || [ -z "$SONAR_TOKEN" ]; then
             echo "SONAR_HOST_URL / SONAR_TOKEN not set - skipping the scan."
             exit 0
