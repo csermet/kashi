@@ -52,7 +52,12 @@ class LintReport:
 
 
 def _str_list(cat: dict, key: str) -> list[str]:
-    value = cat.get(key) or []
+    # A non-list here is already reported by the shape check; treating it as
+    # empty keeps the lint REPORTING malformed input instead of crashing on it
+    # (a scalar used to be iterated -> TypeError).
+    value = cat.get(key)
+    if not isinstance(value, list):
+        return []
     return [v for v in value if isinstance(v, str)]
 
 

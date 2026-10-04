@@ -89,3 +89,13 @@ def test_bare_word_prototype_is_a_warning():
     report = lint_lexicon(_doc(_cat(prototypes_en=["fire burns"])))
     assert report.ok
     assert any("bare word" in w for w in report.warnings)
+
+
+def test_a_scalar_list_field_is_reported_not_a_crash():
+    # 2026-10: "prototypes_en: 1.7" was reported, then iterated -> TypeError, so
+    # the gate crashed on exactly the malformed input it exists to report.
+    doc = yaml.safe_load(LEXICON_PATH.read_text(encoding="utf-8"))
+    doc["categories"][0]["prototypes_en"] = 1.7
+    report = lint_lexicon(doc)
+    assert any("prototypes_en must be a list of strings" in e for e in report.errors)
+
