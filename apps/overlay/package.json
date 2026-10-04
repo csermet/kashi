@@ -1,6 +1,6 @@
 {
   "name": "kashi-overlay",
-  "version": "0.28.4",
+  "version": "0.28.5",
   "description": "Word-synced lyrics overlay for the music you are playing",
   "homepage": "https://github.com/csermet/kashi",
   "author": "Caner Sermet <canersermet@gmail.com>",
@@ -26,7 +26,7 @@
     "@kashi/schemas": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.0",
-    "electron": "42.6.0",
+    "electron": "42.11.10",
     "electron-builder": "26.15.6",
     "electron-vite": "^5.0.0",
     "pixi.js": "8.19.0",
