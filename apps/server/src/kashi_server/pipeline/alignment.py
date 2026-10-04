@@ -131,14 +131,12 @@ def resolve_aligner(
     if not model_name and language:
         choice = settings.align_models.get(to_iso639_3(language))
     name = model_name or (choice.checkpoint if choice else None) or settings.align_model
-    if romanize is None:
-        romanize = choice.romanize if choice else None
-    if romanize is None:
-        romanize = settings.align_romanize
-    if offset_ms is None:
-        offset_ms = choice.offset_ms if choice else None
-    if offset_ms is None:
-        offset_ms = settings.align_offset_ms
+    romanize = _first_set(
+        romanize, choice.romanize if choice else None, default=settings.align_romanize
+    )
+    offset_ms = _first_set(
+        offset_ms, choice.offset_ms if choice else None, default=settings.align_offset_ms
+    )
     if offset_by_initial is None and choice and choice.offset_by_initial:
         # Widen the config's Literal-keyed type to the plain str keys this
         # layer works with.
@@ -147,6 +145,12 @@ def resolve_aligner(
     # about a language, so a global table would be applying English phonetics
     # to whatever else turned up.
     return AlignerSpec(name or MODEL_NAME, romanize, offset_ms, offset_by_initial or None)
+
+
+def _first_set[T](*preferred: T | None, default: T) -> T:
+    """The first preferred value that is not None — an explicit False or 0
+    still wins — else ``default``."""
+    return next((v for v in preferred if v is not None), default)
 
 
 def resolve_model_name(override: str | None = None) -> str:
@@ -572,6 +576,52 @@ def transcribe(wav_path: Path, model_name: str) -> str:
     return greedy_ctc_decode(ids, id_to_token, vocab.get("<pad>", 0))
 
 
+def _alignment_texts(
+    line_texts: list[str], language: str
+) -> tuple[list[PreparedLine | None], list[str]]:
+    """What the aligner is GIVEN per line, plus the plan that maps it back."""
+    # What the aligner is GIVEN can differ from what the document displays
+    # (Faz 8 P-B3). Japanese lines become kana morae, because MMS romanizes
+    # through uroman and uroman reads kanji as Chinese — the model was being
+    # shown pinyin for text that is sung in Japanese. Every other line is its
+    # own alignment text, so this is a no-op outside Japanese.
+    plans: list[PreparedLine | None] = (
+        [prepare_line(text) for text in line_texts]
+        if japanese.handles(language)
+        else [None] * len(line_texts)
+    )
+    align_texts = [p.align_text if p else text for text, p in zip(line_texts, plans, strict=True)]
+    if any(plans):
+        logger.info(
+            "japanese kana path: %d of %d lines rewritten to their readings",
+            sum(1 for p in plans if p),
+            len(plans),
+        )
+    return plans, align_texts
+
+
+def _align_windows(model, tokenizer, audio, plan, align_texts, language, romanize) -> list[dict]:
+    """Align each window's slice on its own; word timings come back on the
+    whole-track clock (star tokens dropped)."""
+    merged: list[dict] = []
+    for window in plan:
+        piece = audio[
+            ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
+        ]
+        texts = [align_texts[i] for i in window.line_indices]
+        offset_s = window.slice_start_ms / 1000
+        # "edges": star tokens at BOTH slice edges absorb the pad and the
+        # inter-line gap, so forced alignment doesn't stretch real words
+        # over non-vocal audio (measured: "segment" cost ~0.13 PCO here).
+        for r in _align_texts(model, tokenizer, piece, texts, language, "edges", romanize=romanize):
+            if r.get("text") == STAR_TOKEN:
+                continue  # regroup drops them anyway; keep offsets word-only
+            merged.append(
+                {**r, "start": float(r["start"]) + offset_s, "end": float(r["end"]) + offset_s}
+            )
+    return merged
+
+
 def align(
     wav_path: Path,
     line_texts: list[str],
@@ -602,24 +652,7 @@ def align(
     model, tokenizer = _load_model(model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
 
-    # What the aligner is GIVEN can differ from what the document displays
-    # (Faz 8 P-B3). Japanese lines become kana morae, because MMS romanizes
-    # through uroman and uroman reads kanji as Chinese — the model was being
-    # shown pinyin for text that is sung in Japanese. Every other line is its
-    # own alignment text, so this is a no-op outside Japanese.
-    plans: list[PreparedLine | None] = (
-        [prepare_line(text) for text in line_texts] if japanese.handles(language) else
-        [None] * len(line_texts)
-    )
-    align_texts = [
-        p.align_text if p else text for text, p in zip(line_texts, plans, strict=True)
-    ]
-    if any(plans):
-        logger.info(
-            "japanese kana path: %d of %d lines rewritten to their readings",
-            sum(1 for p in plans if p),
-            len(plans),
-        )
+    plans, align_texts = _alignment_texts(line_texts, language)
 
     plan = None
     if synced_starts_ms is not None:
@@ -627,30 +660,12 @@ def align(
         plan = plan_windows(line_texts, synced_starts_ms, total_ms)
 
     if plan is None:
-        results = _align_texts(
-            model, tokenizer, audio, align_texts, language, romanize=romanize
-        )
+        results = _align_texts(model, tokenizer, audio, align_texts, language, romanize=romanize)
     else:
         logger.info("windowed alignment: %d windows over %d lines", len(plan), len(line_texts))
-        merged: list[dict] = []
-        for window in plan:
-            piece = audio[
-                ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
-            ]
-            texts = [align_texts[i] for i in window.line_indices]
-            offset_s = window.slice_start_ms / 1000
-            # "edges": star tokens at BOTH slice edges absorb the pad and the
-            # inter-line gap, so forced alignment doesn't stretch real words
-            # over non-vocal audio (measured: "segment" cost ~0.13 PCO here).
-            for r in _align_texts(
-                model, tokenizer, piece, texts, language, "edges", romanize=romanize
-            ):
-                if r.get("text") == STAR_TOKEN:
-                    continue  # regroup drops them anyway; keep offsets word-only
-                merged.append(
-                    {**r, "start": float(r["start"]) + offset_s, "end": float(r["end"]) + offset_s}
-                )
-        results = reconcile_seams(merged)
+        results = reconcile_seams(
+            _align_windows(model, tokenizer, audio, plan, align_texts, language, romanize)
+        )
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:
