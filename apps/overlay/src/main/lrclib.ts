@@ -126,49 +126,66 @@ export class LrclibClient {
     signal?: AbortSignal,
   ): Promise<LyricsResult> {
     const cached = await this.readCache(key);
-    if (cached) {
-      if (cached.found) {
-        return {
-          found: true,
-          source: 'lrclib',
-          sourceId: cached.sourceId,
-          lines: cached.lines,
-          // Entries written before the edit check shipped carry no duration.
-          // undefined -> null: "lrclib gave none" and "we never stored one"
-          // are the same thing to the caller, and both mean unverifiable.
-          recordDurationMs: cached.recordDurationMs ?? null,
-        };
-      }
-      if (
-        cached.ladder === LOOKUP_LADDER_VERSION &&
-        this.now() - cached.at < (this.opts.negativeTtlMs ?? NEGATIVE_TTL_MS)
-      ) {
-        return { found: false };
-      }
-    }
+    const answer = cached ? this.cachedAnswer(cached) : null;
+    if (answer) return answer;
+    const record = await this.findRecord(query, signal);
+    return this.settle(key, query, record);
+  }
 
+  /** What a cache entry answers on its own: a hit, or a negative entry that is
+   * still fresh for THIS ladder. null = go ask lrclib. */
+  private cachedAnswer(cached: CacheEntry): LyricsResult | null {
+    if (cached.found) {
+      return {
+        found: true,
+        source: 'lrclib',
+        sourceId: cached.sourceId,
+        lines: cached.lines,
+        // Entries written before the edit check shipped carry no duration.
+        // undefined -> null: "lrclib gave none" and "we never stored one"
+        // are the same thing to the caller, and both mean unverifiable.
+        recordDurationMs: cached.recordDurationMs ?? null,
+      };
+    }
+    if (
+      cached.ladder === LOOKUP_LADDER_VERSION &&
+      this.now() - cached.at < (this.opts.negativeTtlMs ?? NEGATIVE_TTL_MS)
+    ) {
+      return { found: false };
+    }
+    return null;
+  }
+
+  /** The lookup ladder: exact get, search, then the primary-artist rung. */
+  private async findRecord(query: TrackQuery, signal?: AbortSignal): Promise<LrclibRecord | null> {
     // Fall through to search when the exact hit exists but carries no synced
     // lyrics (plain-only/instrumental records) — a synced variant may exist.
     const exact = await this.exactGet(query, signal);
-    let record = exact?.syncedLyrics ? exact : await this.search(query, signal);
+    const record = exact?.syncedLyrics ? exact : await this.search(query, signal);
+    if (record?.syncedLyrics) return record;
 
     // Multi-artist rung. Runs ONLY when the joined string actually splits, and
     // keeps the duration filter — so it can recover a track the conjunction
     // hid without opening the door the duration-less retry opens (another
     // edit's stamps). The primary artist is enough: lrclib credits it either
     // alone or first.
-    if (!record?.syncedLyrics) {
-      const [primary] = splitArtists(normalizeArtist(query.artist));
-      if (primary) {
-        const scoped = { ...query, artist: primary };
-        const retry = await this.exactGet(scoped, signal);
-        record = retry?.syncedLyrics ? retry : await this.search(scoped, signal);
-        if (record?.syncedLyrics) {
-          this.opts.log?.(`[lrclib] "${query.artist}" missed; "${primary}" hit`);
-        }
-      }
+    const [primary] = splitArtists(normalizeArtist(query.artist));
+    if (!primary) return record;
+    const scoped = { ...query, artist: primary };
+    const retry = await this.exactGet(scoped, signal);
+    const rescued = retry?.syncedLyrics ? retry : await this.search(scoped, signal);
+    if (rescued?.syncedLyrics) {
+      this.opts.log?.(`[lrclib] "${query.artist}" missed; "${primary}" hit`);
     }
+    return rescued;
+  }
 
+  /** Parse the record and cache the verdict either way. */
+  private async settle(
+    key: string,
+    query: TrackQuery,
+    record: LrclibRecord | null,
+  ): Promise<LyricsResult> {
     if (!record?.syncedLyrics) {
       await this.writeCache(key, { found: false, at: this.now(), ladder: LOOKUP_LADDER_VERSION });
       return { found: false };
