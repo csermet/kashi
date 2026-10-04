@@ -21,7 +21,7 @@ _TITLE_WORD = re.compile(r"[\w']+")
 # WHOLE bracket group is noise/marker — deleting the words globally mangled
 # real titles ("Nightcore - Video Games" → "Games"; retro finding).
 _NOISE_WORD = re.compile(
-    r"^(?:lyrics?|lyric|official|music|video|audio|visualizer|hq|hd|4k|mv|version)$", re.IGNORECASE
+    r"^(?:lyrics?|official|music|video|audio|visualizer|hq|hd|4k|mv|version)$", re.IGNORECASE
 )
 
 
