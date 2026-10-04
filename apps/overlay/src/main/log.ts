@@ -18,7 +18,9 @@ import { execSync } from 'node:child_process';
 export function enableUtf8Console(): void {
   if (process.platform !== 'win32') return;
   try {
-    execSync('chcp 65001', { stdio: 'ignore' });
+    // Absolute path: a PATH lookup would run whatever `chcp` comes first.
+    const chcp = `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\chcp.com`;
+    execSync(`"${chcp}" 65001`, { stdio: 'ignore' });
   } catch {
     // Purely cosmetic — never let console setup break startup.
   }

@@ -172,4 +172,35 @@ describe('AnchorGuard — telling a leak from an implausible guess', () => {
     expect(guard.rejects(337_900, 193_000, 1_000)).toBe(true); // still deep: budget
     expect(guard.rejects(337_900, 193_000, 200 + ANCHOR_GUARD_BUDGET_MS)).toBe(false);
   });
+
+  it('a reconnect re-announcing the same track is not a leak (2026-10 review)', () => {
+    // A guard fed one report per second for two minutes, then the socket drops
+    // and the extension announces the SAME track again. Every following report
+    // continues that trajectory — because it IS that track. Before the fix all
+    // of them were held for the stale-hold window: ~30 s of no lyrics.
+    const guard = new AnchorGuard();
+    guard.arm(0, 'yt:A');
+    for (let t = 0; t < 120; t++) expect(guard.rejects(t * 1_000, 193_000, t * 1_000)).toBe(false);
+    guard.arm(119_500, 'yt:A'); // reconnect: same key
+    for (let t = 120; t < 150; t++) {
+      expect(guard.rejects(t * 1_000, 193_000, t * 1_000)).toBe(false);
+    }
+  });
+
+  it('a genuinely new track still holds the old clock (the keyed path keeps the guard)', () => {
+    const guard = new AnchorGuard();
+    guard.arm(0, 'yt:A');
+    for (let t = 0; t < 120; t++) guard.rejects(t * 1_000, 193_000, t * 1_000);
+    guard.arm(119_500, 'yt:B'); // a real track change
+    expect(guard.rejects(121_000, 193_000, 121_000)).toBe(true); // A's clock, leaking
+  });
+
+  it('an unkeyed arm still re-screens the same track (duration correction)', () => {
+    const guard = new AnchorGuard();
+    guard.arm(0, 'yt:A');
+    expect(guard.rejects(1_000, 366_451, 10)).toBe(false); // anchors, disarms
+    playing(guard, 337_000, 50); // ...and the track plays on
+    guard.arm(100); // no key: re-screen on purpose, even for the same track
+    expect(guard.rejects(337_500, 193_000, 1_000)).toBe(true);
+  });
 });

@@ -474,11 +474,16 @@ body.fx-hype .word.fx-word {
    (field report 2026-08-12: "the effect comes but you can't see why"). A
    clipped span can flash past in 150 ms; the burst lives a second. Colour
    and glow only — no transform, so a held word cannot shift the line's
-   layout under the active word that follows it. */
-body.fx-hype .word.fx-fired {
+   layout under the active word that follows it.
+   2026-10 review, both against the hype contract: the glow SNAPS with the
+   class (text-shadow values and per-word colour are never interpolated), and
+   a word still being swept is left out — `.word-fill`'s `text-shadow: none`
+   loses to this rule on specificity, and a 12 px glow through transparent
+   glyphs is the muddy look the fill exists to avoid while hiding the sweep.
+   The glow takes over the moment the sweep finishes. */
+body.fx-hype .word.fx-fired:not(.word-fill) {
   color: var(--fx-color, var(--kashi-primary, #fff));
   text-shadow: 0 0 12px var(--fx-color, var(--kashi-primary, #fff));
-  transition: color 160ms ease-out, text-shadow 160ms ease-out;
 }
 body.fx-hype .word.fx-word.fx-explosion { --fx-color: var(--fx-tint-explosion, var(--kashi-primary, #fff)); }
 body.fx-hype .word.fx-word.fx-fire { --fx-color: var(--fx-tint-fire, var(--kashi-primary, #fff)); }

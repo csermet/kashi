@@ -79,6 +79,7 @@ import type {
   SectionData,
 } from '../../shared/lyrics.js';
 import { loadArtworkPalette } from './artwork-palette.js';
+import { IdleStash } from './idle-stash.js';
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
 
@@ -122,6 +123,8 @@ const offsetFlashEl = document.getElementById('offset-flash');
 // bar is being dragged, the explaining `seeked` always arrives after the jumps
 // it explains. The classifier waits for the stream to go quiet before deciding.
 const snapClassifier = new SnapClassifier();
+/** Lyrics dropped on an idle edge, for a re-announce of the same track. */
+const idleStash = new IdleStash<unknown>();
 
 const clock = new PositionClock(undefined, undefined, ({ deltaMs, positionMs }) => {
   window.kashi.log(`position snapped ${deltaMs}ms with no seek yet (pos ${positionMs}ms)`);
@@ -753,6 +756,7 @@ function clearEnrichment(): void {
 }
 
 function resetToIdle(): void {
+  idleStash.idle(currentKey);
   currentKey = null;
   lines = [];
   adActive = false;
@@ -802,10 +806,21 @@ window.kashi.onTrack((payload) => {
   statusDim = false;
   // Log line stays ASCII-decorated; the label keeps its glyphs for DISPLAY.
   window.kashi.log(`track ${sameTrack ? 're-announced' : 'set'}: ${key} "${track.artist} - ${track.title}"`);
+  if (!sameTrack) {
+    // Woken from idle by a re-announce of the track it was showing: main
+    // re-sends the track but never the lyrics, so put them back (idle-stash.ts).
+    const restored = idleStash.take(key);
+    if (restored !== null) {
+      window.kashi.log('idle stash: lyrics restored for the re-announced track');
+      applyLyrics(restored);
+    }
+  }
   ensureLoop();
 });
 
-window.kashi.onLyrics((payload) => {
+window.kashi.onLyrics(applyLyrics);
+
+function applyLyrics(payload: unknown): void {
   const data = payload as {
     key: string;
     found?: boolean;
@@ -833,6 +848,7 @@ window.kashi.onLyrics((payload) => {
     ensureLoop();
     return;
   }
+  idleStash.remember(data.key, payload);
   searching = false;
   if (data.found && data.lines) {
     lines = data.lines;
@@ -874,7 +890,7 @@ window.kashi.onLyrics((payload) => {
     window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
   }
   ensureLoop();
-});
+}
 
 window.kashi.onPlayback((payload) => {
   const msg = payload as PlaybackMessage;

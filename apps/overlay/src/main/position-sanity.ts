@@ -115,8 +115,23 @@ export class AnchorGuard {
   private accepted: { positionMs: number; at: number; rate: number } | null = null;
   /** That trajectory, frozen at the moment the track changed. */
   private outgoing: { positionMs: number; at: number; rate: number } | null = null;
+  /** The track the guard was last armed FOR — the owner of `accepted`. */
+  private trackKey: string | null = null;
 
-  arm(now: number): void {
+  /**
+   * Arm for a track change. With a `key`, the same key again is a RE-announce
+   * of the track already playing — a reconnect clears the latch and the
+   * extension announces once more — so there is no previous track to leak and
+   * nothing to screen. Arming there took this track's OWN clock for a leak and
+   * held every report for ANCHOR_GUARD_STALE_HOLD_MS after each reconnect
+   * (2026-10 review). Without a key it always arms (the duration-correction
+   * path re-screens the same track on purpose).
+   */
+  arm(now: number, key?: string): void {
+    if (key !== undefined) {
+      if (key === this.trackKey) return;
+      this.trackKey = key;
+    }
     this.armed = true;
     this.rejected = 0;
     this.armedAt = now;

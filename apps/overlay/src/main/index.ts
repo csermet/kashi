@@ -302,7 +302,9 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
         duration_ms: settled.duration_ms,
         id_source: settled.source.type,
       });
-      anchorGuard.arm(Date.now()); // screen the next position — it becomes the anchor
+      // Screen the next position — it becomes the anchor. Keyed, so a reconnect
+      // re-announcing the SAME track does not mistake its own clock for a leak.
+      anchorGuard.arm(Date.now(), decision.key);
       enqueueGate.trackChanged(); // a 404 belongs to ONE track only (R-9)
       send('kashi:track', { key: decision.key, track: settled });
 

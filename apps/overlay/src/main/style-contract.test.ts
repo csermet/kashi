@@ -352,7 +352,7 @@ describe('style contract: the fx-fired hold (Faz 9, field report 2026-08-12)', (
     // is held lit. It must not transform — a held word shifting the line
     // would move the ACTIVE word that follows it, which is the one being
     // read. Colour and shadow only.
-    const rule = css.match(/body\.fx-hype \.word\.fx-fired \{([^}]*)\}/);
+    const rule = css.match(/body\.fx-hype \.word\.fx-fired:not\(\.word-fill\) \{([^}]*)\}/);
     expect(rule, 'fx-fired rule').not.toBeNull();
     const body = rule![1]!;
     expect(body).toContain('color:');
@@ -361,6 +361,18 @@ describe('style contract: the fx-fired hold (Faz 9, field report 2026-08-12)', (
     expect(body).not.toContain('font-size');
     expect(body).not.toContain('margin');
     expect(body).not.toContain('padding');
+    // 2026-10 review: the hype contract never interpolates text-shadow values
+    // or a per-word colour — the glow snaps with the class.
+    expect(body).not.toContain('transition');
+  });
+
+  it('a word still being swept is not held lit (2026-10 review)', () => {
+    // .word-fill clears text-shadow for its transparent-glyph gradient, but a
+    // 0,3,1 fx-fired rule outranks that 0,2,1 reset: the swept word got a
+    // 12 px glow through transparent glyphs, muddying it and hiding the sweep.
+    const firedSelectors = selectorLines(css).filter((line) => line.includes('.fx-fired'));
+    expect(firedSelectors.length).toBeGreaterThan(0);
+    for (const line of firedSelectors) expect(line).toContain(':not(.word-fill)');
   });
 
   it('the hold is hype-only — quieter levels stay quiet', () => {
