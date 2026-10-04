@@ -107,6 +107,70 @@ function isMs(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
+/** One processed-track line, or null when it (or one of its words) is malformed. */
+function mapLine(line: Record<string, unknown>): ServerLine | null {
+  if (!isMs(line['start_ms']) || !isMs(line['end_ms']) || typeof line['text'] !== 'string') {
+    return null;
+  }
+  const mapped: ServerLine = {
+    start_ms: line['start_ms'],
+    end_ms: line['end_ms'],
+    text: line['text'],
+  };
+  if (line['adlib'] === true) mapped.adlib = true;
+  // Only alongside words, exactly as the schema states it: the flag says
+  // "these word timings were rescued, not deleted", so without words there
+  // is nothing for it to qualify and a stray flag would de-emphasise a line
+  // for no reason the user could see.
+  if (line['uncertain'] === true && Array.isArray(line['words']) && line['words'].length > 0) {
+    mapped.uncertain = true;
+  }
+  if (Array.isArray(line['words']) && line['words'].length > 0) {
+    const words: ServerWord[] = [];
+    for (const rawWord of line['words'] as unknown[]) {
+      const word = rawWord as Record<string, unknown>;
+      if (!isMs(word['start_ms']) || !isMs(word['end_ms']) || typeof word['text'] !== 'string') {
+        return null;
+      }
+      words.push({ start_ms: word['start_ms'], end_ms: word['end_ms'], text: word['text'] });
+    }
+    mapped.words = words;
+  }
+  return mapped;
+}
+
+/** Enrichment blocks ride along only when sane; garbage leaves them absent. */
+function addEnrichment(
+  payload: ServerLyricsFound,
+  d: Record<string, unknown>,
+  alignment: Record<string, unknown> | undefined,
+): void {
+  if (typeof d['palette'] === 'object' && d['palette'] !== null) {
+    payload.palette = d['palette'] as ServerPalette;
+  }
+  if (typeof d['beats'] === 'object' && d['beats'] !== null) {
+    payload.beats = d['beats'] as ServerBeats;
+  }
+  const fx = mapFx(d['fx'], payload.sync);
+  if (fx) payload.fx = fx;
+  const energy = mapEnergy(d['energy']);
+  if (energy) payload.energy = energy;
+  const sections = mapSections(d['sections']);
+  if (sections) payload.sections = sections;
+  const trackMeta =
+    typeof d['track'] === 'object' && d['track'] !== null
+      ? (d['track'] as Record<string, unknown>)
+      : null;
+  const measured = trackMeta?.['duration_ms'];
+  if (isMs(measured) && measured > 0) payload.trackDurationMs = measured;
+  // Nightcore provenance (Faz 6.5 P5): only a sane positive factor rides —
+  // enrichment tolerance, absent on garbage like everything above.
+  const speed = alignment?.['speed_factor'];
+  if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
+    payload.alignment = { speed_factor: speed };
+  }
+}
+
 /**
  * Map a processed-track.v1 document onto the IPC payload.
  * Returns null for anything malformed — the caller treats that as an error
@@ -124,34 +188,8 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
 
   const lines: ServerLine[] = [];
   for (const raw of d['lines'] as unknown[]) {
-    const line = raw as Record<string, unknown>;
-    if (!isMs(line['start_ms']) || !isMs(line['end_ms']) || typeof line['text'] !== 'string') {
-      return null;
-    }
-    const mapped: ServerLine = {
-      start_ms: line['start_ms'],
-      end_ms: line['end_ms'],
-      text: line['text'],
-    };
-    if (line['adlib'] === true) mapped.adlib = true;
-    // Only alongside words, exactly as the schema states it: the flag says
-    // "these word timings were rescued, not deleted", so without words there
-    // is nothing for it to qualify and a stray flag would de-emphasise a line
-    // for no reason the user could see.
-    if (line['uncertain'] === true && Array.isArray(line['words']) && line['words'].length > 0) {
-      mapped.uncertain = true;
-    }
-    if (Array.isArray(line['words']) && line['words'].length > 0) {
-      const words: ServerWord[] = [];
-      for (const rawWord of line['words'] as unknown[]) {
-        const word = rawWord as Record<string, unknown>;
-        if (!isMs(word['start_ms']) || !isMs(word['end_ms']) || typeof word['text'] !== 'string') {
-          return null;
-        }
-        words.push({ start_ms: word['start_ms'], end_ms: word['end_ms'], text: word['text'] });
-      }
-      mapped.words = words;
-    }
+    const mapped = mapLine(raw as Record<string, unknown>);
+    if (mapped === null) return null;
     lines.push(mapped);
   }
 
@@ -174,30 +212,7 @@ export function mapDocument(doc: unknown): ServerLyricsFound | null {
     qualityScore: quality,
     lines: effectiveLines,
   };
-  if (typeof d['palette'] === 'object' && d['palette'] !== null) {
-    payload.palette = d['palette'] as ServerPalette;
-  }
-  if (typeof d['beats'] === 'object' && d['beats'] !== null) {
-    payload.beats = d['beats'] as ServerBeats;
-  }
-  const fx = mapFx(d['fx'], effectiveSync);
-  if (fx) payload.fx = fx;
-  const energy = mapEnergy(d['energy']);
-  if (energy) payload.energy = energy;
-  const sections = mapSections(d['sections']);
-  if (sections) payload.sections = sections;
-  const trackMeta =
-    typeof d['track'] === 'object' && d['track'] !== null
-      ? (d['track'] as Record<string, unknown>)
-      : null;
-  const measured = trackMeta?.['duration_ms'];
-  if (isMs(measured) && measured > 0) payload.trackDurationMs = measured;
-  // Nightcore provenance (Faz 6.5 P5): only a sane positive factor rides —
-  // enrichment tolerance, absent on garbage like everything above.
-  const speed = alignment?.['speed_factor'];
-  if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
-    payload.alignment = { speed_factor: speed };
-  }
+  addEnrichment(payload, d, alignment);
   return payload;
 }
 
@@ -261,45 +276,57 @@ export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
   // one-per-line rule, which is the safe direction to be wrong in.
   if (typeof f['select'] === 'string' && f['select'].length > 0) out.select = f['select'];
   if (sync === 'word' && Array.isArray(f['words'])) {
-    const words: FxWordTag[] = [];
-    for (const raw of f['words'] as unknown[]) {
-      if (words.length >= 60) break;
-      const t = raw as Record<string, unknown>;
-      if (
-        Number.isInteger(t['line']) &&
-        Number.isInteger(t['word']) &&
-        (t['line'] as number) >= 0 &&
-        (t['word'] as number) >= 0 &&
-        typeof t['tag'] === 'string' &&
-        FX_TAG_RE.test(t['tag']) &&
-        typeof t['intensity'] === 'number' &&
-        Number.isFinite(t['intensity'])
-      ) {
-        words.push({
-          line: t['line'] as number,
-          word: t['word'] as number,
-          tag: t['tag'],
-          intensity: Math.min(1, Math.max(0, t['intensity'])),
-        });
-      }
-    }
+    const words = mapFxWords(f['words'] as unknown[]);
     if (words.length > 0) out.words = words;
   }
   if (Array.isArray(f['lines'])) {
-    const lineTags: FxLineTag[] = [];
-    for (const raw of f['lines'] as unknown[]) {
-      if (lineTags.length >= 24) break;
-      const t = raw as Record<string, unknown>;
-      if (
-        Number.isInteger(t['line']) &&
-        (t['line'] as number) >= 0 &&
-        typeof t['tag'] === 'string' &&
-        FX_TAG_RE.test(t['tag'])
-      ) {
-        lineTags.push({ line: t['line'] as number, tag: t['tag'] });
-      }
-    }
+    const lineTags = mapFxLines(f['lines'] as unknown[]);
     if (lineTags.length > 0) out.lines = lineTags;
   }
   return out.words || out.lines ? out : undefined;
+}
+
+/** Word tags, capped at 60; malformed entries dropped. */
+function mapFxWords(entries: unknown[]): FxWordTag[] {
+  const words: FxWordTag[] = [];
+  for (const raw of entries) {
+    if (words.length >= 60) break;
+    const t = raw as Record<string, unknown>;
+    if (
+      Number.isInteger(t['line']) &&
+      Number.isInteger(t['word']) &&
+      (t['line'] as number) >= 0 &&
+      (t['word'] as number) >= 0 &&
+      typeof t['tag'] === 'string' &&
+      FX_TAG_RE.test(t['tag']) &&
+      typeof t['intensity'] === 'number' &&
+      Number.isFinite(t['intensity'])
+    ) {
+      words.push({
+        line: t['line'] as number,
+        word: t['word'] as number,
+        tag: t['tag'],
+        intensity: Math.min(1, Math.max(0, t['intensity'])),
+      });
+    }
+  }
+  return words;
+}
+
+/** Line theme tags, capped at 24; malformed entries dropped. */
+function mapFxLines(entries: unknown[]): FxLineTag[] {
+  const lineTags: FxLineTag[] = [];
+  for (const raw of entries) {
+    if (lineTags.length >= 24) break;
+    const t = raw as Record<string, unknown>;
+    if (
+      Number.isInteger(t['line']) &&
+      (t['line'] as number) >= 0 &&
+      typeof t['tag'] === 'string' &&
+      FX_TAG_RE.test(t['tag'])
+    ) {
+      lineTags.push({ line: t['line'] as number, tag: t['tag'] });
+    }
+  }
+  return lineTags;
 }
