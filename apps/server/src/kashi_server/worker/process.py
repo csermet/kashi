@@ -283,8 +283,21 @@ def _mix_back(vocals: Path, mix: Path, dest: Path, weight: float) -> Path:
         f"[v][m]amix=inputs=2:duration=first:weights='1 {weight}':normalize=0"
     )
     result = subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", str(vocals), "-i", str(mix),
-         "-filter_complex", graph, "-c:a", "pcm_s16le", str(dest)],
+        [
+            "ffmpeg",
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(vocals),
+            "-i",
+            str(mix),
+            "-filter_complex",
+            graph,
+            "-c:a",
+            "pcm_s16le",
+            str(dest),
+        ],
         capture_output=True,
         timeout=600,
     )
@@ -439,9 +452,7 @@ def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText 
         or ""
     )
     artist = normalize_artist(hints.get("artist") or "")
-    candidates = [
-        rec for rec in _original_song_candidates(title, artist) if rec.get("plainLyrics")
-    ]
+    candidates = [rec for rec in _original_song_candidates(title, artist) if rec.get("plainLyrics")]
     if not candidates:
         return None
 
@@ -495,6 +506,17 @@ def _plain_lyrics(job: Job) -> LyricsText:
     caller = _caller_lyrics(job)
     if caller is not None:
         return caller
+    hints = _lookup_hints(job)
+    try:
+        return fetch_lyrics(hints, base_url=settings.lrclib_base_url)
+    except PipelineError as exc:
+        if exc.error_type != "lyrics_not_found":
+            raise
+        return _composite_title_fallback(hints, exc)
+
+
+def _lookup_hints(job: Job) -> dict:
+    """The job's hints, cleaned for the lrclib ladder."""
     hints = dict(job.hints or {})
     if credible_duration_hint(hints) is None:
         # An impossible duration would otherwise reach every lrclib rung as
@@ -505,40 +527,39 @@ def _plain_lyrics(job: Job) -> LyricsText:
     original = (job.options or {}).get("original_title")
     if isinstance(original, str) and original.strip():
         hints["title"] = original.strip()
+    return hints
+
+
+def _composite_title_fallback(hints: dict, exc: PipelineError) -> LyricsText:
+    # Composite-title LAST fallback (Faz 6 P7): "Channel | Artist - Song
+    # (Lyrics)" uploads send the channel as artist and the ladder dries.
+    # Conservative by construction (exactly one dash after noise strip)
+    # + fetch_lyrics' own plausibility gates still stand between a parsed
+    # guess and wrong lyrics. On a second miss the ORIGINAL error is
+    # re-raised — its message names the hints the user actually sent.
+    parsed = parse_composite_title(hints.get("title") or "")
+    if parsed is None:
+        raise exc
+    artist, song = parsed
+    logger.info(
+        "composite-title fallback: %r / %r -> artist=%r title=%r",
+        hints.get("artist"),
+        hints.get("title"),
+        artist,
+        song,
+    )
     try:
-        return fetch_lyrics(hints, base_url=settings.lrclib_base_url)
-    except PipelineError as exc:
-        if exc.error_type != "lyrics_not_found":
-            raise
-        # Composite-title LAST fallback (Faz 6 P7): "Channel | Artist - Song
-        # (Lyrics)" uploads send the channel as artist and the ladder dries.
-        # Conservative by construction (exactly one dash after noise strip)
-        # + fetch_lyrics' own plausibility gates still stand between a parsed
-        # guess and wrong lyrics. On a second miss the ORIGINAL error is
-        # re-raised — its message names the hints the user actually sent.
-        parsed = parse_composite_title(hints.get("title") or "")
-        if parsed is None:
-            raise
-        artist, song = parsed
-        logger.info(
-            "composite-title fallback: %r / %r -> artist=%r title=%r",
-            hints.get("artist"),
-            hints.get("title"),
-            artist,
-            song,
+        return fetch_lyrics(
+            {**hints, "artist": artist, "title": song}, base_url=settings.lrclib_base_url
         )
-        try:
-            return fetch_lyrics(
-                {**hints, "artist": artist, "title": song}, base_url=settings.lrclib_base_url
-            )
-        except PipelineError as retry_exc:
-            if is_transient_error(retry_exc.error_type):
-                # A transient retry failure (network/rate_limited) must stay
-                # transient — converting it to the original permanent
-                # lyrics_not_found would trip the 7-day re-enqueue block
-                # (reviewer catch, Faz 6 closure).
-                raise
-            raise exc from None
+    except PipelineError as retry_exc:
+        if is_transient_error(retry_exc.error_type):
+            # A transient retry failure (network/rate_limited) must stay
+            # transient — converting it to the original permanent
+            # lyrics_not_found would trip the 7-day re-enqueue block
+            # (reviewer catch, Faz 6 closure).
+            raise
+        raise exc from None
 
 
 def _nightcore_lyrics(
@@ -655,9 +676,7 @@ def _tag_fx(result, lyrics, sections=None):
                 embedder = get_embedder(cache_dir=str(settings.model_cache_dir))
             except ImportError:
                 logger.warning("fx_embeddings on but semantics extra missing — keywords only")
-        language = {"eng": "en", "tur": "tr"}.get(
-            detect_language(lyrics.full_text), "default"
-        )
+        language = {"eng": "en", "tur": "tr"}.get(detect_language(lyrics.full_text), "default")
         tags = tag_words(
             [[w.text for w in chunk] for chunk in result.words_per_line],
             [line.text for line in result.lines],
@@ -807,18 +826,7 @@ def _align_with_ctc(
     plain_lyrics: LyricsText | None,
 ) -> tuple[LyricsText, AlignResult, LineQAOutcome, bool, float]:
     """Separation, nightcore, CTC alignment and line QA."""
-    separate_first = settings.separation_mode == "always" or bool(
-        (job.options or {}).get("separate")
-    )
-    if separate_first:
-        queue.set_status(s, job, "separating")
-        s.commit()
-        source_audio = _separate_vocals(download.path, tmp)
-        checkpoint(s, job)
-        queue.set_status(s, job, "aligning")
-        s.commit()
-    else:
-        source_audio = download.path
+    source_audio, separate_first = _separation_source(s, job, tmp, download)
 
     # Nightcore branch (Faz 4): slow the (possibly separated) audio
     # back down for alignment, then rescale the output onto the
@@ -856,26 +864,49 @@ def _align_with_ctc(
     )
     result = qa.result
     if not is_original_speed(speed_factor):
-        if lyrics.source != "caller":
-            # Wrong-song gate: detection can only vouch for
-            # title+duration ratio; the CTC probs are the honest
-            # lyrics-identity signal.
-            probs = [w.prob for chunk in result.words_per_line for w in chunk]
-            prob_quality = quality_from_probs(probs) if probs else 0.0
-            if prob_quality < NIGHTCORE_PROB_GATE:
-                raise PipelineError(
-                    "lyrics_not_found",
-                    f"nightcore lyrics failed the wrong-song gate "
-                    f"(ctc prob {prob_quality:.3f} < {NIGHTCORE_PROB_GATE}; "
-                    f"lrclib id {lyrics.source_id})",
-                )
-        # QA ran on the slowed (≈ original) clock where the lrclib
-        # stamps live; ONE rescale lands everything on the nightcore
-        # clock.
-        result = rescale_result(result, speed_factor)
+        result = _nightcore_gate(result, lyrics, speed_factor)
     _record_line_qa(job, qa)
     checkpoint(s, job)
     return lyrics, result, qa, vocals_separated, speed_factor
+
+
+def _separation_source(
+    s: Session, job: Job, tmp: Path, download: DownloadResult
+) -> tuple[Path, bool]:
+    """The audio alignment starts from, and whether it was separated first."""
+    separate_first = settings.separation_mode == "always" or bool(
+        (job.options or {}).get("separate")
+    )
+    if not separate_first:
+        return download.path, False
+    queue.set_status(s, job, "separating")
+    s.commit()
+    source_audio = _separate_vocals(download.path, tmp)
+    checkpoint(s, job)
+    queue.set_status(s, job, "aligning")
+    s.commit()
+    return source_audio, True
+
+
+def _nightcore_gate(result: AlignResult, lyrics: LyricsText, speed_factor: float) -> AlignResult:
+    """Wrong-song gate for detected lyrics, then the rescale onto the played clock."""
+    if lyrics.source != "caller":
+        # Wrong-song gate: detection can only vouch for
+        # title+duration ratio; the CTC probs are the honest
+        # lyrics-identity signal.
+        probs = [w.prob for chunk in result.words_per_line for w in chunk]
+        prob_quality = quality_from_probs(probs) if probs else 0.0
+        if prob_quality < NIGHTCORE_PROB_GATE:
+            raise PipelineError(
+                "lyrics_not_found",
+                f"nightcore lyrics failed the wrong-song gate "
+                f"(ctc prob {prob_quality:.3f} < {NIGHTCORE_PROB_GATE}; "
+                f"lrclib id {lyrics.source_id})",
+            )
+    # QA ran on the slowed (≈ original) clock where the lrclib
+    # stamps live; ONE rescale lands everything on the nightcore
+    # clock.
+    return rescale_result(result, speed_factor)
 
 
 def _record_line_qa(job: Job, qa: LineQAOutcome) -> None:
@@ -931,9 +962,7 @@ def _postprocess(
             # Keep the combined array start-sorted: nothing requires it
             # today, but an unsorted mixed-type list is a trap for the
             # next consumer (reviewer nit).
-            sections = sorted(
-                (sections or []) + chorus, key=lambda s: (s.start_ms, s.end_ms)
-            )
+            sections = sorted((sections or []) + chorus, key=lambda s: (s.start_ms, s.end_ms))
     # AFTER QA/rescale (indices must match the doc) and AFTER sections
     # (selection ranks lines by the section holding them — same clock).
     fx = _tag_fx(result, lyrics, sections)
