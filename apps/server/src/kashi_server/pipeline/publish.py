@@ -15,6 +15,7 @@ never ahead of time.
 import hashlib
 import logging
 import math
+from collections.abc import Callable
 
 import httpx
 import yaml
@@ -205,7 +206,7 @@ def solve_challenge(
     target_hex: str,
     *,
     max_attempts: int = MAX_POW_ATTEMPTS,
-    should_stop: object = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> str:
     try:
         target = bytes.fromhex(target_hex)
@@ -230,7 +231,7 @@ def publish_document(
     base_url: str,
     timeout_s: float = 30.0,
     client: httpx.Client | None = None,
-    should_stop: object = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> None:
     """Challenge → PoW → POST /api/publish. Raises PipelineError on any
     failure; success returns silently (lrclib answers 201 with no body of

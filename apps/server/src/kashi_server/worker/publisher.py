@@ -9,6 +9,7 @@ lrclib_publish_dry_run off.
 """
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from prometheus_client import Counter
@@ -39,7 +40,7 @@ PUBLISH_GATE_TOTAL = Counter(
 )
 
 
-def process_one_publish(s: Session, *, should_stop: object = None) -> bool:
+def process_one_publish(s: Session, *, should_stop: Callable[[], bool] | None = None) -> bool:
     """Handle at most ONE queued publish request; True when one was taken.
     Terminal either way — a failed publish is re-requested by a human, not
     retried by a loop (etiquette: no automatic hammering of a free service).
