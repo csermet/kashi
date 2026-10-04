@@ -47,65 +47,64 @@ class Window:
             raise ValueError("window owns no lines")
 
 
-def plan_windows(
-    line_texts: list[str],
-    synced_starts_ms: list[int | None],
-    total_ms: int,
-    *,
-    pad_ms: int = PAD_MS,
-    min_window_ms: int = MIN_WINDOW_MS,
-    min_words: int = MIN_WORDS,
-) -> list[Window] | None:
-    """Carve the song into line-anchored windows, or None for the whole-audio
-    path (too few stamps / degenerate input)."""
+def _stamps_usable(
+    line_texts: list[str], synced_starts_ms: list[int | None], total_ms: int
+) -> bool:
     if len(line_texts) != len(synced_starts_ms) or not line_texts or total_ms <= 0:
-        return None
+        return False
     stamped = [start for start in synced_starts_ms if start is not None]
     if len(stamped) < MIN_STAMPED_LINES:
-        return None
+        return False
     if len(stamped) / len(line_texts) < MIN_STAMPED_FRACTION:
-        return None
-    if any(b < a for a, b in zip(stamped, stamped[1:], strict=False)):
-        return None  # non-monotonic stamps: don't trust them as anchors
+        return False
+    # non-monotonic stamps: don't trust them as anchors
+    return not any(b < a for a, b in zip(stamped, stamped[1:], strict=False))
 
-    # Nominal (unpadded) span per line: [own stamp, next stamped line's stamp).
-    # A stampless line inherits its predecessor's span end and stretches it.
+
+def _line_spans(synced_starts_ms: list[int | None], total_ms: int) -> list[tuple[int, int]]:
+    """Nominal (unpadded) span per STAMPED line: [own stamp, next stamped
+    line's stamp). A stampless line inherits its predecessor's span end and
+    stretches it."""
     spans: list[tuple[int, int]] = []
-    for i in range(len(line_texts)):
-        start = synced_starts_ms[i]
+    for i, start in enumerate(synced_starts_ms):
         if start is None:
-            continue  # attached to a neighbour below
-        end = total_ms
-        for j in range(i + 1, len(line_texts)):
-            nxt = synced_starts_ms[j]
-            if nxt is not None:
-                end = nxt
-                break
+            continue  # attached to a neighbour in _line_groups
+        end = next((s for s in synced_starts_ms[i + 1 :] if s is not None), total_ms)
         spans.append((start, min(end, total_ms)))
+    return spans
 
-    # Group lines: a group = one stamped line plus any stampless followers;
-    # stampless LEADERS (before the first stamp) ride with the first group.
+
+def _line_groups(synced_starts_ms: list[int | None]) -> list[list[int]]:
+    """A group = one stamped line plus any stampless followers; stampless
+    LEADERS (before the first stamp) ride with the first group."""
     groups: list[list[int]] = []
     leaders: list[int] = []
-    for i in range(len(line_texts)):
-        if synced_starts_ms[i] is None:
+    for i, start in enumerate(synced_starts_ms):
+        if start is None:
             (groups[-1] if groups else leaders).append(i)
         else:
             groups.append([i])
     if leaders:
         groups[0] = leaders + groups[0]
+    return groups
 
-    # Merge consecutive groups until each window is long enough AND wordy
-    # enough. Merging is greedy left-to-right; a trailing short window merges
-    # backwards into the previous one.
-    windows: list[tuple[int, int, list[int]]] = []  # (start, end, lines)
+
+def _merge_groups(
+    groups: list[list[int]],
+    spans: list[tuple[int, int]],
+    line_texts: list[str],
+    min_window_ms: int,
+    min_words: int,
+) -> list[tuple[int, int, list[int]]]:
+    """Merge consecutive groups until each window is long enough AND wordy
+    enough. Merging is greedy left-to-right; a trailing short window merges
+    backwards into the previous one. Returns (start, end, lines) triples."""
+    windows: list[tuple[int, int, list[int]]] = []
     current_lines: list[int] = []
     current_start: int | None = None
     current_end = 0
-    span_index = 0
-    for group in groups:
-        start, end = spans[span_index]  # one span per stamped line = per group
-        span_index += 1
+    # one span per stamped line = per group
+    for group, (start, end) in zip(groups, spans, strict=True):
         if current_start is None:
             current_start = start
         current_end = end
@@ -121,7 +120,12 @@ def plan_windows(
             windows[-1] = (prev_start, current_end, prev_lines + current_lines)
         else:
             windows.append((current_start or 0, current_end, current_lines))
+    return windows
 
+
+def _padded_windows(
+    windows: list[tuple[int, int, list[int]]], n_lines: int, total_ms: int, pad_ms: int
+) -> list[Window] | None:
     try:
         out = [
             Window(
@@ -138,9 +142,28 @@ def plan_windows(
     # Ownership must partition the lines exactly (defensive: regroup depends
     # on it downstream).
     owned = [i for w in out for i in w.line_indices]
-    if owned != list(range(len(line_texts))):
+    if owned != list(range(n_lines)):
         return None
     return out
+
+
+def plan_windows(
+    line_texts: list[str],
+    synced_starts_ms: list[int | None],
+    total_ms: int,
+    *,
+    pad_ms: int = PAD_MS,
+    min_window_ms: int = MIN_WINDOW_MS,
+    min_words: int = MIN_WORDS,
+) -> list[Window] | None:
+    """Carve the song into line-anchored windows, or None for the whole-audio
+    path (too few stamps / degenerate input)."""
+    if not _stamps_usable(line_texts, synced_starts_ms, total_ms):
+        return None
+    spans = _line_spans(synced_starts_ms, total_ms)
+    groups = _line_groups(synced_starts_ms)
+    windows = _merge_groups(groups, spans, line_texts, min_window_ms, min_words)
+    return _padded_windows(windows, len(line_texts), total_ms, pad_ms)
 
 
 def reconcile_seams(results: list[dict]) -> list[dict]:
