@@ -5,11 +5,26 @@ import type { Plugin } from 'vite';
 // Dev keeps style-src 'unsafe-inline' (vite HMR injects styles via JS); the
 // PRODUCTION bundle links a real stylesheet, so the token is dropped at
 // build time — packaged apps ship the strict CSP (Faz 5 P5, R-9).
+//
+// Only the CSP meta's content is rewritten. A plain first-match replace used to
+// hit the explanatory HTML comment above it, which names the same token — so
+// from 2026-07-13 to 2026-10 every packaged build shipped the loose policy
+// while this file said otherwise. The build now fails if the token survives.
+const CSP_META = /(<meta\s+http-equiv="Content-Security-Policy"\s+content=")([^"]*)(")/;
 const tightenCsp = (): Plugin => ({
   name: 'kashi-tighten-csp',
   apply: 'build',
-  transformIndexHtml(html) {
-    return html.replace(" 'unsafe-inline'", '');
+  transformIndexHtml(html, ctx) {
+    if (!CSP_META.test(html)) throw new Error(`${ctx.filename}: no CSP meta to tighten`);
+    const out = html.replace(
+      CSP_META,
+      (_match, head: string, policy: string, tail: string) =>
+        head + policy.replaceAll(" 'unsafe-inline'", '') + tail,
+    );
+    if (CSP_META.exec(out)?.[2]?.includes('unsafe-inline')) {
+      throw new Error(`${ctx.filename}: 'unsafe-inline' survived the production CSP`);
+    }
+    return out;
   },
 });
 
