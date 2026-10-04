@@ -197,18 +197,32 @@ export class FxCanvas {
     this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0;
     const random = makeRandom(this.seed);
     const planned = planEmission(this.box, random, profile);
-    if (room < planned.length && !this.loggedBudget) {
-      // Once per layer: a thinned burst and a skipped one are the same class
-      // of problem, and a quietly thinned effect is the harder one to notice.
+    this.logBudgetOnce(room, planned.length);
+    if (room === 0) return;
+    this.framesSinceBurst = 0;
+    this.addSprites(this.layer, planned.slice(0, room), colour, profile);
+    this.showAndLogFirst(app);
+  }
+
+  /** Once per layer: a thinned burst and a skipped one are the same class
+   * of problem, and a quietly thinned effect is the harder one to notice. */
+  private logBudgetOnce(room: number, planned: number): void {
+    if (room < planned && !this.loggedBudget) {
       this.loggedBudget = true;
       this.log(
         `fx layer: particle budget ${MAX_LIVE_PARTICLES} reached,` +
-          ` emitting ${room} of ${planned.length}`,
+          ` emitting ${room} of ${planned}`,
       );
     }
-    if (room === 0) return;
-    this.framesSinceBurst = 0;
-    for (const particle of planned.slice(0, room)) {
+  }
+
+  private addSprites(
+    layer: Container,
+    particles: Particle[],
+    colour: number,
+    profile: EmissionProfile,
+  ): void {
+    for (const particle of particles) {
       const texture = this.textures.get(particle.shape);
       if (!texture || !this.pixi) continue;
       const sprite = new this.pixi.Sprite(texture);
@@ -221,9 +235,13 @@ export class FxCanvas {
       // One GPU state flag per sprite — no shader codegen, so it stays inside
       // the strict CSP the layer already runs under.
       if (profile.blend === 'add') sprite.blendMode = 'add';
-      this.layer.addChild(sprite);
+      layer.addChild(sprite);
       this.live.push({ particle, sprite });
     }
+  }
+
+  /** Wake the ticker for new particles; say once that the layer emits. */
+  private showAndLogFirst(app: Application): void {
     if (this.live.length > 0 && !app.ticker.started) {
       app.canvas.style.visibility = 'visible';
       app.ticker.start();
