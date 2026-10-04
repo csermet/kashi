@@ -361,13 +361,11 @@ function applyPaletteVars(): void {
 
 /** Rebuild the beat cursor whenever the level or the beat grid changes. */
 function rebuildBeatCursor(): void {
+  const downbeats = Array.isArray(currentBeats?.downbeat_indices)
+    ? (currentBeats.downbeat_indices as number[]).filter((i) => Number.isInteger(i))
+    : [];
   beatCursor = beatsUsable(effectLevel, currentBeats)
-    ? new BeatCursor(
-        (currentBeats?.times_ms as number[]) ?? [],
-        Array.isArray(currentBeats?.downbeat_indices)
-          ? (currentBeats.downbeat_indices as number[]).filter((i) => Number.isInteger(i))
-          : [],
-      )
+    ? new BeatCursor((currentBeats?.times_ms as number[]) ?? [], downbeats)
     : null;
   if (!beatCursor) setBeatClasses(BEAT_IDLE);
 }
@@ -484,7 +482,7 @@ export function resetFirstFillReport(): void {
 }
 
 function reportFirstFill(span: HTMLElement | undefined): void {
-  if (firstFillReported || !span || !span.classList.contains('fx-word')) return;
+  if (firstFillReported || !span?.classList.contains('fx-word')) return;
   firstFillReported = true;
   const computed = getComputedStyle(span);
   window.kashi.log(

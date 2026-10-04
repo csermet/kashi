@@ -221,7 +221,7 @@ describe('FxCanvas — the adapter, not the physics', () => {
     expect([...textures.keys()].sort()).toEqual([...PARTICLE_SHAPES].sort());
 
     const sprites = stageOf(layer);
-    expect(sprites.length).toBe(ARCHETYPE_PROFILES.drift.count);
+    expect(sprites).toHaveLength(ARCHETYPE_PROFILES.drift.count);
     const heart = textures.get('heart');
     for (const sprite of sprites) {
       expect(sprite.tint).toBe(0x123456);

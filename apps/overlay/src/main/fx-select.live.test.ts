@@ -69,7 +69,7 @@ describe.skipIf(!LIVE_URL || !LIVE_KEY)('live fx selection', () => {
     const hits = [...index.values()].flat();
 
     // Every word the server kept is rendered — the whole point of the marker.
-    expect(hits.length).toBe(fx!.words!.length);
+    expect(hits).toHaveLength(fx!.words!.length);
     expect(hits.length).toBeGreaterThan(0);
 
     // And it is a THINNED set: this track carried 60 candidates before 2.13.0.
@@ -104,7 +104,7 @@ describe.skipIf(!LIVE_URL || !LIVE_KEY)('live fx selection', () => {
     // today. Proven here against real data rather than a fixture.
     const legacy = { ...fx!, select: undefined };
     for (const line of buildFxIndex(legacy, lines).values()) {
-      expect(line.length).toBe(1);
+      expect(line).toHaveLength(1);
     }
   });
 });

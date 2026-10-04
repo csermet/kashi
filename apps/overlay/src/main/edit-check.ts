@@ -86,7 +86,7 @@ export function classifyEdit(
   // No record duration: fall back to the stamps themselves. The LAST line's
   // start (not its end — ends are synthesised by parseLrc, and the last one is
   // already clamped to the track) is the load-bearing number.
-  const last = lines[lines.length - 1];
+  const last = lines.at(-1);
   if (last && last.start_ms > trackDurationMs + toleranceMs) return 'different-edit';
   return 'unverifiable';
 }

@@ -482,7 +482,7 @@ describe('energy/section dynamics (Faz 6 P5)', () => {
   it('quantizedEnergy steps by ENERGY_QUANT (style writes only on change)', () => {
     const e = { rate_hz: 2, values: [37] };
     expect(quantizedEnergy(e, 0)).toBeCloseTo(0.35);
-    expect(quantizedEnergy(e, 0) === quantizedEnergy(e, 400)).toBe(true);
+    expect(quantizedEnergy(e, 0)).toBe(quantizedEnergy(e, 400));
   });
 
   it('inSection matches only the asked type inside [start, end)', () => {
@@ -505,7 +505,7 @@ describe('computeFxTintVars (Faz 6 field round 2)', () => {
     // sharing one window is what made every archetype the same pastel dot.
     const vars = computeFxTintVars('#ff847c', 'full');
     const tags = Object.keys(FX_BASE_COLORS);
-    expect(Object.keys(vars).length).toBe(tags.length * 2);
+    expect(Object.keys(vars)).toHaveLength(tags.length * 2);
     for (const tag of tags) {
       expect(vars[`--fx-tint-${tag}`], tag).toMatch(/^#[0-9a-f]{6}$/);
       expect(vars[`--fx-pt-${tag}`], tag).toMatch(/^#[0-9a-f]{6}$/);

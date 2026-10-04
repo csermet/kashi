@@ -124,7 +124,7 @@ export function paletteFromPixels(data: Uint8ClampedArray | number[]): PaletteLi
  * canvas, decode error) — the caller keeps the plain look. */
 export function loadArtworkPalette(url: string, timeoutMs = 8000): Promise<PaletteLike | null> {
   return new Promise((settle) => {
-    if (!/^https:\/\//.test(url)) {
+    if (!url.startsWith('https://')) {
       settle(null);
       return;
     }

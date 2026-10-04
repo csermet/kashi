@@ -244,7 +244,7 @@ describe('parseTintColor — every category wears its own colour', () => {
     // log would complain — the effect would just look broken to one person.
     const vars = computeFxTintVars('#3aa0ff', 'full');
     const tags = Object.keys(FX_BASE_COLORS);
-    expect(tags.length).toBe(24);
+    expect(tags).toHaveLength(24);
     for (const tag of tags) {
       expect(parseTintColor(vars[`--fx-tint-${tag}`]), tag).not.toBe(0xffffff);
     }

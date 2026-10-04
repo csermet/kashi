@@ -314,7 +314,10 @@ export function accumulateWheel(
     // opacity gesture — treating it as one dims the box by surprise.
     return { accumulatedPx, steps: 0 };
   }
-  const px = deltaY * (deltaMode === 1 ? WHEEL_LINE_PX : deltaMode === 2 ? WHEEL_PAGE_PX : 1);
+  let unitPx = 1; // deltaMode 0: already pixels
+  if (deltaMode === 1) unitPx = WHEEL_LINE_PX;
+  else if (deltaMode === 2) unitPx = WHEEL_PAGE_PX;
+  const px = deltaY * unitPx;
   const total = accumulatedPx + px;
   // `|| 0` normalizes Math.trunc's -0 — don't leak it into IPC/comparisons.
   const steps = Math.trunc(total / WHEEL_PX_PER_STEP) || 0;

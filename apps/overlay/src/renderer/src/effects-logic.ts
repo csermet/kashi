@@ -354,7 +354,13 @@ export class BeatCursor {
 // ---------------------------------------------------------------------------
 // Semantic word effects (Faz 6 P4) — consuming the server's fx block.
 
-import type { FxData, LyricLine } from '../../shared/lyrics.js';
+import type {
+  AlignmentData,
+  EnergyData,
+  FxData,
+  LyricLine,
+  SectionData,
+} from '../../shared/lyrics.js';
 import {
   ARCHETYPE_PROFILES,
   GENERIC_PROFILE,
@@ -584,7 +590,6 @@ export function ambientColors(
 // ---------------------------------------------------------------------------
 // Energy/section dynamics (Faz 6 P5) — precomputed curves, zero live audio.
 
-import type { EnergyData, SectionData } from '../../shared/lyrics.js';
 
 /** Quantization step for the CSS energy var — style writes only on step
  * changes (a few per second), never per frame. */
@@ -634,7 +639,6 @@ export function inRampSection(
 // ---------------------------------------------------------------------------
 // Nightcore aesthetics (Faz 6.5 P5) — sped-up documents only.
 
-import type { AlignmentData } from '../../shared/lyrics.js';
 
 /** Below this the speed difference is inaudible tape drift, not nightcore. */
 export const NIGHTCORE_MIN_SPEED = 1.05;
@@ -766,12 +770,9 @@ export function planFillsByLineIdentity(
         .filter((span): span is number => span !== null)
         .sort((a, b) => a - b);
       const middle = Math.floor(spans.length / 2);
-      const median =
-        spans.length === 0
-          ? 0
-          : spans.length % 2 === 1
-            ? (spans[middle] as number)
-            : (((spans[middle - 1] as number) + (spans[middle] as number)) / 2);
+      let median = 0;
+      if (spans.length % 2 === 1) median = spans[middle] as number;
+      else if (spans.length > 0) median = ((spans[middle - 1] as number) + (spans[middle] as number)) / 2;
       // planWordFills only ever reads end-start, so a synthetic span carrying
       // the median is the whole input it needs.
       return { start_ms: 0, end_ms: median, text: words[wordIndex]?.text };

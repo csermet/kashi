@@ -269,7 +269,7 @@ describe('server self-heal (Faz 6.7 P3)', () => {
     await runLadder(d);
     const afterLadder = d.sent.length;
     await vi.advanceTimersByTimeAsync(10_001);
-    expect(d.sent.length).toBe(afterLadder);
+    expect(d.sent).toHaveLength(afterLadder);
   });
 
   it('a bare line doc is declined, an enriched one is taken', async () => {

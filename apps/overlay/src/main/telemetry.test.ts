@@ -45,7 +45,7 @@ describe('TelemetryBuffer', () => {
     for (let i = 0; i < MAX_BUFFERED_EVENTS; i++) {
       buffer.add({ ts: String(i), kind: 'watchdog', payload: {} });
     }
-    expect(buffer.take().length).toBe(MAX_BATCH_EVENTS);
+    expect(buffer.take()).toHaveLength(MAX_BATCH_EVENTS);
   });
 });
 

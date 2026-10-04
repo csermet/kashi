@@ -226,7 +226,7 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
         // renderer back before the NEXT track change. The payload is the one
         // already accepted for this key — a duplicate decision carries no
         // normalized track of its own.
-        if (lastTrack && lastTrack.key === decision.key) {
+        if (lastTrack?.key === decision.key) {
           // ...unless the refresh CORRECTS the duration. Then it is not a
           // duplicate at all: it is the first honest description of this
           // track, and everything decided from the old number (which lrclib
@@ -747,12 +747,9 @@ ipcMain.on('kashi:server-settings-submit', (event, raw: unknown) => {
       warn(`server settings: invalid URL ${JSON.stringify(trimmedUrl)} — nothing changed`);
       return;
     }
-    const nextKey =
-      key === null
-        ? (settings.get().server_api_key ?? null) // untouched field = keep
-        : typeof key === 'string' && key.trim() !== ''
-          ? key.trim()
-          : null;
+    let nextKey: string | null = null;
+    if (key === null) nextKey = settings.get().server_api_key ?? null; // untouched field = keep
+    else if (typeof key === 'string' && key.trim() !== '') nextKey = key.trim();
     settings.update({ server_url: normalized, server_api_key: nextKey });
     log(`server settings: ${normalized} (key ${nextKey ? 'set' : 'MISSING'})`);
   }

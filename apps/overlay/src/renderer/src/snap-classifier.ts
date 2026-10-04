@@ -87,16 +87,14 @@ export class SnapClassifier {
     ) {
       this.seal();
     }
-    if (!this.open) {
-      this.open = {
-        lastAtMono: atMono,
-        jumpCount: 0,
-        deltaMs,
-        positionMs,
-        sawSeek: atMono - this.lastSeekAtMono < SEEK_GRACE_MS,
-        trackKey,
-      };
-    }
+    this.open ??= {
+      lastAtMono: atMono,
+      jumpCount: 0,
+      deltaMs,
+      positionMs,
+      sawSeek: atMono - this.lastSeekAtMono < SEEK_GRACE_MS,
+      trackKey,
+    };
     this.open.lastAtMono = atMono;
     this.open.jumpCount += 1;
     this.open.deltaMs = deltaMs;

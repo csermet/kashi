@@ -8,6 +8,7 @@
  * codepage fix below makes it render correctly).
  */
 import { execSync } from 'node:child_process';
+import { win32 } from 'node:path';
 
 /**
  * Windows consoles default to a legacy codepage (CP850/857) that renders
@@ -19,7 +20,7 @@ export function enableUtf8Console(): void {
   if (process.platform !== 'win32') return;
   try {
     // Absolute path: a PATH lookup would run whatever `chcp` comes first.
-    const chcp = `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\chcp.com`;
+    const chcp = win32.join(process.env.SystemRoot ?? String.raw`C:\Windows`, 'System32', 'chcp.com');
     execSync(`"${chcp}" 65001`, { stdio: 'ignore' });
   } catch {
     // Purely cosmetic — never let console setup break startup.

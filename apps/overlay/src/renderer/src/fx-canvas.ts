@@ -194,7 +194,8 @@ export class FxCanvas {
     // never could. The cap trims the new burst rather than the running ones,
     // and says so once — a silently thinned effect is the harder bug.
     const room = Math.max(0, MAX_LIVE_PARTICLES - this.live.length);
-    const random = makeRandom((this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0));
+    this.seed = (this.seed * 1_664_525 + 1_013_904_223) >>> 0;
+    const random = makeRandom(this.seed);
     const planned = planEmission(this.box, random, profile);
     if (room < planned.length && !this.loggedBudget) {
       // Once per layer: a thinned burst and a skipped one are the same class

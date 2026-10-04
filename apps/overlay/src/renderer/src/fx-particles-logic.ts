@@ -417,7 +417,7 @@ function distanceOnBox(t: number, spans: EdgeSpan[]): number {
     if (remaining < span.length) return span.offset + remaining;
     remaining -= span.length;
   }
-  const last = spans[spans.length - 1]!;
+  const last = spans.at(-1)!;
   return last.offset + last.length;
 }
 
