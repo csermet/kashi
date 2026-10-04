@@ -164,27 +164,7 @@ def _fmt_pct(value: float) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mms", type=Path, required=True, help="run.py sweep with --dump-words")
-    parser.add_argument("--qwen", type=Path, required=True, help="qwen_probe.py with --dump-words")
-    parser.add_argument(
-        "--sweep",
-        action="store_true",
-        help=(
-            "the ONE threshold sweep the pre-registration allows, and only "
-            f"after P1 passes: P2/P3 at |Δ| in {SWEEP_FLAG_MS} ms. There is "
-            "deliberately no free threshold argument — the values are fixed in "
-            "the module so the operating point cannot be chosen after seeing "
-            "the answer."
-        ),
-    )
-    parser.add_argument(
-        "--allow-anchor-mismatch",
-        action="store_true",
-        help="compare files built on different anchors anyway (diagnostics only — the "
-        "result does not answer the question this tool exists for)",
-    )
-    args = parser.parse_args()
+    args = _parse_args()
 
     mms_report = _load(args.mms, "MMS")
     qwen_report = _load(args.qwen, "Qwen")
@@ -211,26 +191,7 @@ def main() -> int:
     per_song: list[tuple[str, list[dict]]] = []
     dropped: list[str] = []
     for stem in shared_stems:
-        m, q = mms_rows[stem], qwen_rows[stem]
-        edges = _edge_words(q)  # hoisted: it is a property of the song, not the word
-        joined = []
-        for index, q_row in q.items():
-            m_row = m.get(index)
-            if m_row is None:
-                continue
-            if m_row["truth_ms"] != q_row["truth_ms"]:  # same index, same word — or a bug
-                continue
-            joined.append(
-                {
-                    "stem": stem,
-                    "i": index,
-                    "e_m": m_row["hyp_ms"] - m_row["truth_ms"],
-                    "e_q": q_row["hyp_ms"] - q_row["truth_ms"],
-                    "d": m_row["hyp_ms"] - q_row["hyp_ms"],
-                    "line": m_row.get("line", -1),
-                    "edge": index in edges,
-                }
-            )
+        joined = _join_song(stem, mms_rows[stem], qwen_rows[stem])
         if len(joined) < 3:
             dropped.append(stem)
             continue
@@ -248,16 +209,75 @@ def main() -> int:
         print(f"  dropped (too few joined words): {', '.join(dropped)}")
     print()
 
-    # --- P1: are the errors independent? ------------------------------------
-    def _rho(rows: list[dict]) -> float | None:
-        if len(rows) < 3:
-            return None
-        return _spearman([abs(r["e_m"]) for r in rows], [abs(r["e_q"]) for r in rows])
+    p1_pass = _report_p1(per_song)
+    point = _operating_point(words, P2_FLAG_MS)
+    bad = [w for w in words if abs(w["e_m"]) > P2_BAD_MS]  # kept for the context block
+    p2_pass = _report_p2(words, point, bad)
+    p3_pass = _report_p3(words, point)
+    _report_context(words, bad, per_song)
+    _report_sweep(args.sweep, p1_pass, words)
+    return _report_verdict(p1_pass, p2_pass, p3_pass)
 
-    rhos = [(stem, _rho(rows)) for stem, rows in per_song]
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mms", type=Path, required=True, help="run.py sweep with --dump-words")
+    parser.add_argument("--qwen", type=Path, required=True, help="qwen_probe.py with --dump-words")
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help=(
+            "the ONE threshold sweep the pre-registration allows, and only "
+            f"after P1 passes: P2/P3 at |Δ| in {SWEEP_FLAG_MS} ms. There is "
+            "deliberately no free threshold argument — the values are fixed in "
+            "the module so the operating point cannot be chosen after seeing "
+            "the answer."
+        ),
+    )
+    parser.add_argument(
+        "--allow-anchor-mismatch",
+        action="store_true",
+        help="compare files built on different anchors anyway (diagnostics only — the "
+        "result does not answer the question this tool exists for)",
+    )
+    return parser.parse_args()
+
+
+def _join_song(stem: str, m: dict[int, dict], q: dict[int, dict]) -> list[dict]:
+    edges = _edge_words(q)  # hoisted: it is a property of the song, not the word
+    joined = []
+    for index, q_row in q.items():
+        m_row = m.get(index)
+        if m_row is None:
+            continue
+        if m_row["truth_ms"] != q_row["truth_ms"]:  # same index, same word — or a bug
+            continue
+        joined.append(
+            {
+                "stem": stem,
+                "i": index,
+                "e_m": m_row["hyp_ms"] - m_row["truth_ms"],
+                "e_q": q_row["hyp_ms"] - q_row["truth_ms"],
+                "d": m_row["hyp_ms"] - q_row["hyp_ms"],
+                "line": m_row.get("line", -1),
+                "edge": index in edges,
+            }
+        )
+    return joined
+
+
+def _song_rho(rows: list[dict]) -> float | None:
+    if len(rows) < 3:
+        return None
+    return _spearman([abs(r["e_m"]) for r in rows], [abs(r["e_q"]) for r in rows])
+
+
+def _report_p1(per_song: list[tuple[str, list[dict]]]) -> bool:
+    # --- P1: are the errors independent? ------------------------------------
+    rhos = [(stem, _song_rho(rows)) for stem, rows in per_song]
     scored = [(stem, r) for stem, r in rhos if r is not None]
     median_rho = median([r for _, r in scored])
-    inner = [(stem, _rho([w for w in rows if not w["edge"]])) for stem, rows in per_song]
+    inner = [(stem, _song_rho([w for w in rows if not w["edge"]])) for stem, rows in per_song]
     inner_scored = [r for _, r in inner if r is not None]
     median_rho_inner = median(inner_scored) if inner_scored else float("nan")
     p1_pass = median_rho <= P1_MAX_MEDIAN_RHO
@@ -270,10 +290,11 @@ def main() -> int:
     print(f"  range {best[1]:+.3f} ({best[0]}) .. {worst[1]:+.3f} ({worst[0]})")
     print(f"  -> {'PASS' if p1_pass else 'FAIL'}")
     print()
+    return p1_pass
 
+
+def _report_p2(words: list[dict], point: dict, bad: list[dict]) -> bool:
     # --- P2 / P3 at the committed operating point ---------------------------
-    point = _operating_point(words, P2_FLAG_MS)
-    bad = [w for w in words if abs(w["e_m"]) > P2_BAD_MS]  # kept for the context block
     base_rate = point["base_rate"]
     precision, recall, lift = point["precision"], point["recall"], point["lift"]
     p2_pass = point["p2"]
@@ -295,7 +316,10 @@ def main() -> int:
     )
     print(f"  -> {'PASS' if p2_pass else 'FAIL'}")
     print()
+    return p2_pass
 
+
+def _report_p3(words: list[dict], point: dict) -> bool:
     # --- P3: is it quiet where MMS is right? --------------------------------
     sure = [w for w in words if abs(w["e_m"]) <= P3_SURE_MS]
     false_alarm_rate = point["false_alarm"]
@@ -309,7 +333,12 @@ def main() -> int:
     )
     print(f"  -> {'PASS' if p3_pass else 'FAIL'}")
     print()
+    return p3_pass
 
+
+def _report_context(
+    words: list[dict], bad: list[dict], per_song: list[tuple[str, list[dict]]]
+) -> None:
     # --- context, NOT part of the decision ----------------------------------
     rescuable = [w for w in bad if abs(w["e_q"]) <= P2_BAD_MS]
     print("context (reported, not a criterion)")
@@ -329,6 +358,11 @@ def main() -> int:
     drifting = [o for o in offsets if abs(o[1] - o[2]) > 200]
     print(f"  songs whose SIGNED medians differ by >200 ms: {len(drifting)}/{len(per_song)}")
 
+    _report_line_scope(words)
+    print()
+
+
+def _report_line_scope(words: list[dict]) -> None:
     # Line scope: the arbiter decides per LINE, so the word verdict is not the
     # last word on whether the signal is usable where it would actually be used.
     by_line: dict[tuple[str, int], list[dict]] = {}
@@ -344,13 +378,14 @@ def main() -> int:
             f"  line scope ({len(line_rows)} lines): Spearman(median|Δ|, median|MMS error|) "
             f"{_spearman([r[0] for r in line_rows], [r[1] for r in line_rows]):+.3f}"
         )
-    print()
 
+
+def _report_sweep(sweep: bool, p1_pass: bool, words: list[dict]) -> None:
     # --- the one allowed sweep ----------------------------------------------
     # Gated on P1 having passed: if the two models fail on the SAME words, no
     # operating point can rescue the signal and a sweep would only be shopping
     # for a number.
-    if args.sweep and p1_pass:
+    if sweep and p1_pass:
         allowed = ", ".join(str(v) for v in SWEEP_FLAG_MS)
         print(f"threshold sweep (pre-declared: |Δ| at {allowed} ms)")
         print(
@@ -379,9 +414,11 @@ def main() -> int:
             print("  Per the pre-registration, that ends it: the adapter is not written")
             print("  on this evidence, and no further threshold may be invented.")
         print()
-    elif args.sweep:
+    elif sweep:
         print("sweep skipped: P1 failed, so no operating point can rescue the signal.\n")
 
+
+def _report_verdict(p1_pass: bool, p2_pass: bool, p3_pass: bool) -> int:
     verdict = p1_pass and p2_pass and p3_pass
     print("=" * 66)
     if verdict:
@@ -401,6 +438,8 @@ def main() -> int:
         )
     print("=" * 66)
     return 0 if verdict else 2
+
+
 
 
 if __name__ == "__main__":
