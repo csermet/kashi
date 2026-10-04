@@ -71,6 +71,7 @@ FIRST_WORD_PENALTY = 0.2
 #: the same word repeated cannot outrun the client's per-line belt.
 MAX_RUN_WORDS = 6
 
+
 #: How many effects a line may carry, by how long the line is. Most sung lines
 #: are 5-9 words, so the majority stay at one — "normalde 1, bazen 2".
 def _line_quota(words: int) -> int:
@@ -171,9 +172,7 @@ def select_fx_words(
 
     ranks, disabled = _rank_lines(valid, lines, sections)
     counts = _category_counts(valid)
-    scored = {
-        (t.line, t.word): _score(t, ranks.get(t.line, 0), counts[t.tag]) for t in valid
-    }
+    scored = {(t.line, t.word): _score(t, ranks.get(t.line, 0), counts[t.tag]) for t in valid}
 
     classes = _repeat_classes(valid, lines)
     after_line, pattern_missing = _thin_within_lines(valid, lines, scored, classes)
@@ -298,8 +297,7 @@ def _rank_lines(
             li
             for li in fx_lines
             if any(
-                s.start_ms <= (lines[li].start_ms + lines[li].end_ms) // 2 < s.end_ms
-                for s in spans
+                s.start_ms <= (lines[li].start_ms + lines[li].end_ms) // 2 < s.end_ms for s in spans
             )
         }
         if hit:
@@ -684,7 +682,6 @@ def _stride_to_cap(candidates: Sequence[WordTag], cap: int) -> list[WordTag]:
     return out
 
 
-
 def _thin_class_pattern(
     klass: Sequence[WordTag],
     singles: Sequence[WordTag],
@@ -722,10 +719,7 @@ def _thin_class_pattern(
             words.append(tag.word)
 
     patterns: dict[int, list[list[int]]] = {
-        key: [
-            sorted(words)
-            for _, words in sorted(gestures.items(), key=lambda kv: min(kv[1]))
-        ]
+        key: [sorted(words) for _, words in sorted(gestures.items(), key=lambda kv: min(kv[1]))]
         for key, gestures in grouped.items()
     }
 
@@ -752,6 +746,101 @@ def _in_pattern(
 ) -> bool:
     gestures = patterns.get(line_to_class.get(tag.line, -1), [])
     return any(tag.word in words for words in gestures)
+
+
+def _guard_type(sections: Sequence[Section], disabled: tuple[str, ...]) -> str | None:
+    """The section type whose silence the guarantee repairs: chorus when the
+    song has one, else the energy "high" sections; a disabled type never."""
+    for kind in ("chorus", "high"):
+        if kind in disabled:
+            continue
+        if any(s.type == kind for s in sections):
+            return kind
+    return None
+
+
+def _section_lines(section: Section, lines: Sequence[LineFacts]) -> set[int]:
+    """Lines whose midpoint falls inside the section."""
+    return {
+        li
+        for li in range(len(lines))
+        if section.start_ms <= (lines[li].start_ms + lines[li].end_ms) // 2 < section.end_ms
+    }
+
+
+def _rescue_entering(
+    member_lines: set[int],
+    current: list[WordTag],
+    candidates: Sequence[WordTag],
+    forbidden: set[int],
+    scored: dict[tuple[int, int], float],
+    in_kept: set[tuple[int, int]],
+) -> list[WordTag] | None:
+    """The gesture that would give a silent section its voice, or None when the
+    section already speaks or has nothing it may say."""
+    if not member_lines:
+        return None
+    if any(t.line in member_lines for t in current):
+        return None  # already speaks
+    pool = [t for t in candidates if t.line in member_lines and t.line not in forbidden]
+    if not pool:
+        return None  # nothing to say here that may be said
+    best = min(pool, key=lambda t: (-scored[(t.line, t.word)], t.line, t.word))
+    if (best.line, best.word) in in_kept:
+        return None
+    # A whole gesture enters, never a fragment of one: reinserting the first
+    # "music" of "music, music, music" would leave that repeat firing a
+    # different pattern from its siblings — the exact inconsistency the
+    # repeat class exists to remove, reintroduced by the rescue.
+    return sorted(
+        (t for t in pool if t.line == best.line and t.tag == best.tag),
+        key=lambda t: t.word,
+    )[:MAX_RUN_WORDS]
+
+
+def _eviction_victims(
+    member_lines: set[int],
+    current: list[WordTag],
+    forbidden: set[int],
+    reinserted: set[tuple[int, int]],
+    ranks: dict[int, int],
+    scored: dict[tuple[int, int], float],
+) -> list[WordTag] | None:
+    """Pay for a rescue: the weakest GESTURE that is not itself a section's
+    only voice, or None when nothing may be evicted.
+
+    Rank 0 first; a rank-1 outside this section only if we must. Gestures
+    rather than words, because that is what the cap counts — evicting one word
+    of a five-word run frees no budget at all, so a word-for-word trade would
+    quietly push the song past its cadence.
+    """
+    evictable = {
+        (t.line, t.word)
+        for t in current
+        if t.line not in member_lines
+        and t.line not in forbidden
+        and (t.line, t.word) not in reinserted
+    }
+    gestures: dict[tuple[int, str], list[WordTag]] = defaultdict(list)
+    for t in current:
+        gestures[(t.line, t.tag)].append(t)
+    whole = [
+        members
+        for members in gestures.values()
+        if all((t.line, t.word) in evictable for t in members)
+    ]
+    rank0 = [g for g in whole if ranks.get(g[0].line, 0) == 0]
+    pick_from = rank0 or whole
+    if not pick_from:
+        return None
+    return min(
+        pick_from,
+        key=lambda g: (
+            max(scored[(t.line, t.word)] for t in g),
+            -g[0].line,
+            -g[0].word,
+        ),
+    )
 
 
 def _guarantee_sections(
@@ -782,13 +871,7 @@ def _guarantee_sections(
     that had been left silent on purpose.)
     """
     forbidden = class_lines or set()
-    guard_type = None
-    for kind in ("chorus", "high"):
-        if kind in disabled:
-            continue
-        if any(s.type == kind for s in sections):
-            guard_type = kind
-            break
+    guard_type = _guard_type(sections, disabled)
     if guard_type is None:
         return list(kept), set()
 
@@ -799,64 +882,13 @@ def _guarantee_sections(
     for section in sorted(
         (s for s in sections if s.type == guard_type), key=lambda s: (s.start_ms, s.end_ms)
     ):
-        member_lines = {
-            li
-            for li in range(len(lines))
-            if section.start_ms
-            <= (lines[li].start_ms + lines[li].end_ms) // 2
-            < section.end_ms
-        }
-        if not member_lines:
+        member_lines = _section_lines(section, lines)
+        entering = _rescue_entering(member_lines, current, candidates, forbidden, scored, in_kept)
+        if entering is None:
             continue
-        if any(t.line in member_lines for t in current):
-            continue  # already speaks
-        pool = [t for t in candidates if t.line in member_lines and t.line not in forbidden]
-        if not pool:
-            continue  # nothing to say here that may be said
-        best = min(pool, key=lambda t: (-scored[(t.line, t.word)], t.line, t.word))
-        if (best.line, best.word) in in_kept:
-            continue
-        # A whole gesture enters, never a fragment of one: reinserting the first
-        # "music" of "music, music, music" would leave that repeat firing a
-        # different pattern from its siblings — the exact inconsistency the
-        # repeat class exists to remove, reintroduced by the rescue.
-        entering = sorted(
-            (t for t in pool if t.line == best.line and t.tag == best.tag),
-            key=lambda t: t.word,
-        )[:MAX_RUN_WORDS]
-
-        # Pay for it: drop the weakest GESTURE that is not itself a section's
-        # only voice. Rank 0 first; a rank-1 outside this section only if we
-        # must. Gestures rather than words, because that is what the cap counts
-        # — evicting one word of a five-word run frees no budget at all, so a
-        # word-for-word trade would quietly push the song past its cadence.
-        evictable = {
-            (t.line, t.word)
-            for t in current
-            if t.line not in member_lines
-            and t.line not in forbidden
-            and (t.line, t.word) not in reinserted
-        }
-        gestures: dict[tuple[int, str], list[WordTag]] = defaultdict(list)
-        for t in current:
-            gestures[(t.line, t.tag)].append(t)
-        whole = [
-            members
-            for members in gestures.values()
-            if all((t.line, t.word) in evictable for t in members)
-        ]
-        rank0 = [g for g in whole if ranks.get(g[0].line, 0) == 0]
-        pick_from = rank0 or whole
-        if not pick_from:
+        victims = _eviction_victims(member_lines, current, forbidden, reinserted, ranks, scored)
+        if victims is None:
             continue  # never exceed the cap
-        victims = min(
-            pick_from,
-            key=lambda g: (
-                max(scored[(t.line, t.word)] for t in g),
-                -g[0].line,
-                -g[0].word,
-            ),
-        )
         for victim in victims:
             current.remove(victim)
             in_kept.discard((victim.line, victim.word))
