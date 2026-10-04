@@ -217,7 +217,7 @@ def _score_jamendo_song(args, song, tolerances_ms: tuple[int, ...], index: int, 
         entry["error"] = f"{type(exc).__name__}: {exc}"
         return entry
 
-    result = _postprocess_jamendo(args, result, anchors, entry)
+    result = _postprocess(args, result, anchors, entry)
     entry["separate_s"] = round(separate_s, 1)
     entry["align_s"] = round(align_s, 1)
     # Per song, because per-language routing (Faz 8.1) means one run can
@@ -263,12 +263,15 @@ def _align_jamendo_song(args, song):
     return audio, separate_s, anchors, result, align_s
 
 
-def _postprocess_jamendo(args, result: AlignResult, anchors, entry: dict) -> AlignResult:
+def _postprocess(args, result: AlignResult, anchors, entry: dict) -> AlignResult:
+    """The bench-only experiments that run between alignment and scoring."""
     if args.line_postprocess != "none" and anchors is not None:  # P2 experiment
         from benchmarks.softoffset import apply_soft_offset
 
         result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
-    if args.trim_ends:  # production line_qa order: trim precedes everything
+    # Production line_qa order: trim precedes everything. Line starts are
+    # untouched, so the case suite only records it (for the P1 A/B).
+    if args.trim_ends:
         result, trimmed = trim_word_ends(result)
         entry["trimmed_ends"] = trimmed
     return result
@@ -483,67 +486,7 @@ def _run_cases(args, _tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]
     # Same signature as _run_jamendo (dispatched alike); the case suite reports
     # its own pass/fail and has no tolerance sweep.
     cases = datasets.load_cases(BENCH_DIR / "cases.yaml")
-    rows: list[dict] = []
-    for case in cases:
-        entry: dict = {"id": case.id, "title": case.title, "artist": case.artist}
-        try:
-            reference = _case_reference(case)
-            line_texts = [text for _, text in reference]
-            audio = _case_audio(case)
-            source, separate_s = (
-                (audio, 0.0)
-                if args.separation == "full-mix"
-                else _separated_audio(audio, case.id, args.separation, args.mixback)
-            )
-            anchors = [start for start, _ in reference] if args.windowed else None
-            result, align_s = _align_song(
-                source, line_texts, case.language, anchors, args.align_model,
-                args.align_romanize, args.align_offset_ms, _by_initial(args),
-            )
-        except Exception as exc:
-            logger.exception("case %s failed", case.id)
-            entry["error"] = f"{type(exc).__name__}: {exc}"
-            rows.append(entry)
-            continue
-
-        if args.line_postprocess != "none" and anchors is not None:  # P2 experiment
-            # NOTE: case metrics compare against the SAME lrclib anchors the
-            # offset is derived from — circular by construction. Case rows
-            # under soft-* are a monotonicity/sanity signal only; the honest
-            # word-level evidence lives in the Jamendo rows.
-            from benchmarks.softoffset import apply_soft_offset
-
-            result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
-        if args.trim_ends:  # line starts are untouched; recorded for the P1 A/B
-            result, trimmed = trim_word_ends(result)
-            entry["trimmed_ends"] = trimmed
-        report = metrics.line_start_report(
-            [(line.start_ms, line.text) for line in result.lines],
-            reference,
-            threshold_ms=LINE_THRESHOLD_MS,
-            window_ms=(case.window_s[0] * 1000, case.window_s[1] * 1000)
-            if case.window_s
-            else None,
-            median_correction=True,  # cross-source clocks, like production line_qa
-        )
-        entry |= {
-            "separate_s": round(separate_s, 1),
-            "align_s": round(align_s, 1),
-            "sync": result.sync,
-            "quality_score": round(result.quality_score, 4),
-            "offset_ms": round(report.offset_ms),
-            "lines_over_threshold": report.failures,
-            "passed": report.failures == 0 and result.sync == "word",
-            "lines": asdict(report.stats) if report.stats else None,
-        }
-        rows.append(entry)
-        logger.info(
-            "case %s: %s (%d over threshold, offset %+dms)",
-            case.id,
-            "PASS" if entry["passed"] else "FAIL",
-            report.failures,
-            report.offset_ms,
-        )
+    rows = [_score_case(args, case) for case in cases]
     return rows, {
         "cases": len(rows),
         "passed": sum(bool(r.get("passed")) for r in rows),
@@ -551,7 +494,87 @@ def _run_cases(args, _tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]
     }
 
 
+def _score_case(args, case) -> dict:
+    entry: dict = {"id": case.id, "title": case.title, "artist": case.artist}
+    try:
+        reference, separate_s, anchors, result, align_s = _align_case(args, case)
+    except Exception as exc:
+        logger.exception("case %s failed", case.id)
+        entry["error"] = f"{type(exc).__name__}: {exc}"
+        return entry
+
+    # NOTE: case metrics compare against the SAME lrclib anchors the soft
+    # offset is derived from — circular by construction. Case rows under
+    # soft-* are a monotonicity/sanity signal only; the honest word-level
+    # evidence lives in the Jamendo rows.
+    result = _postprocess(args, result, anchors, entry)
+    report = metrics.line_start_report(
+        [(line.start_ms, line.text) for line in result.lines],
+        reference,
+        threshold_ms=LINE_THRESHOLD_MS,
+        window_ms=(case.window_s[0] * 1000, case.window_s[1] * 1000)
+        if case.window_s
+        else None,
+        median_correction=True,  # cross-source clocks, like production line_qa
+    )
+    entry |= {
+        "separate_s": round(separate_s, 1),
+        "align_s": round(align_s, 1),
+        "sync": result.sync,
+        "quality_score": round(result.quality_score, 4),
+        "offset_ms": round(report.offset_ms),
+        "lines_over_threshold": report.failures,
+        "passed": report.failures == 0 and result.sync == "word",
+        "lines": asdict(report.stats) if report.stats else None,
+    }
+    logger.info(
+        "case %s: %s (%d over threshold, offset %+dms)",
+        case.id,
+        "PASS" if entry["passed"] else "FAIL",
+        report.failures,
+        report.offset_ms,
+    )
+    return entry
+
+
+def _align_case(args, case):
+    """(reference, separate_s, anchors, result, align_s) — may raise."""
+    reference = _case_reference(case)
+    line_texts = [text for _, text in reference]
+    audio = _case_audio(case)
+    source, separate_s = (
+        (audio, 0.0)
+        if args.separation == "full-mix"
+        else _separated_audio(audio, case.id, args.separation, args.mixback)
+    )
+    anchors = [start for start, _ in reference] if args.windowed else None
+    result, align_s = _align_song(
+        source, line_texts, case.language, anchors, args.align_model,
+        args.align_romanize, args.align_offset_ms, _by_initial(args),
+    )
+    return reference, separate_s, anchors, result, align_s
+
+
 def main() -> int:
+    args = _parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+
+    tolerances_ms = _tolerances_ms(args)
+    config_name = _config_name(args)
+    started = time.monotonic()
+    report: dict = {"meta": _report_meta(args, config_name, tolerances_ms)}
+    if args.dataset in ("jamendo", "both"):
+        rows, aggregate = _run_jamendo(args, tolerances_ms)
+        report["jamendo"] = {"aggregate": aggregate, "songs": rows}
+    if args.dataset in ("cases", "both"):
+        rows, aggregate = _run_cases(args, tolerances_ms)
+        report["cases"] = {"aggregate": aggregate, "results": rows}
+    report["meta"]["wall_s"] = round(time.monotonic() - started, 1)
+    _write_report(report)
+    return 0
+
+
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", choices=["jamendo", "cases", "both"], default="both")
     parser.add_argument("--separation", choices=sorted(SEPARATION_MODELS), default="full-mix")
@@ -660,12 +683,17 @@ def main() -> int:
         ),
     )
     parser.add_argument("--label", help="results filename label (default: config name)")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    return parser.parse_args()
 
+
+def _tolerances_ms(args) -> tuple[int, ...]:
     tolerances_ms = tuple(round(float(t) * 1000) for t in args.tolerances.split(","))
     if 300 not in tolerances_ms:  # summaries key off PCO@0.3 — always measure it
         tolerances_ms += (300,)
+    return tolerances_ms
+
+
+def _config_name(args) -> str:
     config_name = args.separation + (
         f"-mb{args.mixback:g}" if args.separation != "full-mix" else ""
     )
@@ -675,59 +703,54 @@ def main() -> int:
         config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
         config_name += "-notrim"
-    started = time.monotonic()
+    return config_name
 
+
+def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict:
     from kashi_server.config import settings
     from kashi_server.pipeline.alignment import resolve_model_name
     from kashi_server.version import PIPELINE_VERSION
 
-    report: dict = {
-        "meta": {
-            "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "label": args.label or config_name,
-            "pipeline_version": PIPELINE_VERSION,
-            # The checkpoint for songs NOTHING routes away from — one name can
-            # no longer describe a run (Faz 8.1), so what actually ran is
-            # recorded per song as `align_model`. `--align-model` overrides
-            # everything, and then this is the whole answer again.
-            "alignment_model": resolve_model_name(args.align_model),
-            # The routing table that was in force, romanize flags included: a
-            # checkpoint measured with and without uroman is two different
-            # measurements, and the file has to be able to tell them apart.
-            "align_models": (
-                {code: choice.model_dump() for code, choice in settings.align_models.items()}
-                if not args.align_model and settings.align_models
-                else None
-            ),
-            "align_romanize": args.align_romanize,
-            # The correction is part of the chain being measured: two runs of
-            # one checkpoint at different offsets are two different results.
-            "align_offset_by_initial": _by_initial(args),
-            "align_offset_ms": (
-                args.align_offset_ms
-                if args.align_offset_ms is not None
-                else settings.align_offset_ms
-            ),
-            "separation": args.separation,
-            "mixback": args.mixback if args.separation != "full-mix" else None,
-            "windowed": args.windowed,
-            "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
-            "signals": args.signals,
-            "line_postprocess": args.line_postprocess,
-            "trim_ends": args.trim_ends,
-            "host": platform.node(),
-            "cpus": os.cpu_count(),
-            "tolerances_s": [t / 1000 for t in tolerances_ms],
-        }
+    return {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "label": args.label or config_name,
+        "pipeline_version": PIPELINE_VERSION,
+        # The checkpoint for songs NOTHING routes away from — one name can
+        # no longer describe a run (Faz 8.1), so what actually ran is
+        # recorded per song as `align_model`. `--align-model` overrides
+        # everything, and then this is the whole answer again.
+        "alignment_model": resolve_model_name(args.align_model),
+        # The routing table that was in force, romanize flags included: a
+        # checkpoint measured with and without uroman is two different
+        # measurements, and the file has to be able to tell them apart.
+        "align_models": (
+            {code: choice.model_dump() for code, choice in settings.align_models.items()}
+            if not args.align_model and settings.align_models
+            else None
+        ),
+        "align_romanize": args.align_romanize,
+        # The correction is part of the chain being measured: two runs of
+        # one checkpoint at different offsets are two different results.
+        "align_offset_by_initial": _by_initial(args),
+        "align_offset_ms": (
+            args.align_offset_ms
+            if args.align_offset_ms is not None
+            else settings.align_offset_ms
+        ),
+        "separation": args.separation,
+        "mixback": args.mixback if args.separation != "full-mix" else None,
+        "windowed": args.windowed,
+        "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
+        "signals": args.signals,
+        "line_postprocess": args.line_postprocess,
+        "trim_ends": args.trim_ends,
+        "host": platform.node(),
+        "cpus": os.cpu_count(),
+        "tolerances_s": [t / 1000 for t in tolerances_ms],
     }
-    if args.dataset in ("jamendo", "both"):
-        rows, aggregate = _run_jamendo(args, tolerances_ms)
-        report["jamendo"] = {"aggregate": aggregate, "songs": rows}
-    if args.dataset in ("cases", "both"):
-        rows, aggregate = _run_cases(args, tolerances_ms)
-        report["cases"] = {"aggregate": aggregate, "results": rows}
-    report["meta"]["wall_s"] = round(time.monotonic() - started, 1)
 
+
+def _write_report(report: dict) -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out = RESULTS_DIR / f"{datetime.now(UTC):%Y-%m-%d}-{report['meta']['label']}.json"
     out.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -735,7 +758,6 @@ def main() -> int:
     for section in ("jamendo", "cases"):
         if section in report:
             print(section, json.dumps(report[section]["aggregate"], indent=1, ensure_ascii=False))
-    return 0
 
 
 if __name__ == "__main__":
