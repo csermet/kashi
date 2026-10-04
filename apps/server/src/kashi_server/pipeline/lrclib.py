@@ -275,74 +275,18 @@ def fetch_lyrics(
         rung = "get"
         record = _get_exact(http, title, artist, hints.get("album"), duration_s)
         extracted = _extract(record) if record else None
-        # Different-edit probe (Faz 9, the Safari case). /api/get returns ONE
-        # record and the ladder used to stop there even when that record's
-        # duration said "wrong edit" — guaranteeing the anchor gate would
-        # strip its stamps downstream. When we KNOW the record is a different
-        # edit, one search request is worth spending on a duration-matched
-        # SYNCED record: only a synced match replaces (anchors are the whole
-        # point; trading a synced-but-wrong-edit record for a plain-text one
-        # would lose line texts' timing reference for nothing). Etiquette:
-        # this fires only on a mismatch, keeping the ladder within its
-        # request budget.
-        if (
-            extracted is not None
-            and record is not None
-            and duration_s is not None
-            and record.get("duration") is not None
-            and abs(float(record["duration"]) - duration_s) > DIFFERENT_EDIT_TOLERANCE_S
-        ):
-            try:
-                candidate = _search(http, title, artist, duration_s)
-            except httpx.HTTPError as exc:
-                # The probe improves a result we already HAVE: /api/get returned
-                # usable lyrics. Its failure must not become a transient job
-                # failure (2026-10 review) — every retry would pay get + probe
-                # again for lyrics that were in hand.
-                logger.info("different-edit probe failed (%s); keeping the get record", exc)
-                candidate = None
-            candidate_extracted = _extract(candidate) if candidate else None
-            if candidate_extracted is not None and candidate_extracted[2]:  # synced only
-                rung = "get+edit-probe"
-                logger.info(
-                    "different-edit probe: record %s (%ss) swapped for %s (%ss) at %ss audio",
-                    record.get("id"),
-                    record.get("duration"),
-                    candidate.get("id") if candidate else "?",
-                    candidate.get("duration") if candidate else "?",
-                    round(duration_s),
-                )
-                record, extracted = candidate, candidate_extracted
+        rung, record, extracted = _probe_for_matching_edit(
+            http, title, artist, duration_s, record, extracted
+        )
         # NOTE (2.4.4, closure e2e): a get→search "lyricsfile upgrade probe"
         # was tried and REVERTED — lrclib's /api/search never carries
         # lyricsfile content (every hit returns it empty) and word-sync
         # records may not rank in search at all, so the probe was one wasted
         # request per song. The choose_record preference stays: it activates
         # by itself the day lrclib starts serving the field in search.
-        if extracted is None:
-            rung = "search"
-            record = _search(http, title, artist, duration_s)
-            extracted = _extract(record) if record else None
-        if extracted is None:
-            rung = "search-q"
-            record = _search_freetext(http, title, artist, duration_s)
-            extracted = _extract(record) if record else None
-        if extracted is None and (parts := split_artists(artist)):
-            # Multi-artist retry: the joined hint matched nothing — try the
-            # primary artist alone. Plausibility accepts ANY credited part so
-            # a record naming only the featured artist still qualifies; the
-            # structured rung gets the same gate (a split-derived short token
-            # like "Tyler" is the loosest query in the ladder — reviewer). Two
-            # extra sequential requests at most (etiquette budget: ≤5 total).
-            rung = "search-primary"
-            record = _search(http, title, parts[0], duration_s, plausible_artists=parts)
-            extracted = _extract(record) if record else None
-            if extracted is None:
-                rung = "search-q-primary"
-                record = _search_freetext(
-                    http, title, parts[0], duration_s, plausible_artists=parts
-                )
-                extracted = _extract(record) if record else None
+        rung, record, extracted = _search_ladder(
+            http, title, artist, duration_s, rung, record, extracted
+        )
         if extracted is None:
             raise PipelineError("lyrics_not_found", f"no lyrics for {artist} - {title}")
     except httpx.HTTPError as exc:
@@ -375,6 +319,97 @@ def fetch_lyrics(
 def _lyricsfile_raw(record: dict) -> str | None:
     raw = record.get("lyricsfile")
     return raw if isinstance(raw, str) and raw.strip() else None
+
+
+_Extracted = tuple[list[str], list[int | None] | None, bool] | None
+
+
+def _probe_for_matching_edit(
+    http: httpx.Client,
+    title: str,
+    artist: str,
+    duration_s: float | None,
+    record: dict | None,
+    extracted: _Extracted,
+) -> tuple[str, dict | None, _Extracted]:
+    """The get rung's record, or a duration-matched synced one in its place."""
+    rung = "get"
+    # Different-edit probe (Faz 9, the Safari case). /api/get returns ONE
+    # record and the ladder used to stop there even when that record's
+    # duration said "wrong edit" — guaranteeing the anchor gate would
+    # strip its stamps downstream. When we KNOW the record is a different
+    # edit, one search request is worth spending on a duration-matched
+    # SYNCED record: only a synced match replaces (anchors are the whole
+    # point; trading a synced-but-wrong-edit record for a plain-text one
+    # would lose line texts' timing reference for nothing). Etiquette:
+    # this fires only on a mismatch, keeping the ladder within its
+    # request budget.
+    if (
+        extracted is not None
+        and record is not None
+        and duration_s is not None
+        and record.get("duration") is not None
+        and abs(float(record["duration"]) - duration_s) > DIFFERENT_EDIT_TOLERANCE_S
+    ):
+        try:
+            candidate = _search(http, title, artist, duration_s)
+        except httpx.HTTPError as exc:
+            # The probe improves a result we already HAVE: /api/get returned
+            # usable lyrics. Its failure must not become a transient job
+            # failure (2026-10 review) — every retry would pay get + probe
+            # again for lyrics that were in hand.
+            logger.info("different-edit probe failed (%s); keeping the get record", exc)
+            candidate = None
+        candidate_extracted = _extract(candidate) if candidate else None
+        if candidate_extracted is not None and candidate_extracted[2]:  # synced only
+            rung = "get+edit-probe"
+            logger.info(
+                "different-edit probe: record %s (%ss) swapped for %s (%ss) at %ss audio",
+                record.get("id"),
+                record.get("duration"),
+                candidate.get("id") if candidate else "?",
+                candidate.get("duration") if candidate else "?",
+                round(duration_s),
+            )
+            record, extracted = candidate, candidate_extracted
+    return rung, record, extracted
+
+
+def _search_ladder(
+    http: httpx.Client,
+    title: str,
+    artist: str,
+    duration_s: float | None,
+    rung: str,
+    record: dict | None,
+    extracted: _Extracted,
+) -> tuple[str, dict | None, _Extracted]:
+    """The search rungs, tried in order only while nothing has been found."""
+    if extracted is None:
+        rung = "search"
+        record = _search(http, title, artist, duration_s)
+        extracted = _extract(record) if record else None
+    if extracted is None:
+        rung = "search-q"
+        record = _search_freetext(http, title, artist, duration_s)
+        extracted = _extract(record) if record else None
+    if extracted is None and (parts := split_artists(artist)):
+        # Multi-artist retry: the joined hint matched nothing — try the
+        # primary artist alone. Plausibility accepts ANY credited part so
+        # a record naming only the featured artist still qualifies; the
+        # structured rung gets the same gate (a split-derived short token
+        # like "Tyler" is the loosest query in the ladder — reviewer). Two
+        # extra sequential requests at most (etiquette budget: ≤5 total).
+        rung = "search-primary"
+        record = _search(http, title, parts[0], duration_s, plausible_artists=parts)
+        extracted = _extract(record) if record else None
+        if extracted is None:
+            rung = "search-q-primary"
+            record = _search_freetext(
+                http, title, parts[0], duration_s, plausible_artists=parts
+            )
+            extracted = _extract(record) if record else None
+    return rung, record, extracted
 
 
 def _get_exact(
