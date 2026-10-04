@@ -33,6 +33,13 @@ from kashi_server.vdl_kit.errors import (
         ("This video is private", "private"),
         ("[Errno 28] No space left on device", "disk_full"),
         ("Unable to download: connection timed out", "network"),
+        # Dead player clients (2026-10): systemic, must retry rather than
+        # land as a permanent "other" with a 7-day block. Verbatim field text.
+        (
+            "ERROR: [youtube] tYvFa2ARD24: Requested format is not available. "
+            "Use --list-formats for a list of available formats",
+            "network",
+        ),
         ("Something entirely unexpected happened", "other"),
     ],
 )

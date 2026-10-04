@@ -82,6 +82,16 @@ Stable channel, bumped **monthly**. This is a deliberate middle ground:
 The weekly CI canary is what makes monthly acceptable: it catches extraction
 breakage early, independent of the release cadence.
 
+Two lessons from the 2026-08/10 outage (seven weeks without a single download):
+
+- The CI canary only fetches **metadata**, and that kept passing while every
+  audio format was gone. A real-download canary runs on the self-hosted
+  deployment with the server image; after rolling out a yt-dlp bump, trigger
+  it once and require it green before calling the bump done.
+- `player_client` is yt-dlp's `"default"` set, so a bump can change which
+  clients actually run with no diff in this repo. If a bump breaks downloads,
+  measure each client on its own before changing anything else.
+
 ### `@crxjs/vite-plugin` — locked pin, no silent majors
 
 The maintenance crisis is resolved (new maintainer, active), but bus factor is

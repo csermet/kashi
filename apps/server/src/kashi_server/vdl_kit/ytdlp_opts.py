@@ -8,9 +8,11 @@ Policy notes carried over verbatim, do not "optimize" them away:
   (bgutil is off), `web` is forced onto SABR — so formats came back as
   storyboards only and downloads failed ("Requested format is not
   available"). yt-dlp queries EVERY listed client rather than stopping at the
-  first that works, so dead fallbacks are not free: each one is extra requests
-  per video against a bot check. "default" tracks the maintainers' current
-  choice (visionos + web in 2026.8.19) and moves with the monthly bump.
+  first that works, so a hand-kept list goes stale the same way. "default"
+  tracks the maintainers' current choice (visionos + web in 2026.8.19 — web is
+  SABR-only for us too, so it is not free either) and moves with the monthly
+  bump, which also means a bump can change the real client set with no diff
+  here: the real-download canary on the deployment is the guard for that.
 * js_runtimes MUST be a dict. yt-dlp changed the format in 2026-05; the old
   list form now raises "Invalid js_runtimes format". Without a JS runtime the
   EJS signature/n-challenge solver fails and downloads degrade to storyboards.

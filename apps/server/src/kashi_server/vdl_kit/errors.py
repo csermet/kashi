@@ -124,6 +124,12 @@ def classify_error_message(msg: str) -> str:
         # KASHI ADDITION: a googlevideo 403 is a stale/failed signature or a
         # bot-check hiccup, not a permanent property of the video — retry.
         return "network"
+    if "requested format is not available" in text:
+        # KASHI ADDITION (2026-10): this is what dead player clients look like
+        # (only storyboards left, no audio format) — systemic, every video at
+        # once, not a property of this one. As "other" it would be permanent
+        # and block the song for 7 days after the fix ships.
+        return "network"
     return "other"
 
 
