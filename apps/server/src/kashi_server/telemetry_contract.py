@@ -110,7 +110,10 @@ _MS_FIELD_LIMIT = 10**12  # ~31 years; anything past this is not a timestamp
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"{re.escape(KEY_PREFIX)}[0-9a-fA-F]{{8,}}"),
     re.compile(r"[Bb]earer\s+\S+"),
-    re.compile(r"://[^/@\s]+:[^/@\s]+@"),  # user:pass in a URL
+    # user:pass in a URL. The user part excludes ":" (it cannot hold one
+    # unencoded) and may be EMPTY: "redis://:secret@host" used to slip through,
+    # and a ":"-containing user part made the scan quadratic.
+    re.compile(r"://[^/@\s:]*:[^/@\s]+@"),
 )
 REDACTED = "[redacted]"
 

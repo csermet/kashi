@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 _tagger = None
 
 _KATAKANA = re.compile(r"[ァ-ヶ]")
-_KANA_ONLY = re.compile(r"^[ぁ-ゟ゠-ヿー]+$")
+_KANA_ONLY = re.compile(r"^[ぁ-ゟ゠-ヿ]+$")  # ー (U+30FC) is inside ゠-ヿ
 # A line worth routing through this module at all: contains kana or kanji.
 _JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
 

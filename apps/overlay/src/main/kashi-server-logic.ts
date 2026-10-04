@@ -92,7 +92,7 @@ export const QUALITY_GATE = 0.2;
 
 export function normalizeServerUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim().replace(/\/+$/, '');
+  const trimmed = value.trim().replace(/(?<!\/)\/+$/, ''); // one scan per slash run
   if (!/^https?:\/\/[^\s]+$/.test(trimmed)) return null;
   return trimmed;
 }

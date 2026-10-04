@@ -34,7 +34,10 @@ SEARCH_DURATION_TOLERANCE_S = 3
 # ANCHOR_CLOCK_TOLERANCE_S — a contract test pins the two together.
 DIFFERENT_EDIT_TOLERANCE_S = 5.0
 _TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
-_TOPIC_SUFFIX = re.compile(r"\s*-\s*Topic$", re.IGNORECASE)
+# The (?<!\s) lookbehinds below only let a match START at the beginning of a
+# whitespace run: same matches (fuzz-verified), but a long run that never
+# completes a separator is scanned once instead of once per position.
+_TOPIC_SUFFIX = re.compile(r"(?<!\s)\s*-\s*Topic$", re.IGNORECASE)
 _WORD_TOKEN = re.compile(r"\w+")
 
 
@@ -74,7 +77,9 @@ def normalize_artist(artist: str) -> str:
 # credit "blueberry, PiNKII" or just the primary — the joined string matches
 # nothing structurally (field failure class: Drift Barbie, Señorita, The
 # Storm... most of the no-lyrics backlog).
-_ARTIST_SEPARATORS = re.compile(r"\s+(?:ve|and|x|feat\.?|ft\.?|&)\s+|\s*,\s*", re.IGNORECASE)
+_ARTIST_SEPARATORS = re.compile(
+    r"(?<!\s)\s+(?:ve|and|x|feat\.?|ft\.?|&)\s+|(?:(?<!\s)\s+)?,\s*", re.IGNORECASE
+)
 
 
 def split_artists(artist: str) -> list[str]:

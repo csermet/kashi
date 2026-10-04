@@ -61,6 +61,14 @@ def test_redaction_catches_a_bearer_header():
     assert "Bearer ksh_abc" not in redact_secrets("sent Bearer ksh_abcdef012345 upstream")
 
 
+def test_redaction_catches_url_credentials_including_an_empty_user():
+    # 2026-10: "redis://:secret@host" (empty user, password only) slipped past
+    # the old pattern, which demanded a non-empty user part.
+    assert "hunter2" not in redact_secrets("cache at redis://:hunter2@cache:6379 down")
+    assert "pw" not in redact_secrets("db https://user:pw@db.example/x")
+    assert redact_secrets("plain https://example.com/a:b") == "plain https://example.com/a:b"
+
+
 def test_non_finite_numbers_are_dropped_before_postgres_sees_them():
     # NaN survives JSON parsing but jsonb rejects it — one bad number would
     # otherwise fail the INSERT for the whole batch.

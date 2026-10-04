@@ -311,7 +311,10 @@ export function normalizeArtist(artist: string): string {
  * Returns [] for a single-artist string: the caller gates an extra request on
  * "there is actually something to split", so an ordinary track costs nothing.
  */
-const ARTIST_SEPARATORS = /\s+(?:ve|and|x|feat\.?|ft\.?|&)\s+|\s*,\s*/i;
+// Twin of the server's _ARTIST_SEPARATORS (lrclib.py) — keep them identical.
+// The lookbehinds only let a match start at the beginning of a whitespace run:
+// same splits (fuzz-verified), one scan per run instead of one per position.
+const ARTIST_SEPARATORS = /(?<!\s)\s+(?:ve|and|x|feat\.?|ft\.?|&)\s+|(?:(?<!\s)\s+)?,\s*/i;
 
 export function splitArtists(artist: string): string[] {
   const parts = artist

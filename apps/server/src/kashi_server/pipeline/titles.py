@@ -14,7 +14,7 @@ import re
 NIGHTCORE_TOKENS = re.compile(r"\b(?:nightcore|sped[ -]?up|speed[ -]?up)\b", re.IGNORECASE)
 
 _EMPTY_BRACKETS = re.compile(r"[(\[{]\s*[)\]}]")
-_EDGE_SEPARATORS = re.compile(r"(?:^[\s\-–—|:~•/]+)|(?:[\s\-–—|:~•/]+$)")
+_EDGE_SEPARATORS = re.compile(r"(?:^[\s\-–—|:~•/]+)|(?:(?<![\s\-–—|:~•/])[\s\-–—|:~•/]+$)")
 _BRACKET_GROUP = re.compile(r"[(\[{]([^)\]}]*)[)\]}]")
 _TITLE_WORD = re.compile(r"[\w']+")
 # Upload-title noise ("(Lyrics)", "(Official Video)"): removed only when a
@@ -57,7 +57,7 @@ def clean_title(title: str) -> str | None:
 # the primary ladder came up dry (plausibility gates in fetch_lyrics still
 # apply — a wrong artist must not bind wrong lyrics).
 
-_COMPOSITE_SEP = re.compile(r"\s+[-–—]\s+")
+_COMPOSITE_SEP = re.compile(r"(?<!\s)\s+[-–—]\s+")  # (?<!\s): scan a run once
 
 
 def parse_composite_title(title: str) -> tuple[str, str] | None:
