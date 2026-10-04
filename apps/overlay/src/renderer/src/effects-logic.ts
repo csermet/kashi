@@ -268,7 +268,7 @@ function sweepRuns(sustained: readonly boolean[]): boolean[] {
       const runLength = i - runStart;
       // A run counts when it is long enough, or when it reaches the line end.
       if (runLength >= FILL_MIN_RUN || runEnd === sustained.length - 1) {
-        for (let j = runStart; j <= runEnd; j += 1) plan[j] = true;
+        plan.fill(true, runStart, runEnd + 1);
       }
       runStart = -1;
     }
