@@ -95,55 +95,9 @@ def build_document(
     # 5s buckets and the processed_tracks column. The hint stays as the
     # fallback for callers that build a document without downloaded audio.
     duration_ms = fallback_duration_ms or hints.get("duration_ms")
-    # Line indexes whose word spans are synthetic (rederived across the line,
-    # not aligner-measured). Downstream consumers that treat word boundaries
-    # as evidence — the Faz 5 lrclib publish gate above all — must not present
-    # these as measured timings.
-    derived_lines = set(qa.adlib_rederived) if qa is not None else set()
-    # Lines the drift threshold flagged but the audio vouched for (Faz 8 B4).
-    # Their words survive, shifted onto the anchor; the flag lets a client
-    # de-emphasise what the server chose not to destroy.
-    uncertain_lines = set(qa.uncertain) if qa is not None else set()
+    lines = _document_lines(align_result, qa)
 
-    lines: list[dict] = []
-    for index, line in enumerate(align_result.lines):
-        entry: dict = {
-            "start_ms": line.start_ms,
-            "end_ms": line.end_ms,
-            "text": line.text,
-            "score": round(line.score, 4),
-        }
-        # Faz 4 aesthetics: clients style nonlexical hooks differently. Derived
-        # from the TEXT at build time (same predicate line QA uses), so line-
-        # mode and degraded documents carry it too. Omitted when false.
-        if is_adlib(line.text):
-            entry["adlib"] = True
-        # Per-line: a word-sync document may carry wordless lines (line QA drops
-        # the words of a snapped line); an empty array is never written (schema
-        # minItems). The overlay renders such lines as plain text.
-        if align_result.sync == "word" and align_result.words_per_line[index]:
-            entry["words"] = [
-                {"start_ms": w.start_ms, "end_ms": w.end_ms, "text": w.text}
-                for w in align_result.words_per_line[index]
-            ]
-            if index in derived_lines:
-                entry["words_derived"] = True
-            if index in uncertain_lines:
-                entry["uncertain"] = True
-        lines.append(entry)
-
-    track: dict = {
-        "source": {"type": job.source_type, "id": job.source_id},
-        "title": hints.get("title"),
-        "artist": hints.get("artist"),
-        "duration_ms": duration_ms,
-    }
-    if hints.get("album"):
-        track["album"] = hints["album"]
-    if hints.get("title") and hints.get("artist") and duration_ms:
-        track["canonical_group"] = canonical_group(
-            hints["artist"], hints["title"], duration_ms / 1000
-        )
+    track = _track_block(job, hints, duration_ms)
 
     doc: dict = {
         "schema_version": 1,
@@ -182,17 +136,7 @@ def build_document(
         # QA provenance (Faz 5 P1): how much the document was repaired. The
         # publish quality gate (P6) and field debugging read this — counts
         # only, never indexes (indexes would drift the etag on no-op edits).
-        doc["alignment"]["qa"] = {
-            "flagged": len(qa.flagged),
-            "density_dropped": len(qa.density_dropped),
-            "adlib_shifted": len(qa.adlib_shifted),
-            "nudged": len(qa.nudged),
-            "adlib_rederived": len(qa.adlib_rederived),
-            "response_shifted": len(qa.response_shifted),
-            "offset_ms": qa.offset_ms,
-            "trimmed_ends": qa.trimmed_ends,
-            "uncertain": len(qa.uncertain),
-        }
+        doc["alignment"]["qa"] = _qa_counts(qa)
     if beats is not None:
         doc["beats"] = {
             "bpm": beats.bpm,
@@ -203,22 +147,7 @@ def build_document(
     # FX data foundation (Faz 6 P3) — all additive, all optional; a document
     # without them renders exactly like before (old clients ignore unknowns).
     if fx is not None and (fx.words or fx.lines):
-        fx_block: dict = {"lexicon": fx.lexicon_version, "engine": fx.engine}
-        # Which words fire has already been decided (fx_select.py). Without
-        # this marker a newer client cannot tell a chosen list from a legacy
-        # dense one, and would render EVERY tag on a line — on the archive
-        # that means two or three effects where there is one today, which is
-        # the opposite of what the selection exists to do.
-        if fx.select:
-            fx_block["select"] = fx.select
-        if fx.words:
-            fx_block["words"] = [
-                {"line": t.line, "word": t.word, "tag": t.tag, "intensity": t.intensity}
-                for t in fx.words
-            ]
-        if fx.lines:
-            fx_block["lines"] = [{"line": t.line, "tag": t.tag} for t in fx.lines]
-        doc["fx"] = fx_block
+        doc["fx"] = _fx_block(fx)
     if energy is not None:
         doc["energy"] = {"rate_hz": energy.rate_hz, "values": energy.values}
     if sections:
@@ -226,6 +155,96 @@ def build_document(
             {"type": s.type, "start_ms": s.start_ms, "end_ms": s.end_ms} for s in sections
         ]
     return doc
+
+
+def _document_lines(align_result: AlignResult, qa: LineQAOutcome | None) -> list[dict]:
+    # Line indexes whose word spans are synthetic (rederived across the line,
+    # not aligner-measured). Downstream consumers that treat word boundaries
+    # as evidence — the Faz 5 lrclib publish gate above all — must not present
+    # these as measured timings.
+    derived_lines = set(qa.adlib_rederived) if qa is not None else set()
+    # Lines the drift threshold flagged but the audio vouched for (Faz 8 B4).
+    # Their words survive, shifted onto the anchor; the flag lets a client
+    # de-emphasise what the server chose not to destroy.
+    uncertain_lines = set(qa.uncertain) if qa is not None else set()
+
+    lines: list[dict] = []
+    for index, line in enumerate(align_result.lines):
+        entry: dict = {
+            "start_ms": line.start_ms,
+            "end_ms": line.end_ms,
+            "text": line.text,
+            "score": round(line.score, 4),
+        }
+        # Faz 4 aesthetics: clients style nonlexical hooks differently. Derived
+        # from the TEXT at build time (same predicate line QA uses), so line-
+        # mode and degraded documents carry it too. Omitted when false.
+        if is_adlib(line.text):
+            entry["adlib"] = True
+        # Per-line: a word-sync document may carry wordless lines (line QA drops
+        # the words of a snapped line); an empty array is never written (schema
+        # minItems). The overlay renders such lines as plain text.
+        if align_result.sync == "word" and align_result.words_per_line[index]:
+            entry["words"] = [
+                {"start_ms": w.start_ms, "end_ms": w.end_ms, "text": w.text}
+                for w in align_result.words_per_line[index]
+            ]
+            if index in derived_lines:
+                entry["words_derived"] = True
+            if index in uncertain_lines:
+                entry["uncertain"] = True
+        lines.append(entry)
+    return lines
+
+
+def _track_block(job: Job, hints: dict, duration_ms: int | None) -> dict:
+    track: dict = {
+        "source": {"type": job.source_type, "id": job.source_id},
+        "title": hints.get("title"),
+        "artist": hints.get("artist"),
+        "duration_ms": duration_ms,
+    }
+    if hints.get("album"):
+        track["album"] = hints["album"]
+    if hints.get("title") and hints.get("artist") and duration_ms:
+        track["canonical_group"] = canonical_group(
+            hints["artist"], hints["title"], duration_ms / 1000
+        )
+    return track
+
+
+def _qa_counts(qa: LineQAOutcome) -> dict:
+    return {
+            "flagged": len(qa.flagged),
+            "density_dropped": len(qa.density_dropped),
+            "adlib_shifted": len(qa.adlib_shifted),
+            "nudged": len(qa.nudged),
+            "adlib_rederived": len(qa.adlib_rederived),
+            "response_shifted": len(qa.response_shifted),
+            "offset_ms": qa.offset_ms,
+            "trimmed_ends": qa.trimmed_ends,
+            "uncertain": len(qa.uncertain),
+        }
+
+
+def _fx_block(fx: FxTags) -> dict:
+    fx_block: dict = {"lexicon": fx.lexicon_version, "engine": fx.engine}
+    # Which words fire has already been decided (fx_select.py). Without
+    # this marker a newer client cannot tell a chosen list from a legacy
+    # dense one, and would render EVERY tag on a line — on the archive
+    # that means two or three effects where there is one today, which is
+    # the opposite of what the selection exists to do.
+    if fx.select:
+        fx_block["select"] = fx.select
+    if fx.words:
+        fx_block["words"] = [
+            {"line": t.line, "word": t.word, "tag": t.tag, "intensity": t.intensity}
+            for t in fx.words
+        ]
+    if fx.lines:
+        fx_block["lines"] = [{"line": t.line, "tag": t.tag} for t in fx.lines]
+    return fx_block
+
 
 
 @lru_cache(maxsize=1)
