@@ -10,7 +10,7 @@ from helpers import TEST_ADMIN_KEY
 from helpers import auth as _auth
 
 
-@pytest.fixture()
+@pytest.fixture
 def db_session():
     from sqlalchemy import text
 
@@ -40,7 +40,7 @@ def _hermetic_pipeline_defaults(monkeypatch):
     monkeypatch.setattr(settings, "fx_embeddings", False)  # keyword layer stays on
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(db_session, monkeypatch):
     """TestClient with a fresh app; lifespan bootstraps TEST_ADMIN_KEY."""
     from fastapi.testclient import TestClient
@@ -53,7 +53,7 @@ def client(db_session, monkeypatch):
         yield test_client
 
 
-@pytest.fixture()
+@pytest.fixture
 def user_key(client) -> str:
     """A plain-role API key created through the admin endpoint."""
     resp = client.post(

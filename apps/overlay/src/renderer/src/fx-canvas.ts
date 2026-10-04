@@ -105,7 +105,7 @@ export class FxCanvas {
   private app: Application | null = null;
   private layer: Container | null = null;
   private pixi: typeof import('pixi.js') | null = null;
-  private textures = new Map<ParticleShape, Texture>();
+  private readonly textures = new Map<ParticleShape, Texture>();
   private live: Live[] = [];
   private seed = 1;
   private starting = false;

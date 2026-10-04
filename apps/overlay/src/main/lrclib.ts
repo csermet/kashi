@@ -356,7 +356,7 @@ export function parseLrc(lrc: string, durationMs?: number): LyricLine[] {
   for (const rawLine of lrc.split(/\r?\n/)) {
     const matches = [...rawLine.matchAll(timestamp)];
     if (matches.length === 0) continue;
-    const lastMatch = matches[matches.length - 1];
+    const lastMatch = matches.at(-1);
     if (!lastMatch) continue;
     const text = rawLine.slice((lastMatch.index ?? 0) + lastMatch[0].length).trim();
     if (!text) continue;

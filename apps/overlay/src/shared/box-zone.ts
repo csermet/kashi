@@ -83,6 +83,6 @@ export function parseBoxScale(value: unknown): BoxScale {
 }
 
 /** The zone for a scale, tolerant of anything unexpected. */
-export function boxZoneFor(scale: BoxScale | string | undefined): BoxRect {
+export function boxZoneFor(scale: string | undefined): BoxRect {
   return BOX_ZONE_PRESETS[(scale ?? '') as BoxScale] ?? BOX_ZONE;
 }

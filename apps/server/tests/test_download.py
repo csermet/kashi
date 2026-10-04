@@ -131,13 +131,9 @@ def test_bgutil_only_wired_when_configured(tmp_path, monkeypatch):
 
 
 def test_too_long_track_is_permanent(tmp_path):
+    factory = _factory(info=_info(tmp_path, duration=3600))
     with pytest.raises(PipelineError) as exc:
-        download_audio(
-            "vid",
-            tmp_path,
-            max_duration_s=60,
-            ydl_factory=_factory(info=_info(tmp_path, duration=3600)),
-        )
+        download_audio("vid", tmp_path, max_duration_s=60, ydl_factory=factory)
     assert exc.value.error_type == "other"
 
 
@@ -146,35 +142,23 @@ def test_low_quality_download_is_transient(tmp_path):
         {"vcodec": "none", "acodec": "opus", "abr": 70},
         {"vcodec": "none", "acodec": "opus", "abr": 250},
     ]
+    factory = _factory(info=_info(tmp_path, abr=70, formats=formats))
     with pytest.raises(PipelineError) as exc:
-        download_audio(
-            "vid",
-            tmp_path,
-            max_duration_s=1200,
-            ydl_factory=_factory(info=_info(tmp_path, abr=70, formats=formats)),
-        )
+        download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert exc.value.error_type == "low_quality_audio"
 
 
 def test_truncated_download_fails_verification(tmp_path):
+    factory = _factory(info=_info(tmp_path), seconds=0.05)
     with pytest.raises(PipelineError) as exc:
-        download_audio(
-            "vid",
-            tmp_path,
-            max_duration_s=1200,
-            ydl_factory=_factory(info=_info(tmp_path), seconds=0.05),
-        )
+        download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert exc.value.error_type == "verify_failed"
 
 
 def test_missing_output_file(tmp_path):
+    factory = _factory(info=_info(tmp_path), write=False)
     with pytest.raises(PipelineError) as exc:
-        download_audio(
-            "vid",
-            tmp_path,
-            max_duration_s=1200,
-            ydl_factory=_factory(info=_info(tmp_path), write=False),
-        )
+        download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert exc.value.error_type in ("other", "verify_failed")
 
 
@@ -188,13 +172,9 @@ def test_missing_output_file(tmp_path):
     ],
 )
 def test_ytdlp_exceptions_are_classified(tmp_path, message, expected):
+    factory = _factory(info={}, raises=RuntimeError(message))
     with pytest.raises(PipelineError) as exc:
-        download_audio(
-            "vid",
-            tmp_path,
-            max_duration_s=1200,
-            ydl_factory=_factory(info={}, raises=RuntimeError(message)),
-        )
+        download_audio("vid", tmp_path, max_duration_s=1200, ydl_factory=factory)
     assert exc.value.error_type == expected
 
 

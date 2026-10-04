@@ -1281,5 +1281,3 @@ setInterval(() => {
   ensureLoop();
   reportClassifiedSnaps();
 }, 1000);
-
-export {};

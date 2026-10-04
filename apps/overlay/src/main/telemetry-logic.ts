@@ -39,7 +39,7 @@ export const FLUSH_AT_EVENTS = 50;
  * near the failure the user is about to report, and those are the newest.
  */
 export class TelemetryBuffer {
-  private events: TelemetryEvent[] = [];
+  private readonly events: TelemetryEvent[] = [];
   private droppedSinceFlush = 0;
 
   get size(): number {

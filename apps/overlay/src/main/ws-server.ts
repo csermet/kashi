@@ -128,7 +128,7 @@ export function isValidExtensionMessage(msg: unknown): msg is ExtensionToOverlay
 
 export class OverlayWsServer {
   private server: WebSocketServer | null = null;
-  private clients = new Set<ClientState>();
+  private readonly clients = new Set<ClientState>();
   private nextClientId = 1;
   private _port: number | null = null;
   private stopping = false;
