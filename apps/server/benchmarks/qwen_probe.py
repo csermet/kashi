@@ -150,6 +150,33 @@ def _align_windowed(aligner, audio_path, song, anchor_jitter_ms: int = 0) -> tup
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    args = _parse_args()
+
+    from qwen_asr import Qwen3ForcedAligner  # pyright: ignore[reportMissingImports]
+
+    logger.info("loading %s", MODEL_ID)
+    aligner = Qwen3ForcedAligner.from_pretrained(MODEL_ID)
+
+    root = datasets.ensure_jamendo(DATA_DIR)
+    songs = datasets.load_jamendo(
+        root,
+        languages={lang.strip() for lang in args.languages.split(",")},
+        limit=args.limit,
+    )
+    logger.info("%d song(s)", len(songs))
+
+    tolerances_ms = (100, 200, 300, 500)
+    started = time.monotonic()
+    rows = [
+        _probe_song(args, aligner, song, index, len(songs), tolerances_ms)
+        for index, song in enumerate(songs, 1)
+    ]
+    aggregate = _probe_aggregate(rows)
+    _write_probe(args, rows, aggregate, started)
+    return 0
+
+
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--languages", default="eng", help="ISO-639-3, comma-separated")
     parser.add_argument("--limit", type=int)
@@ -191,102 +218,99 @@ def main() -> int:
         help="per-word truth/hypothesis rows keyed by annotation index (see run.py --dump-words)",
     )
     parser.add_argument("--label", default="qwen-fa-probe")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    from qwen_asr import Qwen3ForcedAligner  # pyright: ignore[reportMissingImports]
 
-    logger.info("loading %s", MODEL_ID)
-    aligner = Qwen3ForcedAligner.from_pretrained(MODEL_ID)
+def _probe_song(args, aligner, song, index: int, total: int, tolerances_ms) -> dict:
+    """One song's row; a broken song is a data point, not the end."""
+    entry: dict = {"stem": song.stem, "language": song.language}
+    if song.duration_hint_s > MAX_AUDIO_S:
+        entry["error"] = f"skipped: {song.duration_hint_s:.0f}s exceeds Qwen's 5-minute cap"
+        return entry
+    try:
+        aligned = _align_probe(args, aligner, song, entry)
+    except Exception as exc:  # a broken song is a data point, not the end
+        logger.exception("%s failed", song.stem)
+        entry["error"] = f"{type(exc).__name__}: {exc}"
+        return entry
+    if aligned is None:
+        return entry  # no cached stem; the reason is already in the row
+    items, window_of = aligned
 
-    root = datasets.ensure_jamendo(DATA_DIR)
-    songs = datasets.load_jamendo(
-        root,
-        languages={lang.strip() for lang in args.languages.split(",")},
-        limit=args.limit,
-    )
-    logger.info("%d song(s)", len(songs))
-
-    tolerances_ms = (100, 200, 300, 500)
-    rows: list[dict] = []
-    started = time.monotonic()
-    for index, song in enumerate(songs, 1):
-        entry: dict = {"stem": song.stem, "language": song.language}
-        rows.append(entry)
-        if song.duration_hint_s > MAX_AUDIO_S:
-            entry["error"] = f"skipped: {song.duration_hint_s:.0f}s exceeds Qwen's 5-minute cap"
-            continue
-        try:
-            if args.full_mix:
-                audio = song.audio_path
-            else:
-                # Cached stem read DIRECTLY — importing the separation
-                # machinery pulls in the worker module, whose dependencies the
-                # ephemeral qwen-asr install can clobber (measured: the first
-                # vocals run lost prometheus_client and all 20 songs errored).
-                # The probe reads what previous sweeps cached and refuses
-                # honestly when nothing is there.
-                audio = DATA_DIR / "stems" / args.separation / f"{song.stem}.wav"
-                if not audio.exists():
-                    entry["error"] = (
-                        f"stem not cached ({args.separation}) — run one "
-                        "kim-melband sweep first; the probe never separates"
-                    )
-                    continue
-            # The annotation's own token stream, so the counting matches the
-            # ground truth by construction — the same trick the harness uses.
-            t0 = time.monotonic()
-            if args.windowed:
-                items, window_of = _align_windowed(
-                    aligner, audio, song, args.anchor_jitter_ms
-                )
-            else:
-                text = " ".join(token for _, token in song.words)
-                items = list(aligner.align(str(audio), text, "English")[0].items)
-                window_of = [-1] * len(items)  # whole-song path owns no windows
-            entry["align_s"] = round(time.monotonic() - t0, 1)
-        except Exception as exc:  # a broken song is a data point, not the end
-            logger.exception("%s failed", song.stem)
-            entry["error"] = f"{type(exc).__name__}: {exc}"
-            continue
-
-        deviations = _pair(items, song.words)
-        if deviations is None:
-            entry["error"] = (
-                f"token mismatch: qwen={len(items)} "
-                f"vs kept-annotation={sum(1 for _, t in song.words if _clean_token(t))}"
-            )
-            continue
-        if args.dump_words:
-            # Same schema and same join key as run.py's dump: annotation index.
-            kept = _kept_indices(song.words)
-            entry["word_detail"] = [
-                {
-                    "i": ann_index,
-                    "token": song.words[ann_index][1],
-                    "truth_ms": song.words[ann_index][0],
-                    "hyp_ms": round(item.start_time * 1000),
-                    "window": win,
-                }
-                for item, ann_index, win in zip(items, kept, window_of, strict=True)
-            ]
-        stats = metrics.error_stats(deviations, tolerances_ms)
-        assert stats is not None
-        entry["words"] = {
-            "count": stats.count,
-            "mae_ms": stats.mae_ms,
-            "medae_ms": stats.medae_ms,
-            "p95_ms": stats.p95_ms,
-            "pcs": stats.pcs,  # tolerance-in-seconds string keys, harness convention
-        }
-        logger.info(
-            "%2d/%d %s: MAE %.0f ms (%.1fs align)",
-            index,
-            len(songs),
-            song.stem,
-            stats.mae_ms,
-            entry.get("align_s", -1),
+    deviations = _pair(items, song.words)
+    if deviations is None:
+        entry["error"] = (
+            f"token mismatch: qwen={len(items)} "
+            f"vs kept-annotation={sum(1 for _, t in song.words if _clean_token(t))}"
         )
+        return entry
+    if args.dump_words:
+        # Same schema and same join key as run.py's dump: annotation index.
+        kept = _kept_indices(song.words)
+        entry["word_detail"] = [
+            {
+                "i": ann_index,
+                "token": song.words[ann_index][1],
+                "truth_ms": song.words[ann_index][0],
+                "hyp_ms": round(item.start_time * 1000),
+                "window": win,
+            }
+            for item, ann_index, win in zip(items, kept, window_of, strict=True)
+        ]
+    stats = metrics.error_stats(deviations, tolerances_ms)
+    assert stats is not None
+    entry["words"] = {
+        "count": stats.count,
+        "mae_ms": stats.mae_ms,
+        "medae_ms": stats.medae_ms,
+        "p95_ms": stats.p95_ms,
+        "pcs": stats.pcs,  # tolerance-in-seconds string keys, harness convention
+    }
+    logger.info(
+        "%2d/%d %s: MAE %.0f ms (%.1fs align)",
+        index,
+        total,
+        song.stem,
+        stats.mae_ms,
+        entry.get("align_s", -1),
+    )
+    return entry
 
+
+def _align_probe(args, aligner, song, entry: dict):
+    """(items, window_of) for one song, or None when its stem is not cached."""
+    if args.full_mix:
+        audio = song.audio_path
+    else:
+        # Cached stem read DIRECTLY — importing the separation
+        # machinery pulls in the worker module, whose dependencies the
+        # ephemeral qwen-asr install can clobber (measured: the first
+        # vocals run lost prometheus_client and all 20 songs errored).
+        # The probe reads what previous sweeps cached and refuses
+        # honestly when nothing is there.
+        audio = DATA_DIR / "stems" / args.separation / f"{song.stem}.wav"
+        if not audio.exists():
+            entry["error"] = (
+                f"stem not cached ({args.separation}) — run one "
+                "kim-melband sweep first; the probe never separates"
+            )
+            return None
+    # The annotation's own token stream, so the counting matches the
+    # ground truth by construction — the same trick the harness uses.
+    t0 = time.monotonic()
+    if args.windowed:
+        items, window_of = _align_windowed(
+            aligner, audio, song, args.anchor_jitter_ms
+        )
+    else:
+        text = " ".join(token for _, token in song.words)
+        items = list(aligner.align(str(audio), text, "English")[0].items)
+        window_of = [-1] * len(items)  # whole-song path owns no windows
+    entry["align_s"] = round(time.monotonic() - t0, 1)
+    return items, window_of
+
+
+def _probe_aggregate(rows: list[dict]) -> dict:
     scored = [r for r in rows if r.get("words")]
     aggregate: dict = {
         "songs": len(rows),
@@ -305,6 +329,10 @@ def main() -> int:
             for tol in first
         }
 
+    return aggregate
+
+
+def _write_probe(args, rows: list[dict], aggregate: dict, started: float) -> None:
     report = {
         "meta": {
             "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -333,7 +361,6 @@ def main() -> int:
     out.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"wrote {out}")
     print(json.dumps(aggregate, indent=1, ensure_ascii=False))
-    return 0
 
 
 if __name__ == "__main__":
