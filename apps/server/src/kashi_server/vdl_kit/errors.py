@@ -5,6 +5,7 @@ The 12 VDL error types are a contract: the worker's retry policy, the API's
 """
 
 import math
+from collections.abc import Callable
 
 # VDL's 12 error types, verbatim.
 TRACK_ERROR_TYPES = (
@@ -88,49 +89,41 @@ def is_transient_error(error_type: str | None) -> bool:
     return error_type in TRANSIENT_ERROR_TYPES
 
 
+def _has_any(text: str, patterns: tuple[str, ...]) -> bool:
+    return any(p in text for p in patterns)
+
+
+# Ordered: the first rule that matches wins. Our own markers come first, then
+# the yt-dlp phrasings, most specific before most generic.
+_MESSAGE_RULES: tuple[tuple[str, Callable[[str], bool]], ...] = (
+    ("rate_limited", lambda t: RATE_LIMIT_ERROR_MARKER.lower() in t),
+    ("cookie_expired", lambda t: COOKIE_EXPIRED_ERROR_MARKER.lower() in t),
+    ("low_quality_audio", lambda t: LOW_QUALITY_AUDIO_MARKER.lower() in t),
+    ("rate_limited", lambda t: _has_any(t, _RATE_LIMIT_PATTERNS)),
+    ("cookie_expired", lambda t: _has_any(t, _COOKIE_EXPIRED_PATTERNS)),
+    ("disk_full", lambda t: _has_any(t, _DISK_FULL_PATTERNS)),
+    ("age_restricted", lambda t: "age" in t and _has_any(t, ("restrict", "confirm your age"))),
+    ("private", lambda t: _has_any(t, ("private video", "this video is private"))),
+    ("video_unavailable", lambda t: _has_any(t, ("removed", "deleted", "terminated"))),
+    ("geo_blocked", lambda t: _has_any(t, ("region", "geo")) or ("country" in t and "not" in t)),
+    ("copyright", lambda t: _has_any(t, ("copyright", "blocked it on copyright"))),
+    ("video_unavailable", lambda t: _has_any(t, ("unavailable", "video not found"))),
+    ("network", lambda t: _has_any(t, ("network", "timed out", "timeout", "connection", "socket"))),
+    # KASHI ADDITION: a googlevideo 403 is a stale/failed signature or a
+    # bot-check hiccup, not a permanent property of the video — retry.
+    ("network", lambda t: "403" in t and "forbidden" in t),
+    # KASHI ADDITION (2026-10): this is what dead player clients look like
+    # (only storyboards left, no audio format) — systemic, every video at
+    # once, not a property of this one. As "other" it would be permanent
+    # and block the song for 7 days after the fix ships.
+    ("network", lambda t: "requested format is not available" in t),
+)
+
+
 def classify_error_message(msg: str) -> str:
     """Map a yt-dlp (or our own) error string onto the 12-type taxonomy."""
     text = msg.lower()
-
-    if RATE_LIMIT_ERROR_MARKER.lower() in text:
-        return "rate_limited"
-    if COOKIE_EXPIRED_ERROR_MARKER.lower() in text:
-        return "cookie_expired"
-    if LOW_QUALITY_AUDIO_MARKER.lower() in text:
-        return "low_quality_audio"
-
-    if any(p in text for p in _RATE_LIMIT_PATTERNS):
-        return "rate_limited"
-    if any(p in text for p in _COOKIE_EXPIRED_PATTERNS):
-        return "cookie_expired"
-    if any(p in text for p in _DISK_FULL_PATTERNS):
-        return "disk_full"
-
-    if "age" in text and ("restrict" in text or "confirm your age" in text):
-        return "age_restricted"
-    if "private video" in text or "this video is private" in text:
-        return "private"
-    if "removed" in text or "deleted" in text or "terminated" in text:
-        return "video_unavailable"
-    if "region" in text or "geo" in text or ("country" in text and "not" in text):
-        return "geo_blocked"
-    if "copyright" in text or "blocked it on copyright" in text:
-        return "copyright"
-    if "unavailable" in text or "video not found" in text:
-        return "video_unavailable"
-    if any(p in text for p in ("network", "timed out", "timeout", "connection", "socket")):
-        return "network"
-    if "403" in text and "forbidden" in text:
-        # KASHI ADDITION: a googlevideo 403 is a stale/failed signature or a
-        # bot-check hiccup, not a permanent property of the video — retry.
-        return "network"
-    if "requested format is not available" in text:
-        # KASHI ADDITION (2026-10): this is what dead player clients look like
-        # (only storyboards left, no audio format) — systemic, every video at
-        # once, not a property of this one. As "other" it would be permanent
-        # and block the song for 7 days after the fix ships.
-        return "network"
-    return "other"
+    return next((kind for kind, matches in _MESSAGE_RULES if matches(text)), "other")
 
 
 def parse_ytdlp_error(exc: Exception) -> str:
@@ -174,18 +167,27 @@ def validate_audio_quality(info: dict) -> tuple[bool, float, float]:
     Compares only within the same codec family: Premium AAC existing while no
     Premium Opus does must not condemn a perfectly good Opus download.
     """
+    downloaded_abr, acodec = _downloaded_audio(info)
+    max_abr = _best_available_abr(info.get("formats") or [], audio_codec_family(acodec))
+    return _quality_ok(downloaded_abr, max_abr), downloaded_abr, max_abr
+
+
+def _downloaded_audio(info: dict) -> tuple[float, str | None]:
+    """Bitrate and codec of what was downloaded; a merged download carries
+    them on its audio-only requested format instead of the top level."""
     downloaded_abr = float(info.get("abr") or 0.0)
     acodec = info.get("acodec")
     if not downloaded_abr and info.get("requested_formats"):
         for fmt in info["requested_formats"]:
             if fmt.get("vcodec") == "none":
-                downloaded_abr = float(fmt.get("abr") or 0.0)
-                acodec = fmt.get("acodec")
-                break
+                return float(fmt.get("abr") or 0.0), fmt.get("acodec")
+    return downloaded_abr, acodec
 
-    family = audio_codec_family(acodec)
+
+def _best_available_abr(formats: list[dict], family: str) -> float:
+    """Highest bitrate among DRM-free audio-only formats of the same family."""
     max_abr = 0.0
-    for fmt in info.get("formats") or []:
+    for fmt in formats:
         if fmt.get("vcodec") != "none" or fmt.get("acodec") in (None, "none"):
             continue
         if fmt.get("has_drm"):
@@ -193,13 +195,13 @@ def validate_audio_quality(info: dict) -> tuple[bool, float, float]:
         if family and audio_codec_family(fmt.get("acodec")) != family:
             continue
         max_abr = max(max_abr, float(fmt.get("abr") or 0.0))
+    return max_abr
 
+
+def _quality_ok(downloaded_abr: float, max_abr: float) -> bool:
     if not downloaded_abr:
-        return True, downloaded_abr, max_abr  # no bitrate info — trust the download
+        return True  # no bitrate info — trust the download
     if max_abr <= PREMIUM_AUDIO_THRESHOLD_KBPS:
-        return True, downloaded_abr, max_abr  # intrinsically low-quality source
-    if downloaded_abr < max_abr * QUALITY_GRACE_RATIO and not math.isclose(
-        downloaded_abr, max_abr * QUALITY_GRACE_RATIO
-    ):
-        return False, downloaded_abr, max_abr
-    return True, downloaded_abr, max_abr
+        return True  # intrinsically low-quality source
+    floor = max_abr * QUALITY_GRACE_RATIO
+    return not (downloaded_abr < floor and not math.isclose(downloaded_abr, floor))
