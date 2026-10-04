@@ -602,35 +602,10 @@ def apply_line_qa(
     onset_ms: list[int] | None = None,
     energy: VocalEnergy | None = None,
 ) -> LineQAOutcome:
-    refs: list[int | None] | None = None
-    if synced_starts_ms is not None:
-        if len(synced_starts_ms) != len(line_texts):
-            logger.warning(
-                "line QA skipped: %d synced starts vs %d lyric lines",
-                len(synced_starts_ms),
-                len(line_texts),
-            )
-        else:
-            refs = _match_references(result.lines, line_texts, synced_starts_ms)
-            if refs is None:
-                logger.warning("line QA skipped: aligned lines do not walk the lyric text")
+    refs = _resolve_references(result, line_texts, synced_starts_ms)
 
     if refs is None or sum(ref is not None for ref in refs) < MIN_REFERENCE_LINES:
-        # No reference ≠ no ad-libs: document assembly still writes the adlib
-        # flag and the overlay still sweeps, so the rederive must run here too
-        # (retro finding — QA-less docs swept CTC's scattered spans).
-        clamped, trimmed = trim_word_ends(replace(result, lines=_clamp_monotonic(result.lines)))
-        clamped, rederived = rederive_adlib_words(clamped)
-        clamped, responses = shift_call_response(clamped, energy)
-        return LineQAOutcome(
-            result=clamped,
-            response_shifted=responses,
-            flagged=[],
-            offset_ms=0,
-            degraded_to_line=False,
-            adlib_rederived=rederived,
-            trimmed_ends=trimmed,
-        )
+        return _finish_unreferenced(result, energy)
 
     deviations = [
         line.start_ms - ref for line, ref in zip(result.lines, refs, strict=True) if ref is not None
@@ -645,6 +620,105 @@ def apply_line_qa(
 
     # Sub-threshold drift: the anchor and the aligner disagree by a visible
     # but unflagged amount. Neither can settle it, so the audio does.
+    result, nudged = _nudge_subthreshold_drift(result, refs, flagged, offset_ms, onset_ms)
+
+    referenced = sum(ref is not None for ref in refs)
+    if result.sync == "line" or len(flagged) > MAX_FLAGGED_FRACTION * referenced:
+        return replace(
+            _degrade_to_line(result, refs, flagged, offset_ms, deviations),
+            adlib_shifted=adlib_shifted,
+        )
+
+    if not flagged:
+        return _finish_clean(result, refs, offset_ms, nudged, adlib_shifted, energy)
+
+    flagged_set = set(flagged)
+    lines = _snap_flagged_lines(result, refs, flagged_set, offset_ms)
+    density_dropped = _border_case_drops(result, refs, flagged_set)
+    words_per_line, uncertain = _rescue_or_drop_words(
+        result, lines, flagged_set, density_dropped, onset_ms
+    )
+
+    _log_snaps_and_drops(result, lines, flagged, density_dropped)
+
+    surviving_probs = [w.prob for chunk in words_per_line for w in chunk]
+    if not surviving_probs:  # flag + border drops emptied every word-bearing line
+        return _degrade_to_line(result, refs, flagged, offset_ms, deviations)
+
+    score, basis = _quality(result, refs, flagged_set | density_dropped, surviving_probs)
+    snapped = AlignResult(
+        sync="word",
+        lines=lines,
+        words_per_line=words_per_line,
+        quality_score=score,
+        windowed=result.windowed,
+        model_name=result.model_name,
+        quality_basis=basis,
+    )
+    snapped, trimmed = trim_word_ends(snapped)
+    snapped, rederived = rederive_adlib_words(snapped)
+    snapped, responses = shift_call_response(snapped, energy)
+    return LineQAOutcome(
+        result=snapped,
+        response_shifted=responses,
+        flagged=flagged,
+        offset_ms=offset_ms,
+        degraded_to_line=False,
+        density_dropped=sorted(density_dropped),
+        uncertain=uncertain,
+        nudged=nudged,
+        adlib_shifted=adlib_shifted,
+        adlib_rederived=rederived,
+        trimmed_ends=trimmed,
+    )
+
+
+def _resolve_references(
+    result: AlignResult,
+    line_texts: list[str],
+    synced_starts_ms: list[int | None] | None,
+) -> list[int | None] | None:
+    """lrclib's start per aligned line, or None when they cannot be paired."""
+    refs: list[int | None] | None = None
+    if synced_starts_ms is not None:
+        if len(synced_starts_ms) != len(line_texts):
+            logger.warning(
+                "line QA skipped: %d synced starts vs %d lyric lines",
+                len(synced_starts_ms),
+                len(line_texts),
+            )
+        else:
+            refs = _match_references(result.lines, line_texts, synced_starts_ms)
+            if refs is None:
+                logger.warning("line QA skipped: aligned lines do not walk the lyric text")
+    return refs
+
+
+def _finish_unreferenced(result: AlignResult, energy: VocalEnergy | None) -> LineQAOutcome:
+    # No reference ≠ no ad-libs: document assembly still writes the adlib
+    # flag and the overlay still sweeps, so the rederive must run here too
+    # (retro finding — QA-less docs swept CTC's scattered spans).
+    clamped, trimmed = trim_word_ends(replace(result, lines=_clamp_monotonic(result.lines)))
+    clamped, rederived = rederive_adlib_words(clamped)
+    clamped, responses = shift_call_response(clamped, energy)
+    return LineQAOutcome(
+        result=clamped,
+        response_shifted=responses,
+        flagged=[],
+        offset_ms=0,
+        degraded_to_line=False,
+        adlib_rederived=rederived,
+        trimmed_ends=trimmed,
+    )
+
+
+def _nudge_subthreshold_drift(
+    result: AlignResult,
+    refs: list[int | None],
+    flagged: list[int],
+    offset_ms: int,
+    onset_ms: list[int] | None,
+) -> tuple[AlignResult, list[int]]:
     nudged: list[int] = []
     if onset_ms:
         nudge_lines = list(result.lines)
@@ -694,38 +768,44 @@ def apply_line_qa(
                 "backs the anchor's position over the aligner's",
                 len(nudged),
             )
+    return result, nudged
 
-    referenced = sum(ref is not None for ref in refs)
-    if result.sync == "line" or len(flagged) > MAX_FLAGGED_FRACTION * referenced:
-        return replace(
-            _degrade_to_line(result, refs, flagged, offset_ms, deviations),
-            adlib_shifted=adlib_shifted,
-        )
 
-    if not flagged:
-        clean = replace(result, lines=_clamp_monotonic(result.lines))
-        all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
-        # Undamaged, but the basis still has to name the formula: an unflagged
-        # non-windowed document is "probs+anchors" with an agreement of 1.0,
-        # not the bare ramp it used to be labelled as.
-        score, basis = _quality(result, refs, set(), all_probs)
-        clean = replace(clean, quality_score=score, quality_basis=basis)
-        clean, trimmed = trim_word_ends(clean)
-        clean, rederived = rederive_adlib_words(clean)
-        clean, responses = shift_call_response(clean, energy)
-        return LineQAOutcome(
-            result=clean,
-            response_shifted=responses,
-            flagged=[],
-            offset_ms=offset_ms,
-            degraded_to_line=False,
-            nudged=nudged,
-            adlib_shifted=adlib_shifted,
-            adlib_rederived=rederived,
-            trimmed_ends=trimmed,
-        )
+def _finish_clean(
+    result: AlignResult,
+    refs: list[int | None],
+    offset_ms: int,
+    nudged: list[int],
+    adlib_shifted: list[int],
+    energy: VocalEnergy | None,
+) -> LineQAOutcome:
+    """No line flagged: clamp, score, trim and the post-passes."""
+    clean = replace(result, lines=_clamp_monotonic(result.lines))
+    all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
+    # Undamaged, but the basis still has to name the formula: an unflagged
+    # non-windowed document is "probs+anchors" with an agreement of 1.0,
+    # not the bare ramp it used to be labelled as.
+    score, basis = _quality(result, refs, set(), all_probs)
+    clean = replace(clean, quality_score=score, quality_basis=basis)
+    clean, trimmed = trim_word_ends(clean)
+    clean, rederived = rederive_adlib_words(clean)
+    clean, responses = shift_call_response(clean, energy)
+    return LineQAOutcome(
+        result=clean,
+        response_shifted=responses,
+        flagged=[],
+        offset_ms=offset_ms,
+        degraded_to_line=False,
+        nudged=nudged,
+        adlib_shifted=adlib_shifted,
+        adlib_rederived=rederived,
+        trimmed_ends=trimmed,
+    )
 
-    flagged_set = set(flagged)
+
+def _snap_flagged_lines(
+    result: AlignResult, refs: list[int | None], flagged_set: set[int], offset_ms: int
+) -> list[LineTiming]:
     # Snapped starts stay on the aligner's clock (ref + offset) so unflagged
     # neighbours — which keep aligner times — remain on the same timeline.
     lines: list[LineTiming] = []
@@ -735,7 +815,16 @@ def apply_line_qa(
             line = replace(line, start_ms=max(0, ref + offset_ms))
         lines.append(line)
     lines = _clamp_monotonic(_recompute_ends(lines, flagged_set, result.lines))
-    density_dropped = _border_case_drops(result, refs, flagged_set)
+    return lines
+
+
+def _rescue_or_drop_words(
+    result: AlignResult,
+    lines: list[LineTiming],
+    flagged_set: set[int],
+    density_dropped: set[int],
+    onset_ms: list[int] | None,
+) -> tuple[list[list], list[int]]:
     # The anchor proposes, the audio disposes (Faz 8 B4). A flagged line used
     # to lose its words unconditionally; now the evidence gets a vote, and
     # deletion carries the burden of proof. A rescued line is BLOCK-SHIFTED
@@ -769,7 +858,12 @@ def apply_line_qa(
             verdict.span_coverage,
             verdict.reason,
         )
+    return words_per_line, uncertain
 
+
+def _log_snaps_and_drops(
+    result: AlignResult, lines: list[LineTiming], flagged: list[int], density_dropped: set[int]
+) -> None:
     for i in flagged:
         logger.info(
             "line QA snap: line %d %r start %dms -> %dms (score %.3f)",
@@ -786,37 +880,6 @@ def apply_line_qa(
             result.lines[i].text[:40],
             result.lines[i].score,
         )
-
-    surviving_probs = [w.prob for chunk in words_per_line for w in chunk]
-    if not surviving_probs:  # flag + border drops emptied every word-bearing line
-        return _degrade_to_line(result, refs, flagged, offset_ms, deviations)
-
-    score, basis = _quality(result, refs, flagged_set | density_dropped, surviving_probs)
-    snapped = AlignResult(
-        sync="word",
-        lines=lines,
-        words_per_line=words_per_line,
-        quality_score=score,
-        windowed=result.windowed,
-        model_name=result.model_name,
-        quality_basis=basis,
-    )
-    snapped, trimmed = trim_word_ends(snapped)
-    snapped, rederived = rederive_adlib_words(snapped)
-    snapped, responses = shift_call_response(snapped, energy)
-    return LineQAOutcome(
-        result=snapped,
-        response_shifted=responses,
-        flagged=flagged,
-        offset_ms=offset_ms,
-        degraded_to_line=False,
-        density_dropped=sorted(density_dropped),
-        uncertain=uncertain,
-        nudged=nudged,
-        adlib_shifted=adlib_shifted,
-        adlib_rederived=rederived,
-        trimmed_ends=trimmed,
-    )
 
 
 def _quality(
