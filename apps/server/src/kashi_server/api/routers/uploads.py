@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -71,8 +72,8 @@ def _ffprobe_duration_s(path: Path) -> float | None:
 @router.post("/uploads", status_code=201, response_model=UploadResponse)
 async def upload_audio(
     file: UploadFile,
-    key: ApiKey = Depends(rate_limited("uploads")),
-    db: Session = Depends(get_db),
+    key: Annotated[ApiKey, Depends(rate_limited("uploads"))],
+    db: Annotated[Session, Depends(get_db)],
 ):
     hasher = hashlib.sha256()
     size = 0

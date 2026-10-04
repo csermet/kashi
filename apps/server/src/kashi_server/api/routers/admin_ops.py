@@ -7,6 +7,8 @@ track through the public path. Completion overwrites the stored document in
 place, so clients keep getting lyrics throughout.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,8 +25,8 @@ router = APIRouter(prefix="/v1/admin")
 @router.post("/reprocess", status_code=202, response_model=IngestResponse)
 def reprocess(
     body: ReprocessRequest,
-    key: ApiKey = Depends(require_key("admin")),
-    db: Session = Depends(get_db),
+    key: Annotated[ApiKey, Depends(require_key("admin"))],
+    db: Annotated[Session, Depends(get_db)],
 ):
     if body.hints is not None:
         hints = body.hints.model_dump(exclude_none=True)

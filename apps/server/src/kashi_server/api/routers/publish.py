@@ -5,6 +5,8 @@ until lrclib_publish_dry_run is also flipped. Every request is a human
 decision ("Report good sync" in the overlay tray) — nothing auto-publishes.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -22,8 +24,8 @@ router = APIRouter(prefix="/v1")
 @router.post("/publish-requests", status_code=202, response_model=PublishRequestOut)
 def request_publish(
     body: PublishRequestIn,
-    key: ApiKey = Depends(rate_limited("ingest")),
-    db: Session = Depends(get_db),
+    key: Annotated[ApiKey, Depends(rate_limited("ingest"))],
+    db: Annotated[Session, Depends(get_db)],
 ):
     if not settings.lrclib_publish_enabled:
         raise HTTPException(

@@ -1,6 +1,8 @@
 """GET /v1/lyrics/{source_type}/{source_id} — the processed document, with
 ETag/If-None-Match so the overlay's repeat fetches cost a 304."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -30,8 +32,8 @@ def get_lyrics(
     source_type: str,
     source_id: str,
     request: Request,
+    db: Annotated[Session, Depends(get_db)],
     schema_version: int = 1,
-    db: Session = Depends(get_db),
 ) -> Response:
     if schema_version != 1:
         raise HTTPException(status_code=400, detail="unsupported_schema_version")

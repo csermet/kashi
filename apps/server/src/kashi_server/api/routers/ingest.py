@@ -2,6 +2,8 @@
 represents this source — fresh, already running, or already done — except a
 422 up-front rejection for tracks the pipeline could never complete)."""
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -18,8 +20,8 @@ router = APIRouter(prefix="/v1")
 @router.post("/ingest", status_code=202, response_model=IngestResponse)
 def ingest(
     body: IngestRequest,
-    key: ApiKey = Depends(rate_limited("ingest")),
-    db: Session = Depends(get_db),
+    key: Annotated[ApiKey, Depends(rate_limited("ingest"))],
+    db: Annotated[Session, Depends(get_db)],
 ):
     # A track over the pipeline cap can never complete — the download stage
     # enforces the same limit, but only after a job existed and lrclib was

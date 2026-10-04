@@ -10,6 +10,7 @@ rate limiting, an oversized body (middleware), and the feature being off.
 """
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -28,8 +29,8 @@ router = APIRouter(prefix="/v1")
 @router.post("/telemetry", status_code=202, response_model=TelemetryAck)
 def ingest_telemetry(
     body: TelemetryBatchIn,
-    key: ApiKey = Depends(rate_limited("telemetry")),
-    db: Session = Depends(get_db),
+    key: Annotated[ApiKey, Depends(rate_limited("telemetry"))],
+    db: Annotated[Session, Depends(get_db)],
 ):
     if not settings.telemetry_enabled:
         raise HTTPException(status_code=503, detail="telemetry_disabled")
