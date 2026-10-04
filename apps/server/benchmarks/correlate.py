@@ -85,6 +85,27 @@ def _flatten(signals: dict) -> dict[str, float]:
 
 
 def main() -> int:
+    args = _parse_args()
+
+    report = json.loads(args.results.read_text(encoding="utf-8"))
+    all_songs = report.get("jamendo", {}).get("songs", [])
+    scope, unit, truth_pco, truth_mae, flat = (
+        _line_scope(all_songs) if args.lines else _song_scope(all_songs)
+    )
+
+    if not scope:
+        print(
+            "nothing to correlate — was the sweep run with --signals?",
+            file=sys.stderr,
+        )
+        return 1
+
+    ranked = _rank(_candidates(flat), truth_pco, truth_mae)
+    _print_table(scope, unit, args.results.name, ranked)
+    return 0
+
+
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", type=Path)
     parser.add_argument(
@@ -97,36 +118,33 @@ def main() -> int:
             "was 'these words drift', not 'this song is bad'."
         ),
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    report = json.loads(args.results.read_text(encoding="utf-8"))
-    all_songs = report.get("jamendo", {}).get("songs", [])
 
-    if args.lines:
-        rows = [
-            row
-            for song in all_songs
-            for row in song.get("lines_detail", [])
-            if row.get("truth") and row.get("n_words")
-        ]
-        scope, unit = rows, "lines"
-        truth_pco = [r["truth"]["pcs"]["0.3"] for r in rows]
-        truth_mae = [r["truth"]["mae_ms"] for r in rows]
-        flat = [_flatten(r) for r in rows]
-    else:
-        rows = [s for s in all_songs if s.get("words") and s.get("signals")]
-        scope, unit = rows, "songs"
-        truth_pco = [s["words"]["pcs"]["0.3"] for s in rows]
-        truth_mae = [s["words"]["mae_ms"] for s in rows]
-        flat = [{**_flatten(s["signals"]), "quality_score": s["quality_score"]} for s in rows]
+def _line_scope(all_songs: list[dict]):
+    rows = [
+        row
+        for song in all_songs
+        for row in song.get("lines_detail", [])
+        if row.get("truth") and row.get("n_words")
+    ]
+    scope, unit = rows, "lines"
+    truth_pco = [r["truth"]["pcs"]["0.3"] for r in rows]
+    truth_mae = [r["truth"]["mae_ms"] for r in rows]
+    flat = [_flatten(r) for r in rows]
+    return scope, unit, truth_pco, truth_mae, flat
 
-    if not scope:
-        print(
-            "nothing to correlate — was the sweep run with --signals?",
-            file=sys.stderr,
-        )
-        return 1
 
+def _song_scope(all_songs: list[dict]):
+    rows = [s for s in all_songs if s.get("words") and s.get("signals")]
+    scope, unit = rows, "songs"
+    truth_pco = [s["words"]["pcs"]["0.3"] for s in rows]
+    truth_mae = [s["words"]["mae_ms"] for s in rows]
+    flat = [{**_flatten(s["signals"]), "quality_score": s["quality_score"]} for s in rows]
+    return scope, unit, truth_pco, truth_mae, flat
+
+
+def _candidates(flat: list[dict]) -> dict[str, list[float]]:
     candidates: dict[str, list[float]] = {}
     ignored = {"line", "n_words"} | {k for k in flat[0] if k.startswith("truth")}
     for name in flat[0]:
@@ -136,6 +154,12 @@ def main() -> int:
         if all(isinstance(v, int | float) for v in column):
             candidates[name] = [float(v) for v in column]  # pyright: ignore[reportArgumentType]
 
+    return candidates
+
+
+def _rank(
+    candidates: dict[str, list[float]], truth_pco: list[float], truth_mae: list[float]
+) -> list:
     ranked = []
     for name, values in candidates.items():
         if len(set(values)) < 3:  # constant signals cannot rank anything
@@ -151,24 +175,30 @@ def main() -> int:
         )
     ranked.sort(key=lambda r: -abs(r[1]))
 
-    print(f"{len(scope)} {unit} · {args.results.name}")
+    return ranked
+
+
+def _verdict(sp: float) -> str:
+    if abs(sp) < 0.1:
+        return "knows nothing"
+    if abs(sp) <= INCUMBENT_SPEARMAN:
+        return "no better than today"
+    if abs(sp) < 0.5:
+        return "BEATS the incumbent"
+    return "STRONG"
+
+
+def _print_table(scope: list, unit: str, results_name: str, ranked: list) -> None:
+    print(f"{len(scope)} {unit} · {results_name}")
     print(f"bar to beat: {INCUMBENT_LABEL} Spearman {INCUMBENT_SPEARMAN:+.3f}\n")
     print(f"{'signal':<28}{'Spearman':>10}{'Pearson':>10}{'vs MAE':>10}   verdict")
     print("-" * 74)
     for name, sp, pe, mae_sp in ranked:
-        if abs(sp) < 0.1:
-            verdict = "knows nothing"
-        elif abs(sp) <= INCUMBENT_SPEARMAN:
-            verdict = "no better than today"
-        elif abs(sp) < 0.5:
-            verdict = "BEATS the incumbent"
-        else:
-            verdict = "STRONG"
+        verdict = _verdict(sp)
         mark = "*" if name == "quality_score" else " "
         print(f"{mark}{name:<27}{sp:>+10.3f}{pe:>+10.3f}{mae_sp:>+10.3f}   {verdict}")
     print("\n* = the incumbent. Sign is normalised: positive always means the")
     print("  signal is right. Read Spearman — a gate ranks, it does not scale.")
-    return 0
 
 
 if __name__ == "__main__":
