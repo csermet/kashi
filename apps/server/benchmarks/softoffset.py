@@ -58,7 +58,7 @@ def _interp(knots: list[tuple[int, int]], t: int) -> int:
             if t1 == t0:
                 return d0
             return round(d0 + (d1 - d0) * (t - t0) / (t1 - t0))
-    return knots[-1][1]  # unreachable; defensive
+    return knots[-1][1]  # not reached: every t lies inside some knot pair
 
 
 def line_offsets(
@@ -85,7 +85,7 @@ def line_offsets(
         # anchor-less lines borrow the nearest anchored neighbour's.
         offsets = []
         for i in range(len(result.lines)):
-            nearest = min(range(len(knot_index)), key=lambda k: abs(knot_index[k] - i))
+            nearest = min(range(len(knot_index)), key=lambda k, i=i: abs(knot_index[k] - i))
             offsets.append(filtered[nearest])
         return offsets
     if mode == "soft-pl":

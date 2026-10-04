@@ -453,7 +453,7 @@ def _pick_on_line(
     quota = _line_quota(facts.words)
     runs = _runs_on_line(line_tags, facts)
     chosen: list[list[WordTag]] = []
-    for run in sorted(runs, key=lambda r: _run_sort_key(r, facts, scored)):
+    for run in sorted(runs, key=lambda r: _run_sort_key(r, scored)):
         if len(chosen) >= quota:
             break
         # Spacing is measured between gestures, from the run's own extent.
@@ -468,7 +468,6 @@ def _pick_on_line(
 
 def _run_sort_key(
     run: Sequence[WordTag],
-    facts: LineFacts,
     scored: dict[tuple[int, int], float],
 ) -> tuple[float, int]:
     """Best first — and, all else equal, LATER in the line.

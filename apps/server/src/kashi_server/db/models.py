@@ -25,6 +25,14 @@ ALL_STATUSES = LIVE_STATUSES + ("completed", "failed", "canceled")
 _LIVE_SQL = "','".join(LIVE_STATUSES)
 
 
+# Server-side defaults and the one shared foreign key, named once (the SQL text
+# is identical to before: schema and migrations are unaffected).
+_NOW = "now()"
+_GEN_UUID = "gen_random_uuid()"
+_EMPTY_JSONB = "'{}'::jsonb"
+_API_KEY_ID = "api_keys.id"
+
+
 class Base(DeclarativeBase):
     type_annotation_map = {
         datetime: DateTime(timezone=True),
@@ -36,13 +44,13 @@ class ApiKey(Base):
     __tablename__ = "api_keys"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+        UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     key_hash: Mapped[str] = mapped_column(unique=True)
     name: Mapped[str]
     role: Mapped[str]
     disabled: Mapped[bool] = mapped_column(server_default=text("false"))
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     last_used_at: Mapped[datetime | None]
 
     __table_args__ = (CheckConstraint("role IN ('admin','user')", name="ck_api_keys_role"),)
@@ -52,25 +60,25 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+        UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     source_type: Mapped[str]
     source_id: Mapped[str]
     pipeline_major: Mapped[int]
     status: Mapped[str] = mapped_column(server_default=text("'queued'"))
-    hints: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
-    options: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
+    hints: Mapped[dict[str, Any]] = mapped_column(server_default=text(_EMPTY_JSONB))
+    options: Mapped[dict[str, Any]] = mapped_column(server_default=text(_EMPTY_JSONB))
     attempts: Mapped[int] = mapped_column(server_default=text("0"))
     max_attempts: Mapped[int] = mapped_column(server_default=text("3"))
-    next_attempt_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    next_attempt_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     lease_expires_at: Mapped[datetime | None]
     error_type: Mapped[str | None]
     error_message: Mapped[str | None]
     requested_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("api_keys.id")
+        UUID(as_uuid=True), ForeignKey(_API_KEY_ID)
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
+    updated_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
 
@@ -100,7 +108,7 @@ class ProcessedTrack(Base):
     __tablename__ = "processed_tracks"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+        UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     source_type: Mapped[str]
     source_id: Mapped[str]
@@ -115,8 +123,8 @@ class ProcessedTrack(Base):
     document: Mapped[dict[str, Any]]
     etag: Mapped[str]
     job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("jobs.id"))
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
+    updated_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
 
     __table_args__ = (
         UniqueConstraint("source_type", "source_id", "schema_version", name="uq_processed_source"),
@@ -141,9 +149,9 @@ class UploadedAudio(Base):
     mime: Mapped[str | None]
     duration_s: Mapped[float]
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("api_keys.id")
+        UUID(as_uuid=True), ForeignKey(_API_KEY_ID)
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     expires_at: Mapped[datetime]
 
     __table_args__ = (Index("ix_uploaded_audio_expires", "expires_at"),)
@@ -158,7 +166,7 @@ class LrclibPublish(Base):
     __tablename__ = "lrclib_publishes"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+        UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     source_type: Mapped[str]
     source_id: Mapped[str]
@@ -166,9 +174,9 @@ class LrclibPublish(Base):
     status: Mapped[str] = mapped_column(server_default=text("'queued'"))
     error: Mapped[str | None]
     requested_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("api_keys.id")
+        UUID(as_uuid=True), ForeignKey(_API_KEY_ID)
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     finished_at: Mapped[datetime | None]
 
     __table_args__ = (
@@ -200,12 +208,12 @@ class Telemetry(Base):
     session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
     ts: Mapped[datetime]
     kind: Mapped[str]
-    payload: Mapped[dict[str, Any]] = mapped_column(server_default=text("'{}'::jsonb"))
-    received_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    payload: Mapped[dict[str, Any]] = mapped_column(server_default=text(_EMPTY_JSONB))
+    received_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     # FK to api_keys also buys test isolation: conftest TRUNCATEs api_keys
     # CASCADE, so telemetry rows never leak between tests.
     reported_by: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("api_keys.id")
+        UUID(as_uuid=True), ForeignKey(_API_KEY_ID)
     )
 
     __table_args__ = (

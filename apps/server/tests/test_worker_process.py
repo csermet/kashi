@@ -14,7 +14,7 @@ from kashi_server.worker import process as wp
 from kashi_server.worker.main import sweep_orphans
 
 
-@pytest.fixture()
+@pytest.fixture
 def job(db_session):
     queue.enqueue(
         db_session,
@@ -32,7 +32,7 @@ def job(db_session):
     return claimed
 
 
-@pytest.fixture()
+@pytest.fixture
 def scratch(tmp_path, monkeypatch):
     from kashi_server.config import settings
 

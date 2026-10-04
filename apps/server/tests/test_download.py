@@ -79,13 +79,9 @@ def test_happy_path(tmp_path):
 def test_probed_duration_recloses_the_max_duration_gate(tmp_path):
     # A missing yt-dlp duration slides past the early gate; the honest probed
     # number must re-close it (reviewer catch).
+    factory = _factory(info=_info(tmp_path, duration=0))  # built outside: only the call may raise
     with pytest.raises(PipelineError) as err:
-        download_audio(
-            "vid",
-            tmp_path,
-            max_duration_s=3,
-            ydl_factory=_factory(info=_info(tmp_path, duration=0)),
-        )
+        download_audio("vid", tmp_path, max_duration_s=3, ydl_factory=factory)
     assert "track too long" in str(err.value)
 
 

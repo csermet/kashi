@@ -33,6 +33,7 @@ SEARCH_DURATION_TOLERANCE_S = 3
 # flagged, the whole document snapped -6 s). MUST equal the worker's
 # ANCHOR_CLOCK_TOLERANCE_S — a contract test pins the two together.
 DIFFERENT_EDIT_TOLERANCE_S = 5.0
+_SEARCH_PATH = "/api/search"
 _TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
 # The (?<!\s) lookbehinds below only let a match START at the beginning of a
 # whitespace run: same matches (fuzz-verified), but a long run that never
@@ -452,7 +453,7 @@ def _search(
     *,
     plausible_artists: list[str] | None = None,
 ) -> dict | None:
-    response = http.get("/api/search", params={"track_name": title, "artist_name": artist})
+    response = http.get(_SEARCH_PATH, params={"track_name": title, "artist_name": artist})
     response.raise_for_status()
     payload = response.json()
     records = payload if isinstance(payload, list) else []  # defensive, like search_candidates
@@ -482,7 +483,7 @@ def search_candidates(
         base_url=base_url, timeout=timeout_s, headers={"User-Agent": USER_AGENT}
     )
     try:
-        response = http.get("/api/search", params={"q": query})
+        response = http.get(_SEARCH_PATH, params={"q": query})
         response.raise_for_status()
         data = response.json()
     except httpx.HTTPError as exc:
@@ -539,7 +540,7 @@ def _search_freetext(
     free-text pass catches those; `plausible_match` keeps the loose query
     honest. `plausible_artists` widens ONLY the plausibility axis (multi-artist
     retry: the record may credit any collaborator), never the query."""
-    response = http.get("/api/search", params={"q": f"{artist} {title}"})
+    response = http.get(_SEARCH_PATH, params={"q": f"{artist} {title}"})
     response.raise_for_status()
     artists = plausible_artists or [artist]
     candidates = [

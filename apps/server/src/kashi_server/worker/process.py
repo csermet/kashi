@@ -69,6 +69,9 @@ from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient
 
 logger = logging.getLogger(__name__)
 
+# The aligner's input file in the job's tmp dir (mix or separated vocals).
+ALIGN_WAV = "align.wav"
+
 SECOND_PASS_QUALITY_GATE = 0.5
 # Wrong-song gate for DETECTED nightcore lyrics (field: "Come On Now" aligned
 # against "Come On Eileen" at anchor-agreement 0.54 and would have shown wrong
@@ -314,7 +317,7 @@ def _align_stage(
     language = detect_language(lyrics.full_text)
     # Windowing needs the lrclib stamps; the flag is the single rollout switch.
     anchors = lyrics.synced_starts_ms if settings.windowed_alignment else None
-    wav = align_wav or _decode(source_audio, tmp / "align.wav", rate=16000, tempo=tempo)
+    wav = align_wav or _decode(source_audio, tmp / ALIGN_WAV, rate=16000, tempo=tempo)
     if anchors is not None and lyrics.record_duration_s is not None:
         wav_s = _wav_duration_s(wav)
         if abs(wav_s - lyrics.record_duration_s) > ANCHOR_CLOCK_TOLERANCE_S:
@@ -606,7 +609,7 @@ def resolve_nightcore(
     # lyrics_not_found must not cost a 30-minute decode first (retro finding
     # — the explicit-r path decoded, then searched).
     lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
-    align_wav = _decode(source_audio, tmp / "align.wav", rate=16000, tempo=1.0 / speed_factor)
+    align_wav = _decode(source_audio, tmp / ALIGN_WAV, rate=16000, tempo=1.0 / speed_factor)
     if slow_duration_ok(_wav_duration_s(align_wav), download.duration_s, speed_factor):
         NIGHTCORE_JOBS.labels(nc_outcome).inc()
         return NightcorePlan(speed_factor, lyrics, align_wav, nc_outcome)
@@ -627,7 +630,7 @@ def resolve_nightcore(
         speed_factor,
     )
     NIGHTCORE_JOBS.labels("reverted").inc()
-    align_wav = _decode(source_audio, tmp / "align.wav", rate=16000)
+    align_wav = _decode(source_audio, tmp / ALIGN_WAV, rate=16000)
     return NightcorePlan(1.0, plain_lyrics or _plain_lyrics(job), align_wav, "reverted")
 
 
@@ -675,7 +678,7 @@ def _tag_fx(result, lyrics, sections=None):
             stats.guard_reinserted,
         )
         return selected
-    except Exception as exc:  # noqa: BLE001 - enrichment, never a job failure
+    except Exception as exc:  # noqa: BLE001  # enrichment, never a job failure
         logger.warning("fx tagging failed (%s) — document ships without fx", exc)
         return None
 
@@ -829,9 +832,13 @@ def process_job(s: Session, job: Job) -> None:
                     len(qa.flagged),
                     qa.offset_ms,
                 )
-            LINE_QA_DOCS.labels(
-                "degraded" if qa.degraded_to_line else ("snapped" if qa.flagged else "clean")
-            ).inc()
+            if qa.degraded_to_line:
+                qa_outcome = "degraded"
+            elif qa.flagged:
+                qa_outcome = "snapped"
+            else:
+                qa_outcome = "clean"
+            LINE_QA_DOCS.labels(qa_outcome).inc()
             if not qa.degraded_to_line:
                 LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
                 LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))

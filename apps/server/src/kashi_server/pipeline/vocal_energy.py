@@ -52,7 +52,7 @@ def measure_vocal_energy(wav_path: Path) -> VocalEnergy | None:
         import librosa
         import numpy as np
 
-        y, sr = librosa.load(str(wav_path), sr=SR, mono=True)
+        y, _ = librosa.load(str(wav_path), sr=SR, mono=True)
         rms = librosa.feature.rms(y=y, hop_length=HOP)[0]
         db = librosa.amplitude_to_db(rms, ref=np.max)
     except Exception:

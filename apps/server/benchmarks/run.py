@@ -437,7 +437,9 @@ def _case_reference(case: datasets.KashiCase) -> list[tuple[int | None, str]]:
     return entries
 
 
-def _run_cases(args, tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
+def _run_cases(args, _tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]:
+    # Same signature as _run_jamendo (dispatched alike); the case suite reports
+    # its own pass/fail and has no tolerance sweep.
     cases = datasets.load_cases(BENCH_DIR / "cases.yaml")
     rows: list[dict] = []
     for case in cases:
