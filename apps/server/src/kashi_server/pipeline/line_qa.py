@@ -21,6 +21,7 @@ unit-tested with synthetic data.
 import logging
 import re
 from bisect import bisect_left, bisect_right
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from statistics import median
 
@@ -243,6 +244,24 @@ def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
     """
     if result.sync != "word":
         return result, 0
+    med_char_ms = _median_char_ms(result)
+    if med_char_ms is None:
+        return result, 0
+    words_out = [list(chunk) for chunk in result.words_per_line]
+    trimmed = 0
+    for i, line in enumerate(result.lines):
+        if is_adlib(line.text) or i >= len(words_out):
+            continue
+        trimmed += _cap_word_ends(words_out[i], med_char_ms)
+    if not trimmed:
+        return result, 0
+    logger.info("line QA end trim: %d word end(s) capped (med %.0fms/char)", trimmed, med_char_ms)
+    return replace(result, words_per_line=words_out), trimmed
+
+
+def _median_char_ms(result: AlignResult) -> float | None:
+    """Document-wide median per-character word duration (ad-libs excluded), or
+    None when too few words carry a span to trust it."""
     speeds: list[float] = []
     for i, line in enumerate(result.lines):
         if is_adlib(line.text) or i >= len(result.words_per_line):
@@ -251,24 +270,20 @@ def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
             if w.text and w.end_ms > w.start_ms:
                 speeds.append((w.end_ms - w.start_ms) / len(w.text))
     if len(speeds) < TRIM_MIN_SAMPLE_WORDS:
-        return result, 0
-    med_char_ms = median(speeds)
-    words_out = [list(chunk) for chunk in result.words_per_line]
+        return None
+    return median(speeds)
+
+
+def _cap_word_ends(chunk: list[AlignedWord], med_char_ms: float) -> int:
+    """Cap the words of one line in place; returns how many ends moved."""
     trimmed = 0
-    for i, line in enumerate(result.lines):
-        if is_adlib(line.text) or i >= len(words_out):
-            continue
-        chunk = words_out[i]
-        for k, w in enumerate(chunk):
-            allowed = round(len(w.text) * med_char_ms * TRIM_SUSTAIN_FACTOR)
-            capped = w.start_ms + min(TRIM_MAX_HOLD_MS, max(TRIM_MIN_HOLD_MS, allowed))
-            if w.end_ms > capped:
-                chunk[k] = replace(w, end_ms=capped)
-                trimmed += 1
-    if not trimmed:
-        return result, 0
-    logger.info("line QA end trim: %d word end(s) capped (med %.0fms/char)", trimmed, med_char_ms)
-    return replace(result, words_per_line=words_out), trimmed
+    for k, w in enumerate(chunk):
+        allowed = round(len(w.text) * med_char_ms * TRIM_SUSTAIN_FACTOR)
+        capped = w.start_ms + min(TRIM_MAX_HOLD_MS, max(TRIM_MIN_HOLD_MS, allowed))
+        if w.end_ms > capped:
+            chunk[k] = replace(w, end_ms=capped)
+            trimmed += 1
+    return trimmed
 
 
 def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
@@ -293,29 +308,13 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
         words = words_out[i] if i < len(words_out) else []
         if len(words) < ADLIB_REDERIVE_MIN_WORDS or not is_adlib(line.text):
             continue
-        # Hold to the next line when the hole is hook-sized, not break-sized.
         next_start = result.lines[i + 1].start_ms if i + 1 < len(result.lines) else None
-        if next_start is not None:
-            gap = next_start - line.end_ms
-            if 0 < gap <= ADLIB_HOLD_MAX_GAP_MS:
-                held_end = next_start - ADLIB_HOLD_BREATH_MS
-                if held_end > line.end_ms:  # a gap under the breath changes nothing
-                    line = replace(line, end_ms=held_end)
-                    lines_out[i] = line
-        span = line.end_ms - line.start_ms
-        if span < ADLIB_REDERIVE_MIN_SPAN_MS:
+        line = _hold_to_next(line, next_start)
+        if line is not result.lines[i]:
+            lines_out[i] = line
+        rederived = _respread(words, line)
+        if rederived is None:
             continue
-        total_chars = sum(len(w.text) for w in words)
-        if total_chars <= 0:
-            continue
-        bounds = [line.start_ms]
-        cum = 0
-        for w in words:
-            cum += len(w.text)
-            bounds.append(line.start_ms + round(span * cum / total_chars))
-        rederived = [
-            replace(w, start_ms=bounds[k], end_ms=bounds[k + 1]) for k, w in enumerate(words)
-        ]
         if rederived != words:
             words_out[i] = rederived
         elif lines_out[i] is result.lines[i]:
@@ -325,12 +324,41 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
             "line QA adlib rederive: line %d %r words respread over %dms",
             i,
             line.text[:40],
-            span,
+            line.end_ms - line.start_ms,
         )
     if not changed:
         return result, []
     # Lines travel with their words: the hold moved line ends too.
     return replace(result, lines=lines_out, words_per_line=words_out), changed
+
+
+def _hold_to_next(line: LineTiming, next_start: int | None) -> LineTiming:
+    """Hold to the next line when the hole is hook-sized, not break-sized.
+    Returns ``line`` itself when nothing moves."""
+    if next_start is not None:
+        gap = next_start - line.end_ms
+        if 0 < gap <= ADLIB_HOLD_MAX_GAP_MS:
+            held_end = next_start - ADLIB_HOLD_BREATH_MS
+            if held_end > line.end_ms:  # a gap under the breath changes nothing
+                return replace(line, end_ms=held_end)
+    return line
+
+
+def _respread(words: list[AlignedWord], line: LineTiming) -> list[AlignedWord] | None:
+    """The words spread across the line's span by character weight, or None
+    when the span is too short or the words carry no characters."""
+    span = line.end_ms - line.start_ms
+    if span < ADLIB_REDERIVE_MIN_SPAN_MS:
+        return None
+    total_chars = sum(len(w.text) for w in words)
+    if total_chars <= 0:
+        return None
+    bounds = [line.start_ms]
+    cum = 0
+    for w in words:
+        cum += len(w.text)
+        bounds.append(line.start_ms + round(span * cum / total_chars))
+    return [replace(w, start_ms=bounds[k], end_ms=bounds[k + 1]) for k, w in enumerate(words)]
 
 
 def _level_at(frames: list[tuple[int, float]], t_ms: int) -> float | None:
@@ -359,40 +387,60 @@ def _voice_entry(frames: list[tuple[int, float]], t0: int) -> int | None:
     if level is None:
         return None
     i = bisect_left(frames, (t0, -1e9))
-
     if level >= RESPONSE_SILENCE_DB:
-        j = i
-        while (
-            j < len(frames)
-            and frames[j][0] <= t0 + RESPONSE_SCAN_MS
-            and frames[j][1] >= RESPONSE_SILENCE_DB
-        ):
-            j += 1
-        if j >= len(frames) or frames[j][0] > t0 + RESPONSE_SCAN_MS:
-            return None
-        k = j
-        while (
-            k < len(frames)
-            and frames[k][0] <= t0 + RESPONSE_SCAN_MS
-            and frames[k][1] < RESPONSE_SILENCE_DB
-        ):
-            k += 1
-        if k >= len(frames) or frames[k][0] > t0 + RESPONSE_SCAN_MS:
-            return None
-        if frames[k][0] - frames[j][0] < RESPONSE_MIN_GAP_MS:
-            return None  # a consonant, not a breath
-        return frames[k][0]
+        return _entry_after_call(frames, i, t0)
+    return _entry_before_gap(frames, i, t0)
 
-    # i can be len(frames): t0 inside the level window just past the last frame.
-    j = min(i, len(frames) - 1)
-    while j >= 0 and frames[j][0] >= t0 - RESPONSE_SCAN_MS and frames[j][1] < RESPONSE_SILENCE_DB:
+
+def _is_voiced(db: float) -> bool:
+    return db >= RESPONSE_SILENCE_DB
+
+
+def _is_silent(db: float) -> bool:
+    return db < RESPONSE_SILENCE_DB
+
+
+def _walk_forward(
+    frames: list[tuple[int, float]], j: int, limit: int, keep: Callable[[float], bool]
+) -> int:
+    """First index from ``j`` on that is past ``limit`` or fails ``keep``."""
+    while j < len(frames) and frames[j][0] <= limit and keep(frames[j][1]):
+        j += 1
+    return j
+
+
+def _walk_backward(
+    frames: list[tuple[int, float]], j: int, limit: int, keep: Callable[[float], bool]
+) -> int:
+    """First index from ``j`` down that is before ``limit`` or fails ``keep``."""
+    while j >= 0 and frames[j][0] >= limit and keep(frames[j][1]):
         j -= 1
-    if j < 0 or frames[j][0] < t0 - RESPONSE_SCAN_MS:
+    return j
+
+
+def _entry_after_call(frames: list[tuple[int, float]], i: int, t0: int) -> int | None:
+    """LOUD at t0: past the call's tail and its breath to the returning voice."""
+    limit = t0 + RESPONSE_SCAN_MS
+    j = _walk_forward(frames, i, limit, _is_voiced)
+    if j >= len(frames) or frames[j][0] > limit:
         return None
-    k = j
-    while k >= 0 and frames[k][0] >= t0 - RESPONSE_SCAN_MS and frames[k][1] >= RESPONSE_SILENCE_DB:
-        k -= 1
-    if k < 0 or frames[k][0] < t0 - RESPONSE_SCAN_MS:
+    k = _walk_forward(frames, j, limit, _is_silent)
+    if k >= len(frames) or frames[k][0] > limit:
+        return None
+    if frames[k][0] - frames[j][0] < RESPONSE_MIN_GAP_MS:
+        return None  # a consonant, not a breath
+    return frames[k][0]
+
+
+def _entry_before_gap(frames: list[tuple[int, float]], i: int, t0: int) -> int | None:
+    """SILENT at t0: back past the gap and the burst before it to its start."""
+    limit = t0 - RESPONSE_SCAN_MS
+    # i can be len(frames): t0 inside the level window just past the last frame.
+    j = _walk_backward(frames, min(i, len(frames) - 1), limit, _is_silent)
+    if j < 0 or frames[j][0] < limit:
+        return None
+    k = _walk_backward(frames, j, limit, _is_voiced)
+    if k < 0 or frames[k][0] < limit:
         return None
     return frames[k + 1][0]
 
@@ -427,30 +475,12 @@ def shift_call_response(
 
     for i, line in enumerate(result.lines):
         words = words_out[i] if i < len(words_out) else []
-        if len(words) < 2 or is_adlib(line.text):
+        k = _response_index(words, line.text)
+        if k is None:
             continue
-        opens = [k for k, w in enumerate(words) if "(" in w.text]
-        # k >= 1: a line that OPENS with "(" is a whole-line backing vocal, not
-        # a call and its answer — there is no call tail for it to be stuck on.
-        if not opens or opens[0] < 1:
-            continue
-        k = opens[0]
-        if not any(")" in w.text for w in words[k:]):
-            continue  # unbalanced parens are lyric-typo territory
-
-        t0 = words[k].start_ms
-        entry = _voice_entry(frames, t0)
-        if entry is None:
-            continue
-        delta = entry - t0
-        if delta == 0 or abs(delta) > RESPONSE_MAX_SHIFT_MS:
-            continue
-        # The call must still finish before its answer starts.
-        if t0 + delta < words[k - 1].end_ms:
-            continue
-        # ...and the answer must still finish before the next line begins.
         next_start = result.lines[i + 1].start_ms if i + 1 < len(result.lines) else None
-        if next_start is not None and words[-1].end_ms + delta > next_start - RESPONSE_BREATH_MS:
+        delta = _response_delta(frames, words, k, next_start)
+        if delta is None:
             continue
 
         block = [
@@ -471,6 +501,42 @@ def shift_call_response(
     if not changed:
         return result, []
     return replace(result, lines=lines_out, words_per_line=words_out), changed
+
+
+def _response_index(words: list[AlignedWord], text: str) -> int | None:
+    """Index of the word that opens the parenthetical answer, or None when
+    the line has no call-and-response shape."""
+    if len(words) < 2 or is_adlib(text):
+        return None
+    opens = [k for k, w in enumerate(words) if "(" in w.text]
+    # k >= 1: a line that OPENS with "(" is a whole-line backing vocal, not
+    # a call and its answer — there is no call tail for it to be stuck on.
+    if not opens or opens[0] < 1:
+        return None
+    k = opens[0]
+    if not any(")" in w.text for w in words[k:]):
+        return None  # unbalanced parens are lyric-typo territory
+    return k
+
+
+def _response_delta(
+    frames: list[tuple[int, float]], words: list[AlignedWord], k: int, next_start: int | None
+) -> int | None:
+    """How far the answer moves onto the voice that sings it, or None to refuse."""
+    t0 = words[k].start_ms
+    entry = _voice_entry(frames, t0)
+    if entry is None:
+        return None
+    delta = entry - t0
+    if delta == 0 or abs(delta) > RESPONSE_MAX_SHIFT_MS:
+        return None
+    # The call must still finish before its answer starts.
+    if t0 + delta < words[k - 1].end_ms:
+        return None
+    # ...and the answer must still finish before the next line begins.
+    if next_start is not None and words[-1].end_ms + delta > next_start - RESPONSE_BREATH_MS:
+        return None
+    return delta
 
 
 def _match_references(
