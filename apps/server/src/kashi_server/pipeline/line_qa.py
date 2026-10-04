@@ -24,7 +24,12 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field, replace
 from statistics import median
 
-from kashi_server.pipeline.alignment import AlignResult, LineTiming, quality_from_probs
+from kashi_server.pipeline.alignment import (
+    AlignedWord,
+    AlignResult,
+    LineTiming,
+    quality_from_probs,
+)
 from kashi_server.pipeline.arbiter import (
     MIN_WORDS_FOR_EVIDENCE,
     better_supported_position,
@@ -712,6 +717,49 @@ def _finish_unreferenced(result: AlignResult, energy: VocalEnergy | None) -> Lin
     )
 
 
+def _nudge_delta(
+    result: AlignResult,
+    i: int,
+    ref: int | None,
+    flagged: set[int],
+    offset_ms: int,
+    onset_ms: list[int],
+) -> int | None:
+    """The sub-threshold drift line ``i`` should lose, or None when the audio
+    does not back its anchor over the aligner (or it is not in the band)."""
+    if ref is None or i in flagged:
+        return None
+    delta = (ref + offset_ms) - result.lines[i].start_ms
+    if not (SUBTHRESHOLD_DRIFT_MS <= abs(delta) <= DRIFT_THRESHOLD_MS):
+        return None
+    words = result.words_per_line[i] if i < len(result.words_per_line) else []
+    if len(words) < MIN_WORDS_FOR_EVIDENCE or not better_supported_position(words, delta, onset_ms):
+        return None
+    return delta
+
+
+def _nudge_fits(
+    i: int,
+    words: list[AlignedWord],
+    delta: int,
+    lines: list[LineTiming],
+    words_per_line: list[list[AlignedWord]],
+) -> bool:
+    # The neighbours bound the move, exactly as they bound the response
+    # shift — and onsets cannot be trusted to: one fires every ~344 ms,
+    # so the previous line's OWN sung words count as "support" for a
+    # line moved on top of them. Landing there interleaves word starts
+    # across two lines (2026-10 review). Refuse, never clamp.
+    if i > 0:
+        prev_words = words_per_line[i - 1] if i - 1 < len(words_per_line) else []
+        prev_end = max(w.end_ms for w in prev_words) if prev_words else lines[i - 1].end_ms
+        if words[0].start_ms + delta < prev_end:
+            return False
+    return not (
+        i + 1 < len(lines) and words[-1].end_ms + delta > lines[i + 1].start_ms - RESPONSE_BREATH_MS
+    )
+
+
 def _nudge_subthreshold_drift(
     result: AlignResult,
     refs: list[int | None],
@@ -720,54 +768,35 @@ def _nudge_subthreshold_drift(
     onset_ms: list[int] | None,
 ) -> tuple[AlignResult, list[int]]:
     nudged: list[int] = []
-    if onset_ms:
-        nudge_lines = list(result.lines)
-        nudge_words = [list(chunk) for chunk in result.words_per_line]
-        for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True)):
-            if ref is None or i in set(flagged):
-                continue
-            delta = (ref + offset_ms) - line.start_ms
-            if not (SUBTHRESHOLD_DRIFT_MS <= abs(delta) <= DRIFT_THRESHOLD_MS):
-                continue
-            words = result.words_per_line[i] if i < len(result.words_per_line) else []
-            if len(words) < MIN_WORDS_FOR_EVIDENCE or not better_supported_position(
-                words, delta, onset_ms
-            ):
-                continue
-            # The neighbours bound the move, exactly as they bound the response
-            # shift — and onsets cannot be trusted to: one fires every ~344 ms,
-            # so the previous line's OWN sung words count as "support" for a
-            # line moved on top of them. Landing there interleaves word starts
-            # across two lines (2026-10 review). Refuse, never clamp.
-            if i > 0:
-                prev_words = nudge_words[i - 1] if i - 1 < len(nudge_words) else []
-                prev_end = (
-                    max(w.end_ms for w in prev_words) if prev_words else nudge_lines[i - 1].end_ms
-                )
-                if words[0].start_ms + delta < prev_end:
-                    continue
-            if (
-                i + 1 < len(nudge_lines)
-                and words[-1].end_ms + delta > nudge_lines[i + 1].start_ms - RESPONSE_BREATH_MS
-            ):
-                continue
-            # Block shift: line and words move together, exactly as the flagged
-            # rescue path does, so the two never end up on different clocks.
-            nudge_lines[i] = replace(
-                line, start_ms=max(0, line.start_ms + delta), end_ms=max(0, line.end_ms + delta)
-            )
-            nudge_words[i] = [
-                replace(w, start_ms=max(0, w.start_ms + delta), end_ms=max(0, w.end_ms + delta))
-                for w in words
-            ]
-            nudged.append(i)
-        if nudged:
-            result = replace(result, lines=nudge_lines, words_per_line=nudge_words)
-            logger.info(
-                "line QA nudge: %d line(s) moved onto their anchor — the audio "
-                "backs the anchor's position over the aligner's",
-                len(nudged),
-            )
+    if not onset_ms:
+        return result, nudged
+    flagged_set = set(flagged)
+    nudge_lines = list(result.lines)
+    nudge_words = [list(chunk) for chunk in result.words_per_line]
+    for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True)):
+        delta = _nudge_delta(result, i, ref, flagged_set, offset_ms, onset_ms)
+        if delta is None:
+            continue
+        words = result.words_per_line[i] if i < len(result.words_per_line) else []
+        if not _nudge_fits(i, words, delta, nudge_lines, nudge_words):
+            continue
+        # Block shift: line and words move together, exactly as the flagged
+        # rescue path does, so the two never end up on different clocks.
+        nudge_lines[i] = replace(
+            line, start_ms=max(0, line.start_ms + delta), end_ms=max(0, line.end_ms + delta)
+        )
+        nudge_words[i] = [
+            replace(w, start_ms=max(0, w.start_ms + delta), end_ms=max(0, w.end_ms + delta))
+            for w in words
+        ]
+        nudged.append(i)
+    if nudged:
+        result = replace(result, lines=nudge_lines, words_per_line=nudge_words)
+        logger.info(
+            "line QA nudge: %d line(s) moved onto their anchor — the audio "
+            "backs the anchor's position over the aligner's",
+            len(nudged),
+        )
     return result, nudged
 
 
