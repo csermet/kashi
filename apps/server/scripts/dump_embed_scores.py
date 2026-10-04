@@ -52,37 +52,47 @@ def main() -> int:
         if not texts:
             continue
         language = detect_language(" ".join(texts))
-        candidates: list[tuple[int, str]] = []
-        for index, line_text in enumerate(texts):
-            tokens = _tokens(line_text)
-            if not tokens:
-                continue
-            # Production sends a line to the embedder only when NO word in it
-            # got a keyword tag (tag_words tracks lines_with_hits).
-            if any(_keyword_category(token, lexicon) for token in tokens):
-                continue
-            candidates.append((index, line_text))
+        candidates = _embedding_candidates(texts, lexicon)
         if not candidates:
             continue
-        # classify() applies the threshold; for calibration we need raw
-        # scores — use threshold 0 and read the winner + cosine per line.
-        # (classify returns tags only, so recompute the sims the same way.)
-        import numpy as np
-
-        vecs = embedder._model.encode(  # noqa: SLF001 — calibration tool
-            # Mirror classify() exactly: normalized text, "query: " prefix.
-            [f"query: {normalize(t)}" for _, t in candidates],
-            normalize_embeddings=True,
-        )
-        sims = np.asarray(vecs) @ embedder._centroids.T  # noqa: SLF001
-        for (index, line_text), row in zip(candidates, sims, strict=True):
-            best = int(np.argmax(row))
-            clean = line_text.replace("\t", " ").replace("\n", " ")
-            print(
-                f"{source_id}\t{language}\t{index}\t"
-                f"{embedder._ids[best]}\t{float(row[best]):.4f}\t{clean}"  # noqa: SLF001
-            )
+        _print_scores(source_id, language, candidates, embedder)
     return 0
+
+
+def _embedding_candidates(texts: list[str], lexicon) -> list[tuple[int, str]]:
+    """The lines production would hand to the embedder."""
+    candidates: list[tuple[int, str]] = []
+    for index, line_text in enumerate(texts):
+        tokens = _tokens(line_text)
+        if not tokens:
+            continue
+        # Production sends a line to the embedder only when NO word in it
+        # got a keyword tag (tag_words tracks lines_with_hits).
+        if any(_keyword_category(token, lexicon) for token in tokens):
+            continue
+        candidates.append((index, line_text))
+    return candidates
+
+
+def _print_scores(source_id, language: str, candidates: list[tuple[int, str]], embedder) -> None:
+    # classify() applies the threshold; for calibration we need raw
+    # scores — use threshold 0 and read the winner + cosine per line.
+    # (classify returns tags only, so recompute the sims the same way.)
+    import numpy as np
+
+    vecs = embedder._model.encode(  # noqa: SLF001 — calibration tool
+        # Mirror classify() exactly: normalized text, "query: " prefix.
+        [f"query: {normalize(t)}" for _, t in candidates],
+        normalize_embeddings=True,
+    )
+    sims = np.asarray(vecs) @ embedder._centroids.T  # noqa: SLF001
+    for (index, line_text), row in zip(candidates, sims, strict=True):
+        best = int(np.argmax(row))
+        clean = line_text.replace("\t", " ").replace("\n", " ")
+        print(
+            f"{source_id}\t{language}\t{index}\t"
+            f"{embedder._ids[best]}\t{float(row[best]):.4f}\t{clean}"  # noqa: SLF001
+        )
 
 
 if __name__ == "__main__":
