@@ -102,7 +102,9 @@ def test_reused_flag_distinguishes_fresh_from_existing(client, user_key):
         "hints": {"title": "Reused", "artist": "Flag"},
     }
     first = client.post("/v1/ingest", json=body, headers=_auth(user_key))
-    assert first.status_code == 202 and first.json()["reused"] is False
+    assert first.status_code == 202
+    assert first.json()["reused"] is False
     second = client.post("/v1/ingest", json=body, headers=_auth(user_key))
-    assert second.status_code == 202 and second.json()["reused"] is True
+    assert second.status_code == 202
+    assert second.json()["reused"] is True
     assert second.json()["job_id"] == first.json()["job_id"]

@@ -96,7 +96,8 @@ def test_happy_path_completes_and_cleans_tmp(db_session, job, scratch, monkeypat
     from kashi_server.db.models import ProcessedTrack
 
     row = db_session.scalars(select(ProcessedTrack)).one()
-    assert row.source_id == "workerVid01" and row.sync == "word"
+    assert row.source_id == "workerVid01"
+    assert row.sync == "word"
     assert row.document["track"]["duration_ms"] == 200_000
 
 
@@ -120,7 +121,8 @@ def test_permanent_failure_fails_once(db_session, job, scratch, monkeypatch):
     )
     wp.process_job(db_session, job)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "copyright"
+    assert job.status == "failed"
+    assert job.error_type == "copyright"
     assert list(scratch.glob("job-*")) == []
 
 
@@ -134,7 +136,8 @@ def test_transient_exhaustion_becomes_failed(db_session, job, scratch, monkeypat
     db_session.flush()
     wp.process_job(db_session, job)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "network"
+    assert job.status == "failed"
+    assert job.error_type == "network"
 
 
 def test_unexpected_crash_maps_to_other_and_cleans(db_session, job, scratch, monkeypatch):
@@ -145,7 +148,8 @@ def test_unexpected_crash_maps_to_other_and_cleans(db_session, job, scratch, mon
     db_session.flush()
     wp.process_job(db_session, job)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "other"
+    assert job.status == "failed"
+    assert job.error_type == "other"
     assert list(scratch.glob("job-*")) == []
 
 
@@ -219,7 +223,8 @@ def test_line_qa_snaps_drifted_line_in_persisted_document(db_session, job, scrat
     assert doc["sync"] == "word"
     assert doc["lines"][3]["start_ms"] == 46_000
     assert "words" not in doc["lines"][3]  # dropped by QA
-    assert doc["lines"][0]["words"] and doc["lines"][2]["words"]  # healthy neighbours keep karaoke
+    assert doc["lines"][0]["words"]
+    assert doc["lines"][2]["words"]  # healthy neighbours keep karaoke
 
 
 def _align_result(quality: float) -> AlignResult:
@@ -264,7 +269,8 @@ def test_second_pass_runs_on_low_quality_and_keeps_the_better_result(
     db_session.refresh(job)
     assert job.status == "completed"
     assert len(separated) == 1
-    assert "separating" in statuses and "aligning" in statuses
+    assert "separating" in statuses
+    assert "aligning" in statuses
 
     from sqlalchemy import select
 
@@ -333,7 +339,8 @@ def test_sweep_orphans_removes_stale_dirs_only(tmp_path):
     fresh.mkdir()
 
     assert sweep_orphans(tmp_path) == 1
-    assert not old.exists() and fresh.exists()
+    assert not old.exists()
+    assert fresh.exists()
 
 
 def test_always_mode_separates_first_and_keeps_beats_on_the_full_mix(
@@ -496,7 +503,8 @@ def test_nightcore_detected_job_rescales_onto_the_played_clock(
     doc = db_session.scalars(select(ProcessedTrack)).one().document
     assert doc["alignment"]["speed_factor"] == 1.2
     assert doc["alignment"]["lyrics_source_id"] == 99
-    assert doc["lines"][0]["start_ms"] == 1000 and doc["lines"][0]["end_ms"] == 2000
+    assert doc["lines"][0]["start_ms"] == 1000
+    assert doc["lines"][0]["end_ms"] == 2000
     assert doc["lines"][0]["words"][0]["end_ms"] == 1500
 
 
@@ -581,7 +589,8 @@ def test_nightcore_wrong_song_gate_fails_honest(db_session, scratch, monkeypatch
     monkeypatch.setattr(wp, "_align_stage", garbage_align)
     wp.process_job(db_session, job)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "lyrics_not_found"
+    assert job.status == "failed"
+    assert job.error_type == "lyrics_not_found"
 
     from sqlalchemy import select
 
@@ -783,7 +792,8 @@ def test_explicit_r_sanity_miss_fails_honest(db_session, scratch, monkeypatch):
 
     wp.process_job(db_session, job)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "alignment_failed"
+    assert job.status == "failed"
+    assert job.error_type == "alignment_failed"
 
     from sqlalchemy import select
 
@@ -814,7 +824,8 @@ def test_nightcore_lyrics_resolve_before_the_stretch(db_session, scratch, monkey
 
     wp.process_job(db_session, job)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "lyrics_not_found"
+    assert job.status == "failed"
+    assert job.error_type == "lyrics_not_found"
 
 
 def test_lyricsfile_fast_path_skips_ctc_and_separation(db_session, job, scratch, monkeypatch):
@@ -1024,7 +1035,8 @@ def test_impossible_duration_hint_never_reaches_lrclib(db_session, scratch, monk
     claimed = queue.claim_next(db_session)
     assert claimed is not None
     wp.process_job(db_session, claimed)
-    assert seen and "duration_ms" not in seen[0]
+    assert seen
+    assert "duration_ms" not in seen[0]
 
 
 def test_plausible_hints_still_reach_lrclib(db_session, scratch, monkeypatch):
@@ -1053,7 +1065,8 @@ def test_plausible_hints_still_reach_lrclib(db_session, scratch, monkeypatch):
     claimed = queue.claim_next(db_session)
     assert claimed is not None
     wp.process_job(db_session, claimed)
-    assert seen and seen[0]["duration_ms"] == 200_000
+    assert seen
+    assert seen[0]["duration_ms"] == 200_000
 
 
 def test_credible_duration_hint_rejects_junk():

@@ -103,4 +103,5 @@ def test_oversized_body_is_cut_off_mid_stream(monkeypatch):
 def test_default_palette_is_schema_shaped():
     assert DEFAULT_PALETTE["source"] == "default"
     for key in ("primary", "secondary", "background", "text", "accent"):
-        assert DEFAULT_PALETTE[key].startswith("#") and len(DEFAULT_PALETTE[key]) == 7
+        assert DEFAULT_PALETTE[key].startswith("#")
+        assert len(DEFAULT_PALETTE[key]) == 7

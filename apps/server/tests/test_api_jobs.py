@@ -19,7 +19,8 @@ def test_get_own_job(client, user_key):
     resp = client.get(f"/v1/jobs/{job_id}", headers=_auth(user_key))
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "queued" and body["result_url"] is None
+    assert body["status"] == "queued"
+    assert body["result_url"] is None
 
 
 def test_foreign_job_status_is_readable_but_not_cancelable(client, user_key):

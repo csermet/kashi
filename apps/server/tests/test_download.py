@@ -68,7 +68,9 @@ def test_happy_path(tmp_path):
     result = download_audio(
         "vid", tmp_path, max_duration_s=1200, ydl_factory=_factory(info=_info(tmp_path))
     )
-    assert result.path.exists() and result.abr == 250 and result.acodec == "opus"
+    assert result.path.exists()
+    assert result.abr == 250
+    assert result.acodec == "opus"
     # The PROBED duration of the actual file wins over yt-dlp's integer 200
     # (the wav really is 6 s): the nightcore sanity gate needs the real one.
     assert result.duration_s == pytest.approx(6.0, abs=0.05)

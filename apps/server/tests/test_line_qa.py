@@ -122,7 +122,8 @@ def test_line_sync_input_with_synced_reference_moves_to_lrclib_times():
 def test_no_reference_only_clamps_monotonicity():
     specs = [(5000, "one a"), (1000, "two b"), (9000, "three c")]
     outcome = apply_line_qa(_result(specs), [s[1] for s in specs], None)
-    assert outcome.flagged == [] and outcome.offset_ms == 0
+    assert outcome.flagged == []
+    assert outcome.offset_ms == 0
     starts = [line.start_ms for line in outcome.result.lines]
     assert starts == sorted(starts)  # backwards start clamped forward
     assert outcome.result.words_per_line[1]  # nothing dropped
@@ -267,7 +268,8 @@ def test_zero_score_neighbour_of_flagged_line_loses_words():
     assert outcome.flagged == [3]
     assert outcome.density_dropped == [2]
     assert outcome.result.words_per_line[2] == []  # border case dropped
-    assert outcome.result.words_per_line[0] and outcome.result.words_per_line[1]
+    assert outcome.result.words_per_line[0]
+    assert outcome.result.words_per_line[1]
     assert outcome.result.lines[2].start_ms == 7000  # timing kept (sub-threshold)
 
 
@@ -320,7 +322,8 @@ def test_gate_never_runs_without_flags():
     ]
     refs = [1000, 5000, 9000]
     outcome = apply_line_qa(_custom_result(entries), [e[1] for e in entries], refs)
-    assert outcome.flagged == [] and outcome.density_dropped == []
+    assert outcome.flagged == []
+    assert outcome.density_dropped == []
     assert outcome.result.words_per_line[2]
 
 
@@ -461,8 +464,10 @@ def test_adlib_line_block_shifts_onto_its_anchor():
     # (Faz 4 rederive): "oh" (2 chars) then "whoa" (4 chars) over 1600 ms.
     assert outcome.adlib_rederived == [1]
     ws = outcome.result.words_per_line[1]
-    assert ws[0].start_ms == 10_000 and ws[0].end_ms == 10_533
-    assert ws[1].start_ms == 10_533 and ws[1].end_ms == 11_600  # covers the span
+    assert ws[0].start_ms == 10_000
+    assert ws[0].end_ms == 10_533
+    assert ws[1].start_ms == 10_533
+    assert ws[1].end_ms == 11_600  # covers the span
     assert outcome.result.quality_score == 1.0  # corrected, not damaged
 
 
@@ -522,8 +527,10 @@ def test_adlib_rederive_spreads_words_by_char_length_on_the_clean_path():
     assert outcome.adlib_rederived == [1]
     ws = outcome.result.words_per_line[1]
     # "Oh-ooh," = 7 chars, "whoa-oh" = 7 chars -> even split of the 2 s span.
-    assert ws[0].start_ms == 10_000 and ws[0].end_ms == 11_000
-    assert ws[1].start_ms == 11_000 and ws[1].end_ms == 12_000
+    assert ws[0].start_ms == 10_000
+    assert ws[0].end_ms == 11_000
+    assert ws[1].start_ms == 11_000
+    assert ws[1].end_ms == 12_000
     assert ws[0].prob == 0.9  # probs preserved — quality math untouched
     # Lexical neighbours keep their CTC word timings.
     assert outcome.result.words_per_line[0][0].end_ms == 3_000

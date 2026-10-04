@@ -84,7 +84,8 @@ def test_completed_track_gets_a_fresh_job_with_inherited_hints(client, user_key,
     from kashi_server.db.models import Job
 
     fresh = db_session.get(Job, uuid.UUID(forced.json()["job_id"]))
-    assert fresh.hints["title"] == "T" and fresh.hints["artist"] == "A"
+    assert fresh.hints["title"] == "T"
+    assert fresh.hints["artist"] == "A"
 
 
 def test_reprocess_carries_the_ingest_escape_hatches(client, db_session):

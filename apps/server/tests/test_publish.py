@@ -119,7 +119,8 @@ def test_generate_lyricsfile_round_trips_and_hides_derived_words():
     ]
     # …while rederived (synthetic) spans are published as a wordless line.
     assert result.words_per_line[1] == []
-    assert "Ooh ooh" in yaml_text and "words_derived" not in yaml_text
+    assert "Ooh ooh" in yaml_text
+    assert "words_derived" not in yaml_text
     # Trailing-space rule: every word but the line's last carries one.
     assert '"Hello "' in yaml_text or "Hello ''" in yaml_text or "'Hello '" in yaml_text
 
@@ -156,7 +157,8 @@ def test_publish_document_sends_token_and_body():
     ) as client:
         publish_document(_doc(), base_url="https://lrclib.test", client=client)
     assert seen["token"] == "abc:0"
-    assert seen["body"]["trackName"] == "Song" and seen["body"]["duration"] == 200
+    assert seen["body"]["trackName"] == "Song"
+    assert seen["body"]["duration"] == 200
     assert seen["body"]["lyricsfile"].startswith("version:")
     assert "[00:01.00] Hello wide world" in seen["body"]["syncedLyrics"]
 
@@ -218,7 +220,8 @@ def test_publish_request_endpoint_gates_and_dedupes(client, user_key, db_session
     _persist_doc(db_session, _doc())
     db_session.commit()
     first = client.post("/v1/publish-requests", json=body, headers=_auth(user_key))
-    assert first.status_code == 202 and first.json()["status"] == "queued"
+    assert first.status_code == 202
+    assert first.json()["status"] == "queued"
     again = client.post("/v1/publish-requests", json=body, headers=_auth(user_key))
     assert again.json()["id"] == first.json()["id"]  # (source, etag) dedup
 
@@ -233,7 +236,8 @@ def test_publish_request_endpoint_gates_and_dedupes(client, user_key, db_session
         json={"source": {"type": "youtube", "id": "pubTestNC01"}},
         headers=_auth(user_key),
     )
-    assert resp.status_code == 422 and "nightcore" in resp.json()["detail"]
+    assert resp.status_code == 422
+    assert "nightcore" in resp.json()["detail"]
 
 
 def test_worker_dry_run_marks_and_logs_without_publishing(db_session, monkeypatch, caplog):
@@ -255,7 +259,8 @@ def test_worker_dry_run_marks_and_logs_without_publishing(db_session, monkeypatc
     monkeypatch.setattr("kashi_server.worker.publisher.publish_document", explode)
     assert process_one_publish(db_session) is True
     row = db_session.scalars(select(LrclibPublish)).one()
-    assert row.status == "dry_run" and row.finished_at is not None
+    assert row.status == "dry_run"
+    assert row.finished_at is not None
     assert process_one_publish(db_session) is False  # queue drained
 
 
@@ -273,7 +278,8 @@ def test_worker_fails_when_document_moved_on(db_session, monkeypatch):
     db_session.flush()
     assert process_one_publish(db_session) is True
     row = db_session.scalars(select(LrclibPublish)).one()
-    assert row.status == "failed" and "changed or vanished" in (row.error or "")
+    assert row.status == "failed"
+    assert "changed or vanished" in (row.error or "")
 
 
 def test_gate_codes_cover_every_rule():

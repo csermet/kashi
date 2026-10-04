@@ -69,7 +69,8 @@ def test_line_report_median_correction_absorbs_systematic_offset():
     report = line_start_report(hyp, ref, threshold_ms=500)
     assert report.offset_ms == 1000.0
     assert report.failures == 0
-    assert report.stats is not None and report.stats.mae_ms == 0.0
+    assert report.stats is not None
+    assert report.stats.mae_ms == 0.0
 
 
 def test_line_report_without_correction_keeps_absolute_errors():
@@ -78,7 +79,8 @@ def test_line_report_without_correction_keeps_absolute_errors():
     report = line_start_report(hyp, ref, threshold_ms=500, median_correction=False)
     assert report.offset_ms == 0.0
     assert report.failures == 3
-    assert report.stats is not None and report.stats.mae_ms == pytest.approx(1000.0)
+    assert report.stats is not None
+    assert report.stats.mae_ms == pytest.approx(1000.0)
 
 
 def test_line_report_window_limits_failures():

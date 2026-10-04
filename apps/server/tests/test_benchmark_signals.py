@@ -76,4 +76,5 @@ def test_empty_input_reports_worst_case_rather_than_crashing():
     sweep has to keep going."""
     assert probability_signals([])["prob_frac_below_01"] == 1.0
     empty = plausibility_signals([], 1000)
-    assert empty["overlap_frac"] == 1.0 and empty["silence_frac"] == 1.0
+    assert empty["overlap_frac"] == 1.0
+    assert empty["silence_frac"] == 1.0

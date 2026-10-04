@@ -34,7 +34,8 @@ def test_admin_key_lifecycle(client):
     )
     assert created.status_code == 201
     body = created.json()
-    assert body["key"].startswith("ksh_") and body["role"] == "user"
+    assert body["key"].startswith("ksh_")
+    assert body["role"] == "user"
     listed = client.get("/v1/admin/keys", headers=_auth(TEST_ADMIN_KEY)).json()
     assert all("key" not in item for item in listed)  # plaintext never listed
     assert {item["name"] for item in listed} >= {"bootstrap-admin", "n1"}

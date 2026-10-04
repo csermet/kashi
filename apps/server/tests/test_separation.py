@@ -69,7 +69,8 @@ def test_separate_defaults_come_from_settings(tmp_path, monkeypatch):
     assert record["init"]["output_single_stem"] == "Vocals"
     # mixback > 0 -> the mixback file wins over the raw stem
     assert out == tmp_path / "separated" / "vocals-mixback.wav"
-    assert out.exists() and out.stat().st_size > 44  # more than a wav header
+    assert out.exists()
+    assert out.stat().st_size > 44  # more than a wav header
 
 
 def test_separate_honours_benchmark_overrides(tmp_path, monkeypatch):

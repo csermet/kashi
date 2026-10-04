@@ -598,7 +598,8 @@ def test_the_affordable_class_fires_whole_when_both_cannot_fit():
     assert (big_alive, small_alive) == (0, 6), (
         f"whole classes only: big={big_alive}/11 small={small_alive}/6"
     )
-    assert result.stats.classes_kept == 1 and result.stats.classes_dropped == 1
+    assert result.stats.classes_kept == 1
+    assert result.stats.classes_dropped == 1
     # The dead class's budget is not left on the table.
     singles_alive = len({t.line for t in result.words if t.line >= 17})
     assert singles_alive > math.ceil(result.stats.song_cap * NON_CLASS_RESERVE), (
@@ -855,9 +856,8 @@ def test_first_fit_lets_small_classes_in_when_the_giant_does_not_fit():
         result, {"giant": range(0, 15), "mid": range(15, 19), "small": range(19, 22)}
     )
     assert fired["giant"] == 0, "the giant cannot be afforded"
-    assert fired["mid"] == 4 and fired["small"] == 3, (
-        f"smaller classes must still get in: {fired}"
-    )
+    assert fired["mid"] == 4, f"smaller classes must still get in: {fired}"
+    assert fired["small"] == 3, f"smaller classes must still get in: {fired}"
 
 
 def test_the_rescue_never_resurrects_a_killed_class():
@@ -941,9 +941,8 @@ def test_a_stronger_class_wins_the_budget_when_only_one_fits():
 
     result = select_fx_words(cands, song, sections)
     fired = _fired_per_class(result, {"plain": range(0, 6), "ranked": range(6, 12)})
-    assert fired["ranked"] == 6 and fired["plain"] == 0, (
-        f"the ranked class should take the budget: {fired}"
-    )
+    assert fired["ranked"] == 6, f"the ranked class should take the budget: {fired}"
+    assert fired["plain"] == 0, f"the ranked class should take the budget: {fired}"
 
 
 def test_packing_is_deterministic_under_input_permutation():

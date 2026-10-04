@@ -235,7 +235,8 @@ def test_shift_moves_whole_spans_and_keeps_durations():
     assert (word.start_ms, word.end_ms) == (920, 1720)
     # Duration is preserved: the model did not mishear the word's LENGTH.
     assert word.end_ms - word.start_ms == 800
-    assert word.text == "gel" and word.prob == 0.9
+    assert word.text == "gel"
+    assert word.prob == 0.9
 
 
 def test_shift_of_zero_changes_nothing():

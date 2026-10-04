@@ -136,7 +136,8 @@ def test_output_is_deterministic():
     line = "宇宙を駆ける"
     first = to_alignment_units(line)
     assert first == to_alignment_units(line)
-    assert first is not None and len(first) > 1
+    assert first is not None
+    assert len(first) > 1
 
 
 def test_script_test_is_cheap_and_correct():

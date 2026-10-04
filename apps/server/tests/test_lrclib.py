@@ -47,7 +47,8 @@ def test_exact_hit_strips_timestamps():
     assert calls == ["/api/get"]  # search never touched
     assert lyrics.line_texts == ["Meet me at the hotel room", "Forget about it"]
     assert lyrics.full_text == "Meet me at the hotel room Forget about it"
-    assert lyrics.had_synced and lyrics.source_id == 42
+    assert lyrics.had_synced
+    assert lyrics.source_id == 42
 
 
 def test_synced_starts_are_kept_parallel_to_lines():
@@ -79,7 +80,8 @@ def test_plain_lyrics_have_no_synced_starts():
 
     lyrics = _fetch(handler)
     assert lyrics.line_texts == ["one", "two"]
-    assert lyrics.synced_starts_ms is None and not lyrics.had_synced
+    assert lyrics.synced_starts_ms is None
+    assert not lyrics.had_synced
 
 
 def test_user_agent_identifies_the_project():
@@ -100,7 +102,8 @@ def test_exact_404_falls_through_to_search_with_duration_tolerance():
         )
 
     lyrics = _fetch(handler)
-    assert lyrics.source_id == 2 and lyrics.line_texts == ["close enough"]
+    assert lyrics.source_id == 2
+    assert lyrics.line_texts == ["close enough"]
     assert not lyrics.had_synced
 
 
@@ -191,7 +194,8 @@ def test_structured_hit_never_reaches_freetext():
         return httpx.Response(200, json=[{"id": 5, "plainLyrics": "ok", "duration": 234}])
 
     assert _fetch(handler).source_id == 5
-    assert len(searches) == 1 and "q" not in searches[0]
+    assert len(searches) == 1
+    assert "q" not in searches[0]
 
 
 def test_freetext_plausibility_guard_rejects_unrelated_record():
@@ -390,7 +394,8 @@ def test_multi_artist_hint_retries_with_the_primary_artist():
 
     hints = {"title": "Drift Barbie", "artist": "blueberry ve PiNKII", "duration_ms": 180_000}
     lyrics = _fetch(handler, hints)
-    assert lyrics.source_id == 18141280 and lyrics.had_synced
+    assert lyrics.source_id == 18141280
+    assert lyrics.had_synced
     # Request budget: get, search(full), q(full), search(primary) — 4 calls.
     assert len(calls) == 4
 
@@ -492,18 +497,21 @@ def test_choose_record_prefers_parsed_synced_within_the_duration_band():
     }
     junk_synced = {"id": 3, "syncedLyrics": "\n\n", "plainLyrics": "junk", "duration": 234}
     picked = choose_record([plain_close, synced_far, junk_synced], duration_s=234)
-    assert picked is not None and picked["id"] == 2  # parsed-synced outranks distance
+    assert picked is not None
+    assert picked["id"] == 2  # parsed-synced outranks distance
     # Junk syncedLyrics must not be treated as synced: with the real synced
     # record gone, the closest PLAIN record wins over truthy junk.
     picked = choose_record([plain_close, junk_synced], duration_s=234)
-    assert picked is not None and picked["id"] == 1
+    assert picked is not None
+    assert picked["id"] == 1
 
     # Out-of-band records never qualify, synced or not.
     assert choose_record([{"id": 4, "syncedLyrics": "[00:01.00] x", "duration": 400}],
                          duration_s=234) is None
     # duration_s=None: synced-first, original order breaks ties.
     picked = choose_record([plain_close, synced_far], duration_s=None)
-    assert picked is not None and picked["id"] == 2
+    assert picked is not None
+    assert picked["id"] == 2
 
 
 def test_choose_record_lyricsfile_probe_never_outranks_synced():
@@ -523,11 +531,13 @@ def test_choose_record_lyricsfile_probe_never_outranks_synced():
     }
     synced_plain_lf = {"id": 2, "syncedLyrics": "[00:01.00] hello", "duration": 235}
     picked = choose_record([plain_with_lf, synced_plain_lf], duration_s=234)
-    assert picked is not None and picked["id"] == 2
+    assert picked is not None
+    assert picked["id"] == 2
     # WITHIN the synced class the lyricsfile probe wins.
     synced_with_lf = dict(plain_with_lf, id=3, syncedLyrics="[00:01.00] hello")
     picked = choose_record([synced_plain_lf, synced_with_lf], duration_s=234)
-    assert picked is not None and picked["id"] == 3
+    assert picked is not None
+    assert picked["id"] == 3
 
 
 def test_get_hit_without_lyricsfile_pays_no_probe():
@@ -543,7 +553,8 @@ def test_get_hit_without_lyricsfile_pays_no_probe():
         )
 
     lyrics = _fetch(handler)
-    assert lyrics.source_id == 1 and lyrics.lyricsfile_raw is None
+    assert lyrics.source_id == 1
+    assert lyrics.lyricsfile_raw is None
     assert calls == ["/api/get"]
 
 
@@ -559,7 +570,8 @@ def test_get_hit_with_lyricsfile_pays_no_extra_request():
         )
 
     lyrics = _fetch(handler)
-    assert lyrics.source_id == 7 and lyrics.lyricsfile_raw is not None
+    assert lyrics.source_id == 7
+    assert lyrics.lyricsfile_raw is not None
     assert calls == ["/api/get"]
 
 

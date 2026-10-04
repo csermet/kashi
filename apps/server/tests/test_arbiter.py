@@ -67,9 +67,11 @@ def test_missing_onsets_leave_coverage_to_rule_alone():
     """librosa unavailable or audio unreadable: the arbiter must still decide,
     and it only rescues the unambiguous case."""
     filled = judge_line(_words([1000, 1400, 1800], dur=400), 1500, None)
-    assert not filled.drop_words and filled.onset_support is None
+    assert not filled.drop_words
+    assert filled.onset_support is None
     hollow = judge_line(_words([1000, 1400, 1800], dur=20), 9000, None)
-    assert hollow.drop_words and hollow.onset_support is None
+    assert hollow.drop_words
+    assert hollow.onset_support is None
 
 
 def test_onset_support_tolerates_the_consonant_offset():
@@ -96,11 +98,13 @@ def test_partial_support_lands_on_the_measured_operating_point():
     onsets = [1000, 2000, 3000]
     # Two of three words supported — above the bar, so no deletion.
     ok = judge_line(_words([1000, 2000, 50_000], dur=20), 9000, onsets)
-    assert ok.onset_support is not None and ok.onset_support > MIN_ONSET_SUPPORT
+    assert ok.onset_support is not None
+    assert ok.onset_support > MIN_ONSET_SUPPORT
     assert not ok.drop_words
     # One of four — below the bar, and the line is hollow too.
     bad = judge_line(_words([1000, 50_000, 51_000, 52_000], dur=20), 9000, onsets)
-    assert bad.onset_support is not None and bad.onset_support < MIN_ONSET_SUPPORT
+    assert bad.onset_support is not None
+    assert bad.onset_support < MIN_ONSET_SUPPORT
     assert bad.drop_words
 
 

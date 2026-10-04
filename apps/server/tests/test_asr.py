@@ -120,7 +120,8 @@ class TestSliceWindow:
 
     def test_a_degenerate_duration_never_produces_a_negative_window(self):
         start, length = slice_window(0.0)
-        assert start == 0.0 and length == 0.0
+        assert start == 0.0
+        assert length == 0.0
 
 
 class TestPick:

@@ -22,7 +22,9 @@ def _load(name: str) -> str:
 def test_valid_word_level_file_parses_on_the_human_clock():
     result = alignresult_from_lyricsfile(_load("valid.yaml"), duration_s=200.0)
     assert result is not None
-    assert result.sync == "word" and result.quality_score == 1.0 and not result.windowed
+    assert result.sync == "word"
+    assert result.quality_score == 1.0
+    assert not result.windowed
     assert [line.text for line in result.lines] == ["Meet me at the hotel", "Second line"]
     words = result.words_per_line[0]
     # Trailing spaces stripped for rendering; times verbatim from the file.

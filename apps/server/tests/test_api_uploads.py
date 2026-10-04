@@ -38,7 +38,9 @@ def test_upload_stages_row_and_hands_back_a_source_ref(client, user_key, db_sess
     assert len(body["source"]["id"]) == 43  # urlsafe sha256, no padding
     assert 900 <= body["duration_ms"] <= 1100
     row = db_session.get(UploadedAudio, body["source"]["id"])
-    assert row is not None and row.duration_s > 0 and row.size_bytes == len(_wav_bytes())
+    assert row is not None
+    assert row.duration_s > 0
+    assert row.size_bytes == len(_wav_bytes())
 
     # Same bytes again: same id, expiry refreshed, still exactly one row.
     again = _upload(client, user_key, _wav_bytes())
@@ -88,10 +90,12 @@ def test_worker_processes_an_upload_and_burns_the_row(
         },
         headers=_auth(user_key),
     )
-    assert resp.status_code == 202 and resp.json()["reused"] is False
+    assert resp.status_code == 202
+    assert resp.json()["reused"] is False
 
     job = queue.claim_next(db_session)
-    assert job is not None and job.source_type == "upload"
+    assert job is not None
+    assert job.source_type == "upload"
 
     # Stub the heavy stages; the AUDIO fetch itself runs for real from the DB.
     monkeypatch.setattr(

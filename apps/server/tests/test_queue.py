@@ -55,7 +55,8 @@ def test_enqueue_returns_job_of_processed_track(db_session):
     )
     db_session.flush()
     again = _enqueue(db_session)
-    assert again.id == job.id and again.status == "completed"
+    assert again.id == job.id
+    assert again.status == "completed"
 
 
 def test_permanent_failure_blocks_reenqueue_for_7_days(db_session):
@@ -103,7 +104,8 @@ def test_claim_marks_downloading_and_increments_attempts(db_session):
 
     job = _enqueue(db_session)
     claimed = queue.claim_next(db_session)
-    assert claimed is not None and claimed.id == job.id
+    assert claimed is not None
+    assert claimed.id == job.id
     assert claimed.status == "downloading"
     assert claimed.attempts == 1
     assert claimed.lease_expires_at is not None
@@ -123,7 +125,8 @@ def test_claim_skip_locked_under_concurrency(db_session):
     try:
         j1 = queue.claim_next(s1)  # transaction stays open
         j2 = queue.claim_next(s2)
-        assert j1 is not None and j2 is not None
+        assert j1 is not None
+        assert j2 is not None
         assert j1.id != j2.id
     finally:
         s1.rollback()
@@ -144,7 +147,8 @@ def test_retry_delays_next_claim(db_session):
     job.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
     db_session.flush()
     again = queue.claim_next(db_session)
-    assert again is not None and again.attempts == 2
+    assert again is not None
+    assert again.attempts == 2
 
 
 def test_reclaim_expired_requeues_then_fails_at_max(db_session):
@@ -165,7 +169,8 @@ def test_reclaim_expired_requeues_then_fails_at_max(db_session):
     db_session.flush()
     queue.reclaim_expired(db_session)
     db_session.refresh(job)
-    assert job.status == "failed" and job.error_type == "worker_lost"
+    assert job.status == "failed"
+    assert job.error_type == "worker_lost"
 
 
 def test_cancel_only_queued(db_session):

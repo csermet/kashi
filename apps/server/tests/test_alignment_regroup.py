@@ -36,7 +36,8 @@ def test_star_tokens_are_dropped_not_counted():
     lines = ["one two"]
     results = [_seg(STAR_TOKEN, 0.0, 0.1), _seg("one", 0.1, 0.4), _seg("two", 0.4, 0.9)]
     timings, words = regroup_words_into_lines(lines, results)
-    assert len(words[0]) == 2 and timings[0].start_ms == 100
+    assert len(words[0]) == 2
+    assert timings[0].start_ms == 100
 
 
 def test_overlapping_words_are_clipped_monotone():
@@ -131,7 +132,8 @@ def test_japanese_line_is_counted_in_characters_and_displayed_in_kanji():
     assert plan is not None
     # 8 characters -> 8 segments. The whitespace path expected 1 and bailed to
     # line mode, which is exactly today's Japanese failure.
-    assert len(line.split()) == 1 and len(plan.units) == 8
+    assert len(line.split()) == 1
+    assert len(plan.units) == 8
 
     regrouped = regroup_words_into_lines([line], _segments(plan.units), [plan])
     assert regrouped is not None
@@ -178,7 +180,8 @@ def test_english_line_inside_a_japanese_job_is_also_split_per_character():
 
     ja, en = "紅蓮華", "burning bright"
     plans = [prepare_line(ja), prepare_line(en)]
-    assert plans[0] is not None and plans[1] is not None
+    assert plans[0] is not None
+    assert plans[1] is not None
     assert plans[1].units == list("burningbright")  # per character, no space
     assert plans[1].surfaces == ["burning", "bright"]  # …still displayed whole
 

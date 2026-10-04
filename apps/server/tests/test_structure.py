@@ -91,7 +91,8 @@ def test_synthetic_ab_form_segments_and_repeats_deterministically(tmp_path):
     first = extract_structure(wav, None)
     second = extract_structure(wav, None)
     assert first == second  # seeded clustering — the determinism contract
-    assert first is not None and len(first) >= 2  # the repeated block is found
+    assert first is not None
+    assert len(first) >= 2  # the repeated block is found
     for section in first:
         assert section.type == "chorus"
         assert section.end_ms - section.start_ms >= 8000

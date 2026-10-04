@@ -126,4 +126,5 @@ def test_load_cases_parses_window_and_defaults(tmp_path):
         id="a", title="T", artist="A", youtube_id="y1", lrclib_id=7,
         language="eng", window_s=(29.0, 65.0),
     )
-    assert cases[1].language == "spa" and cases[1].window_s is None
+    assert cases[1].language == "spa"
+    assert cases[1].window_s is None

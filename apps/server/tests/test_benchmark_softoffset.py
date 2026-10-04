@@ -48,7 +48,8 @@ def test_anchorless_lines_borrow_and_interpolate():
     anchors: list[int | None] = [1200, None, 9600, None, 18000]
     step = line_offsets(_result(starts), anchors, mode="soft-median")
     pl = line_offsets(_result(starts), anchors, mode="soft-pl")
-    assert step is not None and pl is not None
+    assert step is not None
+    assert pl is not None
     # soft-median: anchor-less line 1 borrows nearest knot's filtered delta.
     assert step[1] in (step[0], step[2])
     # soft-pl: anchor-less line 1 sits BETWEEN its neighbours' deltas.

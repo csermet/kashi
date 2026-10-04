@@ -78,20 +78,25 @@ def _fmt(abr, acodec, **extra):
 def test_quality_gate_accepts_premium_download():
     info = {"abr": 250, "acodec": "opus", "formats": [_fmt(250, "opus"), _fmt(256, "mp4a.40.2")]}
     ok, abr, max_abr = validate_audio_quality(info)
-    assert ok and abr == 250 and max_abr == 250  # compared within the opus family
+    assert ok
+    assert abr == 250
+    assert max_abr == 250  # compared within the opus family
 
 
 def test_quality_gate_rejects_downgrade_within_family():
     info = {"abr": 70, "acodec": "opus", "formats": [_fmt(70, "opus"), _fmt(250, "opus")]}
     ok, abr, max_abr = validate_audio_quality(info)
-    assert not ok and abr == 70 and max_abr == 250
+    assert not ok
+    assert abr == 70
+    assert max_abr == 250
 
 
 def test_quality_gate_ignores_other_codec_family():
     """Premium AAC existing must not condemn a good Opus download."""
     info = {"abr": 128, "acodec": "opus", "formats": [_fmt(128, "opus"), _fmt(256, "mp4a.40.2")]}
     ok, _, max_abr = validate_audio_quality(info)
-    assert ok and max_abr == 128
+    assert ok
+    assert max_abr == 128
 
 
 def test_quality_gate_accepts_low_quality_source():
@@ -114,7 +119,8 @@ def test_quality_gate_reads_requested_formats():
         "formats": [_fmt(250, "opus")],
     }
     ok, abr, _ = validate_audio_quality(info)
-    assert ok and abr == 250
+    assert ok
+    assert abr == 250
 
 
 def test_quality_gate_trusts_download_without_bitrate_info():

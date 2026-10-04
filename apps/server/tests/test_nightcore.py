@@ -62,7 +62,8 @@ def test_detect_single_candidate():
     got = detect_speed_factor([_rec(1, 240)], 200.0)
     assert got is not None
     r, record = got
-    assert r == 1.2 and record["id"] == 1
+    assert r == 1.2
+    assert record["id"] == 1
 
 
 def test_detect_rejects_out_of_range_and_empty():
@@ -108,7 +109,8 @@ def test_detect_skips_unusable_records_for_the_pick():
 def test_pick_record_for_factor_by_duration_distance():
     candidates = [_rec(1, 240.0), _rec(2, 250.0), _rec(3, 241.0, synced=False)]
     picked = pick_record_for_factor(candidates, 200.0, 1.2)  # wanted 240 s
-    assert picked is not None and picked["id"] == 1
+    assert picked is not None
+    assert picked["id"] == 1
     assert pick_record_for_factor(candidates, 200.0, 1.4) is None  # wanted 280 s
 
 
@@ -142,7 +144,8 @@ def test_rescale_result_divides_and_stays_monotonic():
     assert scaled.lines[1].start_ms >= scaled.lines[0].start_ms
     assert scaled.lines[1].end_ms >= scaled.lines[1].start_ms
     # Provenance untouched.
-    assert scaled.quality_score == 0.8 and scaled.windowed
+    assert scaled.quality_score == 0.8
+    assert scaled.windowed
     assert scaled.words_per_line[1][0].prob == 0.9
 
 
@@ -203,7 +206,8 @@ def test_plain_lyrics_composite_fallback(monkeypatch):
 
     monkeypatch.setattr(wp, "fetch_lyrics", fake_fetch)
     assert wp._plain_lyrics(job) is win
-    assert calls[1]["artist"] == "Kesha" and calls[1]["title"] == "TiK ToK"
+    assert calls[1]["artist"] == "Kesha"
+    assert calls[1]["title"] == "TiK ToK"
 
     # Second miss: the original error surfaces, not the retry's.
     calls.clear()

@@ -26,7 +26,8 @@ def _owned(windows):
 
 def test_each_long_line_gets_its_own_padded_window():
     windows = plan_windows(TEXTS, STARTS, TOTAL)
-    assert windows is not None and len(windows) == 4
+    assert windows is not None
+    assert len(windows) == 4
     first = windows[0]
     assert first.line_indices == [0]
     assert first.slice_start_ms == 10_000 - 350  # pad
