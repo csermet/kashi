@@ -9,7 +9,13 @@
  *  - MutationObserver on the play/pause button and title wrapper
  *  - a slow safety-net interval (covers observer misses after YTM updates)
  */
-import { MAIN_WORLD_MARKER, type MainWorldSnapshot } from '../shared/messages.js';
+import {
+  MAIN_WORLD_MARKER,
+  PLAYHEAD_EVENT,
+  PLAYHEAD_REQUEST_EVENT,
+  type MainWorldSnapshot,
+} from '../shared/messages.js';
+import { readPlayhead, type PlayerApi } from './playhead.js';
 
 const SAFETY_NET_MS = 5000;
 
@@ -121,7 +127,25 @@ function observePlayer(): void {
   }, 5000);
 }
 
+/**
+ * Answer the content script's playhead requests synchronously, from inside
+ * its dispatch. Only this world can reach the player API, and only the player
+ * knows where the TRACK is: under gapless playback the <video> timeline runs
+ * across the whole queue (see the content script's `timeline.ts`).
+ */
+function answerPlayheadRequests(): void {
+  document.addEventListener(PLAYHEAD_REQUEST_EVENT, () => {
+    const sample = readPlayhead(
+      document.querySelector('#movie_player') as PlayerApi | null,
+      document.querySelector('video'),
+    );
+    if (!sample) return;
+    document.dispatchEvent(new CustomEvent(PLAYHEAD_EVENT, { detail: JSON.stringify(sample) }));
+  });
+}
+
 function init(): void {
+  answerPlayheadRequests();
   observePlayerBar();
   observePlayer();
   document.addEventListener('yt-navigate-finish', () => post(true));

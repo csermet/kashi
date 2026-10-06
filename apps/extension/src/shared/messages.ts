@@ -27,6 +27,29 @@ export interface MainWorldSnapshot {
   trackSignal: boolean;
 }
 
+/**
+ * Synchronous playhead sample, ISOLATED ↔ MAIN world. The content script
+ * dispatches PLAYHEAD_REQUEST_EVENT on `document`; the bridge answers INSIDE
+ * that dispatch with PLAYHEAD_EVENT, whose `detail` is a JSON string (strings
+ * cross the world boundary, objects do not). Synchronous on purpose: the
+ * answer describes the same instant as the content script's own
+ * `video.currentTime` read, so no report can pair one track's offset with
+ * another track's playhead. Same trust level as the snapshot: page data.
+ */
+export const PLAYHEAD_REQUEST_EVENT = 'kashi-mw-playhead-request';
+export const PLAYHEAD_EVENT = 'kashi-mw-playhead';
+
+export interface PlayheadSample {
+  /** `#movie_player.getCurrentTime()`: seconds into the TRACK. */
+  trackTimeS: number;
+  /** `#movie_player.getDuration()`: the track's length in seconds, 0 = unknown. */
+  trackDurationS: number;
+  /** The <video>'s own `currentTime`, read in the same instant. */
+  mediaTimeS: number;
+  /** The video the player says those numbers belong to. */
+  videoId: string | null;
+}
+
 /** Service worker → content script: re-announce current state (fresh beats stale). */
 export interface ReannounceRequest {
   kind: 'reannounce';

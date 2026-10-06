@@ -112,9 +112,12 @@ export interface ClampDecision {
  * BUDGET.
  *
  * The budget is not politeness, it is the safety property. The root-cause
- * hypothesis (gapless cumulative offset) is mechanism-level unverified, and
+ * hypothesis (gapless cumulative offset) was mechanism-level unverified, and
  * one of its readings is that `currentTime` never returns to this track's
- * range at all. An unbounded clamp would then suppress every report for the
+ * range at all — which is what the field turned out to do (2026-10-06; since
+ * `timeline.ts` removes the offset before any guard sees a report, this now
+ * matters only when the MAIN-world bridge cannot answer). Under that reading
+ * an unbounded clamp would suppress every report for the
  * whole song: the overlay's clock would never anchor, lyrics would sit frozen
  * on the first line, and the data-loss watchdog could not even complain
  * (it only fires while the clock is playing). That is a worse failure than the

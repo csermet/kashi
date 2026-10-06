@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CONTRADICTION_CONFIRMATIONS,
   DurationLedger,
+  LEDGER_FORMAT,
   MAX_ENTRIES,
   MAX_PLAUSIBLE_DURATION_MS,
   resolveDuration,
@@ -229,6 +230,38 @@ describe('DurationLedger', () => {
     expect(l.durationFor('bad')).toBeUndefined();
     expect(l.durationFor('worse')).toBeUndefined();
     expect(l.durationFor('good')).toBe(193_000);
+  });
+
+  it('forgets page-announced durations written before ext 0.1.15', async () => {
+    // Format 1: announces from builds that read a whole gapless run as one
+    // track. ffprobe's numbers were never affected and stay.
+    await writeFile(
+      join(cacheDir, 'duration-ledger.json'),
+      JSON.stringify({
+        v: 1,
+        entries: {
+          gapless: { ms: 430_197, source: 'announce', at: 1 },
+          measured: { ms: 199_961, source: 'server', at: 1 },
+        },
+      }),
+      'utf8',
+    );
+    const l = ledger();
+    await l.load();
+    expect(l.durationFor('gapless')).toBeUndefined();
+    expect(l.durationFor('measured')).toBe(199_961);
+  });
+
+  it('keeps announced durations it wrote itself', async () => {
+    const l = ledger();
+    l.learn(key, HEY_MAMA_MS, 'announce');
+    await l.flush();
+    const raw = JSON.parse(await readFile(join(cacheDir, 'duration-ledger.json'), 'utf8'));
+    expect(raw.v).toBe(LEDGER_FORMAT);
+
+    const reloaded = ledger();
+    await reloaded.load();
+    expect(reloaded.durationFor(key)).toBe(HEY_MAMA_MS);
   });
 
   it('stays a listening history, not an archive', () => {

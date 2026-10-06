@@ -8,8 +8,11 @@
  */
 import {
   MAIN_WORLD_MARKER,
+  PLAYHEAD_EVENT,
+  PLAYHEAD_REQUEST_EVENT,
   type ContentEvent,
   type MainWorldSnapshot,
+  type PlayheadSample,
 } from '../shared/messages.js';
 import {
   durationIsAuthoritative,
@@ -17,6 +20,14 @@ import {
   shouldDeferAnnouncePosition,
   shouldHoldStalePlayhead,
 } from './position-guard.js';
+import {
+  offsetWorthLogging,
+  parsePlayheadSample,
+  sampleFor,
+  timelineOffsetMs,
+  trackDurationMs,
+  trackPositionMs,
+} from './timeline.js';
 
 const TRACK_DEBOUNCE_MS = 500;
 const AD_SELECTOR = '.ytmusic-player-bar.advertisement';
@@ -28,6 +39,20 @@ let adActive = false;
 let video: HTMLVideoElement | null = null;
 let lastDurationChangeAt = 0;
 let videoIdChangedAt = 0;
+let playheadReply: PlayheadSample | null = null;
+let loggedOffsetMs = 0;
+
+/**
+ * Ask the MAIN-world bridge where the TRACK is, right now (timeline.ts). It
+ * answers inside the dispatch, so the reply is here when dispatchEvent
+ * returns — or it is not coming (bridge not up yet), and null keeps the
+ * media element's own numbers.
+ */
+function samplePlayhead(): PlayheadSample | null {
+  playheadReply = null;
+  document.dispatchEvent(new CustomEvent(PLAYHEAD_REQUEST_EVENT));
+  return sampleFor(playheadReply, video?.currentTime);
+}
 
 /**
  * YTM streams via MSE: on track switches the <video> keeps its old duration
@@ -35,9 +60,15 @@ let videoIdChangedAt = 0;
  * duration-tolerance match, so only trust it when `durationchange` fired
  * after (or shortly before) the current videoId appeared.
  */
-function freshDurationMs(midSession = true): number | undefined {
+function freshDurationMs(
+  midSession = true,
+  videoId = currentVideoId(),
+  sample = samplePlayhead(),
+): number | undefined {
   const durationS = video?.duration;
-  if (!durationS || !Number.isFinite(durationS)) return undefined;
+  // Under gapless `video.duration` can be the whole run, not this track —
+  // trackDurationMs lets the player's own number overrule it then.
+  if (!durationS || !Number.isFinite(durationS)) return trackDurationMs(undefined, sample, videoId);
   const fresh =
     lastDurationChangeAt >= videoIdChangedAt ||
     // The permissive window belongs to COLD LOAD only, where the id is noticed
@@ -51,7 +82,7 @@ function freshDurationMs(midSession = true): number | undefined {
     // the announce ("undefined beats a stale value") was already the right
     // rule; this window was quietly breaking it.
     (!midSession && videoIdChangedAt - lastDurationChangeAt < 8000);
-  return fresh ? Math.round(durationS * 1000) : undefined;
+  return trackDurationMs(fresh ? Math.round(durationS * 1000) : undefined, sample, videoId);
 }
 
 function sendEvent(event: ContentEvent): void {
@@ -87,14 +118,22 @@ function positionEvent(
   kind: 'position' | 'seek' | 'playback_state',
 ): ContentEvent | null {
   if (!video) return null;
-  const positionMs = Math.round(video.currentTime * 1000);
+  const sample = samplePlayhead();
+  const offsetMs = timelineOffsetMs(sample);
+  if (offsetWorthLogging(loggedOffsetMs, offsetMs)) {
+    loggedOffsetMs = offsetMs;
+    log(`media timeline offset ${offsetMs}ms (gapless run) — positions are track-relative`);
+  }
+  const positionMs = trackPositionMs(video.currentTime, offsetMs);
 
   // Guard 1: a position past the end of THIS track belongs to another
   // timeline. Only armed once durationchange fired for the current track —
   // clamping against the previous track's duration would suppress the
   // legitimate positions of a longer one.
   const authoritative = durationIsAuthoritative(lastDurationChangeAt, videoIdChangedAt);
-  const authoritativeDuration = authoritative ? freshDurationMs() : undefined;
+  const authoritativeDuration = authoritative
+    ? freshDurationMs(true, currentVideoId(), sample)
+    : undefined;
   // Guard 3: while the duration has not landed, a deep report is the PREVIOUS
   // track's playhead — guard 1 cannot see it, because the number it would
   // compare against is the very thing that has not arrived.
@@ -175,9 +214,13 @@ function maybeAnnounceTrack(): void {
     const wasMidSession = announcedVideoId !== null;
     announcedVideoId = id;
     lastAnnouncedTitle = meta.title;
+    const sample = samplePlayhead();
+    const durationMs = freshDurationMs(wasMidSession, id, sample);
     log(
       `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'},` +
-        ` duration=${freshDurationMs(wasMidSession) ?? 'n/a'}, currentTime=${video?.currentTime.toFixed(2) ?? 'n/a'}s)`,
+        ` duration=${durationMs ?? 'n/a'},` +
+        ` currentTime=${video?.currentTime.toFixed(2) ?? 'n/a'}s,` +
+        ` timeline offset=${timelineOffsetMs(sample)}ms)`,
     );
     sendEvent({
       kind: 'track_changed',
@@ -187,7 +230,7 @@ function maybeAnnounceTrack(): void {
       album: meta.album ?? undefined,
       // undefined beats a stale value: the overlay's search fallback still
       // finds lyrics without a duration, but a WRONG duration rejects all.
-      duration_ms: freshDurationMs(wasMidSession),
+      duration_ms: durationMs,
       artwork_url: meta.artworkUrl ?? undefined,
       sent_at: Date.now(),
     });
@@ -260,6 +303,10 @@ function attachVideo(): boolean {
 // --- wiring ---------------------------------------------------------------
 
 function init(): void {
+  document.addEventListener(PLAYHEAD_EVENT, (event) => {
+    playheadReply = parsePlayheadSample((event as CustomEvent<unknown>).detail);
+  });
+
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     const data = event.data as MainWorldSnapshot;

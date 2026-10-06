@@ -21,9 +21,10 @@
  *
  *  - the SERVER's number comes from ffprobe on the audio itself, so it outranks
  *    anything the page says;
- *  - an ANNOUNCED number is the page's own report, trustworthy since ext 0.1.14
- *    because the extension only forwards a duration whose `durationchange`
- *    landed after the id changed;
+ *  - an ANNOUNCED number is the page's own report, trustworthy since ext 0.1.15:
+ *    0.1.14 made it wait for a `durationchange` after the id changed, and
+ *    0.1.15 stopped reading the length of a whole gapless run as the track's
+ *    (see LEDGER_FORMAT);
  *  - a CONTRADICTION is not automatically an error. YouTube Studio can trim a
  *    video that is already published: the id, its URL and its stats stay, the
  *    audio gets shorter (support.google.com/youtube/answer/9057455), and
@@ -62,6 +63,16 @@ export const CONTRADICTION_CONFIRMATIONS = 2;
 
 /** Nothing we play is a day long; past this the reading is broken, not long. */
 export const MAX_PLAUSIBLE_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The file format, and the line between announces we can trust and ones we
+ * cannot. Format 1 was written while extension <= 0.1.14 announced, under
+ * gapless playback, the length of the whole run so far as the track's own
+ * (430197 ms for a 200 s song — field, 2026-10-06). Those entries look exactly
+ * like good ones, so a format-1 file keeps only what ffprobe measured
+ * ('server') and relearns the rest; anything else reads as format 1 too.
+ */
+export const LEDGER_FORMAT = 2;
 
 /** A listening history, not an archive — oldest entries fall off the end. */
 export const MAX_ENTRIES = 2000;
@@ -181,6 +192,8 @@ export class DurationLedger {
       if (typeof parsed !== 'object' || parsed === null) return;
       const entries = (parsed as { entries?: unknown }).entries;
       if (typeof entries !== 'object' || entries === null) return;
+      const trustAnnounces = (parsed as { v?: unknown }).v === LEDGER_FORMAT;
+      let dropped = 0;
       for (const [key, value] of Object.entries(entries as Record<string, unknown>)) {
         const entry = value as Partial<LedgerEntry>;
         // Validate on the way in: a hand-edited or half-written file must not
@@ -188,7 +201,17 @@ export class DurationLedger {
         if (!isUsable(entry.ms)) continue;
         if (entry.source !== 'server' && entry.source !== 'announce') continue;
         if (typeof entry.at !== 'number' || !Number.isFinite(entry.at)) continue;
+        if (entry.source === 'announce' && !trustAnnounces) {
+          dropped++;
+          continue;
+        }
         this.entries.set(key, { ms: entry.ms, source: entry.source, at: entry.at });
+      }
+      if (dropped > 0) {
+        this.opts.log?.(
+          `[ledger] dropped ${dropped} page-announced durations from before ext 0.1.15` +
+            ' (gapless runs were announced as one track) — relearning them',
+        );
       }
       this.opts.log?.(`[ledger] ${this.entries.size} remembered durations`);
     } catch {
@@ -270,7 +293,7 @@ export class DurationLedger {
       await mkdir(this.opts.cacheDir, { recursive: true });
       await writeFile(
         join(this.opts.cacheDir, FILE_NAME),
-        JSON.stringify({ v: 1, entries }),
+        JSON.stringify({ v: LEDGER_FORMAT, entries }),
         'utf8',
       );
     } catch (err) {

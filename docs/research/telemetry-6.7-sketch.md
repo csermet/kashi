@@ -106,6 +106,23 @@ case. The diagnostic log (guard #3) will still confirm the magnitude in the
 field. **DECISION: fold the fix into Faz 6.7** (not a standalone 0.1.12) —
 telemetry lands alongside it and confirms it.
 
+**RESOLVED (2026-10-06, extension 0.1.15).** The guards above only WITHHOLD
+reports, on budgets, assuming the timeline comes back. It does not: under
+gapless every auto-advanced track is appended to the same media timeline,
+and `currentTime`/`duration` keep growing for the rest of the run. Field
+proof: announced durations grew by exactly each previous track's real length
+(to ~20 ms), a live log showed `currentTime=203.82s` right after a 203 s
+track ended, and the overlay's clock stood at 928 s when a manual pick reset
+it. Symptom: after the first natural transition, every song showed only the
+interlude mark until a page refresh; the same numbers had also been poisoning
+lookup durations and server hints. The 2026-08-13 "Hey Mama" case (352 s into
+a 193 s song) was this mechanism too. Fix: the content script asks the
+MAIN-world bridge for `#movie_player.getCurrentTime()` next to
+`video.currentTime` in one synchronous dispatch and subtracts the difference;
+on an offset timeline the duration comes from the player, tagged by video id
+(`apps/extension/src/content/timeline.ts`). Prior art: PreMiD hit the same
+Premium "cache + preload" offset in 2019–2021 and moved off the media element.
+
 ## Relation to open bugs
 
 Faz 6.7 could bundle: this telemetry + the "wrong timing" fix (root cause
