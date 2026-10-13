@@ -153,6 +153,25 @@ def test_unexpected_crash_maps_to_other_and_cleans(db_session, job, scratch, mon
     assert list(scratch.glob("job-*")) == []
 
 
+def test_lost_database_leaves_the_job_leased_and_cleans(db_session, job, scratch, monkeypatch):
+    # A DB blip is not the job's failure: filed as "other" it became a
+    # permanent fail with a 7-day block. The job keeps its lease instead, and
+    # reclaim_expired requeues it once that runs out.
+    from sqlalchemy.exc import OperationalError
+
+    def db_down(*a, **k):
+        raise OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+    monkeypatch.setattr(wp, "download_audio", db_down)
+    status_before = job.status
+    with pytest.raises(OperationalError):
+        wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == status_before
+    assert job.error_type is None
+    assert list(scratch.glob("job-*")) == []
+
+
 def test_cancel_between_stages_aborts_quietly(db_session, job, scratch, monkeypatch):
     def cancel_then_download(source_id, dest_dir, **kw):
         # An admin cancels while the download runs; the NEXT checkpoint aborts.

@@ -4,9 +4,11 @@ import logging
 import os
 import signal
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
+from sqlalchemy.exc import OperationalError
 
 from kashi_server import queue
 from kashi_server.config import settings
@@ -26,6 +28,12 @@ ORPHAN_MAX_AGE_S = 3600
 # business running that often. Hourly is far finer than a 30-day window needs
 # and survives a worker that restarts before its first sweep.
 TELEMETRY_SWEEP_INTERVAL_S = 3600
+
+# Waiting out a database that is not there. Restarting instead reloads every
+# model (warmup) and, while the outage lasts, crash-loops into CrashLoopBackOff;
+# the API process already rides the same outages out.
+DB_RETRY_FIRST_S = 1.0
+DB_RETRY_MAX_S = 60.0
 
 
 def sweep_orphans(data_dir: Path) -> int:
@@ -49,6 +57,55 @@ def sweep_orphans(data_dir: Path) -> int:
     return removed
 
 
+def db_retry_delay_s(failures: int) -> float:
+    """Wait after `failures` consecutive iterations without a database:
+    1, 2, 4 ... seconds, capped at a minute — quick over a restart, quiet over
+    a long outage."""
+    return min(DB_RETRY_MAX_S, DB_RETRY_FIRST_S * 2 ** (failures - 1))
+
+
+def serve(
+    iteration: Callable[[], None],
+    should_stop: Callable[[], bool],
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Run `iteration` until told to stop, riding out database outages.
+
+    Only a lost database is waited out. Anything else still ends the process,
+    as before: an unexpected error in the loop itself is a bug, and a restart
+    is the honest answer to it.
+    """
+    failures = 0
+    while not should_stop():
+        try:
+            iteration()
+        except OperationalError as exc:
+            failures += 1
+            delay = db_retry_delay_s(failures)
+            logger.warning(
+                "database unavailable (%s) — retry %d in %.0fs",
+                str(exc.orig or exc).splitlines()[0],
+                failures,
+                delay,
+            )
+            _sleep_unless_stopped(delay, should_stop, sleep)
+        else:
+            if failures:
+                logger.info("database back after %d failed attempt(s)", failures)
+            failures = 0
+
+
+def _sleep_unless_stopped(
+    seconds: float, should_stop: Callable[[], bool], sleep: Callable[[float], None]
+) -> None:
+    """Sleep in short slices so SIGTERM during an outage still exits promptly."""
+    remaining = seconds
+    while remaining > 0 and not should_stop():
+        step = min(1.0, remaining)
+        sleep(step)
+        remaining -= step
+
+
 def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -70,6 +127,9 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     stopping = {"flag": False}
     last_telemetry_sweep: float | None = None
 
+    def should_stop() -> bool:
+        return stopping["flag"]
+
     def _graceful(signum, _frame):
         logger.info("signal %s: finishing the current job, then exiting", signum)
         stopping["flag"] = True
@@ -77,14 +137,17 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     signal.signal(signal.SIGTERM, _graceful)
     signal.signal(signal.SIGINT, _graceful)
 
-    while not stopping["flag"]:
+    def iteration() -> None:
+        nonlocal last_telemetry_sweep
         with SessionLocal() as session:
             last_telemetry_sweep = _housekeeping(session, last_telemetry_sweep)
             job = queue.claim_next(session)
             if job is None:
-                _idle_slot(session, should_stop=lambda: stopping["flag"])
-                continue
+                _idle_slot(session, should_stop=should_stop)
+                return
             _run_claimed(session, job, SessionLocal, HeartbeatThread, process_job)
+
+    serve(iteration, should_stop)
 
     logger.info("worker stopped")
 

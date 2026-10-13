@@ -12,10 +12,12 @@ import shutil
 import subprocess
 import threading
 import wave
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from prometheus_client import Counter
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from kashi_server import queue
@@ -769,6 +771,16 @@ def process_job(s: Session, job: Job) -> None:
     except PipelineError as exc:
         s.rollback()
         _fail_or_retry(s, job, exc.error_type, exc.message)
+    except OperationalError:
+        # The database went away (restart, failover, maintenance). That is not
+        # this job's failure: filed as "other" it would be a permanent fail and
+        # a 7-day block for one blip, and filing it needs the very connection
+        # that just died. Leave the job leased — once the lease runs out,
+        # reclaim_expired requeues it like any lost worker — and let the
+        # worker loop wait for the database.
+        with suppress(OperationalError):
+            s.rollback()
+        raise
     except Exception as exc:  # noqa: BLE001  # the worker must survive anything
         s.rollback()
         logger.exception("job %s crashed", job.id)
