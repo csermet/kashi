@@ -310,6 +310,7 @@ rule or the nudge (both 0 here):
   line's anchor, pushing that line's first words into a zero-length pile.
   Candidates, unverified: the lrclib record gained two `♪` lines, and the
   audio format may differ since the yt-dlp client change. Needs a look.
+  **Diagnosed 2026-10-13 — neither; it is a seam pile, see below.**
 
 (The August document scores a median error of 0 on this region only because
 the annotation copies our output wherever the annotator accepted it — the
@@ -332,6 +333,51 @@ intervals, start to start):
 So a display-time floor would not close the real collapses (260 vs 740 ms)
 and would distort genuinely fast words. Weak candidate on this data; small
 sample, Uptown-heavy — re-measure once the pop set has 2.27.0 documents.
+
+### Seam piles in windowed alignment — diagnosed 2026-10-13, not fixed
+
+Stressed Out, first chorus (truth = annotation):
+
+| word | truth | 2.26.0 | 2.27.1 |
+|---|---|---|---|
+| out | 51139-51420 | 51189-51399 | 51163-51730 |
+| (oh) | 51420-51480 | 51420-51441 | 52381-52381 |
+| Wish | 52185-52353 | 52185-52353 | 52431-52431 |
+| we | 52353-52438 | 52353-52438 | 52431-52431 |
+| could | 52438-52732 | 52438-52732 | 52431-52671 |
+
+Mechanism, with the numbers matching exactly: the lrclib stamp of the next
+line is 52030; line 9's audio slice runs to 52030 + `PAD_MS` (350) = 52380.
+CTC found nothing for the line-final `(oh)` inside its window and left it at
+the very end of the slice (52381) — the usual "leftover token goes last"
+behaviour. `reconcile_seams` then clamps the next window's first words, which
+were placed correctly, forward onto that cursor: two zero-length words, and
+the karaoke fill skips the start of the line. Same shape in all three
+choruses. The `♪` lines and the audio format play no part.
+
+It is not one song. `benchmarks/seam_piles.py` (signature: a line opening
+with >= 2 zero-length words while the previous line's last word starts within
+120 ms of them) over the 318 word-synced documents of 2026-10-13:
+
+- 126 lines in **63 documents**; **0/35** whole-audio documents vs
+  **63/283** windowed ones — a property of the window seams, not of songs.
+- Still present on the current pipeline: 20/105 documents on 2.27.
+- Mostly ordinary last words ("me", "you"), not only bracketed responses.
+
+Likely part of the "words rush at the start of a line" complaint that the
+word-duration-collapse measurement above could not explain.
+
+Fix direction (unmeasured, do not ship blind): at a seam conflict, the word
+that sits in its window's PAD (past the next line's stamp, i.e. outside the
+lines that window owns) yields — pull it back before the next window's first
+word — instead of pushing the owning window's words forward. Pads stay: they
+exist for real bleed and for early stamps, and this only changes who yields
+when two windows disagree. Proof needed before a pipeline bump:
+
+1. `seam_piles.py` on a re-aligned sample: piles should go to ~0.
+2. JamendoLyrics + the pop valid regions: gross errors (> 500 ms) and PCO must
+   not get worse (compare gross errors, not medians — scope trap).
+3. Then a pipeline bump and a re-process wave of the affected documents.
 
 ### Dönünce sıra
 
