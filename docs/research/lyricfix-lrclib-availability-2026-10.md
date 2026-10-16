@@ -214,6 +214,34 @@ P0 measure (dump, trim, image build, bench 3 TB vs NVMe, parity) ‖ P1 overlay 
 P2 mirror deployment (private IaC; LAN-only, never public) → P3 worker → P4 search-ladder
 gaps. Acceptance and proof per package are in the owner's plan file; results land here.
 
+### P1 result (overlay 0.29.0, 2026-10-16)
+
+Shipped as described above. Proof: 21 guard mutations, each killed by its test; and an
+E2E on the real overlay (headless, fake lrclib.net and fake mirror). With lrclib.net
+answering 503 + `Retry-After: 2`, the overlay asked at 0 / 2 / 8 / 23 s and announced
+"still trying". When lrclib came back it filled the screen on the same track with no
+track change. With lrclib.net still down, a mirror-held track showed lyrics about 0.5 s
+after the track change, with zero lrclib.net requests. The review round moved each
+source's cooldown between its disk cache and the network, so a cache answer neither
+blocks nor clears a server-named wait.
+
+### P0 results (mirror, 2026-10-16)
+
+| Step | Measured |
+|---|---|
+| Download | 47.8 GB gzip, resumed with HTTP ranges; ~15 min at home bandwidth |
+| Unpack | 261.76 GB (header-exact), `user_version = 8`; ~80 min onto a spinning NTFS disk (~55 MB/s, the bottleneck) |
+| Trim (`tools/lrclib-mirror/trim.py`) | 33.7 M tracks → **21.5 M** whose latest lyrics are synced; **106.8 GB** (41 %); ~2 h 20 min, mostly the sequential read of the source |
+| Stock server (main @ `04369d3`) on the trimmed copy | starts in ~1 s; Tantivy search index builds in ~3.5 min, 1.4 GB; RSS ~2.2 GB |
+| `/api/get`, NVMe, 300 random tracks | 300/300 found; p50 1 ms, p95 2 ms (cold first pass: p95 9 ms) |
+| `/api/search`, NVMe, 100 tracks | 100/100; p50 27 ms, p95 84 ms |
+| Parity with lrclib.net | 29 comparable records, **29 same id, 0 different**. lrclib.net itself answered 503 to 13 of 30 sequential requests (2/s) during the check. |
+
+Next time, stage the dump on an ext4 SSD rather than the NTFS disk. The read speed
+of the staging disk sets the pace of both the unpack and the trim. Plain lyrics are kept
+on the synced rows. Dropping them would roughly halve the copy, but the server pipeline
+reads them, and size is not the constraint.
+
 ## Sources
 
 - lrclib API documentation, "Implementation Requirements" / "Rate Limiting" /
