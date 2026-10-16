@@ -42,8 +42,13 @@ export const PLAYHEAD_EVENT = 'kashi-mw-playhead';
 export interface PlayheadSample {
   /** `#movie_player.getCurrentTime()`: seconds into the TRACK. */
   trackTimeS: number;
-  /** `#movie_player.getDuration()`: the track's length in seconds, 0 = unknown. */
+  /** The track's length in seconds, 0 = unknown (see `durationFrom`). */
   trackDurationS: number;
+  /**
+   * Where `trackDurationS` came from: the player response's metadata
+   * (`videoDetails.lengthSeconds`, for the same video) or `getDuration()`.
+   */
+  durationFrom: 'details' | 'player';
   /** The <video>'s own `currentTime`, read in the same instant. */
   mediaTimeS: number;
   /** The video the player says those numbers belong to. */

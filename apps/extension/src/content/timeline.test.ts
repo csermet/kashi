@@ -16,6 +16,7 @@ import {
 const sample = (over: Partial<PlayheadSample> = {}): PlayheadSample => ({
   trackTimeS: 30,
   trackDurationS: 208,
+  durationFrom: 'player',
   mediaTimeS: 30,
   videoId: 'next-track',
   ...over,
@@ -48,7 +49,13 @@ describe('parsePlayheadSample', () => {
     const parsed = parsePlayheadSample(
       '{"trackTimeS":3,"mediaTimeS":3,"trackDurationS":null,"videoId":""}',
     );
-    expect(parsed).toEqual({ trackTimeS: 3, mediaTimeS: 3, trackDurationS: 0, videoId: null });
+    expect(parsed).toEqual({
+      trackTimeS: 3,
+      mediaTimeS: 3,
+      trackDurationS: 0,
+      durationFrom: 'player',
+      videoId: null,
+    });
   });
 });
 
@@ -142,12 +149,25 @@ describe('offsetWorthLogging', () => {
 });
 
 describe('trackDurationMs', () => {
-  it("takes the player's number on an offset timeline, whatever the element says", () => {
-    const s = sample({ mediaTimeS: FIELD_OFFSET_S + 30 });
-    expect(trackDurationMs(630_142, s, 'next-track')).toBe(208_000);
-    expect(trackDurationMs(undefined, s, 'next-track')).toBe(208_000);
-    // ...but only for the video the player names (mid-switch: nothing).
-    expect(trackDurationMs(630_142, s, 'other-track')).toBeUndefined();
+  const listed = (over: Partial<PlayheadSample> = {}) => sample({ durationFrom: 'details', ...over });
+
+  it("takes the metadata's length for this video, in either direction", () => {
+    // Field 2026-10-16: a 155 s song announced as 29917 ms.
+    expect(trackDurationMs(29_917, listed({ trackDurationS: 155 }), 'next-track')).toBe(155_000);
+    expect(trackDurationMs(630_142, listed(), 'next-track')).toBe(208_000);
+    const offsetRun = listed({ mediaTimeS: FIELD_OFFSET_S + 30 });
+    expect(trackDurationMs(undefined, offsetRun, 'next-track')).toBe(208_000);
+  });
+
+  it("never takes another video's metadata (mid-switch)", () => {
+    expect(trackDurationMs(207_000, listed(), 'other-track')).toBe(207_000);
+  });
+
+  it('announces nothing on an offset timeline without the metadata length', () => {
+    // getDuration() there can be the ~30 s preloaded segment, the element the whole run.
+    const offsetRun = sample({ mediaTimeS: FIELD_OFFSET_S + 30, trackDurationS: 29.917 });
+    expect(trackDurationMs(630_142, offsetRun, 'next-track')).toBeUndefined();
+    expect(trackDurationMs(undefined, offsetRun, 'next-track')).toBeUndefined();
   });
 
   it('overrules the first track of a run once the next one is appended', () => {

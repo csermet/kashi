@@ -12,10 +12,40 @@ export interface PlayerApi {
   getCurrentTime?: () => unknown;
   getDuration?: () => unknown;
   getVideoData?: () => { video_id?: string } | undefined;
+  getPlayerResponse?: () => { videoDetails?: VideoDetails } | undefined;
+}
+
+/** The part of the player response's `videoDetails` the sample reads. */
+interface VideoDetails {
+  videoId?: string;
+  lengthSeconds?: unknown;
 }
 
 function finiteOr(value: unknown, fallback: number | null): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * The track's length as its metadata lists it, for THIS video only.
+ *
+ * Field (2026-10-06..16, ext 0.1.15): `getDuration()` announced exactly
+ * 29917 ms for nine different songs — gapless preloads the next track in a
+ * ~30 s first segment, and the player reports that segment's length until the
+ * rest lands. Its number then failed the server's edit check (a 155 s song
+ * "is a 29 s edit") and blocked the song for 7 days. The listed length is the
+ * metadata's, not the buffer's; it is trusted only when the player response
+ * names the same video, since mid-switch it can still describe the last one.
+ */
+function listedLengthS(player: PlayerApi, videoId: string | null): number | null {
+  try {
+    const details = player.getPlayerResponse?.()?.videoDetails;
+    if (!details || videoId === null || details.videoId !== videoId) return null;
+    const seconds = Number(details.lengthSeconds);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  } catch {
+    // Losing the listed length must not cost the whole sample (and its offset).
+    return null;
+  }
 }
 
 /**
@@ -33,11 +63,14 @@ export function readPlayhead(
   try {
     const trackTimeS = finiteOr(player.getCurrentTime?.(), null);
     if (trackTimeS === null) return null;
+    const videoId = player.getVideoData?.()?.video_id ?? null;
+    const listedS = listedLengthS(player, videoId);
     return {
       trackTimeS,
-      trackDurationS: finiteOr(player.getDuration?.(), 0) ?? 0,
+      trackDurationS: listedS ?? finiteOr(player.getDuration?.(), 0) ?? 0,
+      durationFrom: listedS === null ? 'player' : 'details',
       mediaTimeS: video.currentTime,
-      videoId: player.getVideoData?.()?.video_id ?? null,
+      videoId,
     };
   } catch {
     // A player mid-rebuild can throw from any of these; no sample beats a guess.

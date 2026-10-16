@@ -66,6 +66,7 @@ export function parsePlayheadSample(detail: unknown): PlayheadSample | null {
   return {
     trackTimeS: s.trackTimeS,
     trackDurationS: finiteNonNegative(s.trackDurationS) ? s.trackDurationS : 0,
+    durationFrom: s.durationFrom === 'details' ? 'details' : 'player',
     mediaTimeS: s.mediaTimeS,
     videoId: typeof s.videoId === 'string' && s.videoId !== '' ? s.videoId : null,
   };
@@ -132,13 +133,20 @@ export function playerDurationMs(
  * The duration to announce, given the media element's own (already screened
  * for freshness, or undefined).
  *
- * On an offset timeline only the player's number describes the track. On the
- * FIRST track of a gapless run there is no offset yet, but once YTM appends
- * the next track the element's duration is both tracks together — and it
- * arrives through a genuine `durationchange`, so freshness cannot see it. The
- * player's number wins there too, but only when the element's is clearly
- * longer: without that shape the element's number stays in charge, exactly as
- * before.
+ * The length the video's metadata lists, for this very video, wins outright:
+ * nothing on the page knows better, in either direction.
+ *
+ * Without it, an offset timeline has no number worth announcing: the element's
+ * duration is the whole run (the 630142 ms "Instruction"), and `getDuration()`
+ * can be the ~30 s first segment of a preloaded track (29917 ms for nine
+ * songs, 2026-10-06..16, each then failing the server's edit check). A missing
+ * duration only weakens a lookup; a wrong one rejects the right record.
+ *
+ * On the FIRST track of a gapless run there is no offset yet, but once YTM
+ * appends the next track the element's duration is both tracks together — and
+ * it arrives through a genuine `durationchange`, so freshness cannot see it.
+ * The player's number wins there, but only when the element's is clearly
+ * longer: without that shape the element's number stays in charge.
  */
 export function trackDurationMs(
   mediaMs: number | undefined,
@@ -146,7 +154,8 @@ export function trackDurationMs(
   videoId: string | null,
 ): number | undefined {
   const playerMs = playerDurationMs(sample, videoId);
-  if (timelineOffsetMs(sample) > 0) return playerMs;
+  if (playerMs !== undefined && sample?.durationFrom === 'details') return playerMs;
+  if (timelineOffsetMs(sample) > 0) return undefined;
   const wholeRun =
     mediaMs !== undefined &&
     playerMs !== undefined &&

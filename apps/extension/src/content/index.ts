@@ -216,11 +216,14 @@ function maybeAnnounceTrack(): void {
     lastAnnouncedTitle = meta.title;
     const sample = samplePlayhead();
     const durationMs = freshDurationMs(wasMidSession, id, sample);
+    const playerNote = sample
+      ? `${Math.round(sample.trackDurationS * 1000)}ms via ${sample.durationFrom}`
+      : 'n/a';
     log(
       `announce ${id} "${meta.title}" (id via ${latestSnapshot?.videoId ? 'player-api' : 'url'},` +
         ` duration=${durationMs ?? 'n/a'},` +
         ` currentTime=${video?.currentTime.toFixed(2) ?? 'n/a'}s,` +
-        ` timeline offset=${timelineOffsetMs(sample)}ms)`,
+        ` timeline offset=${timelineOffsetMs(sample)}ms, player duration=${playerNote})`,
     );
     sendEvent({
       kind: 'track_changed',
