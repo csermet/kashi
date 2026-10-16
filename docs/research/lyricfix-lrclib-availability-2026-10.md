@@ -237,6 +237,25 @@ blocks nor clears a server-named wait.
 | `/api/search`, NVMe, 100 tracks | 100/100; p50 27 ms, p95 84 ms |
 | Parity with lrclib.net | 29 comparable records, **29 same id, 0 different**. lrclib.net itself answered 503 to 13 of 30 sequential requests (2/s) during the check. |
 
+**Placement gate: passed on the spinning disk.** The same copy, inside an ext4 image
+file on the large NTFS data disk (loop-mounted), cold random samples:
+
+| Endpoint | p50 | p95 | max |
+|---|---|---|---|
+| `/api/get` (600 tracks, 599 found; one malformed bench query got 400) | 47–53 ms | 69–75 ms | 264 ms |
+| `/api/search` (200 tracks) | 323–361 ms | 850–861 ms | 991 ms |
+
+Both pass the gate (`/api/get` p95 < 300 ms), and the copy stays on the spinning disk. Moving
+the 1.4 GB search index to SSD did not help search (p95 800 ms): the time goes to
+loading candidate records from the spinning disk, not to the index. Search only runs
+when the exact `/api/get` misses, and the overlay's mirror timeout (1.5 s) covers it.
+
+**Operational lesson (cost us evictions).** The trim's final `VACUUM` writes a second
+full copy next to the first. Run on a Kubernetes node's root disk, it pushed that disk
+to 86 % and the kubelet evicted pods for ~15 minutes until the vacuum finished. Never
+stage or trim on a node root disk; use the data disk (or a machine outside the cluster),
+and keep any disk the kubelet watches under 80 %.
+
 Next time, stage the dump on an ext4 SSD rather than the NTFS disk. The read speed
 of the staging disk sets the pace of both the unpack and the trim. Plain lyrics are kept
 on the synced rows. Dropping them would roughly halve the copy, but the server pipeline
