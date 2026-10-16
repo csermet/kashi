@@ -61,6 +61,13 @@ TELEMETRY_FIELDS: dict[str, frozenset[str]] = {
             # indistinguishable from a fresh one in the field data — the two
             # look identical at the call site.
             "stale",
+            # LyricFix (2026-10): how long the screen waited, which lyrics
+            # source answered (mirror / lrclib), and — after an outage — how
+            # long the background retries took and what wait lrclib asked for.
+            "latency_ms",
+            "via",
+            "recovered_after_s",
+            "retry_after_ms",
         }
     ),
     # The event the timing work exists for: how far a position report was off

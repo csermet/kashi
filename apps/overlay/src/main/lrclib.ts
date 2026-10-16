@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { KASHI_VERSION } from '../shared/version.js';
+import type { SourceCooldown } from './source-cooldown.js';
 
 export interface TrackQuery {
   title: string;
@@ -53,6 +54,59 @@ export type LyricsResult =
     }
   | { found: false };
 
+/**
+ * lrclib could not answer — as opposed to answering "not found".
+ *
+ * Field outage (2026-10-15/16): lrclib re-tuned its edge rate limiter and
+ * answered 429 and 503 at a few requests per HOUR, interleaved with 200s. A
+ * bare Error made every one of those look like a dead network, the ladder gave
+ * up after 8 s, and the song played out with an error on screen. The kind and
+ * the server's own wait hint are what let a caller come back at the right
+ * moment instead of never.
+ *
+ *  - busy:    429 (rate limited) or 503 (ServerOverloaded). lrclib's docs say
+ *             a client MUST honour Retry-After or risk a temporary ban.
+ *  - network: timeout, DNS, refused connection, any other non-OK status.
+ */
+export class LrclibUnavailableError extends Error {
+  constructor(
+    readonly kind: 'busy' | 'network',
+    /** The server's Retry-After, in ms from now; null when it sent none. */
+    readonly retryAfterMs: number | null,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LrclibUnavailableError';
+  }
+}
+
+/**
+ * Retry-After as ms from `nowMs`: delta-seconds or an HTTP-date. Garbage and
+ * dates in the past give null — a wait we cannot read is no wait at all, and
+ * the caller's own back-off still applies.
+ */
+export function parseRetryAfter(value: string | null, nowMs: number): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Math.min(Number(trimmed) * 1000, MAX_RETRY_AFTER_MS);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at) || at <= nowMs) return null;
+  return Math.min(at - nowMs, MAX_RETRY_AFTER_MS);
+}
+
+/**
+ * A ceiling on any wait a server can impose. Past 2^31 ms a timer no longer
+ * fits and Node fires it after 1 ms — an absurd Retry-After would turn into a
+ * busy loop. An hour is longer than any real lrclib hint and still recovers
+ * within a listening session.
+ */
+export const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
+
+/** 400/422: the request itself is malformed (e.g. a 61-minute mix's duration).
+ * Asking again cannot help, so it is a miss — the server's twin
+ * (_PERMANENT_HTTP_STATUS in pipeline/lrclib.py) decides the same way. */
+const BAD_REQUEST_STATUS = new Set([400, 422]);
+
 interface LrclibRecord {
   id: number;
   syncedLyrics: string | null;
@@ -70,6 +124,12 @@ export interface LrclibClientOptions {
   requestTimeoutMs?: number;
   baseUrl?: string;
   log?: (line: string) => void;
+  /**
+   * Back-off shared by every lookup of this source. Consulted only when the
+   * disk cache has no answer: cached lyrics stay instant through an outage,
+   * and only a response from the network clears it.
+   */
+  cooldown?: SourceCooldown;
 }
 
 const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -128,7 +188,23 @@ export class LrclibClient {
     const cached = await this.readCache(key);
     const answer = cached ? this.cachedAnswer(cached) : null;
     if (answer) return answer;
-    const record = await this.findRecord(query, signal);
+    const { cooldown } = this.opts;
+    const wait = cooldown?.remainingMs() ?? 0;
+    if (wait > 0) {
+      // No request: this source said "busy" moments ago, and asking again
+      // before the wait it named is what earns a ban.
+      throw new LrclibUnavailableError('busy', wait, `cooling down for ${wait} ms`);
+    }
+    let record: LrclibRecord | null;
+    try {
+      record = await this.findRecord(query, signal);
+    } catch (err) {
+      // Only a real outage counts: an abort (ours, or a coalesced caller's)
+      // says nothing about the source.
+      if (err instanceof LrclibUnavailableError) cooldown?.noteFailure(err.retryAfterMs);
+      throw err;
+    }
+    cooldown?.noteSuccess();
     return this.settle(key, query, record);
   }
 
@@ -217,7 +293,8 @@ export class LrclibClient {
 
     const resp = await this.request(`/api/get?${params}`, signal);
     if (resp.status === 404) return null;
-    if (!resp.ok) throw new Error(`lrclib /api/get failed: ${resp.status}`);
+    if (BAD_REQUEST_STATUS.has(resp.status)) return null;
+    if (!resp.ok) throw this.unavailable(resp, '/api/get');
     return (await resp.json()) as LrclibRecord;
   }
 
@@ -230,7 +307,8 @@ export class LrclibClient {
       artist_name: normalizeArtist(query.artist),
     });
     const resp = await this.request(`/api/search?${params}`, signal);
-    if (!resp.ok) throw new Error(`lrclib /api/search failed: ${resp.status}`);
+    if (BAD_REQUEST_STATUS.has(resp.status)) return null;
+    if (!resp.ok) throw this.unavailable(resp, '/api/search');
     const candidates = ((await resp.json()) as LrclibRecord[]).filter(
       (c) => c.syncedLyrics,
     );
@@ -252,18 +330,34 @@ export class LrclibClient {
     return bestDiff <= SEARCH_DURATION_TOLERANCE_S ? best : null;
   }
 
-  private request(path: string, signal?: AbortSignal): Promise<Response> {
+  private async request(path: string, signal?: AbortSignal): Promise<Response> {
     const fetchFn = this.opts.fetchFn ?? fetch;
     // Each request gets its own timeout budget — a single slow lrclib response
     // must not eat the whole lookup (exact-get + search are sequential).
     const timeout = AbortSignal.timeout(this.opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
-    return fetchFn(`${this.opts.baseUrl ?? 'https://lrclib.net'}${path}`, {
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers: {
-        'User-Agent':
-          this.opts.userAgent ?? `kashi/${KASHI_VERSION} (+https://github.com/csermet/kashi)`,
-      },
-    });
+    try {
+      return await fetchFn(`${this.opts.baseUrl ?? 'https://lrclib.net'}${path}`, {
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        headers: {
+          'User-Agent':
+            this.opts.userAgent ?? `kashi/${KASHI_VERSION} (+https://github.com/csermet/kashi)`,
+        },
+      });
+    } catch (err) {
+      // The CALLER's abort is a cancellation, not an outage: it must stay
+      // recognisable so nothing backs off or retries on its account.
+      if (signal?.aborted) throw err;
+      throw new LrclibUnavailableError('network', null, `lrclib ${path} unreachable: ${String(err)}`);
+    }
+  }
+
+  private unavailable(resp: Response, endpoint: string): LrclibUnavailableError {
+    const busy = resp.status === 429 || resp.status === 503;
+    return new LrclibUnavailableError(
+      busy ? 'busy' : 'network',
+      parseRetryAfter(resp.headers.get('Retry-After'), this.now()),
+      `lrclib ${endpoint} failed: ${resp.status}`,
+    );
   }
 
   private cacheKey(query: TrackQuery): string {

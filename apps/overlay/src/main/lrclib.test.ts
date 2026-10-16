@@ -2,7 +2,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LrclibClient, normalizeArtist, parseLrc,
+import { SourceCooldown } from './source-cooldown.js';
+import { LrclibClient, LrclibUnavailableError, MAX_RETRY_AFTER_MS, normalizeArtist, parseLrc, parseRetryAfter,
   splitArtists,
 } from './lrclib.js';
 
@@ -371,5 +372,180 @@ describe('negative cache is tied to the ladder that produced it', () => {
     const afterFirst = requests;
     await client.getLyrics(QUERY);
     expect(requests).toBe(afterFirst); // second call never left the disk
+  });
+});
+
+describe('LrclibClient — unavailability is typed (LyricFix)', () => {
+  let cacheDir: string;
+  const QUERY = { title: 'Song', artist: 'Band', duration_ms: 200_000 };
+  const NOW = Date.parse('2026-10-16T08:00:00Z');
+
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(join(tmpdir(), 'kashi-lrclib-typed-'));
+  });
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  function client(handler: (url: string) => Response | Promise<Response>) {
+    const fake = makeFetch(handler);
+    return { c: new LrclibClient({ cacheDir, fetchFn: fake.fetchFn, nowFn: () => NOW }), calls: fake.calls };
+  }
+
+  async function failure(p: Promise<unknown>): Promise<unknown> {
+    try {
+      await p;
+    } catch (err) {
+      return err;
+    }
+    throw new Error('expected a rejection');
+  }
+
+  it('503 is busy and carries Retry-After; it is NOT negative-cached', async () => {
+    const { c, calls } = client(
+      () => new Response('{}', { status: 503, headers: { 'Retry-After': '7' } }),
+    );
+    const err = await failure(c.getLyrics(QUERY));
+    expect(err).toBeInstanceOf(LrclibUnavailableError);
+    expect(err).toMatchObject({ kind: 'busy', retryAfterMs: 7000 });
+    await failure(c.getLyrics(QUERY));
+    expect(calls).toHaveLength(2); // asked again: an outage is not an answer
+  });
+
+  it('429 is busy too, without a Retry-After the wait is null', async () => {
+    const { c } = client(() => new Response('rate limited', { status: 429 }));
+    expect(await failure(c.getLyrics(QUERY))).toMatchObject({ kind: 'busy', retryAfterMs: null });
+  });
+
+  it('any other failing status is network', async () => {
+    const { c } = client(() => new Response('{}', { status: 500 }));
+    expect(await failure(c.getLyrics(QUERY))).toMatchObject({ kind: 'network' });
+  });
+
+  it('a search 503 after a get 404 is busy as well', async () => {
+    const { c } = client((url) =>
+      url.includes('/api/get') ? jsonResponse(404, {}) : new Response('{}', { status: 503 }),
+    );
+    expect(await failure(c.getLyrics(QUERY))).toMatchObject({ kind: 'busy' });
+  });
+
+  it('a refused connection is network', async () => {
+    const { c } = client(() => {
+      throw new TypeError('fetch failed');
+    });
+    expect(await failure(c.getLyrics(QUERY))).toMatchObject({ kind: 'network' });
+  });
+
+  it("the caller's abort stays an abort, not an outage", async () => {
+    const controller = new AbortController();
+    const { c } = client(() => {
+      controller.abort();
+      throw new DOMException('aborted', 'AbortError');
+    });
+    const err = await failure(c.getLyrics(QUERY, controller.signal));
+    expect(err).not.toBeInstanceOf(LrclibUnavailableError);
+  });
+
+  it('400 is a miss (the request itself is bad), cached like one', async () => {
+    const { c, calls } = client(() => new Response('bad', { status: 400 }));
+    expect(await c.getLyrics(QUERY)).toEqual({ found: false });
+    const before = calls.length;
+    expect(await c.getLyrics(QUERY)).toEqual({ found: false });
+    expect(calls).toHaveLength(before);
+  });
+});
+
+describe('parseRetryAfter', () => {
+  const NOW = Date.parse('2026-10-16T08:00:00Z');
+
+  it('reads delta-seconds', () => {
+    expect(parseRetryAfter('1', NOW)).toBe(1000);
+    expect(parseRetryAfter(' 0 ', NOW)).toBe(0);
+  });
+
+  it('reads an HTTP-date in the future, ignores one in the past', () => {
+    expect(parseRetryAfter('Fri, 16 Oct 2026 08:00:30 GMT', NOW)).toBe(30_000);
+    expect(parseRetryAfter('Fri, 16 Oct 2026 07:59:00 GMT', NOW)).toBeNull();
+    expect(parseRetryAfter('Fri, 16 Oct 2026 08:00:00 GMT', NOW)).toBeNull();
+  });
+
+  it('never imposes more than the ceiling (a timer past 2^31 ms fires at once)', () => {
+    expect(parseRetryAfter('99999999999999999999', NOW)).toBe(MAX_RETRY_AFTER_MS);
+    expect(parseRetryAfter('Fri, 16 Oct 2099 08:00:00 GMT', NOW)).toBe(MAX_RETRY_AFTER_MS);
+    expect(parseRetryAfter(String(MAX_RETRY_AFTER_MS / 1000), NOW)).toBe(MAX_RETRY_AFTER_MS);
+  });
+
+  it('gives null for garbage and absence', () => {
+    expect(parseRetryAfter(null, NOW)).toBeNull();
+    expect(parseRetryAfter('soon', NOW)).toBeNull();
+    expect(parseRetryAfter('-5', NOW)).toBeNull();
+  });
+});
+
+describe('LrclibClient — cooldown sits between the cache and the network', () => {
+  let cacheDir: string;
+  const NOW = Date.parse('2026-10-16T08:00:00Z');
+  const CACHED = { title: 'Cached', artist: 'Band', duration_ms: 200_000 };
+  const FRESH = { title: 'Fresh', artist: 'Band', duration_ms: 200_000 };
+  const RECORD = { id: 5, syncedLyrics: '[00:01.00] la', duration: 200 };
+
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(join(tmpdir(), 'kashi-lrclib-cd-'));
+  });
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  async function setup() {
+    let up = true;
+    const fake = makeFetch(() =>
+      up ? jsonResponse(200, RECORD) : new Response('{}', { status: 429, headers: { 'Retry-After': '600' } }),
+    );
+    const cooldown = new SourceCooldown(2000, 120_000, () => NOW);
+    const client = new LrclibClient({ cacheDir, fetchFn: fake.fetchFn, nowFn: () => NOW, cooldown });
+    await client.getLyrics(CACHED); // on disk from now on
+    up = false;
+    return { client, cooldown, calls: fake.calls, setUp: (v: boolean) => (up = v) };
+  }
+
+  it('a 429 starts the server-named wait; the next uncached lookup sends nothing', async () => {
+    const { client, cooldown, calls } = await setup();
+    await expect(client.getLyrics(FRESH)).rejects.toMatchObject({ kind: 'busy' });
+    expect(cooldown.remainingMs()).toBe(600_000);
+    const before = calls.length;
+    await expect(client.getLyrics(FRESH)).rejects.toMatchObject({ kind: 'busy', retryAfterMs: 600_000 });
+    expect(calls).toHaveLength(before);
+  });
+
+  it('cached lyrics are still served during the wait — and do not end it', async () => {
+    const { client, cooldown } = await setup();
+    await expect(client.getLyrics(FRESH)).rejects.toBeInstanceOf(LrclibUnavailableError);
+    expect(await client.getLyrics(CACHED)).toMatchObject({ found: true, sourceId: 5 });
+    expect(cooldown.remainingMs()).toBe(600_000);
+  });
+
+  it('a real network answer ends it — the back-off starts over', async () => {
+    let t = NOW;
+    const fake = makeFetch(() => jsonResponse(200, RECORD));
+    const cooldown = new SourceCooldown(2000, 120_000, () => t);
+    const client = new LrclibClient({ cacheDir, fetchFn: fake.fetchFn, nowFn: () => t, cooldown });
+    cooldown.noteFailure(null);
+    cooldown.noteFailure(null); // two failures: the next would wait 8 s
+    t += 10_000; // both waits are over
+    await client.getLyrics(FRESH);
+    cooldown.noteFailure(null);
+    expect(cooldown.remainingMs()).toBe(2000); // base again, not 8 s
+  });
+
+  it("an abort is not an outage: the cooldown is not charged", async () => {
+    const controller = new AbortController();
+    const cooldown = new SourceCooldown(2000, 120_000, () => NOW);
+    const fake = makeFetch(() => {
+      controller.abort();
+      throw new DOMException('aborted', 'AbortError');
+    });
+    const client = new LrclibClient({ cacheDir, fetchFn: fake.fetchFn, nowFn: () => NOW, cooldown });
+    await expect(client.getLyrics(FRESH, controller.signal)).rejects.toThrow();
+    expect(cooldown.remainingMs()).toBe(0);
   });
 });

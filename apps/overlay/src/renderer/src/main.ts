@@ -822,6 +822,8 @@ interface LyricsPayload {
   key: string;
   found?: boolean;
   searching?: boolean;
+  /** lrclib is unavailable and main keeps asking in the background (LyricFix). */
+  retrying?: boolean;
   error?: boolean;
   lines?: LyricLine[];
   palette?: PaletteLike;
@@ -832,15 +834,17 @@ interface LyricsPayload {
   alignment?: AlignmentData;
 }
 
-function showSearching(): void {
+function showSearching(retrying: boolean): void {
   // Keep an already-shown lyric visible during a BACKGROUND re-lookup (SW
   // flap / reconnect re-runs the lookup for the current song): only surface
   // the searching dots when there is nothing on screen yet. Otherwise a
   // re-lookup would blink a playing lyric to dots (Caner field bug).
   if (lines.length === 0) {
     searching = true;
-    statusText = trackLabel;
-    statusDim = false;
+    // Retrying is still searching — the dots stay — but the user should know
+    // why nothing has come yet, and that it will come by itself.
+    statusText = retrying ? 'Lyrics unavailable — still trying' : trackLabel;
+    statusDim = retrying;
   }
   ensureLoop();
 }
@@ -891,7 +895,7 @@ function applyLyrics(payload: unknown): void {
   const data = payload as LyricsPayload;
   if (data.key !== currentKey) return; // stale (R-9)
   if (data.searching) {
-    showSearching();
+    showSearching(data.retrying === true);
     return;
   }
   idleStash.remember(data.key, payload);

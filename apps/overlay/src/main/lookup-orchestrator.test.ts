@@ -20,6 +20,9 @@ function deps(overrides: Partial<LookupDeps> = {}) {
     isCurrent: () => true,
     log: () => {},
     retryDelaysMs: [0, 0, 0],
+    // The pre-LyricFix ladder: quick tries, then the error screen. Tests of
+    // the background retries pass their own schedule.
+    patientDelaysMs: [],
     sent,
     ...overrides,
   };
@@ -409,5 +412,220 @@ describe('different-edit guard on the duration-less retry', () => {
     });
     await orchestrator.lookup('youtube:Hsz6hL_a69Q', track as never);
     expect(sent[sent.length - 1]?.found).toBe(true);
+  });
+});
+
+describe('LyricFix — patient lrclib rung and the server head start', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const LINES = [{ start_ms: 0, end_ms: 1000, text: 'la' }];
+
+  function busy(retryAfterMs: number | null = null) {
+    return Object.assign(new Error('lrclib /api/get failed: 503'), { retryAfterMs });
+  }
+
+  /** Flush microtasks between timer steps (each retry arms its timer late). */
+  async function advance(ms: number) {
+    await vi.advanceTimersByTimeAsync(ms);
+    // Zero-delay timers armed by what just ran (the next quick try) belong
+    // to the same instant.
+    for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(0);
+  }
+
+  it('keeps asking after the quick tries and fills the screen when lrclib returns', async () => {
+    vi.useFakeTimers();
+    let up = false;
+    const getLyrics = vi.fn(async () => {
+      if (!up) throw busy();
+      return { found: true, lines: LINES, via: 'lrclib' };
+    });
+    const emit = vi.fn();
+    const d = deps({ getLyrics, emit, patientDelaysMs: [1000, 1000, 1000, 1000] });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(10); // the three quick tries (a 0 ms timer armed in a tick lands 1 ms later)
+    expect(d.sent).toContainEqual({ key: KEY, searching: true, retrying: true });
+    expect(d.sent).not.toContainEqual(expect.objectContaining({ error: true }));
+    await advance(1000);
+    up = true;
+    await advance(1000);
+    await done;
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, lines: LINES });
+    expect(emit).toHaveBeenCalledWith('lyrics_outcome', expect.objectContaining({ source: 'error' }));
+    expect(emit).toHaveBeenCalledWith(
+      'lyrics_outcome',
+      expect.objectContaining({ source: 'lrclib', via: 'lrclib', recovered_after_s: expect.any(Number) }),
+    );
+    // announced once, not on every retry
+    expect(d.sent.filter((p) => p['retrying'])).toHaveLength(1);
+  });
+
+  it('never asks before the Retry-After lrclib named', async () => {
+    vi.useFakeTimers();
+    const getLyrics = vi
+      .fn()
+      .mockRejectedValueOnce(busy(30_000))
+      .mockResolvedValue({ found: true, lines: LINES });
+    const d = deps({ getLyrics, retryDelaysMs: [0, 1000] });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(0);
+    expect(getLyrics).toHaveBeenCalledTimes(1);
+    await advance(29_999);
+    expect(getLyrics).toHaveBeenCalledTimes(1); // the 1 s quick delay did not undercut it
+    await advance(1);
+    await done;
+    expect(getLyrics).toHaveBeenCalledTimes(2);
+  });
+
+  it('a track change ends the background retries', async () => {
+    vi.useFakeTimers();
+    let current = true;
+    const getLyrics = vi.fn(async () => {
+      throw busy();
+    });
+    const d = deps({ getLyrics, isCurrent: () => current, patientDelaysMs: [1000, 1000, 1000] });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(10);
+    const asked = getLyrics.mock.calls.length;
+    current = false;
+    await advance(5000);
+    await done;
+    expect(getLyrics).toHaveBeenCalledTimes(asked);
+    expect(d.sent).not.toContainEqual(expect.objectContaining({ error: true }));
+  });
+
+  it('a healed server document stops the lrclib retries (R-8)', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ error: true })
+      .mockResolvedValue({ found: true, source: 'kashi-server', sync: 'word', qualityScore: 0.9, lines: [] });
+    const getLyrics = vi.fn(async () => {
+      throw busy();
+    });
+    const d = deps({
+      getProcessed,
+      getLyrics,
+      serverRetryDelaysMs: [1500],
+      patientDelaysMs: [1000, 1000, 1000, 1000, 1000],
+    });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(1500); // the probe heals the screen
+    const asked = getLyrics.mock.calls.length;
+    await advance(5000);
+    await done;
+    expect(getLyrics.mock.calls.length).toBeLessThanOrEqual(asked + 1);
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
+  });
+
+  it('a silent server gets a head start, then lrclib runs alongside it', async () => {
+    vi.useFakeTimers();
+    let answerServer: (v: unknown) => void = () => {};
+    const getProcessed = vi.fn(
+      () => new Promise((resolve) => (answerServer = resolve)),
+    ) as unknown as LookupDeps['getProcessed'];
+    const getLyrics = vi.fn(async () => ({ found: true, lines: LINES }));
+    const d = deps({ getProcessed, getLyrics, serverHeadStartMs: 1500 });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(1499);
+    expect(getLyrics).not.toHaveBeenCalled(); // exactly at the edge: still the server's turn
+    await advance(1);
+    await advance(5); // the rung's first (0 ms) try
+    expect(getLyrics).toHaveBeenCalled();
+    expect(d.sent.at(-1)).toMatchObject({ found: true, lines: LINES });
+    // the late server document wins the screen
+    answerServer({ found: true, source: 'kashi-server', sync: 'word', qualityScore: 0.9, lines: [] });
+    await advance(0);
+    await done;
+    expect(d.sent.at(-1)).toMatchObject({ found: true, sync: 'word' });
+  });
+
+  it('a server that answers inside its head start keeps lrclib out (R-8)', async () => {
+    vi.useFakeTimers();
+    const getProcessed = vi.fn(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve({ found: true, source: 'kashi-server', sync: 'line', qualityScore: 0.8, lines: [] }),
+            1000,
+          ),
+        ),
+    ) as unknown as LookupDeps['getProcessed'];
+    const d = deps({ getProcessed, serverHeadStartMs: 1500 });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(5000);
+    await done;
+    expect(d.getLyrics).not.toHaveBeenCalled();
+  });
+});
+
+describe('LyricFix — review round', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const LINES = [{ start_ms: 0, end_ms: 1000, text: 'la' }];
+  const busy = (retryAfterMs: number | null = null) =>
+    Object.assign(new Error('lrclib /api/get failed: 503'), { retryAfterMs });
+  async function advance(ms: number) {
+    await vi.advanceTimersByTimeAsync(ms);
+    for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(0);
+  }
+
+  it('a paused track does not keep asking; playback resumes the retries', async () => {
+    vi.useFakeTimers();
+    let playing = true;
+    const getLyrics = vi.fn(async () => {
+      throw busy();
+    });
+    const d = deps({ getLyrics, isPlaying: () => playing, patientDelaysMs: Array(10).fill(1000) });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(10);
+    playing = false;
+    const asked = getLyrics.mock.calls.length;
+    await advance(5000);
+    expect(getLyrics).toHaveBeenCalledTimes(asked);
+    playing = true;
+    await advance(1000);
+    expect(getLyrics.mock.calls.length).toBeGreaterThan(asked);
+    await advance(10_000);
+    await done;
+  });
+
+  it('a long Retry-After on a quick try is announced at once, not after it', async () => {
+    vi.useFakeTimers();
+    const getLyrics = vi
+      .fn()
+      .mockRejectedValueOnce(busy(60_000))
+      .mockResolvedValue({ found: true, lines: LINES });
+    const d = deps({ getLyrics, retryDelaysMs: [0, 2000, 6000] });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(10);
+    expect(d.sent).toContainEqual({ key: KEY, searching: true, retrying: true });
+    await advance(60_000);
+    await done;
+    expect(d.sent.at(-1)).toMatchObject({ found: true });
+  });
+
+  it('an lrclib answer discarded under a server document is not counted', async () => {
+    vi.useFakeTimers();
+    let answerLrclib: (v: unknown) => void = () => {};
+    const getLyrics = vi.fn(() => new Promise((r) => (answerLrclib = r))) as unknown as LookupDeps['getLyrics'];
+    const getProcessed = vi.fn(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve({ found: true, source: 'kashi-server', sync: 'word', qualityScore: 0.9, lines: [] }),
+            3000,
+          ),
+        ),
+    ) as unknown as LookupDeps['getProcessed'];
+    const emit = vi.fn();
+    const d = deps({ getProcessed, getLyrics, emit, serverHeadStartMs: 1500 });
+    const done = new LookupOrchestrator(d).lookup(KEY, TRACK);
+    await advance(3000); // lrclib started at 1.5 s, the server answers at 3 s
+    answerLrclib({ found: true, lines: LINES });
+    await advance(0);
+    await done;
+    const sources = emit.mock.calls.map((c) => (c[1] as { source: string }).source);
+    expect(sources).toEqual(['kashi-server']);
+    expect(d.sent.at(-1)).toMatchObject({ sync: 'word' });
   });
 });

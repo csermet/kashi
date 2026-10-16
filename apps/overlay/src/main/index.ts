@@ -36,6 +36,8 @@ import { KashiServerClient } from './kashi-server.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
+import { LyricsChain } from './lyrics-chain.js';
+import { SourceCooldown } from './source-cooldown.js';
 import { isDurationCorrection } from './edit-check.js';
 import { DurationLedger, type DurationVerdict } from './duration-ledger.js';
 import { AnchorGuard, positionTooDeepForAFreshTrack } from './position-sanity.js';
@@ -69,6 +71,17 @@ const TRACK_DEBOUNCE_MS = 500;
 
 let window: BrowserWindow | null = null;
 let lrclib: LrclibClient;
+/**
+ * Process-wide, so they outlive a settings re-init: an lrclib.net that said
+ * "busy" a second ago is still busy after the user saves a new server URL.
+ * lrclib.net: 2 s doubling to 2 min; the mirror: 5 s doubling to 1 min.
+ */
+const lrclibCooldown = new SourceCooldown(2000, 120_000);
+const mirrorCooldown = new SourceCooldown(5000, 60_000);
+/** A mirror answers from the LAN or not at all; this only bounds a black hole. */
+const MIRROR_TIMEOUT_MS = 1500;
+/** The mirror is a snapshot: its misses expire fast so a refreshed copy is asked again. */
+const MIRROR_NEGATIVE_TTL_MS = 60 * 60 * 1000;
 const settingsStore = new SettingsStore(
   join(app.getPath('userData'), 'kashi-settings.json'),
   makeLogger('settings'),
@@ -694,7 +707,7 @@ ipcMain.on('kashi:timing-offset-cancel', (event) => {
 // timing-offset dialog — always-on-top, no blur-close, Escape cancels. It
 // exists to kill the hand-edit trap: the running app's debounced flush used
 // to overwrite manual kashi-settings.json edits (field, twice).
-const SERVER_PROMPT_HEIGHT = 230;
+const SERVER_PROMPT_HEIGHT = 290;
 let serverPromptWindow: BrowserWindow | null = null;
 
 function openServerSettingsPrompt(): void {
@@ -742,6 +755,7 @@ function openServerSettingsPrompt(): void {
   const query = {
     url: current?.server_url ?? '',
     hasKey: current?.server_api_key ? '1' : '0',
+    mirror: current?.lyrics_mirror_url ?? '',
   };
   if (process.env['ELECTRON_RENDERER_URL']) {
     const params = new URLSearchParams(query).toString();
@@ -756,19 +770,29 @@ ipcMain.on('kashi:server-settings-submit', (event, raw: unknown) => {
   if (!serverPromptWindow || event.sender !== serverPromptWindow.webContents) return;
   serverPromptWindow.close();
   if (typeof raw !== 'object' || raw === null || !settings) return;
-  const { url, key } = raw as { url?: unknown; key?: unknown };
+  const { url, key, mirror } = raw as { url?: unknown; key?: unknown; mirror?: unknown };
+  // Validate everything before writing anything: a half-applied save is
+  // worse than a rejected one.
   const trimmedUrl = typeof url === 'string' ? url.trim() : '';
-  if (trimmedUrl === '') {
+  const normalized = trimmedUrl === '' ? null : normalizeServerUrl(trimmedUrl);
+  if (trimmedUrl !== '' && normalized === null) {
+    warn(`server settings: invalid URL ${JSON.stringify(trimmedUrl)} — nothing changed`);
+    return;
+  }
+  const trimmedMirror = typeof mirror === 'string' ? mirror.trim() : '';
+  const mirrorUrl = trimmedMirror === '' ? null : normalizeServerUrl(trimmedMirror);
+  if (trimmedMirror !== '' && mirrorUrl === null) {
+    warn(`server settings: invalid mirror URL ${JSON.stringify(trimmedMirror)} — nothing changed`);
+    return;
+  }
+  settings.update({ lyrics_mirror_url: mirrorUrl });
+  log(`lyrics mirror: ${mirrorUrl ?? 'none (lrclib.net only)'}`);
+  if (normalized === null) {
     // Empty URL = serverless mode; the stored key dies with it (a key
     // without a URL is meaningless and the old pair must not resurrect).
     settings.update({ server_url: null, server_api_key: null });
     log('server settings: cleared -> serverless mode');
   } else {
-    const normalized = normalizeServerUrl(trimmedUrl);
-    if (normalized === null) {
-      warn(`server settings: invalid URL ${JSON.stringify(trimmedUrl)} — nothing changed`);
-      return;
-    }
     let nextKey: string | null = null;
     if (key === null) nextKey = settings.get().server_api_key ?? null; // untouched field = keep
     else if (typeof key === 'string' && key.trim() !== '') nextKey = key.trim();
@@ -955,9 +979,33 @@ function stopTelemetry(): void {
   void client?.stop();
 }
 
+/** mirror → lrclib.net (lyrics-chain.ts). Rebuilt with the server connections
+ * so a saved mirror URL takes effect without a restart. */
+function buildLyricsChain(mirrorUrl: string | null): LyricsChain {
+  const mirror = mirrorUrl
+    ? new LrclibClient({
+        baseUrl: mirrorUrl,
+        // Its own cache: a mirror miss must never become a lrclib.net negative.
+        cacheDir: join(app.getPath('userData'), 'cache', 'lrclib-mirror'),
+        fetchFn: net.fetch.bind(net) as typeof fetch,
+        requestTimeoutMs: MIRROR_TIMEOUT_MS,
+        negativeTtlMs: MIRROR_NEGATIVE_TTL_MS,
+        cooldown: mirrorCooldown,
+        log: makeLogger('mirror'),
+      })
+    : null;
+  return new LyricsChain({ mirror, lrclib, log: makeLogger('lookup') });
+}
+
 function buildServerConnections(): void {
   if (!settings) return;
-  const { server_url: serverUrl, server_api_key: serverApiKey } = settings.get();
+  const {
+    server_url: serverUrl,
+    server_api_key: serverApiKey,
+    lyrics_mirror_url: mirrorUrl,
+  } = settings.get();
+  const chain = buildLyricsChain(mirrorUrl);
+  if (mirrorUrl) log(`lyrics mirror configured: ${mirrorUrl}`);
   if (serverUrl && serverApiKey) {
     serverClient = new KashiServerClient({
       baseUrl: serverUrl,
@@ -974,11 +1022,12 @@ function buildServerConnections(): void {
 
   lookups = new LookupOrchestrator({
     // Server first when configured. A processed document is the SINGLE source
-    // of truth — on a hit lrclib is never consulted, never blended (R-8).
+    // of truth — it always wins the screen and is never blended (R-8); lrclib
+    // only runs alongside a server that is slow to answer (LyricFix).
     getProcessed: serverClient
       ? (type, id, signal) => serverClient!.getProcessed(type, id, signal)
       : null,
-    getLyrics: (query, signal) => lrclib.getLyrics(query, signal),
+    getLyrics: (query, signal) => chain.getLyrics(query, signal),
     send: (payload) => send('kashi:lyrics', payload),
     onServerMiss: (key, track) => {
       enqueueGate.serverMiss(key, Date.now(), lastIsPlaying);
@@ -990,6 +1039,7 @@ function buildServerConnections(): void {
     },
     onServerDuration: (key, durationMs) => durations.learn(key, durationMs, 'server'),
     isCurrent: (key) => key === latch.currentTrackKey,
+    isPlaying: () => lastIsPlaying,
     emit: (kind, payload) => telemetry?.record(kind, payload),
     log: makeLogger('lookup'),
   });
@@ -1018,8 +1068,14 @@ app.whenReady().then(async () => {
   // spend the first song of the session re-learning what it already knew.
   await durations.load();
 
+  // Test seam only (an outage E2E needs a lrclib.net it can switch off); not
+  // a user setting — the mirror URL is the user-facing knob. A fake server's
+  // answers get their own cache so they can never leak into the real one.
+  const lrclibOverride = process.env['KASHI_LRCLIB_BASE_URL'] || undefined;
   lrclib = new LrclibClient({
-    cacheDir: join(app.getPath('userData'), 'cache', 'lrclib'),
+    baseUrl: lrclibOverride,
+    cacheDir: join(app.getPath('userData'), 'cache', lrclibOverride ? 'lrclib-override' : 'lrclib'),
+    cooldown: lrclibCooldown,
     // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)
     // — Node's fetch stalls for seconds on broken IPv6 routes.
     fetchFn: net.fetch.bind(net) as typeof fetch,

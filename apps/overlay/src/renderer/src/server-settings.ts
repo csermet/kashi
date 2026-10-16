@@ -10,7 +10,7 @@
  * are wiped main-side — serverless mode is byte-identical to before).
  */
 interface PromptBridge {
-  submitServerSettings(url: string, key: string | null): void;
+  submitServerSettings(url: string, key: string | null, mirror: string): void;
   cancelPrompt(): void;
 }
 
@@ -18,8 +18,10 @@ const kashi = (window as unknown as { kashi: PromptBridge }).kashi;
 
 const urlInput = document.getElementById('url-input') as HTMLInputElement;
 const keyInput = document.getElementById('key-input') as HTMLInputElement;
+const mirrorInput = document.getElementById('mirror-input') as HTMLInputElement;
 const params = new URLSearchParams(window.location.search);
 urlInput.value = params.get('url') ?? '';
+mirrorInput.value = params.get('mirror') ?? '';
 if (params.get('hasKey') === '1') {
   keyInput.placeholder = '•••• (unchanged)';
 }
@@ -28,7 +30,11 @@ function submit(): void {
   const url = urlInput.value.trim();
   // Empty key field + an existing key = keep it (null marks "unchanged").
   const key = keyInput.value.trim();
-  kashi.submitServerSettings(url, key === '' && params.get('hasKey') === '1' ? null : key);
+  kashi.submitServerSettings(
+    url,
+    key === '' && params.get('hasKey') === '1' ? null : key,
+    mirrorInput.value.trim(),
+  );
 }
 
 document.getElementById('ok')?.addEventListener('click', submit);

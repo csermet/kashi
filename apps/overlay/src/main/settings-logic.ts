@@ -68,6 +68,12 @@ export interface StoredSettings {
   server_url: string | null;
   /** API key for the server ("ksh_..."); meaningless without server_url. */
   server_api_key: string | null;
+  /**
+   * An lrclib-compatible mirror on the user's own network (LyricFix): asked
+   * first, with a short timeout, before lrclib.net. Independent of the server
+   * — serverless mode can use one too. null = lrclib.net only.
+   */
+  lyrics_mirror_url: string | null;
   /** Lyric timing offset in ms (positive = earlier). */
   timing_offset_ms: number;
   /** Effect engine level (Faz 4): off | simple | full. */
@@ -97,6 +103,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   window_bounds: null,
   server_url: null,
   server_api_key: null,
+  lyrics_mirror_url: null,
   timing_offset_ms: DEFAULT_TIMING_OFFSET_MS,
   effect_level: DEFAULT_EFFECT_LEVEL,
   theme_scope: DEFAULT_THEME_SCOPE,
@@ -278,6 +285,7 @@ export function parseSettings(raw: string): StoredSettings {
     window_bounds: bounds,
     server_url: serverUrl,
     server_api_key: apiKey,
+    lyrics_mirror_url: normalizeServerUrl(record['lyrics_mirror_url']),
     timing_offset_ms: clampTimingOffset(record['timing_offset_ms']),
     effect_level: parseEffectLevel(record['effect_level']),
     theme_scope: parseThemeScope(record['theme_scope']),

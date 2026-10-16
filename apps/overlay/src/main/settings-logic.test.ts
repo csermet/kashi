@@ -161,6 +161,7 @@ describe('parseSettings', () => {
       window_bounds: { x: 10, y: 20, width: 560, height: 180 },
       server_url: 'http://cnr-intel:8080',
       server_api_key: 'ksh_' + 'a'.repeat(32),
+      lyrics_mirror_url: 'http://mirror.example:3300',
       timing_offset_ms: 100,
       effect_level: 'full',
       theme_scope: 'fixed-text',
@@ -181,6 +182,14 @@ describe('parseSettings', () => {
     const bad = parseSettings(JSON.stringify({ server_url: 'not a url', server_api_key: '' }));
     expect(bad.server_url).toBeNull();
     expect(bad.server_api_key).toBeNull();
+  });
+
+  it('normalizes the mirror URL and keeps it independent of the server', () => {
+    const parsed = parseSettings(JSON.stringify({ lyrics_mirror_url: ' http://m.example// ' }));
+    expect(parsed.lyrics_mirror_url).toBe('http://m.example');
+    expect(parsed.server_url).toBeNull(); // serverless mode may still use a mirror
+    expect(parseSettings(JSON.stringify({ lyrics_mirror_url: 'ftp://x' })).lyrics_mirror_url).toBeNull();
+    expect(parseSettings('{}').lyrics_mirror_url).toBeNull();
   });
 
   it('clamps out-of-range alpha and drops malformed bounds', () => {

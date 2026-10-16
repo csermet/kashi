@@ -40,10 +40,11 @@ contextBridge.exposeInMainWorld('kashi', {
   submitTimingOffset: (value: number) =>
     ipcRenderer.send('kashi:timing-offset-submit', Number(value)),
   /** Server-settings prompt (Faz 6 P6): key = null means "keep stored key". */
-  submitServerSettings: (url: string, key: string | null) =>
+  submitServerSettings: (url: string, key: string | null, mirror: string) =>
     ipcRenderer.send('kashi:server-settings-submit', {
       url: String(url),
       key: key === null ? null : String(key),
+      mirror: String(mirror),
     }),
   cancelPrompt: () => ipcRenderer.send('kashi:timing-offset-cancel'),
   /** Diagnostic line, printed to the overlay's terminal. */

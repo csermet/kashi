@@ -1,10 +1,18 @@
 /**
  * Lyrics lookup ladder, dependency-injected so the whole flow is unit-testable:
  *
- *   server (when configured) → hit: single source of truth, lrclib NEVER
- *   consulted or blended (R-8) → genuine 404: arm the >=20 s enqueue gate and
+ *   server (when configured) → hit: single source of truth, never blended
+ *   with lrclib and never replaced by it (R-8) → genuine 404: arm the >=20 s enqueue gate and
  *   fall through → error: fall through WITHOUT arming (R-9) →
  *   lrclib with transient-failure retries and a duration-less second try.
+ *
+ * LyricFix (2026-10): the server gets a head start, not a monopoly. If it has
+ * not answered within `serverHeadStartMs` the lrclib rung starts alongside it
+ * — a first listen must show plain lyrics in seconds, and a late server
+ * document still replaces them (R-8 is about what WINS, not what runs). And
+ * the lrclib rung no longer gives up after its quick tries: while the track is
+ * current it keeps asking on a widening schedule that honours Retry-After,
+ * so lyrics arrive mid-song when lrclib comes back.
  *
  * Staleness is guarded twice: the per-lookup AbortController (a newer track
  * aborts the old lookup) and the isCurrent(key) check on every response.
@@ -47,6 +55,8 @@ export interface LookupDeps {
     lines?: readonly LyricLine[];
     sourceId?: number;
     recordDurationMs?: number | null;
+    /** Which source answered (the mirror chain); diagnostics only. */
+    via?: string;
   }>;
   /** Emit a kashi:lyrics payload (already carries the track key). */
   send: (payload: { key: string } & Record<string, unknown>) => void;
@@ -61,11 +71,28 @@ export interface LookupDeps {
    */
   onServerDuration?: (key: string, durationMs: number) => void;
   isCurrent: (key: string) => boolean;
+  /**
+   * Whether the track is actually playing. A track paused overnight during an
+   * outage must not keep asking lrclib every two minutes; the background
+   * retries wait for playback instead. Omitted = always playing.
+   */
+  isPlaying?: () => boolean;
   log: (line: string) => void;
   /** Retry delays for transient lrclib failures (timeout/network). */
   retryDelaysMs?: number[];
+  /**
+   * Waits between the background retries that follow the quick ones, while
+   * the track is still playing. Omitted = 15 s doubling to a 120 s cap, for as
+   * long as the track is current; a finite list (tests) ends with the old
+   * error screen.
+   */
+  patientDelaysMs?: readonly number[];
+  /** How long the server may answer alone before lrclib starts alongside it. */
+  serverHeadStartMs?: number;
   /** Self-heal ladder delays; injectable so a test need not wait ten seconds. */
   serverRetryDelaysMs?: readonly number[];
+  /** Clock for the latency diagnostics. */
+  now?: () => number;
   /** Optional diagnostics sink (Faz 6.7 P2). Never awaited, never throws —
    * the ladder's behavior must not depend on whether anyone is listening. */
   emit?: (kind: 'lyrics_outcome', payload: Record<string, unknown>) => void;
@@ -74,21 +101,39 @@ export interface LookupDeps {
 type LrclibAnswer = Awaited<ReturnType<LookupDeps['getLyrics']>>;
 
 const DEFAULT_RETRY_DELAYS_MS = [0, 2000, 6000];
+const PATIENT_FIRST_MS = 15_000;
+const PATIENT_CAP_MS = 120_000;
+/** The server answers from the LAN or its disk cache in well under a second;
+ * past this it is timing out (5 s budget), and the screen should not wait. */
+const DEFAULT_SERVER_HEAD_START_MS = 1500;
+
+/** The wait an lrclib failure asked for (Retry-After, or the shared cooldown
+ * that stands in for it); 0 when it named none. Duck-typed so this module
+ * stays free of the client's I/O imports. */
+function retryAfterMsOf(err: unknown): number {
+  if (typeof err === 'object' && err !== null && 'retryAfterMs' in err) {
+    const value = (err as { retryAfterMs: unknown }).retryAfterMs;
+    if (typeof value === 'number' && value > 0) return value;
+  }
+  return 0;
+}
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     // 'abort' never fires again on an already-aborted signal, so without this
     // the caller waits out the full delay before noticing it was cancelled.
     if (signal.aborted) return resolve();
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    // The listener goes with the timer: background retries can sleep on one
+    // signal for hours, and listeners must not pile up on it.
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -116,44 +161,142 @@ export class LookupOrchestrator {
     };
 
     this.deps.send({ key, searching: true });
+    const startedAt = this.now();
 
-    if (await this.tryServer(key, track, abort)) return;
+    // One lrclib rung per lookup, however many paths ask for it.
+    let rung: Promise<void> | null = null;
+    const startLrclib = (): Promise<void> =>
+      (rung ??= this.lrclibRung(key, track, query, abort, startedAt));
 
-    // Transient lrclib slowness (per-request 8s timeout) gets a few retries —
-    // one hiccup must not mean a whole song without lyrics.
-    const delays = this.deps.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
-    for (const [attempt, delay] of delays.entries()) {
-      await abortableSleep(delay, abort.signal);
-      if (abort.signal.aborted) return; // superseded by a newer track
+    if (!this.deps.getProcessed) return startLrclib();
+
+    const server = this.tryServer(key, track, abort, startedAt);
+    const headStart = this.deps.serverHeadStartMs ?? DEFAULT_SERVER_HEAD_START_MS;
+    const timer = new AbortController();
+    const first = await Promise.race([
+      server,
+      abortableSleep(headStart, AbortSignal.any([abort.signal, timer.signal])).then(
+        () => 'head-start-over' as const,
+      ),
+    ]);
+    timer.abort();
+    if (abort.signal.aborted) return;
+    if (first === 'head-start-over') {
+      this.deps.log(`server silent after ${headStart} ms for ${key} — lrclib starts alongside`);
+      void startLrclib();
+      // A late hit replaces whatever lrclib put up (showServerHit); a late
+      // 404 or error has nothing to add — the rung is already running.
+      await server;
+      return startLrclib();
+    }
+    if (first) return; // server hit (or stale)
+    return startLrclib();
+  }
+
+  /**
+   * lrclib, until it answers or the track moves on: the quick tries first,
+   * then background retries on a widening schedule. No wait is ever shorter
+   * than the one the failure asked for.
+   */
+  private async lrclibRung(
+    key: string,
+    track: TrackInfo,
+    query: LrclibQuery,
+    abort: AbortController,
+    startedAt: number,
+  ): Promise<void> {
+    const quick = this.deps.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
+    let lastError: unknown = null;
+    let patient = false;
+    for (let attempt = 0; ; attempt++) {
+      const delay =
+        attempt < quick.length
+          ? (quick[attempt] ?? 0)
+          : this.patientDelay(attempt - quick.length);
+      if (delay === null) break;
+      const wait = Math.max(delay, retryAfterMsOf(lastError));
+      // Say so once the quick tries are spent — or sooner, when lrclib itself
+      // asked for a wait long enough that plain dots would look like a hang.
+      if (!patient && (attempt >= quick.length || wait >= PATIENT_FIRST_MS)) {
+        patient = true;
+        this.announceRetrying(key, lastError);
+      }
+      await abortableSleep(wait, abort.signal);
+      if (abort.signal.aborted || !this.deps.isCurrent(key)) return; // superseded
+      if (this.serverShown(key)) return; // a server document healed the track
+      if (patient && this.deps.isPlaying && !this.deps.isPlaying()) {
+        continue; // paused: the schedule keeps widening, no request goes out
+      }
       try {
         const result = await this.fetchCheckedLyrics(key, query, abort);
         if (result === null) return; // stale response guard (R-9)
-        this.showLrclib(key, track, attempt, result);
+        this.showLrclib(key, track, attempt, result, startedAt, patient);
         return;
       } catch (err) {
         if (abort.signal.aborted) return;
-        this.deps.log(`lyrics lookup failed (attempt ${attempt + 1}/${delays.length}): ${err}`);
+        lastError = err;
+        this.deps.log(`lyrics lookup failed (attempt ${attempt + 1}): ${err}`);
       }
     }
+    // Only a finite patient schedule gets here.
     // error !== genuine miss — renderer shows a different message.
-    if (this.deps.isCurrent(key)) {
-      // Record the empty screen: the network event that timed the server out
-      // usually takes lrclib with it, and that is exactly when a late server
-      // document is worth the most. Without this the probe would find no
-      // 'displayed' state and decline to fill a screen showing an error.
-      this.displayed = { key, state: { source: 'none', sync: 'line' } };
+    if (this.deps.isCurrent(key) && !this.serverShown(key)) {
+      this.markEmpty(key);
       this.deps.send({ key, found: false, error: true });
     }
   }
 
+  /** null = stop; omitted schedule = 15 s doubling to a 120 s cap, forever. */
+  private patientDelay(index: number): number | null {
+    const schedule = this.deps.patientDelaysMs;
+    if (schedule) return schedule[index] ?? null;
+    return Math.min(PATIENT_FIRST_MS * 2 ** index, PATIENT_CAP_MS);
+  }
+
+  /** The quick tries are spent: say so once, and keep the screen honest. */
+  private announceRetrying(key: string, lastError: unknown): void {
+    if (!this.deps.isCurrent(key) || this.serverShown(key)) return;
+    this.deps.log(`lrclib unavailable for ${key} — retrying in the background`);
+    this.deps.emit?.('lyrics_outcome', {
+      source: 'error',
+      retry_after_ms: retryAfterMsOf(lastError),
+    });
+    this.markEmpty(key);
+    this.deps.send({ key, searching: true, retrying: true });
+  }
+
+  /**
+   * Record the empty screen: the network event that timed the server out
+   * usually takes lrclib with it, and that is exactly when a late server
+   * document is worth the most. Without this the probe would find no
+   * 'displayed' state and decline to fill a screen showing an error.
+   */
+  private markEmpty(key: string): void {
+    if (this.displayed?.key === key) return;
+    this.displayed = { key, state: { source: 'none', sync: 'line' } };
+  }
+
+  private serverShown(key: string): boolean {
+    return this.displayed?.key === key && this.displayed.state.source === 'kashi-server';
+  }
+
+  private now(): number {
+    return (this.deps.now ?? Date.now)();
+  }
+
   /** The server rung. True when the lookup is finished (a hit, or stale);
    * false to fall through to lrclib (a 404, or an error with a probe started). */
-  private async tryServer(key: string, track: TrackInfo, abort: AbortController): Promise<boolean> {
+  private async tryServer(
+    key: string,
+    track: TrackInfo,
+    abort: AbortController,
+    startedAt: number,
+  ): Promise<boolean> {
     if (!this.deps.getProcessed) return false;
     const result = await this.deps.getProcessed(track.source.type, track.source.id, abort.signal);
     if (abort.signal.aborted || !this.deps.isCurrent(key)) return true; // stale (R-9)
     if ('found' in result && result.found) {
-      this.showServerHit(key, track, result, abort);
+      this.showServerHit(key, track, result, abort, startedAt);
       return true;
     }
     if ('found' in result && !result.found) {
@@ -180,7 +323,9 @@ export class LookupOrchestrator {
     abort: AbortController,
   ): Promise<LrclibAnswer | null> {
     let result = await this.deps.getLyrics(query, abort.signal);
-    if (!this.deps.isCurrent(key)) return null; // stale response guard (R-9)
+    // A cancelled lookup (settings re-init) may share the key with its
+    // replacement, so the key check alone cannot tell them apart.
+    if (abort.signal.aborted || !this.deps.isCurrent(key)) return null; // stale (R-9)
     if (!result.found && query.duration_ms) {
       // The reported duration can be transiently WRONG during YTM's
       // auto-advance (MSE mid-transition) — a bad duration rejects every
@@ -189,7 +334,7 @@ export class LookupOrchestrator {
         `duration-scoped lookup missed (duration_ms=${query.duration_ms}), retrying without duration`,
       );
       result = await this.deps.getLyrics({ ...query, duration_ms: undefined }, abort.signal);
-      if (!this.deps.isCurrent(key)) return null;
+      if (abort.signal.aborted || !this.deps.isCurrent(key)) return null;
     }
     if (result.found) {
       // The unscoped retry above removes the ONLY filter that keeps another
@@ -221,6 +366,7 @@ export class LookupOrchestrator {
     track: TrackInfo,
     result: Extract<ServerLyricsResult, { found: true }>,
     abort: AbortController,
+    startedAt: number,
   ): void {
     const stale = result.stale === true;
     this.deps.log(
@@ -231,6 +377,7 @@ export class LookupOrchestrator {
       source: 'kashi-server',
       sync: result.sync,
       quality: result.qualityScore,
+      latency_ms: this.now() - startedAt,
       ...(stale ? { stale: true } : {}),
     });
     if (result.sync === 'word') {
@@ -250,24 +397,38 @@ export class LookupOrchestrator {
 
   /** Publish an lrclib answer (or a genuine miss) for the current track —
    * unless the probe already healed it with a server document. */
-  private showLrclib(key: string, track: TrackInfo, attempt: number, result: LrclibAnswer): void {
+  private showLrclib(
+    key: string,
+    track: TrackInfo,
+    attempt: number,
+    result: LrclibAnswer,
+    startedAt: number,
+    recovered: boolean,
+  ): void {
     if (!result.found) {
       this.deps.log(
         `no synced lyrics: "${track.artist} - ${track.title}"` +
           ` (duration_ms=${track.duration_ms ?? 'yok'})`,
       );
     }
-    this.deps.emit?.('lyrics_outcome', {
-      source: result.found ? 'lrclib' : 'none',
-      attempt: attempt + 1,
-    });
-    if (this.displayed?.key === key && this.displayed.state.source === 'kashi-server') {
+    const latencyMs = this.now() - startedAt;
+    if (recovered) this.deps.log(`lrclib answered ${key} after ${Math.round(latencyMs / 1000)} s of retrying`);
+    if (this.serverShown(key)) {
       // The probe already healed this track while lrclib was still
       // retrying. A server document is the single source of truth (R-8);
       // publishing lrclib over it would be a visible downgrade.
       this.deps.log(`lrclib answered after the server probe healed ${key} — discarded`);
       return;
     }
+    // Counted only once it is what the user sees: an answer discarded under a
+    // server document would report two outcomes for one lookup.
+    this.deps.emit?.('lyrics_outcome', {
+      source: result.found ? 'lrclib' : 'none',
+      attempt: attempt + 1,
+      latency_ms: latencyMs,
+      ...(result.via ? { via: result.via } : {}),
+      ...(recovered ? { recovered_after_s: Math.round(latencyMs / 1000) } : {}),
+    });
     this.displayed = {
       key,
       state: { source: result.found ? 'lrclib' : 'none', sync: 'line' },
