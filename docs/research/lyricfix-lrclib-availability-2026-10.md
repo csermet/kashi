@@ -256,6 +256,18 @@ to 86 % and the kubelet evicted pods for ~15 minutes until the vacuum finished. 
 stage or trim on a node root disk; use the data disk (or a machine outside the cluster),
 and keep any disk the kubelet watches under 80 %.
 
+### P2 result (mirror deployed, 2026-10-16)
+
+The stock lrclib server is built in the homelab CI from the pinned upstream commit (image scan:
+0 known vulnerabilities). It runs as a single-replica StatefulSet, because SQLite allows one
+writer. The data volume is a static host-path volume on the data disk. A LAN-only load-balancer
+address serves it, and a network policy admits only the home subnet, the Kashi worker and the
+uptime probe; the mirror itself has no egress at all. It is never published through the public
+gateway. Ready about 100 s after sync. Over the LAN: `/api/get` p95 47 ms (200 tracks), search
+p95 ~1.3 s on a small cold sample. A search that exceeds the overlay's 1.5 s mirror timeout simply
+falls through to lrclib.net. The uptime probe is green; its alert is warning-only, since clients
+fall back to lrclib.net on their own.
+
 Next time, stage the dump on an ext4 SSD rather than the NTFS disk. The read speed
 of the staging disk sets the pace of both the unpack and the trim. Plain lyrics are kept
 on the synced rows. Dropping them would roughly halve the copy, but the server pipeline
