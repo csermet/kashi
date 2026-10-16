@@ -256,6 +256,28 @@ body.fx-simple .lyric.adlib,
 body.fx-full .lyric.adlib {
   font-style: italic;
   --kashi-adlib-fade: 0.85;
+  /* Italic glyphs lean past their own advance box, and .lyric clips at its
+     padding box (overflow: hidden, for the 3-row clamp): a line that fills
+     the box lost the top-right of its last letter and the foot of its first
+     (field report 2026-10-16, "La-la-la-la-la"). Widen the clip box by the
+     overhang WITHOUT moving anything: the negative margin and the padding
+     cancel, so the text keeps its width, its wrap points and its place, and
+     the box's shrink-to-fit width is unchanged. The overhang lands in
+     #lyric-box's own padding (18px), which is wider than this. */
+  padding-inline: var(--kashi-italic-overhang);
+  margin-inline: calc(-1 * var(--kashi-italic-overhang));
+  --kashi-italic-overhang: 0.25em;
+}
+
+/* The sweeping word paints its glyphs with a gradient clipped to the text,
+   and a background only exists inside the span's box — so the slanted tail
+   of an italic letter outside that box rendered transparent (the cut-off
+   look while "La-la-la" filled). Same cancel trick at word scale: the
+   gradient gains room, the line's layout does not move. */
+body.fx-simple .lyric.adlib .word-fill,
+body.fx-full .lyric.adlib .word-fill {
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
 }
 
 /* Sustained fill ("ooh-ooh" sweep): the active long-held/ad-lib word fills
