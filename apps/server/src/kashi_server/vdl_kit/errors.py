@@ -24,16 +24,24 @@ TRACK_ERROR_TYPES = (
 )
 
 # Kashi additions (not part of the VDL taxonomy).
-KASHI_EXTRA_ERROR_TYPES = ("lyrics_not_found", "worker_lost", "alignment_failed")
+KASHI_EXTRA_ERROR_TYPES = (
+    "lyrics_not_found",
+    "worker_lost",
+    "alignment_failed",
+    "lrclib_unavailable",
+)
 
 # Transient types auto-retry (max_attempts, increasing delay); disk_full is
 # deliberately NOT transient (VDL lesson: retrying a full disk just burns time).
+# lrclib_unavailable (LyricFix P3) is the worker's DEFER signal: neither lrclib
+# nor the mirror could answer. It must never take the 7-day permanent block.
 TRANSIENT_ERROR_TYPES = (
     "rate_limited",
     "cookie_expired",
     "low_quality_audio",
     "network",
     "verify_failed",
+    "lrclib_unavailable",
 )
 
 RATE_LIMIT_ERROR_MARKER = "Rate-limited by YouTube"
@@ -75,10 +83,15 @@ QUALITY_GRACE_RATIO = 0.75
 class PipelineError(Exception):
     """Carries a taxonomy `error_type` up to the worker's retry decision."""
 
-    def __init__(self, error_type: str, message: str) -> None:
+    def __init__(
+        self, error_type: str, message: str, *, retry_after_s: float | None = None
+    ) -> None:
         super().__init__(message)
         self.error_type = error_type
         self.message = message
+        # How long the remote service asked us to wait (lrclib's Retry-After),
+        # when it said so. Read by the lrclib breaker; None everywhere else.
+        self.retry_after_s = retry_after_s
 
 
 class JobCanceled(Exception):

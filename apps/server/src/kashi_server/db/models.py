@@ -70,6 +70,11 @@ class Job(Base):
     options: Mapped[dict[str, Any]] = mapped_column(server_default=text(_EMPTY_JSONB))
     attempts: Mapped[int] = mapped_column(server_default=text("0"))
     max_attempts: Mapped[int] = mapped_column(server_default=text("3"))
+    # LyricFix P3: re-queues while lrclib was unavailable. They refund the
+    # attempt, so they are counted here instead; deferred_since starts the
+    # patience window (settings.lrclib_patience_s).
+    deferrals: Mapped[int] = mapped_column(server_default=text("0"))
+    deferred_since: Mapped[datetime | None]
     next_attempt_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     lease_expires_at: Mapped[datetime | None]
     error_type: Mapped[str | None]

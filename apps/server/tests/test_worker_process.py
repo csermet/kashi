@@ -1207,3 +1207,259 @@ class TestLyricsByEar:
         monkeypatch.setattr(wp, "_decode", lambda *a, **k: calls.append("decode"))
         assert wp._lyrics_by_ear(job, download, tmp_path) is None
         assert calls == []
+
+
+# --- LyricFix P3: lrclib.net -> mirror -> defer without downloading ---------
+
+PRIMARY_URL = "https://lrclib.test"
+MIRROR_URL = "http://mirror.test"
+
+
+class _Lrclib:
+    """fetch_lyrics fake answering per base_url, like two lrclib servers."""
+
+    def __init__(self, *, primary="busy", mirror="miss"):
+        self.primary = primary
+        self.mirror = mirror
+        self.calls: list[str] = []
+
+    def __call__(self, hints, base_url):
+        target = "mirror" if base_url == MIRROR_URL else "primary"
+        self.calls.append(target)
+        answer = self.primary if target == "primary" else self.mirror
+        if answer == "busy":
+            raise PipelineError("network", "lrclib unreachable: 503")
+        if answer == "miss":
+            raise PipelineError("lyrics_not_found", "no lyrics")
+        return LyricsText(["hello world"], "hello world", 5, True)
+
+
+@pytest.fixture
+def two_lrclibs(monkeypatch):
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "lrclib_base_url", PRIMARY_URL)
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", MIRROR_URL)
+    monkeypatch.setattr(wp, "LRCLIB", wp.build_gateway())
+
+
+def _counting_download(monkeypatch):
+    downloads: list[str] = []
+    real = wp.download_audio
+
+    def counting(source_id, dest_dir, **kw):
+        downloads.append(source_id)
+        return real(source_id, dest_dir, **kw)
+
+    monkeypatch.setattr(wp, "download_audio", counting)
+    return downloads
+
+
+def _open_breaker():
+    wp.LRCLIB.breaker.record_failure()
+    wp.LRCLIB.breaker.record_failure()
+    assert not wp.LRCLIB.breaker.allows_primary()
+
+
+def test_retry_delays_default_has_one_delay_per_retry():
+    from kashi_server.config import Settings
+
+    # max_attempts 3 = two retries; a third delay would be dead config.
+    assert Settings().retry_delays_s == [60, 300]
+
+
+def test_open_breaker_and_mirror_miss_defers_without_downloading(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+    lrclib = _Lrclib(primary="busy", mirror="miss")
+    monkeypatch.setattr(wp, "fetch_lyrics", lrclib)
+    _open_breaker()
+    attempts_before = job.attempts - 1  # the claim counted this run
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert downloads == []
+    assert lrclib.calls == ["mirror"]  # lrclib.net left alone while open
+    assert job.status == "queued"
+    assert job.attempts == attempts_before  # refunded
+    assert job.deferrals == 1
+    assert job.deferred_since is not None
+    assert job.next_attempt_at > queue._now()
+    assert job.error_type == "lrclib_unavailable"
+    assert list(scratch.glob("job-*")) == []
+
+
+def test_open_breaker_and_mirror_hit_proceeds(db_session, job, scratch, monkeypatch, two_lrclibs):
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+    lrclib = _Lrclib(primary="busy", mirror="hit")
+    monkeypatch.setattr(wp, "fetch_lyrics", lrclib)
+    _open_breaker()
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert downloads == ["workerVid01"]
+    assert "primary" not in lrclib.calls
+
+
+def test_busy_primary_after_download_tries_the_mirror_then_defers(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    # Breaker closed: the job downloads, the primary fails, the mirror misses.
+    _happy_stages(monkeypatch, scratch)
+    lrclib = _Lrclib(primary="busy", mirror="miss")
+    monkeypatch.setattr(wp, "fetch_lyrics", lrclib)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert lrclib.calls == ["primary", "mirror"]
+    assert job.status == "queued"
+    assert job.attempts == 0
+    assert job.deferrals == 1
+
+
+def test_deferrals_follow_the_widening_schedule(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    from sqlalchemy import text
+
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "lrclib_defer_delays_s", [600, 1800])
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    _open_breaker()
+    waits = []
+    for _ in range(3):
+        before = queue._now()
+        wp.process_job(db_session, job)
+        db_session.refresh(job)
+        waits.append(round((job.next_attempt_at - before).total_seconds() / 60))
+        db_session.execute(
+            text("UPDATE jobs SET next_attempt_at = now() WHERE id = :id"),
+            {"id": job.id},
+        )
+        db_session.commit()
+        job = queue.claim_next(db_session)
+        db_session.commit()
+        assert job is not None
+    assert waits == [10, 30, 30]  # the last delay repeats
+    assert job.attempts == 1  # only the current claim is counted
+
+
+def _deferred_since(db_session, job, seconds_ago):
+    from datetime import timedelta
+
+    job.deferred_since = queue._now() - timedelta(seconds=seconds_ago)
+    job.deferrals = 4
+    db_session.commit()
+
+
+def test_patience_expired_fails_as_network_and_allows_a_new_job(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    from kashi_server.config import settings
+
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    _open_breaker()
+    _deferred_since(db_session, job, settings.lrclib_patience_s + 60)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.error_type == "network"  # transient: no 7-day block
+    fresh, reused = queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="workerVid01",
+        pipeline_major=1,
+        hints={"title": "T", "artist": "A"},
+        options={},
+        requested_by=None,
+    )
+    assert not reused
+    assert fresh.id != job.id
+
+
+def test_patience_boundary_still_defers(db_session, job, scratch, monkeypatch, two_lrclibs):
+    """deferred_since + patience == now is still inside the window."""
+    from datetime import timedelta
+
+    from kashi_server.config import settings
+
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    _open_breaker()
+    _deferred_since(db_session, job, 0)
+    db_session.refresh(job)
+    frozen = job.deferred_since + timedelta(seconds=settings.lrclib_patience_s)
+    monkeypatch.setattr(queue, "_now", lambda: frozen)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "queued"
+    assert job.deferrals == 5
+
+
+def test_a_completed_job_sheds_its_deferral_note(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    _open_breaker()
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.error_type == "lrclib_unavailable"
+
+    wp.LRCLIB.breaker.record_success()
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="hit"))
+    job.next_attempt_at = queue._now()
+    db_session.commit()
+    job = queue.claim_next(db_session)
+    db_session.commit()
+    assert job is not None
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert job.error_type is None
+    assert job.deferrals == 1  # the history stays
+
+
+def test_caller_lyrics_never_defer(db_session, scratch, monkeypatch, two_lrclibs):
+    job = _nightcore_job(
+        db_session, title="Song", options={"lyrics_text": "hello world"}, source_id="p3Caller01"
+    )
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    _open_breaker()
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+
+def test_nightcore_marked_jobs_keep_the_download_first_order(
+    db_session, scratch, monkeypatch, two_lrclibs
+):
+    job = _nightcore_job(db_session, title="Nightcore - Song", source_id="p3Night01")
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    monkeypatch.setattr(
+        wp,
+        "search_candidates",
+        lambda query, *, base_url: (_ for _ in ()).throw(
+            PipelineError("network", "lrclib unreachable")
+        )
+        if base_url == PRIMARY_URL
+        else [],
+    )
+    _open_breaker()
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert downloads == ["p3Night01"]  # one download per attempt (documented)
+    assert job.status == "queued"
+    assert job.error_type == "lrclib_unavailable"

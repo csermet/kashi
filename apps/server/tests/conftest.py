@@ -40,6 +40,19 @@ def _hermetic_pipeline_defaults(monkeypatch):
     monkeypatch.setattr(settings, "fx_embeddings", False)  # keyword layer stays on
 
 
+@pytest.fixture(autouse=True)
+def _fresh_lrclib_gateway(monkeypatch):
+    """The worker's lrclib breaker is process-wide state (LyricFix P3): one
+    test tripping it must not send the next test's lookups to the mirror.
+    Only rebuilt when the worker module is already loaded — importing it here
+    would drag the pipeline into every API test."""
+    import sys
+
+    process = sys.modules.get("kashi_server.worker.process")
+    if process is not None:
+        monkeypatch.setattr(process, "LRCLIB", process.build_gateway())
+
+
 @pytest.fixture
 def client(db_session, monkeypatch):
     """TestClient with a fresh app; lifespan bootstraps TEST_ADMIN_KEY."""

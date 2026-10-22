@@ -173,7 +173,27 @@ class Settings(BaseSettings):
     # markers trigger a speed-factor probe against lrclib. Explicit ingest
     # options bypass this switch.
     nightcore_detection: bool = True
+    # The worker's PRIMARY lyrics source, and the only one contribute-back
+    # publishing ever talks to (worker/publisher.py) — a mirror is read-only.
     lrclib_base_url: str = "https://lrclib.net"
+    # LyricFix P3: an own lrclib mirror (stock lrclib server on a trimmed dump)
+    # asked when the primary is rate-limited or down. None = no mirror; an
+    # outage then defers jobs instead of failing them. The mirror can be cold
+    # (a first /api/search of a popular title reads hundreds of records off a
+    # spinning disk: 4-8 s measured), hence its own, longer timeout.
+    lrclib_fallback_base_url: str | None = None
+    lrclib_fallback_timeout_s: float = 30.0
+    # While lrclib is unavailable a job is DEFERRED — re-queued without
+    # downloading, its attempt refunded — on this widening schedule (the last
+    # value repeats). Processing has no hurry; a YouTube download per retry
+    # during an outage is the cost being avoided.
+    lrclib_defer_delays_s: list[int] = [600, 1800, 3600, 7200, 14400]
+    # How long a job may keep deferring before it fails as plain `network`
+    # (transient: a later listen may enqueue it again).
+    lrclib_patience_s: int = 86400
+    # lrclib's client rules ask for 200-500 ms between sequential requests
+    # during batch work. Primary only: the mirror is ours.
+    lrclib_request_gap_s: float = 0.25
     max_track_duration_s: int = 1200
     # BYO-audio staging (Faz 5 P4): multipart cap enforced while streaming
     # (64 MB covers ~1h of 128kbps audio, far past the duration cap anyway);
@@ -210,7 +230,9 @@ class Settings(BaseSettings):
     telemetry_retention_days: int = Field(default=30, ge=1)
     queue_depth_limit: int = 200
     worker_poll_interval_s: float = 2.0
-    retry_delays_s: list[int] = [60, 300, 900]
+    # One delay per retry. Jobs start with max_attempts 3, so there are only two
+    # retries: the old third value (900) was never used.
+    retry_delays_s: list[int] = [60, 300]
     lease_ttl_s: int = 600
     bgutil_pot_provider_url: str | None = None
     metrics_port: int = 9090

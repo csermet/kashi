@@ -703,3 +703,183 @@ def test_a_failed_probe_keeps_the_get_record():
     lyrics = _fetch(handler)
     assert calls == ["/api/get", "/api/search"]
     assert lyrics.source_id == 997232  # kept, not failed
+
+
+# --- LyricFix P3: Retry-After, politeness gap, per-target clients, metrics ---
+
+
+def test_retry_after_seconds_and_http_date():
+    from datetime import UTC, datetime
+
+    from kashi_server.pipeline.lrclib import RETRY_AFTER_CAP_S, parse_retry_after
+
+    now = datetime(2026, 10, 22, 12, 0, 0, tzinfo=UTC)
+    assert parse_retry_after("120") == 120
+    assert parse_retry_after(" 7 ") == 7
+    assert parse_retry_after("Thu, 22 Oct 2026 12:05:00 GMT", now=now) == 300
+    assert parse_retry_after("Thu, 22 Oct 2026 11:00:00 GMT", now=now) == 0  # past = now
+    assert parse_retry_after("999999") == RETRY_AFTER_CAP_S
+    assert parse_retry_after("Fri, 23 Oct 2026 12:00:00 GMT", now=now) == RETRY_AFTER_CAP_S
+
+
+@pytest.mark.parametrize("garbage", [None, "", "soon", "-5", "nan", "inf", "1e9", "1.5"])
+def test_retry_after_garbage_is_none(garbage):
+    from kashi_server.pipeline.lrclib import parse_retry_after
+
+    assert parse_retry_after(garbage) is None
+
+
+@pytest.mark.parametrize(("status", "error_type"), [(429, "rate_limited"), (503, "network")])
+def test_busy_answers_carry_retry_after(status, error_type):
+    def handler(request):
+        return httpx.Response(status, headers={"Retry-After": "90"}, text="busy")
+
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler)
+    assert err.value.error_type == error_type
+    assert err.value.retry_after_s == 90
+
+
+def test_a_busy_answer_without_retry_after_carries_none():
+    with pytest.raises(PipelineError) as err:
+        _fetch(lambda request: httpx.Response(429))
+    assert err.value.retry_after_s is None
+
+
+class _FakeTime:
+    def __init__(self):
+        self.t = 100.0
+        self.slept: list[float] = []
+
+    def clock(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.t += seconds
+
+
+def test_the_pacer_keeps_consecutive_requests_apart():
+    from kashi_server.pipeline.lrclib import RequestPacer
+
+    fake = _FakeTime()
+    pacer = RequestPacer(lambda: 0.25, clock=fake.clock, sleep=fake.sleep)
+    pacer.wait()  # first request: no wait
+    fake.t += 0.1
+    pacer.wait()  # 0.1 s after the last one: wait the remaining 0.15
+    fake.t += 0.25
+    pacer.wait()  # exactly on the gap: no wait
+    assert fake.slept == [pytest.approx(0.15)]
+
+
+def test_the_primary_client_is_paced_and_the_mirror_is_not(monkeypatch):
+    from kashi_server.config import settings
+    from kashi_server.pipeline.lrclib import RequestPacer, _client
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
+    fake = _FakeTime()
+    pacer = RequestPacer(lambda: 0.25, clock=fake.clock, sleep=fake.sleep)
+
+    def not_found(request):
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(not_found)
+    with _client("https://lrclib.test", transport=transport, pacer=pacer) as primary:
+        primary.get("/api/get")
+        primary.get("/api/search")
+    assert len(fake.slept) == 1  # the second request waited out the gap
+
+    hits: list[str] = []
+
+    def mirror_handler(request):
+        hits.append(request.url.path)
+        return httpx.Response(404)
+
+    with _client("http://mirror.test", transport=httpx.MockTransport(mirror_handler)) as mirror:
+        for _ in range(3):
+            mirror.get("/api/get")
+    assert len(hits) == 3
+    assert len(fake.slept) == 1  # the mirror never touched the primary's pacer
+
+
+def test_each_target_gets_its_own_timeout(monkeypatch):
+    from kashi_server.config import settings
+    from kashi_server.pipeline.lrclib import PRIMARY_TIMEOUT_S, _client
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test/")
+    monkeypatch.setattr(settings, "lrclib_fallback_timeout_s", 30.0)
+    with _client("http://mirror.test") as mirror, _client("https://lrclib.test") as primary:
+        assert mirror.timeout.read == 30.0  # trailing slash is the same target
+        assert primary.timeout.read == PRIMARY_TIMEOUT_S
+
+
+def test_requests_are_counted_by_target_endpoint_and_code(monkeypatch):
+    from prometheus_client import REGISTRY
+
+    from kashi_server.config import settings
+    from kashi_server.pipeline.lrclib import RequestPacer, _client
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
+
+    def value(target, endpoint, code):
+        labels = {"target": target, "endpoint": endpoint, "code": code}
+        return REGISTRY.get_sample_value("kashi_lrclib_requests_total", labels) or 0.0
+
+    def handler(request):
+        if request.url.path == "/api/search":
+            raise httpx.ConnectTimeout("slow", request=request)
+        return httpx.Response(503)
+
+    before = (value("primary", "get", "503"), value("mirror", "search", "error"))
+    no_gap = RequestPacer(lambda: 0.0)
+    with _client("https://lrclib.test", transport=httpx.MockTransport(handler), pacer=no_gap) as c:
+        c.get("/api/get", params={"track_name": "x"})
+    with _client("http://mirror.test", transport=httpx.MockTransport(handler)) as c:
+        with pytest.raises(httpx.ConnectTimeout):
+            c.get("/api/search")
+    assert value("primary", "get", "503") == before[0] + 1
+    assert value("mirror", "search", "error") == before[1] + 1  # a timeout is counted too
+
+
+def test_fetch_lyrics_without_a_client_builds_the_instrumented_one(monkeypatch):
+    """The factory is the default path: no injected client -> counted request."""
+    from prometheus_client import REGISTRY
+
+    from kashi_server.pipeline import lrclib
+
+    built: list[str] = []
+    real_client = lrclib._client
+
+    def spy(base_url, timeout_s=None, **kw):
+        built.append(base_url)
+        return real_client(
+            base_url, timeout_s, transport=httpx.MockTransport(lambda r: httpx.Response(429))
+        )
+
+    monkeypatch.setattr(lrclib, "_client", spy)
+    labels = {"target": "primary", "endpoint": "get", "code": "429"}
+    before = REGISTRY.get_sample_value("kashi_lrclib_requests_total", labels) or 0.0
+    with pytest.raises(PipelineError):
+        lrclib.fetch_lyrics(HINTS, base_url="https://lrclib.test")
+    assert built == ["https://lrclib.test"]
+    assert REGISTRY.get_sample_value("kashi_lrclib_requests_total", labels) == before + 1
+
+
+def test_the_default_primary_client_shares_the_process_pacer(monkeypatch):
+    """No pacer passed (the production path): every primary client waits on
+    the ONE shared pacer, so the gap holds across clients and jobs."""
+    from kashi_server.config import settings
+    from kashi_server.pipeline import lrclib
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
+    fake = _FakeTime()
+    shared = lrclib.RequestPacer(lambda: 0.25, clock=fake.clock, sleep=fake.sleep)
+    monkeypatch.setattr(lrclib, "PRIMARY_PACER", shared)
+    transport = httpx.MockTransport(lambda request: httpx.Response(404))
+    with lrclib._client("https://lrclib.test", transport=transport) as first:
+        first.get("/api/get")
+    with lrclib._client("https://lrclib.test", transport=transport) as second:
+        second.get("/api/get")  # a NEW client, same pacer: waits
+    with lrclib._client("http://mirror.test", transport=transport) as mirror:
+        mirror.get("/api/get")
+    assert len(fake.slept) == 1

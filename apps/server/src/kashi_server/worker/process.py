@@ -14,6 +14,7 @@ import threading
 import wave
 from contextlib import suppress
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from pathlib import Path
 
 from prometheus_client import Counter
@@ -53,6 +54,7 @@ from kashi_server.pipeline.lrclib import (
     search_candidates,
     title_covers,
 )
+from kashi_server.pipeline.lrclib_gateway import LrclibGateway
 from kashi_server.pipeline.lyricsfile import alignresult_from_lyricsfile
 from kashi_server.pipeline.nightcore import (
     detect_speed_factor,
@@ -142,6 +144,29 @@ IMPLAUSIBLE_DURATION_HINTS = Counter(
     "kashi_implausible_duration_hints_total",
     "Client duration_ms hints discarded as impossible for a track (Faz 8 P4)",
 )
+JOBS_DEFERRED = Counter(
+    "kashi_jobs_deferred_total",
+    "Jobs re-queued without spending an attempt because lrclib was unavailable",
+    # precheck = before the download (the saving); lookup = after it;
+    # patience = gave up after lrclib_patience_s and failed as `network`
+    ["reason"],
+)
+
+
+def build_gateway() -> LrclibGateway:
+    """The worker's lrclib door, from settings. The lambdas look
+    `fetch_lyrics` / `search_candidates` up in THIS module at call time, so a
+    test's monkeypatched fake is what runs, called as before."""
+    return LrclibGateway(
+        fetch=lambda hints, url: fetch_lyrics(hints, base_url=url),
+        search=lambda query, url: search_candidates(query, base_url=url),
+        primary_url=settings.lrclib_base_url,
+        mirror_url=settings.lrclib_fallback_base_url,
+    )
+
+
+# Process-wide on purpose: the breaker has to remember the last job's failures.
+LRCLIB = build_gateway()
 
 
 def credible_duration_hint(hints: dict | None) -> int | None:
@@ -411,11 +436,9 @@ def _original_song_candidates(query_title: str, artist: str) -> list[dict]:
         # not accept "Come On Eileen" — field failure 2026-07-13).
         return [rec for rec in records if title_covers(rec.get("trackName") or "", query_title)]
 
-    candidates = plausible(
-        search_candidates(f"{artist} {query_title}".strip(), base_url=settings.lrclib_base_url)
-    )
+    candidates = plausible(LRCLIB.search_candidates(f"{artist} {query_title}".strip()))
     if not candidates and artist:
-        candidates = plausible(search_candidates(query_title, base_url=settings.lrclib_base_url))
+        candidates = plausible(LRCLIB.search_candidates(query_title))
     return candidates
 
 
@@ -510,7 +533,7 @@ def _plain_lyrics(job: Job) -> LyricsText:
         return caller
     hints = _lookup_hints(job)
     try:
-        return fetch_lyrics(hints, base_url=settings.lrclib_base_url)
+        return LRCLIB.fetch_lyrics(hints)
     except PipelineError as exc:
         if exc.error_type != "lyrics_not_found":
             raise
@@ -551,9 +574,7 @@ def _composite_title_fallback(hints: dict, exc: PipelineError) -> LyricsText:
         song,
     )
     try:
-        return fetch_lyrics(
-            {**hints, "artist": artist, "title": song}, base_url=settings.lrclib_base_url
-        )
+        return LRCLIB.fetch_lyrics({**hints, "artist": artist, "title": song})
     except PipelineError as retry_exc:
         if is_transient_error(retry_exc.error_type):
             # A transient retry failure (network/rate_limited) must stay
@@ -710,6 +731,11 @@ def process_job(s: Session, job: Job) -> None:
     try:
         checkpoint(s, job)
 
+        if _defer_before_download(job):
+            _defer_or_give_up(s, job, "lrclib unavailable and the mirror has no lyrics", "precheck")
+            s.commit()
+            return
+
         # --- downloading (claim already set the status) ---
         # youtube_fetch is passed from THIS module so the download_audio
         # monkeypatch seam survives the source dispatch (Faz 5 P4).
@@ -788,6 +814,63 @@ def process_job(s: Session, job: Job) -> None:
     finally:
         # AUDIO DELETION GUARANTEE — every path ends here.
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _is_plain_lookup(job: Job) -> bool:
+    """True when the job's only lrclib question is the plain r=1 lookup,
+    i.e. no nightcore branch will search lrclib after the download."""
+    options = job.options or {}
+    if options.get("speed_factor") is not None:
+        return False
+    if not settings.nightcore_detection:
+        return True
+    title = (job.hints or {}).get("title") or ""
+    return not options.get("original_title") and clean_title(title) is None
+
+
+def _defer_before_download(job: Job) -> bool:
+    """While lrclib.net is off limits (breaker open or Retry-After pause), a
+    plain job whose lyrics the mirror cannot supply is deferred BEFORE the
+    YouTube download: the download is the cost P3 exists to save.
+
+    Nightcore-marked jobs keep the old order (download, then search): their
+    lookup depends on the audio's duration. That costs one download per
+    attempt during an outage; they are rare."""
+    if LRCLIB.breaker.allows_primary():
+        return False
+    if _caller_lyrics(job) is not None or not _is_plain_lookup(job):
+        return False
+    return LRCLIB.mirror_only_lookup(_lookup_hints(job)) is None
+
+
+def _defer_or_give_up(s: Session, job: Job, message: str, reason: str) -> None:
+    """Defer on the widening lrclib schedule, or fail as plain `network` once
+    the job has been deferring for longer than the patience window."""
+    patience = timedelta(seconds=settings.lrclib_patience_s)
+    if job.deferred_since is not None and job.deferred_since + patience < queue._now():
+        logger.error(
+            "job %s failed (network): lrclib unavailable for over %s (%d deferrals): %s",
+            job.id,
+            patience,
+            job.deferrals,
+            message[:500],
+        )
+        JOBS_DEFERRED.labels("patience").inc()
+        queue.mark_failed(s, job, "network", f"lrclib unavailable for over {patience}: {message}")
+        _drop_staged_upload(s, job)
+        return
+    delays = settings.lrclib_defer_delays_s
+    delay = delays[min(job.deferrals, len(delays) - 1)] if delays else 600
+    logger.warning(
+        "job %s: deferred %ds (deferral %d, %s, attempt refunded): %s",
+        job.id,
+        delay,
+        job.deferrals + 1,
+        reason,
+        message[:200],
+    )
+    JOBS_DEFERRED.labels(reason).inc()
+    queue.defer(s, job, delay_s=delay, message=message)
 
 
 def _check_client_edit(job: Job, download: DownloadResult) -> None:
@@ -1008,7 +1091,11 @@ def _postprocess(
 
 def _fail_or_retry(s: Session, job: Job, error_type: str, message: str) -> None:
     s.refresh(job)
-    if is_transient_error(error_type) and job.attempts < job.max_attempts:
+    if error_type == "lrclib_unavailable":
+        # Checked before the attempt budget: a deferral refunds the attempt,
+        # so an outage can never exhaust it (patience bounds it instead).
+        _defer_or_give_up(s, job, message, "lookup")
+    elif is_transient_error(error_type) and job.attempts < job.max_attempts:
         delays = settings.retry_delays_s
         delay = delays[min(job.attempts - 1, len(delays) - 1)] if delays else 60
         logger.warning(

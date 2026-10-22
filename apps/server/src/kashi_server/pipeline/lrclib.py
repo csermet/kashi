@@ -13,18 +13,36 @@ actually sung).
 """
 
 import logging
+import math
 import re
+import threading
+import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import httpx
+from prometheus_client import Counter
 
+from kashi_server.config import settings
 from kashi_server.vdl_kit.errors import PipelineError
 from kashi_server.version import PIPELINE_VERSION
 
 logger = logging.getLogger(__name__)
 
 USER_AGENT = f"kashi-server/{PIPELINE_VERSION} (+https://github.com/csermet/kashi)"
+PRIMARY_TIMEOUT_S = 15.0
+# lrclib asks clients to honour Retry-After. A value past an hour is not a
+# plan we can act on (and a typo'd header must not park the worker for a day).
+RETRY_AFTER_CAP_S = 3600.0
+
+LRCLIB_REQUESTS = Counter(
+    "kashi_lrclib_requests_total",
+    "HTTP requests to lrclib by target (primary | mirror), endpoint and status",
+    ["target", "endpoint", "code"],  # code: HTTP status, or "error" (timeout/DNS/reset)
+)
 SEARCH_DURATION_TOLERANCE_S = 3
 # A record whose duration disagrees with the audio by more than this is for a
 # DIFFERENT EDIT of the song: its synced stamps will be dropped by the worker's
@@ -100,6 +118,30 @@ def split_artists(artist: str) -> list[str]:
 _PERMANENT_HTTP_STATUS = frozenset({400, 422})
 
 
+def parse_retry_after(value: str | None, *, now: datetime | None = None) -> float | None:
+    """Seconds to wait from a Retry-After header, or None when absent/garbage.
+
+    Both RFC 9110 forms: delay-seconds (digits only, so "-5", "nan" and "1e9"
+    are garbage, not numbers) and an HTTP-date. A date in the past means
+    "now" (0); anything longer than RETRY_AFTER_CAP_S is capped."""
+    if value is None:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        seconds = float(value)
+    else:
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        seconds = (when - (now or datetime.now(UTC))).total_seconds()
+    if not math.isfinite(seconds):
+        return None
+    return min(max(seconds, 0.0), RETRY_AFTER_CAP_S)
+
+
 def _pipeline_error(exc: httpx.HTTPError, context: str) -> PipelineError:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
@@ -107,9 +149,120 @@ def _pipeline_error(exc: httpx.HTTPError, context: str) -> PipelineError:
             return PipelineError(
                 "lyrics_not_found", f"lrclib rejected the request ({status}): {context}"
             )
+        retry_after_s = parse_retry_after(exc.response.headers.get("Retry-After"))
         if status == 429:
-            return PipelineError("rate_limited", f"lrclib rate-limited: {context}")
+            return PipelineError(
+                "rate_limited", f"lrclib rate-limited: {context}", retry_after_s=retry_after_s
+            )
+        # 5xx (503 = lrclib's documented "temporarily busy") and 403 stay
+        # `network` for the job; the worker's gateway reads both as "busy".
+        return PipelineError(
+            "network", f"lrclib unreachable: {exc}", retry_after_s=retry_after_s
+        )
     return PipelineError("network", f"lrclib unreachable: {exc}")
+
+
+def lrclib_target(base_url: str) -> str:
+    """Metric/log label for a base URL: "mirror" for the configured fallback,
+    "primary" for everything else (lrclib.net, or whatever replaces it)."""
+    mirror = settings.lrclib_fallback_base_url
+    if mirror and base_url.rstrip("/") == mirror.rstrip("/"):
+        return "mirror"
+    return "primary"
+
+
+class RequestPacer:
+    """Keeps consecutive requests at least `gap_s()` apart (lrclib asks for
+    200-500 ms between sequential requests during batch work). One instance
+    is shared by every client to the primary, so the gap holds across jobs
+    and across the ladder's rungs alike."""
+
+    def __init__(
+        self,
+        gap_s: Callable[[], float],
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._gap_s = gap_s
+        self._clock = clock
+        self._sleep = sleep
+        self._lock = threading.Lock()
+        self._last: float | None = None
+
+    def wait(self) -> None:
+        with self._lock:
+            now = self._clock()
+            if self._last is not None:
+                remaining = self._gap_s() - (now - self._last)
+                if remaining > 0:
+                    self._sleep(remaining)
+                    now = self._clock()
+            self._last = now
+
+
+PRIMARY_PACER = RequestPacer(lambda: settings.lrclib_request_gap_s)
+
+
+def _endpoint(path: str) -> str:
+    if path.startswith("/api/search"):
+        return "search"
+    if path.startswith("/api/get"):
+        return "get"
+    return "other"
+
+
+class _InstrumentedTransport(httpx.BaseTransport):
+    """Counts every request (status, or "error" when none came back) and paces
+    the primary. A transport rather than event hooks: a hook never sees a
+    timeout or a refused connection, and during an outage those are exactly
+    the requests worth counting."""
+
+    def __init__(
+        self, inner: httpx.BaseTransport, target: str, pacer: RequestPacer | None
+    ) -> None:
+        self._inner = inner
+        self._target = target
+        self._pacer = pacer
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        if self._pacer is not None:
+            self._pacer.wait()
+        endpoint = _endpoint(request.url.path)
+        try:
+            response = self._inner.handle_request(request)
+        except httpx.TransportError:
+            LRCLIB_REQUESTS.labels(self._target, endpoint, "error").inc()
+            raise
+        LRCLIB_REQUESTS.labels(self._target, endpoint, str(response.status_code)).inc()
+        return response
+
+    def close(self) -> None:
+        self._inner.close()
+
+
+def _client(
+    base_url: str,
+    timeout_s: float | None = None,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    pacer: RequestPacer | None = None,
+) -> httpx.Client:
+    """The client every lookup builds for itself. The target (from the URL)
+    picks the timeout — the mirror's is longer, a cold search reads the disk —
+    and whether requests are paced. `transport`/`pacer` are test seams;
+    callers that inject a whole `client=` bypass this factory entirely."""
+    target = lrclib_target(base_url)
+    if timeout_s is None:
+        timeout_s = settings.lrclib_fallback_timeout_s if target == "mirror" else PRIMARY_TIMEOUT_S
+    if pacer is None and target == "primary":
+        pacer = PRIMARY_PACER
+    return httpx.Client(
+        base_url=base_url,
+        timeout=timeout_s,
+        headers={"User-Agent": USER_AGENT},
+        transport=_InstrumentedTransport(transport or httpx.HTTPTransport(), target, pacer),
+    )
 
 
 def _parse_synced(synced: str) -> list[tuple[int | None, str]]:
@@ -255,11 +408,12 @@ def fetch_lyrics(
     hints: dict,
     *,
     base_url: str,
-    timeout_s: float = 15.0,
+    timeout_s: float | None = None,
     client: httpx.Client | None = None,
 ) -> LyricsText:
     """Exact `/api/get` first, then `/api/search`. Sequential on purpose: two
-    parallel requests would double the load on a free service for one track."""
+    parallel requests would double the load on a free service for one track.
+    `timeout_s=None` takes the target's own timeout (see `_client`)."""
     title = (hints.get("title") or "").strip()
     artist = normalize_artist(hints.get("artist") or "")
     if not title or not artist:
@@ -268,9 +422,7 @@ def fetch_lyrics(
     duration_s = float(duration_ms) / 1000 if duration_ms else None
 
     owns_client = client is None
-    http = client or httpx.Client(
-        base_url=base_url, timeout=timeout_s, headers={"User-Agent": USER_AGENT}
-    )
+    http = client or _client(base_url, timeout_s)
     try:
         rung = "get"
         record = _get_exact(http, title, artist, hints.get("album"), duration_s)
@@ -298,12 +450,13 @@ def fetch_lyrics(
     assert record is not None  # extracted != None implies a record
     line_texts, synced_starts_ms, had_synced = extracted
     logger.info(
-        "lyrics for %s - %s: %d lines (%s, via %s)",
+        "lyrics for %s - %s: %d lines (%s, via %s, %s)",
         artist,
         title,
         len(line_texts),
         "synced" if had_synced else "plain",
         rung,
+        lrclib_target(base_url),
     )
     return LyricsText(
         line_texts=line_texts,
@@ -503,7 +656,7 @@ def search_candidates(
     query: str,
     *,
     base_url: str,
-    timeout_s: float = 15.0,
+    timeout_s: float | None = None,
     client: httpx.Client | None = None,
 ) -> list[dict]:
     """Raw free-text /api/search results — the nightcore-detection seam.
@@ -514,9 +667,7 @@ def search_candidates(
     main fetch path.
     """
     owns_client = client is None
-    http = client or httpx.Client(
-        base_url=base_url, timeout=timeout_s, headers={"User-Agent": USER_AGENT}
-    )
+    http = client or _client(base_url, timeout_s)
     try:
         response = http.get(_SEARCH_PATH, params={"q": query})
         response.raise_for_status()

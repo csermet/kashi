@@ -264,6 +264,31 @@ def test_worker_dry_run_marks_and_logs_without_publishing(db_session, monkeypatc
     assert process_one_publish(db_session) is False  # queue drained
 
 
+def test_a_real_publish_targets_the_primary_never_the_mirror(db_session, monkeypatch):
+    """LyricFix P3 contract: contribute-back keeps `lrclib_base_url`. The
+    mirror is a read-only dump; a publish sent there would vanish."""
+    from kashi_server.config import settings
+    from kashi_server.worker.publisher import process_one_publish
+
+    monkeypatch.setattr(settings, "lrclib_publish_enabled", True)
+    monkeypatch.setattr(settings, "lrclib_publish_dry_run", False)
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
+    doc = _doc()
+    doc["track"]["source"]["id"] = "pubTestMir1"
+    etag = _persist_doc(db_session, doc)
+    db_session.add(LrclibPublish(source_type="youtube", source_id="pubTestMir1", etag=etag))
+    db_session.flush()
+    seen: list[str] = []
+
+    def fake_publish(document, *, base_url, should_stop=None):
+        seen.append(base_url)
+
+    monkeypatch.setattr("kashi_server.worker.publisher.publish_document", fake_publish)
+    assert process_one_publish(db_session) is True
+    assert seen == [settings.lrclib_base_url]
+    assert db_session.scalars(select(LrclibPublish)).one().status == "published"
+
+
 def test_worker_fails_when_document_moved_on(db_session, monkeypatch):
     from kashi_server.config import settings
     from kashi_server.worker.publisher import process_one_publish

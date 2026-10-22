@@ -274,6 +274,10 @@ def set_status(s: Session, job: Job, status: str) -> None:
 
 def mark_completed(s: Session, job: Job) -> None:
     job.status = "completed"
+    # A job deferred on its way here carries the last lrclib_unavailable note;
+    # a finished job must not read as an error in the jobs view.
+    job.error_type = None
+    job.error_message = None
     job.finished_at = _now()
     job.updated_at = _now()
     s.flush()
@@ -293,6 +297,26 @@ def retry(s: Session, job: Job, delay_s: int) -> None:
     job.next_attempt_at = _now() + timedelta(seconds=delay_s)
     job.lease_expires_at = None
     job.updated_at = _now()
+    s.flush()
+
+
+def defer(s: Session, job: Job, delay_s: int, message: str) -> None:
+    """Re-queue a job that lrclib (and the mirror) could not serve, WITHOUT
+    spending an attempt: the claim counted this run, an outage is not the
+    job's failure, so the count is handed back (LyricFix P3). `deferrals`
+    keeps the tally instead, and the first deferral starts the patience
+    window the worker measures against."""
+    now = _now()
+    job.status = "queued"
+    job.attempts = job.attempts - 1
+    job.deferrals = job.deferrals + 1
+    if job.deferred_since is None:
+        job.deferred_since = now
+    job.next_attempt_at = now + timedelta(seconds=delay_s)
+    job.lease_expires_at = None
+    job.error_type = "lrclib_unavailable"
+    job.error_message = message[:2000]
+    job.updated_at = now
     s.flush()
 
 
