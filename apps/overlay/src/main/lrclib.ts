@@ -153,11 +153,61 @@ const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  *
  * An entry with no version predates this rule and counts as stale — which is
  * exactly the state the 0.27.3 rung needs to escape.
+ *
+ * 3: degenerate records are skipped and the ladder moves on (LyricFix P4).
  */
-const LOOKUP_LADDER_VERSION = 2;
+const LOOKUP_LADDER_VERSION = 3;
 const REQUEST_TIMEOUT_MS = 12_000; // field data: cold lrclib responses can exceed 8s
 const SEARCH_DURATION_TOLERANCE_S = 3;
 const LAST_LINE_FALLBACK_MS = 5000;
+
+/**
+ * Degenerate-record gate (LyricFix P4). lrclib records can rot: id 1009665
+ * "Never Gonna Give You Up" is now the single line "probe", and a "Party Rock
+ * Anthem" record is one "day day day" line. Both parse as synced lyrics. The
+ * server archive (339 documents, 2026-10-22): stamped lines p2 = 20; words per
+ * minute p2 = 22.7, p5 = 37.4, so these floors sit far below any real song.
+ * Twin of is_degenerate_synced in the server's pipeline/lrclib.py: keep the
+ * numbers identical.
+ */
+const MIN_SYNCED_LINES = 4;
+const MIN_WORDS_PER_MINUTE = 8;
+/** Below a minute the rate is too noisy to judge (a short intro edit). */
+const WORDS_PER_MINUTE_MIN_DURATION_S = 60;
+const WORD = /[\p{L}\p{N}_]+/gu;
+const LRC_STAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+
+/**
+ * True for stamped lyric texts too thin to be a song: fewer than
+ * MIN_SYNCED_LINES lines, or (a record of a minute or more) fewer than
+ * MIN_WORDS_PER_MINUTE words per minute of the record's own duration.
+ */
+export function isDegenerateLines(texts: string[], durationS: number | null): boolean {
+  if (texts.length < MIN_SYNCED_LINES) return true;
+  if (durationS === null || durationS < WORDS_PER_MINUTE_MIN_DURATION_S) return false;
+  const words = texts.reduce((sum, text) => sum + (text.match(WORD)?.length ?? 0), 0);
+  return words / (durationS / 60) < MIN_WORDS_PER_MINUTE;
+}
+
+/** The gate on a raw LRC text: one entry per stamped line that carries text,
+ * however many stamps it repeats (the server counts lines the same way). */
+export function isDegenerateSynced(lrc: string, durationS: number | null): boolean {
+  const texts: string[] = [];
+  for (const rawLine of lrc.split(/\r?\n/)) {
+    const matches = [...rawLine.matchAll(LRC_STAMP)];
+    const last = matches.at(-1);
+    if (!last) continue;
+    const text = rawLine.slice((last.index ?? 0) + last[0].length).trim();
+    if (text) texts.push(text);
+  }
+  return isDegenerateLines(texts, durationS);
+}
+
+/** Records a lookup threw away as degenerate. A miss that only had those is
+ * not cached: lrclib may repair the record any day. */
+interface LadderNotes {
+  rejected: number;
+}
 
 type CacheEntry =
   | { found: true; sourceId: number; lines: LyricLine[]; recordDurationMs?: number | null }
@@ -196,8 +246,9 @@ export class LrclibClient {
       throw new LrclibUnavailableError('busy', wait, `cooling down for ${wait} ms`);
     }
     let record: LrclibRecord | null;
+    const notes: LadderNotes = { rejected: 0 };
     try {
-      record = await this.findRecord(query, signal);
+      record = await this.findRecord(query, signal, notes);
     } catch (err) {
       // Only a real outage counts: an abort (ours, or a coalesced caller's)
       // says nothing about the source.
@@ -205,13 +256,17 @@ export class LrclibClient {
       throw err;
     }
     cooldown?.noteSuccess();
-    return this.settle(key, query, record);
+    return this.settle(key, query, record, notes);
   }
 
   /** What a cache entry answers on its own: a hit, or a negative entry that is
    * still fresh for THIS ladder. null = go ask lrclib. */
   private cachedAnswer(cached: CacheEntry): LyricsResult | null {
     if (cached.found) {
+      // Positives are kept forever, so one stored before the record gate
+      // existed would show "probe" forever: a degenerate one is asked again.
+      const durationS = cached.recordDurationMs == null ? null : cached.recordDurationMs / 1000;
+      if (isDegenerateLines(cached.lines.map((line) => line.text), durationS)) return null;
       return {
         found: true,
         source: 'lrclib',
@@ -233,11 +288,16 @@ export class LrclibClient {
   }
 
   /** The lookup ladder: exact get, search, then the primary-artist rung. */
-  private async findRecord(query: TrackQuery, signal?: AbortSignal): Promise<LrclibRecord | null> {
-    // Fall through to search when the exact hit exists but carries no synced
-    // lyrics (plain-only/instrumental records) — a synced variant may exist.
+  private async findRecord(
+    query: TrackQuery,
+    signal: AbortSignal | undefined,
+    notes: LadderNotes,
+  ): Promise<LrclibRecord | null> {
+    // Fall through to search when the exact hit exists but carries no usable
+    // synced lyrics (plain-only, instrumental, degenerate): a real synced
+    // variant may exist.
     const exact = await this.exactGet(query, signal);
-    const record = exact?.syncedLyrics ? exact : await this.search(query, signal);
+    const record = this.usable(exact, notes) ? exact : await this.search(query, signal, notes);
     if (record?.syncedLyrics) return record;
 
     // Multi-artist rung. Runs ONLY when the joined string actually splits, and
@@ -249,20 +309,37 @@ export class LrclibClient {
     if (!primary) return record;
     const scoped = { ...query, artist: primary };
     const retry = await this.exactGet(scoped, signal);
-    const rescued = retry?.syncedLyrics ? retry : await this.search(scoped, signal);
+    const rescued = this.usable(retry, notes) ? retry : await this.search(scoped, signal, notes);
     if (rescued?.syncedLyrics) {
       this.opts.log?.(`[lrclib] "${query.artist}" missed; "${primary}" hit`);
     }
     return rescued;
   }
 
-  /** Parse the record and cache the verdict either way. */
+  /** A record whose synced lyrics the ladder may use; notes the rejects. */
+  private usable(record: LrclibRecord | null, notes: LadderNotes): record is LrclibRecord {
+    if (!record?.syncedLyrics) return false;
+    if (isDegenerateSynced(record.syncedLyrics, record.duration)) {
+      notes.rejected += 1;
+      return false;
+    }
+    return true;
+  }
+
+  /** Parse the record and cache the verdict, except a miss made of rejects. */
   private async settle(
     key: string,
     query: TrackQuery,
     record: LrclibRecord | null,
+    notes: LadderNotes,
   ): Promise<LyricsResult> {
     if (!record?.syncedLyrics) {
+      if (notes.rejected > 0) {
+        this.opts.log?.(
+          `[lrclib] "${query.artist} - ${query.title}": only degenerate records (${notes.rejected}); miss not cached`,
+        );
+        return { found: false };
+      }
       await this.writeCache(key, { found: false, at: this.now(), ladder: LOOKUP_LADDER_VERSION });
       return { found: false };
     }
@@ -300,7 +377,8 @@ export class LrclibClient {
 
   private async search(
     query: TrackQuery,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    notes: LadderNotes,
   ): Promise<LrclibRecord | null> {
     const params = new URLSearchParams({
       track_name: query.title,
@@ -309,8 +387,8 @@ export class LrclibClient {
     const resp = await this.request(`/api/search?${params}`, signal);
     if (BAD_REQUEST_STATUS.has(resp.status)) return null;
     if (!resp.ok) throw this.unavailable(resp, '/api/search');
-    const candidates = ((await resp.json()) as LrclibRecord[]).filter(
-      (c) => c.syncedLyrics,
+    const candidates = ((await resp.json()) as LrclibRecord[]).filter((c) =>
+      this.usable(c, notes),
     );
     if (candidates.length === 0) return null;
 

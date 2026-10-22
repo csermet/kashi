@@ -622,5 +622,11 @@
 #     permanent lyrics_not_found (cec3a33's fix, undone there by a broad except).
 #   · _voice_entry could index past the contour's last frame; an ad-lib hold
 #     under the breath margin no longer counts as a change.
-PIPELINE_VERSION = "2.27.1"
+# 2.27.2: degenerate lrclib records are not lyrics (LyricFix P4). A record
+# with fewer than 4 stamped lines, or under 8 words per minute of its own
+# duration (a minute or longer), is unusable like an instrumental one and the
+# ladder moves on. lrclib's record for "Never Gonna Give You Up" had rotted to
+# the single line "probe", and a one-line "day day day" record replaced "Party
+# Rock Anthem" at quality 1.0 in the 2026-10-16 wave.
+PIPELINE_VERSION = "2.27.2"
 PIPELINE_MAJOR = 2

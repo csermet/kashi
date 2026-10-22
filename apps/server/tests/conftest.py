@@ -40,6 +40,30 @@ def _hermetic_pipeline_defaults(monkeypatch):
     monkeypatch.setattr(settings, "fx_embeddings", False)  # keyword layer stays on
 
 
+_SHIPPED_RECORD_GATE: dict[str, float] = {}
+
+
+@pytest.fixture(autouse=True)
+def _toy_records_pass_the_record_gate(monkeypatch):
+    """Unit tests feed one- and two-line toy lrclib records, which the
+    degenerate-record gate (LyricFix P4) rightly rejects as too thin to be a
+    song. Mechanics tests run with the gate open; tests of the gate itself
+    take `shipped_record_gate` to get the real floors back."""
+    from kashi_server.pipeline import lrclib
+
+    for name in ("MIN_SYNCED_LINES", "MIN_WORDS_PER_MINUTE"):
+        _SHIPPED_RECORD_GATE.setdefault(name, getattr(lrclib, name))
+        monkeypatch.setattr(lrclib, name, 0)
+
+
+@pytest.fixture
+def shipped_record_gate(monkeypatch):
+    from kashi_server.pipeline import lrclib
+
+    for name, value in _SHIPPED_RECORD_GATE.items():
+        monkeypatch.setattr(lrclib, name, value)
+
+
 @pytest.fixture(autouse=True)
 def _fresh_lrclib_gateway(monkeypatch):
     """The worker's lrclib breaker is process-wide state (LyricFix P3): one

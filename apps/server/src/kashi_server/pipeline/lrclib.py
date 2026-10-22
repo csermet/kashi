@@ -40,8 +40,11 @@ RETRY_AFTER_CAP_S = 3600.0
 
 LRCLIB_REQUESTS = Counter(
     "kashi_lrclib_requests_total",
-    "HTTP requests to lrclib by target (primary | mirror), endpoint and status",
-    ["target", "endpoint", "code"],  # code: HTTP status, or "error" (timeout/DNS/reset)
+    "HTTP requests to lrclib by target (primary | mirror), API route and status",
+    # code: HTTP status, or "error" (timeout/DNS/reset). Not "endpoint": the
+    # Prometheus Operator adds its own `endpoint` target label to every series,
+    # and ours ended up renamed to exported_endpoint (seen on 0.31.0).
+    ["target", "route", "code"],
 )
 SEARCH_DURATION_TOLERANCE_S = 3
 # A record whose duration disagrees with the audio by more than this is for a
@@ -318,18 +321,48 @@ def _drop_overrunning_stamps(
     return [None if start is not None and start > limit else start for start in starts]
 
 
+# Degenerate-record gate (LyricFix P4). lrclib records can rot: id 1009665
+# "Never Gonna Give You Up" is now the single line "probe", and a "Party Rock
+# Anthem" record is one "day day day" line. Both parse as synced lyrics, and
+# both replaced real documents in the 2026-10-16 wave (one scored 1.0). The
+# archive (339 documents, 2026-10-22): stamped lines p2 = 20; words per minute
+# p2 = 22.7, p5 = 37.4. These floors sit far below any real song. Twin:
+# isDegenerateSynced in the overlay's lrclib.ts — keep the numbers identical.
+MIN_SYNCED_LINES = 4
+MIN_WORDS_PER_MINUTE = 8.0
+# Below a minute the rate is too noisy to judge (a short intro edit).
+WORDS_PER_MINUTE_MIN_DURATION_S = 60.0
+
+
+def is_degenerate_synced(entries: list[tuple[int | None, str]], duration_s: float | None) -> bool:
+    """True for a synced text too thin to be a song's lyrics: fewer than
+    MIN_SYNCED_LINES stamped lines, or (record of a minute or more) fewer than
+    MIN_WORDS_PER_MINUTE words per minute of the record's own duration."""
+    stamped = [text for start, text in entries if start is not None]
+    if len(stamped) < MIN_SYNCED_LINES:
+        return True
+    if duration_s is None or duration_s < WORDS_PER_MINUTE_MIN_DURATION_S:
+        return False
+    words = sum(len(_WORD_TOKEN.findall(text)) for text in stamped)
+    return words / (duration_s / 60) < MIN_WORDS_PER_MINUTE
+
+
 def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | None:
     if record.get("instrumental"):
         return None
     synced = record.get("syncedLyrics")
     if synced:
         entries = _parse_synced(synced)
+        duration = record.get("duration")
+        duration_s = float(duration) if duration is not None else None
+        if entries and is_degenerate_synced(entries, duration_s):
+            # Unusable like an instrumental record, plain text included (the
+            # rotted records carry the same stub there): the ladder moves on to
+            # the next rung, and a miss caused only by this stays the ordinary
+            # lyrics_not_found.
+            return None
         if entries:
-            duration = record.get("duration")
-            starts = _drop_overrunning_stamps(
-                [start for start, _ in entries],
-                float(duration) if duration is not None else None,
-            )
+            starts = _drop_overrunning_stamps([start for start, _ in entries], duration_s)
             return [text for _, text in entries], starts, True
     plain = record.get("plainLyrics")
     if plain:

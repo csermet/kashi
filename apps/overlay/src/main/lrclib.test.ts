@@ -4,10 +4,20 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SourceCooldown } from './source-cooldown.js';
 import { LrclibClient, LrclibUnavailableError, MAX_RETRY_AFTER_MS, normalizeArtist, parseLrc, parseRetryAfter,
-  splitArtists,
+  isDegenerateLines, isDegenerateSynced, splitArtists,
 } from './lrclib.js';
 
 const LRC = '[00:12.34] First line\n[00:15.20] Second line\n';
+/**
+ * What a client-level test serves as a record: shaped like a real song (8
+ * stamped lines, 48 words), so the degenerate-record gate lets it through at
+ * every duration used below (9.6 words/min at 300 s). LRC above stays the
+ * parser's two-line unit fixture.
+ */
+const SONG_LRC = Array.from(
+  { length: 8 },
+  (_, i) => `[00:${String(10 + i * 5).padStart(2, '0')}.00] line ${i} of the song goes here`,
+).join('\n');
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(status === 404 ? '{}' : JSON.stringify(body), { status });
@@ -99,13 +109,13 @@ describe('LrclibClient', () => {
   it('returns parsed lines from an exact hit and caches positively', async () => {
     const { fetchFn, calls } = makeFetch((url) => {
       expect(url).toContain('artist_name=Rick+Astley'); // Topic stripped
-      return jsonResponse(200, { id: 42, duration: 213, syncedLyrics: LRC });
+      return jsonResponse(200, { id: 42, duration: 213, syncedLyrics: SONG_LRC });
     });
     const client = new LrclibClient({ cacheDir, fetchFn });
 
     const first = await client.getLyrics(QUERY);
     expect(first).toMatchObject({ found: true, sourceId: 42 });
-    if (first.found) expect(first.lines).toHaveLength(2);
+    if (first.found) expect(first.lines).toHaveLength(8);
 
     const second = await client.getLyrics(QUERY);
     expect(second).toMatchObject({ found: true, sourceId: 42 });
@@ -116,7 +126,7 @@ describe('LrclibClient', () => {
     const { fetchFn, calls } = makeFetch((url) =>
       url.includes('/api/get')
         ? jsonResponse(200, { id: 1, duration: 213, syncedLyrics: null }) // plain-only
-        : jsonResponse(200, [{ id: 2, duration: 213, syncedLyrics: LRC }]),
+        : jsonResponse(200, [{ id: 2, duration: 213, syncedLyrics: SONG_LRC }]),
     );
     const client = new LrclibClient({ cacheDir, fetchFn });
     const result = await client.getLyrics(QUERY);
@@ -128,8 +138,8 @@ describe('LrclibClient', () => {
     const { fetchFn, calls } = makeFetch((url) => {
       if (url.includes('/api/get')) return jsonResponse(404, {});
       return jsonResponse(200, [
-        { id: 1, duration: 300, syncedLyrics: LRC },
-        { id: 2, duration: 214, syncedLyrics: LRC },
+        { id: 1, duration: 300, syncedLyrics: SONG_LRC },
+        { id: 2, duration: 214, syncedLyrics: SONG_LRC },
         { id: 3, duration: 213, syncedLyrics: null },
       ]);
     });
@@ -144,7 +154,7 @@ describe('LrclibClient', () => {
     const { fetchFn } = makeFetch((url) =>
       url.includes('/api/get')
         ? jsonResponse(404, {})
-        : jsonResponse(200, [{ id: 9, duration: 300, syncedLyrics: LRC }]),
+        : jsonResponse(200, [{ id: 9, duration: 300, syncedLyrics: SONG_LRC }]),
     );
     const client = new LrclibClient({ cacheDir, fetchFn });
     expect(await client.getLyrics(QUERY)).toEqual({ found: false });
@@ -181,7 +191,7 @@ describe('LrclibClient', () => {
     const [a, b] = [client.getLyrics(QUERY), client.getLyrics(QUERY)];
     await new Promise((r) => setTimeout(r, 10));
     expect(calls).toHaveLength(1);
-    resolveFetch?.(jsonResponse(200, { id: 7, duration: 213, syncedLyrics: LRC }));
+    resolveFetch?.(jsonResponse(200, { id: 7, duration: 213, syncedLyrics: SONG_LRC }));
     const [ra, rb] = await Promise.all([a, b]);
     expect(ra).toMatchObject({ found: true, sourceId: 7 });
     expect(rb).toMatchObject({ found: true, sourceId: 7 });
@@ -223,7 +233,7 @@ describe('LrclibClient', () => {
 
     // Next lookup hits the network again (nothing was cached).
     const { fetchFn: fetch2, calls: calls2 } = makeFetch(() =>
-      jsonResponse(200, { id: 5, duration: 213, syncedLyrics: LRC }),
+      jsonResponse(200, { id: 5, duration: 213, syncedLyrics: SONG_LRC }),
     );
     const client2 = new LrclibClient({ cacheDir, fetchFn: fetch2 });
     expect(await client2.getLyrics(QUERY)).toMatchObject({ found: true });
@@ -280,7 +290,7 @@ describe('multi-artist rung', () => {
       if (url.includes('Sean+Paul+ve+David+Guetta')) {
         return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
       }
-      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: LRC });
+      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: SONG_LRC });
     });
     const client = new LrclibClient({ cacheDir, fetchFn });
 
@@ -296,7 +306,7 @@ describe('multi-artist rung', () => {
       if (url.includes('Sean+Paul+ve+David+Guetta')) {
         return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
       }
-      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: LRC });
+      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: SONG_LRC });
     });
     const client = new LrclibClient({ cacheDir, fetchFn });
 
@@ -318,7 +328,7 @@ describe('multi-artist rung', () => {
 
   it('never runs when the first rung already answered', async () => {
     const { fetchFn, calls } = makeFetch(() =>
-      jsonResponse(200, { id: 5, duration: 200, syncedLyrics: LRC }),
+      jsonResponse(200, { id: 5, duration: 200, syncedLyrics: SONG_LRC }),
     );
     const client = new LrclibClient({ cacheDir, fetchFn });
 
@@ -346,7 +356,7 @@ describe('negative cache is tied to the ladder that produced it', () => {
       if (url.includes('Sean+Paul+ve+David+Guetta')) {
         return url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []);
       }
-      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: LRC });
+      return jsonResponse(200, { id: 77, duration: 200, syncedLyrics: SONG_LRC });
     });
     const client = new LrclibClient({ cacheDir, fetchFn });
 
@@ -487,7 +497,7 @@ describe('LrclibClient — cooldown sits between the cache and the network', () 
   const NOW = Date.parse('2026-10-16T08:00:00Z');
   const CACHED = { title: 'Cached', artist: 'Band', duration_ms: 200_000 };
   const FRESH = { title: 'Fresh', artist: 'Band', duration_ms: 200_000 };
-  const RECORD = { id: 5, syncedLyrics: '[00:01.00] la', duration: 200 };
+  const RECORD = { id: 5, syncedLyrics: SONG_LRC, duration: 200 };
 
   beforeEach(async () => {
     cacheDir = await mkdtemp(join(tmpdir(), 'kashi-lrclib-cd-'));
@@ -547,5 +557,100 @@ describe('LrclibClient — cooldown sits between the cache and the network', () 
     const client = new LrclibClient({ cacheDir, fetchFn: fake.fetchFn, nowFn: () => NOW, cooldown });
     await expect(client.getLyrics(FRESH, controller.signal)).rejects.toThrow();
     expect(cooldown.remainingMs()).toBe(0);
+  });
+});
+
+describe('degenerate lrclib records (LyricFix P4, twin of the server gate)', () => {
+  let cacheDir: string;
+  beforeEach(async () => {
+    cacheDir = await mkdtemp(join(tmpdir(), 'kashi-lrclib-degenerate-'));
+  });
+  afterEach(async () => {
+    await rm(cacheDir, { recursive: true, force: true });
+  });
+
+  // Captured from the mirror on 2026-10-22: lrclib's own record has rotted.
+  const PROBE = {
+    id: 1009665,
+    trackName: 'Never Gonna Give You Up',
+    artistName: 'Rick Astley',
+    duration: 214,
+    instrumental: false,
+    plainLyrics: 'probe',
+    syncedLyrics: '[00:00.00]probe',
+  };
+  const QUERY = { title: 'Never Gonna Give You Up', artist: 'Rick Astley', duration_ms: 213_000 };
+
+  it('skips the rotted get record and takes the real one from search', async () => {
+    const { fetchFn, calls } = makeFetch((url) =>
+      url.includes('/api/get')
+        ? jsonResponse(200, PROBE)
+        : jsonResponse(200, [PROBE, { id: 4242, duration: 213, syncedLyrics: SONG_LRC }]),
+    );
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    expect(await client.getLyrics(QUERY)).toMatchObject({ found: true, sourceId: 4242 });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a miss made only of rotted records is not cached: lrclib may fix it', async () => {
+    const { fetchFn, calls } = makeFetch((url) =>
+      url.includes('/api/get') ? jsonResponse(200, PROBE) : jsonResponse(200, [PROBE]),
+    );
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    expect(await client.getLyrics(QUERY)).toEqual({ found: false });
+    const afterFirst = calls.length;
+    await client.getLyrics(QUERY);
+    expect(calls.length).toBeGreaterThan(afterFirst); // asked again, not answered from disk
+  });
+
+  it('an ordinary miss is still cached', async () => {
+    const { fetchFn, calls } = makeFetch((url) =>
+      url.includes('/api/get') ? jsonResponse(404, {}) : jsonResponse(200, []),
+    );
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    await client.getLyrics(QUERY);
+    const afterFirst = calls.length;
+    await client.getLyrics(QUERY);
+    expect(calls).toHaveLength(afterFirst);
+  });
+
+  it('a rotted record cached as a hit before the gate is asked again', async () => {
+    const { fetchFn, calls } = makeFetch(() => jsonResponse(200, { id: 4242, duration: 213, syncedLyrics: SONG_LRC }));
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    const key = (client as unknown as { cacheKey: (q: typeof QUERY) => string }).cacheKey(QUERY);
+    const stale = { found: true, sourceId: 1009665, lines: parseLrc(PROBE.syncedLyrics), recordDurationMs: 214_000 };
+    await writeFile(join(cacheDir, `${key}.json`), JSON.stringify(stale));
+    expect(await client.getLyrics(QUERY)).toMatchObject({ found: true, sourceId: 4242 });
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it('a miss stored by the previous ladder (2) is asked again', async () => {
+    const { fetchFn, calls } = makeFetch(() => jsonResponse(200, { id: 4242, duration: 213, syncedLyrics: SONG_LRC }));
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    const key = (client as unknown as { cacheKey: (q: typeof QUERY) => string }).cacheKey(QUERY);
+    await writeFile(join(cacheDir, `${key}.json`), JSON.stringify({ found: false, at: Date.now(), ladder: 2 }));
+    expect(await client.getLyrics(QUERY)).toMatchObject({ found: true });
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  const lines = (n: number, words: number) =>
+    Array.from({ length: n }, (_, i) => `[00:${String(i).padStart(2, '0')}.00] ${'word '.repeat(words).trim()}`).join('\n');
+
+  it('line floor: 3 stamped lines fail, 4 pass; a repeated stamp is one line', () => {
+    expect(isDegenerateSynced(lines(3, 20), 100)).toBe(true);
+    expect(isDegenerateSynced(lines(4, 20), 100)).toBe(false);
+    expect(isDegenerateSynced('[00:01.00][00:20.00][00:40.00][01:00.00] la la la la la la la', 100)).toBe(true);
+    expect(isDegenerateSynced(`${lines(3, 20)}\nan unstamped line of many words here`, 100)).toBe(true);
+    // A bare stamp with no text is a pause marker, not a line (the server drops it too).
+    expect(isDegenerateSynced(`${lines(3, 20)}\n[00:30.00]\n[00:40.00]  `, 100)).toBe(true);
+  });
+
+  it('words-per-minute floor sits exactly on 8/min from a minute up', () => {
+    expect(isDegenerateSynced(lines(4, 2), 60)).toBe(false); // 8 words / 1 min
+    expect(isDegenerateSynced(lines(4, 2), 61)).toBe(true); // 7.87 / min
+    expect(isDegenerateSynced(lines(4, 1), 59.9)).toBe(false); // too short to judge
+    expect(isDegenerateSynced(lines(4, 1), 60)).toBe(true);
+    expect(isDegenerateSynced(lines(4, 1), null)).toBe(false); // no duration: line floor only
+    expect(isDegenerateLines(['a', 'b', 'c', 'd'], null)).toBe(false);
   });
 });

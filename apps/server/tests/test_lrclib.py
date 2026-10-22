@@ -822,7 +822,7 @@ def test_requests_are_counted_by_target_endpoint_and_code(monkeypatch):
     monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
 
     def value(target, endpoint, code):
-        labels = {"target": target, "endpoint": endpoint, "code": code}
+        labels = {"target": target, "route": endpoint, "code": code}
         return REGISTRY.get_sample_value("kashi_lrclib_requests_total", labels) or 0.0
 
     def handler(request):
@@ -857,7 +857,7 @@ def test_fetch_lyrics_without_a_client_builds_the_instrumented_one(monkeypatch):
         )
 
     monkeypatch.setattr(lrclib, "_client", spy)
-    labels = {"target": "primary", "endpoint": "get", "code": "429"}
+    labels = {"target": "primary", "route": "get", "code": "429"}
     before = REGISTRY.get_sample_value("kashi_lrclib_requests_total", labels) or 0.0
     with pytest.raises(PipelineError):
         lrclib.fetch_lyrics(HINTS, base_url="https://lrclib.test")
@@ -883,3 +883,115 @@ def test_the_default_primary_client_shares_the_process_pacer(monkeypatch):
     with lrclib._client("http://mirror.test", transport=transport) as mirror:
         mirror.get("/api/get")
     assert len(fake.slept) == 1
+
+
+# --- LyricFix P4: degenerate lrclib records are not lyrics -------------------
+
+# Captured from the mirror (2026-10-12 dump) on 2026-10-22: lrclib's own record
+# for this song has rotted to a single word.
+PROBE_RECORD = {
+    "id": 1009665,
+    "name": "Never Gonna Give You Up",
+    "trackName": "Never Gonna Give You Up",
+    "artistName": "Rick Astley",
+    "albumName": "Whenever You Need Somebody",
+    "duration": 214.0,
+    "instrumental": False,
+    "hasWordSync": False,
+    "plainLyrics": "probe",
+    "syncedLyrics": "[00:00.00]probe",
+    "lyricsfile": None,
+}
+# The shape that replaced "Party Rock Anthem" in the 2026-10-16 wave (one
+# line, aligned at quality 1.0). Id is illustrative.
+DAY_DAY_DAY_RECORD = {
+    "id": 30000001,
+    "trackName": "Party Rock Anthem",
+    "artistName": "LMFAO",
+    "duration": 263.0,
+    "syncedLyrics": "[00:05.00] day day day",
+}
+
+
+def _song(id_, title, artist, duration, lines=24):
+    """A synthetic record shaped like real lyrics (real text stays out of the
+    repo): `lines` stamped lines of seven words each, 9 s apart."""
+    synced = "\n".join(
+        f"[{(i * 9) // 60:02d}:{(i * 9) % 60:02d}.00] line {i} of this song goes on here"
+        for i in range(lines)
+    )
+    return {
+        "id": id_,
+        "trackName": title,
+        "artistName": artist,
+        "duration": duration,
+        "syncedLyrics": synced,
+        "plainLyrics": synced,
+    }
+
+
+def lrclib_choose(records, duration_s):
+    from kashi_server.pipeline.lrclib import choose_record
+
+    return choose_record(records, duration_s=duration_s)
+
+
+def test_the_rotted_probe_record_is_skipped_for_the_real_one(shipped_record_gate):
+    real = _song(4242, "Never Gonna Give You Up", "Rick Astley", 213.0)
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return httpx.Response(200, json=PROBE_RECORD)
+        return httpx.Response(200, json=[PROBE_RECORD, real])
+
+    hints = {"title": "Never Gonna Give You Up", "artist": "Rick Astley", "duration_ms": 213_000}
+    lyrics = _fetch(handler, hints)
+    assert lyrics.source_id == 4242
+    assert calls == ["/api/get", "/api/search"]  # the ladder moved on
+
+
+def test_a_one_line_search_hit_is_passed_over(shipped_record_gate):
+    real = _song(28393275, "Party Rock Anthem", "LMFAO", 264.0)
+    assert lrclib_choose([DAY_DAY_DAY_RECORD, real], 263.0)["id"] == 28393275
+
+
+def test_only_degenerate_records_is_an_ordinary_miss(shipped_record_gate):
+    def handler(request):
+        if request.url.path == "/api/get":
+            return httpx.Response(200, json=PROBE_RECORD)
+        return httpx.Response(200, json=[PROBE_RECORD])
+
+    hints = {"title": "Never Gonna Give You Up", "artist": "Rick Astley", "duration_ms": 214_000}
+    with pytest.raises(PipelineError) as err:
+        _fetch(handler, hints)
+    assert err.value.error_type == "lyrics_not_found"  # no new error type
+    assert not has_usable_lyrics(PROBE_RECORD)
+
+
+def _entries(n_lines, words_per_line):
+    return [(i * 1000, " ".join(["word"] * words_per_line)) for i in range(n_lines)]
+
+
+def test_record_gate_line_floor_boundary(shipped_record_gate):
+    from kashi_server.pipeline.lrclib import is_degenerate_synced
+
+    assert is_degenerate_synced(_entries(3, 20), 100.0)
+    assert not is_degenerate_synced(_entries(4, 20), 100.0)
+    # A stampless line is text, not a stamped line.
+    assert is_degenerate_synced(_entries(3, 20) + [(None, "word " * 20)], 100.0)
+
+
+def test_record_gate_words_per_minute_boundary(shipped_record_gate):
+    from kashi_server.pipeline.lrclib import is_degenerate_synced
+
+    # 4 lines x 2 words = 8 words over exactly one minute: 8.0/min passes.
+    assert not is_degenerate_synced(_entries(4, 2), 60.0)
+    # The same 8 words over 61 s: 7.87/min fails.
+    assert is_degenerate_synced(_entries(4, 2), 61.0)
+    # Under a minute the rate is not judged.
+    assert not is_degenerate_synced(_entries(4, 1), 59.9)
+    assert is_degenerate_synced(_entries(4, 1), 60.0)  # 4/min at exactly a minute
+    # No duration: only the line floor applies.
+    assert not is_degenerate_synced(_entries(4, 1), None)

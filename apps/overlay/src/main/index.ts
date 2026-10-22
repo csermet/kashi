@@ -78,8 +78,13 @@ let lrclib: LrclibClient;
  */
 const lrclibCooldown = new SourceCooldown(2000, 120_000);
 const mirrorCooldown = new SourceCooldown(5000, 60_000);
-/** A mirror answers from the LAN or not at all; this only bounds a black hole. */
-const MIRROR_TIMEOUT_MS = 1500;
+/**
+ * A mirror answers from the LAN or not at all; this only bounds a black hole.
+ * /api/get answers in milliseconds; a cold /api/search reads records off a
+ * spinning disk (4-8 s for a popular title), and past this it falls through
+ * to lrclib.net, which is the right trade on a first listen (LyricFix P4).
+ */
+const MIRROR_TIMEOUT_MS = 2500;
 /** The mirror is a snapshot: its misses expire fast so a refreshed copy is asked again. */
 const MIRROR_NEGATIVE_TTL_MS = 60 * 60 * 1000;
 const settingsStore = new SettingsStore(
