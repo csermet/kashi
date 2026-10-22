@@ -12,6 +12,7 @@ import re
 from datetime import UTC, datetime
 from functools import lru_cache
 
+from prometheus_client import Counter
 from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
@@ -298,10 +299,89 @@ _UPSERT_SQL = sa_text(
 )
 
 
+#: How far a new document's quality may fall below the stored one's (same
+#: quality basis) before it is refused as a regression, and how few of the
+#: stored document's worded lines it may keep. Field, 2026-10-16 wave: lrclib's
+#: own record for "Never Gonna Give You Up" degraded to one line ("probe"), and
+#: the reprocess replaced a 58-line, 0.93 document with it. The largest drop
+#: seen on a legitimate reprocess in that wave was 0.24 (and across different
+#: quality bases, which are not compared at all).
+QUALITY_DROP_LIMIT = 0.25
+WORDED_LINES_FLOOR = 0.5
+
+REGRESSIONS_KEPT = Counter(
+    "kashi_persist_regressions_kept_total",
+    "New documents refused because they regress the stored one (Faz 9)",
+)
+
+_EXISTING_SQL = sa_text(
+    """
+    SELECT document, etag, pipeline_major FROM processed_tracks
+    WHERE source_type = :source_type AND source_id = :source_id AND schema_version = 1
+    """
+)
+
+
+def _worded_lines(doc: dict) -> int:
+    return sum(1 for line in doc.get("lines") or [] if line.get("words"))
+
+
+def regression(stored: dict | None, new: dict) -> str | None:
+    """Why `new` must not replace `stored`, or None when it may.
+
+    Two independent rules. Losing more than half of the stored document's
+    worded lines is a regression whatever the scores say (a degenerate lyrics
+    record still aligns "perfectly"). A quality drop of QUALITY_DROP_LIMIT or
+    more counts only when both scores come from the same formula: a document
+    scored on anchors and one scored on CTC probabilities are not comparable.
+    """
+    if not stored:
+        return None
+    old_lines, new_lines = _worded_lines(stored), _worded_lines(new)
+    if old_lines and new_lines < old_lines * WORDED_LINES_FLOOR:
+        return f"worded lines {old_lines} -> {new_lines}"
+    old_al, new_al = stored.get("alignment") or {}, new.get("alignment") or {}
+    basis = old_al.get("quality_basis")
+    old_q, new_q = old_al.get("quality_score"), new_al.get("quality_score")
+    if (
+        basis is not None
+        and basis == new_al.get("quality_basis")
+        and isinstance(old_q, (int, float))
+        and isinstance(new_q, (int, float))
+        and round(old_q - new_q, 4) >= QUALITY_DROP_LIMIT
+    ):
+        return f"quality {old_q:.3f} -> {new_q:.3f} ({basis})"
+    return None
+
+
 def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
-    """Validate (hard gate), then upsert. Returns the etag."""
+    """Validate (hard gate), then upsert — unless the new document regresses the
+    stored one (see `regression`). Returns the etag of what is stored.
+
+    A refused document still completes its job: the work ran, the result was
+    worse, and the listener keeps the better one. A new pipeline MAJOR always
+    replaces (the old one is invalidated by definition), and an admin
+    reprocess with `options.force_persist` accepts a regression on purpose.
+    """
     validate_document(doc)
     etag = compute_etag(doc)
+    existing = s.execute(
+        _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
+    ).first()
+    if (
+        existing is not None
+        and existing.pipeline_major >= PIPELINE_MAJOR
+        and not (job.options or {}).get("force_persist")
+    ):
+        reason = regression(existing.document, doc)
+        if reason is not None:
+            REGRESSIONS_KEPT.inc()
+            logger.warning(
+                "kept the stored %s:%s document: the new one regresses it (%s); "
+                "an admin reprocess with force_persist overrides",
+                job.source_type, job.source_id, reason,
+            )
+            return existing.etag
     s.execute(
         _UPSERT_SQL,
         {

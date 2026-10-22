@@ -34,6 +34,14 @@ class IngestOptions(BaseModel):
     original_title: str | None = Field(default=None, min_length=1, max_length=500)
 
 
+class ReprocessOptions(IngestOptions):
+    # Admin only: store the new document even when it regresses the stored one
+    # (pipeline/document.py `regression`). Not on IngestOptions, so a client
+    # ingest can never push a worse document over a better one. None, not
+    # False, so the stored job options stay exactly what they were unless asked.
+    force_persist: bool | None = None
+
+
 class IngestRequest(BaseModel):
     source: SourceRef
     hints: IngestHints
@@ -70,7 +78,7 @@ class ReprocessRequest(BaseModel):
     # The ingest escape hatches work here too: reprocess IS the manual-retry
     # tool, and user ingest reuses completed/failed jobs — without options
     # there was no API path to retry a wrong-song track with original_title.
-    options: IngestOptions = IngestOptions()
+    options: ReprocessOptions = ReprocessOptions()
 
 
 class JobOut(BaseModel):
