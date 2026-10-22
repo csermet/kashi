@@ -24,7 +24,13 @@ Two habits it enforces, because both were easy to get wrong by hand:
    held-out one: fit on N-1 songs, score the song left out. When the bias is
    real those two agree; when it is noise, only the fitted one looks good.
 
-CLI:  python -m benchmarks.lateness results/<run>.json [--tolerance 0.1]
+CLI:  python -m benchmarks.lateness results/<run>.json [--tolerance 0.1] [--by-initial]
+
+--by-initial fits one offset per class of the word's first sound (vowel,
+fricative, plosive, sonorant — pipeline/phonetics.py), which is the shape of
+the shipped English correction, and compares it held-out against the single
+offset. Fit it on a run with the correction OFF (`--align-offset-ms 0`, no
+`--align-offset-by-initial`), or the table comes out as a residual.
 """
 
 import argparse
@@ -181,6 +187,98 @@ def held_out_gain(
     }
 
 
+def words_by_song(report: dict) -> dict[str, list[tuple[str, float]]]:
+    """stem -> [(initial class, signed error)], verified words only.
+
+    Tokens with no letter (a bare "♪") get the class "none" and are corrected
+    by the plain offset, as the pipeline does.
+    """
+    from kashi_server.pipeline.phonetics import initial_class
+
+    songs: dict[str, list[tuple[str, float]]] = {}
+    for song in report.get("jamendo", {}).get("songs", []):
+        rows = [
+            (
+                initial_class(word["token"]) or "none",
+                float(word["hyp_ms"]) - float(word["truth_ms"]),
+            )
+            for word in song.get("word_detail") or []
+            if word.get("verified", True)
+        ]
+        if rows:
+            songs[song["stem"]] = rows
+    return songs
+
+
+def by_initial_table(
+    songs: dict[str, list[tuple[str, float]]], tolerance_ms: int = 100
+) -> tuple[int, dict[str, int]]:
+    """(plain offset, class -> offset), each fitted on its own words."""
+    base = best_offset({stem: [e for _, e in rows] for stem, rows in songs.items()}, tolerance_ms)
+    classes = sorted({cls for rows in songs.values() for cls, _ in rows} - {"none"})
+    table = {}
+    for cls in classes:
+        errors = {stem: [e for c, e in rows if c == cls] for stem, rows in songs.items()}
+        table[cls] = best_offset({s: e for s, e in errors.items() if e}, tolerance_ms)
+    return base, table
+
+
+def held_out_by_initial(
+    songs: dict[str, list[tuple[str, float]]], tolerance_ms: int = 100
+) -> dict:
+    """Leave-one-song-out for the class table, next to the single offset."""
+    key = f"{tolerance_ms / 1000:g}"
+    if len(songs) < 2:
+        return {}
+    none, single, table_scores = [], [], []
+    for stem, rows in songs.items():
+        rest = {other: r for other, r in songs.items() if other != stem}
+        base, table = by_initial_table(rest, tolerance_ms)
+        held = {stem: [e for _, e in rows]}
+        none.append(pco_at_offset(held, 0, (tolerance_ms,))[key])
+        single.append(pco_at_offset(held, base, (tolerance_ms,))[key])
+        shifted = {stem: [e + table.get(cls, base) for cls, e in rows]}
+        table_scores.append(pco_at_offset(shifted, 0, (tolerance_ms,))[key])
+    return {
+        "tolerance_ms": tolerance_ms,
+        "none": mean(none),
+        "single": mean(single),
+        "by_initial": mean(table_scores),
+    }
+
+
+def format_by_initial(report: dict, tolerance_ms: int = 100) -> str:
+    songs = words_by_song(report)
+    if not songs:
+        return "no word_detail in this run — re-run the benchmark with --dump-words"
+    base, table = by_initial_table(songs, tolerance_ms)
+    counts: dict[str, int] = {}
+    for rows in songs.values():
+        for cls, _ in rows:
+            counts[cls] = counts.get(cls, 0) + 1
+    lines = [
+        f"run   : {report.get('meta', {}).get('label')}  "
+        f"(fit at PCO@{tolerance_ms / 1000:g}, {len(songs)} songs)",
+        f"plain offset (all words): {base:+d} ms",
+    ]
+    lines += [
+        f"  {cls:10} {counts.get(cls, 0):6d} words  {off:+5d} ms" for cls, off in table.items()
+    ]
+    lines.append(f"  {'none':10} {counts.get('none', 0):6d} words  (plain)")
+    flag = ",".join(f"{cls}={off}" for cls, off in table.items())
+    lines.append(f"flags: --align-offset-ms {base} --align-offset-by-initial {flag}")
+    cv = held_out_by_initial(songs, tolerance_ms)
+    if cv:
+        lines += [
+            "",
+            f"held-out (leave-one-song-out) at PCO@{tolerance_ms / 1000:g}:",
+            f"  no correction : {cv['none']:.4f}",
+            f"  single offset : {cv['single']:.4f}   ({cv['single'] - cv['none']:+.4f})",
+            f"  by initial    : {cv['by_initial']:.4f}   ({cv['by_initial'] - cv['none']:+.4f})",
+        ]
+    return "\n".join(lines)
+
+
 def format_report(report: dict, tolerance_ms: int = 100) -> str:
     errors_by_song = signed_errors_by_song(report)
     if not errors_by_song:
@@ -229,8 +327,16 @@ def main() -> None:
         help="seconds; which PCO the offset is chosen for (default 0.1 — the "
         "perceptual target Faz 9 exists for, not the 0.3 literature number)",
     )
+    parser.add_argument(
+        "--by-initial",
+        action="store_true",
+        help="fit one offset per first-sound class and compare it held-out "
+        "against the single offset (run the benchmark with the correction OFF)",
+    )
     args = parser.parse_args()
-    print(format_report(json.loads(args.result.read_text()), round(args.tolerance * 1000)))
+    report = json.loads(args.result.read_text())
+    tolerance_ms = round(args.tolerance * 1000)
+    print((format_by_initial if args.by_initial else format_report)(report, tolerance_ms))
 
 
 if __name__ == "__main__":

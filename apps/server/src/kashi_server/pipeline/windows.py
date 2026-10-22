@@ -39,6 +39,12 @@ class Window:
     slice_start_ms: int  # padded audio slice bounds (may overlap neighbours)
     slice_end_ms: int
     line_indices: list[int]  # indices into line_texts owned by this window
+    # The UNPADDED span this window owns: its first stamp up to the next
+    # window's first stamp (or the audio end). Audio past `owned_end_ms` is the
+    # next window's; the pad only lets this window hear it. None for windows
+    # built by hand without a plan.
+    owned_start_ms: int | None = None
+    owned_end_ms: int | None = None
 
     def __post_init__(self):
         if self.slice_end_ms <= self.slice_start_ms:
@@ -132,6 +138,8 @@ def _padded_windows(
                 slice_start_ms=max(0, start - pad_ms),
                 slice_end_ms=min(total_ms, end + pad_ms),
                 line_indices=lines,
+                owned_start_ms=start,
+                owned_end_ms=min(end, total_ms),
             )
             for start, end, lines in windows
         ]
@@ -164,6 +172,80 @@ def plan_windows(
     groups = _line_groups(synced_starts_ms)
     windows = _merge_groups(groups, spans, line_texts, min_window_ms, min_words)
     return _padded_windows(windows, len(line_texts), total_ms, pad_ms)
+
+
+#: One CTC frame (wav2vec2-family hop: 320 samples at 16 kHz), in seconds — the
+#: smallest span a word can honestly be given when it is moved.
+FRAME_S = 0.02
+
+
+def yield_pad_words(results: list[dict], windows: list[Window]) -> tuple[list[dict], int]:
+    """At each seam, let the window that OWNS the audio keep it (Faz 9, 2026-10).
+
+    A window's slice reaches PAD_MS into its neighbour so a line can bleed over
+    a seam. When CTC finds no home for a line's last word inside the line, it
+    can park it in that pad — on audio the next window owns and has already
+    placed its own first words on. `reconcile_seams` then resolves the overlap
+    the wrong way round: it pushes the next line's correctly placed opening
+    words forward onto the stray one, and they come out zero-length ("seam
+    piles": 126 lines in 63 of 318 documents, none on the whole-audio path).
+
+    Here the stray words yield instead. A window's trailing words that START
+    both at or past its `owned_end_ms` (the next window's first stamp) and
+    after the next window's first word — in the neighbour's audio AND in the
+    neighbour's way — are pulled back to end where that first word starts, one
+    frame each, never before the start of the window's last remaining word (or
+    its slice start). With no room left they collapse at the end of their OWN
+    line, which is where an unplaceable word belongs rather than at the start of
+    the next. Start, not centre, decides: a word that merely runs past the seam
+    is the bleed the pad exists for, and the clamp still handles it. Pad words
+    that sit BEFORE the next window's first word are left alone: they push
+    nothing.
+
+    Each dict must carry the `"window"` index `_align_windows` tags it with.
+    Returns the new list and how many words were moved; an untouched input
+    comes back element-for-element identical.
+    """
+    if not results:
+        return results, 0
+    try:
+        tags = [int(r["window"]) for r in results]
+    except KeyError as exc:
+        raise ValueError("yield_pad_words needs every result tagged with its window") from exc
+    out = list(results)
+    moved = 0
+    for k in range(1, len(out)):
+        j = tags[k - 1]
+        if tags[k] == j:
+            continue  # not a seam
+        owned_end_ms = windows[j].owned_end_ms
+        if owned_end_ms is None:
+            continue
+        owned_end = owned_end_ms / 1000
+        next_start = float(out[k]["start"])
+        # The trailing run of window j that sits in its pad AND past next_start.
+        first = k
+        while first - 1 >= 0 and tags[first - 1] == j:
+            start = float(out[first - 1]["start"])
+            if start < owned_end or start <= next_start:
+                break
+            first -= 1
+        if first == k:
+            continue  # nothing in the pad is in the next window's way
+        if first - 1 >= 0 and tags[first - 1] == j:
+            floor = float(out[first - 1]["start"])
+            if floor > next_start:
+                continue  # the window's own span overlaps the next: the clamp's case
+        else:
+            floor = windows[j].slice_start_ms / 1000
+        end = next_start
+        for i in range(k - 1, first - 1, -1):
+            start = max(end - FRAME_S, floor)
+            end = max(end, floor)
+            out[i] = {**out[i], "start": start, "end": end}
+            end = start
+            moved += 1
+    return out, moved
 
 
 def reconcile_seams(results: list[dict]) -> list[dict]:

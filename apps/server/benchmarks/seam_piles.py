@@ -6,15 +6,20 @@ the previous window left a word in its padded tail, and `reconcile_seams`
 pushed this line's correctly placed opening words forward onto it.
 
 usage: python -m benchmarks.seam_piles <documents.json>
+       python -m benchmarks.seam_piles --dump <run>.json
 
 <documents.json> is a JSON array of {"id", "pv", "method", "lines"} objects —
 one per word-synced document (`lines` as stored, `method` from
 `alignment.method`). Prints the totals, the split by alignment method and by
 pipeline minor version, and the worst documents.
+
+--dump reads a `benchmarks.run --dump-words` result instead (it needs the
+`hyp_end_ms` field, written since 2026-10-22) and counts the same signature
+per benchmark song, so a pipeline change can be judged before it ships.
 """
 
+import argparse
 import json
-import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -49,6 +54,45 @@ def seam_piles(lines: list[dict[str, Any]]) -> list[int]:
     return piles
 
 
+def lines_from_word_detail(detail: list[dict]) -> list[dict]:
+    """A dumped song's hypothesis words, regrouped into document-shaped lines."""
+    by_line: dict[int, list[dict]] = defaultdict(list)
+    for row in sorted(detail, key=lambda r: r["i"]):
+        if "hyp_end_ms" not in row:
+            raise ValueError("dump has no hyp_end_ms: re-run benchmarks.run with --dump-words")
+        by_line[row["line"]].append(
+            {"text": row["token"], "start_ms": row["hyp_ms"], "end_ms": row["hyp_end_ms"]}
+        )
+    return [{"words": by_line[index]} for index in sorted(by_line)]
+
+
+def main_dump(path: str) -> None:
+    report = json.loads(Path(path).read_text())
+    meta = report.get("meta", {})
+    songs = report.get("jamendo", {}).get("songs", [])
+    lines_total = piles_total = hit = dumped = 0
+    worst: Counter[str] = Counter()
+    for song in songs:
+        detail = song.get("word_detail")
+        if not detail:
+            continue
+        dumped += 1
+        lines = lines_from_word_detail(detail)
+        piles = seam_piles(lines)
+        lines_total += len(lines)
+        piles_total += len(piles)
+        hit += bool(piles)
+        if piles:
+            worst[song["stem"]] = len(piles)
+    print(
+        f"{meta.get('label')}: seam_policy={meta.get('seam_policy', 'clamp')} "
+        f"exact_stride={meta.get('exact_stride', False)} jitter={meta.get('anchor_jitter_ms')}"
+    )
+    print(f"{dumped} dumped songs, {lines_total} worded lines")
+    print(f"seam piles: {piles_total} lines in {hit} songs")
+    print("worst:", ", ".join(f"{stem} ({n})" for stem, n in worst.most_common(8)))
+
+
 def main(path: str) -> None:
     docs = json.loads(Path(path).read_text())
     by_method: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -80,4 +124,8 @@ def main(path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("path", help="documents JSON, or a run result with --dump")
+    parser.add_argument("--dump", action="store_true", help="path is a --dump-words run result")
+    cli = parser.parse_args()
+    (main_dump if cli.dump else main)(cli.path)

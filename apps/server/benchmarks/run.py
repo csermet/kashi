@@ -128,6 +128,9 @@ def _align_song(
     romanize: bool | None = None,
     offset_ms: int | None = None,
     by_initial: dict[str, int] | None = None,
+    *,
+    exact_stride: bool = False,
+    seam_policy: str = "clamp",
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
@@ -135,7 +138,8 @@ def _align_song(
         wav = _decode_16k(audio, Path(tmp) / "align.wav")
         started = time.monotonic()
         result = align(
-            wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial
+            wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial,
+            exact_stride=exact_stride, seam_policy=seam_policy,
         )
     return result, time.monotonic() - started
 
@@ -259,6 +263,7 @@ def _align_jamendo_song(args, song):
     result, align_s = _align_song(
         audio, song.line_texts, song.language, anchors, args.align_model,
         args.align_romanize, args.align_offset_ms, _by_initial(args),
+        exact_stride=args.exact_stride, seam_policy=args.seam_policy,
     )
     return audio, separate_s, anchors, result, align_s
 
@@ -299,12 +304,16 @@ def _word_metrics(args, song, result: AlignResult, onset_ms, tolerances_ms, entr
         # could only be computed per song: the per-word errors were
         # thrown away as soon as they were counted.
         line_of = _word_line_indices(result)
+        # The hypothesis END too: without it a dump cannot show a word the
+        # aligner squeezed to nothing (benchmarks.seam_piles --dump).
+        ends = [end_ms for end_ms, _ in _hyp_word_ends(result)]
         entry["word_detail"] = [
             {
                 "i": i,
                 "token": token,
                 "truth_ms": truth_ms,
                 "hyp_ms": round(truth_ms + deviations[i]),
+                "hyp_end_ms": ends[i],
                 "line": line_of[i],
                 **({} if song.verified is None else {"verified": song.verified[i]}),
             }
@@ -551,6 +560,7 @@ def _align_case(args, case):
     result, align_s = _align_song(
         source, line_texts, case.language, anchors, args.align_model,
         args.align_romanize, args.align_offset_ms, _by_initial(args),
+        exact_stride=args.exact_stride, seam_policy=args.seam_policy,
     )
     return reference, separate_s, anchors, result, align_s
 
@@ -682,6 +692,25 @@ def _parse_args() -> argparse.Namespace:
             "not be answered from any sweep run so far. Adds ~100 KB/song."
         ),
     )
+    parser.add_argument(
+        "--exact-stride",
+        action="store_true",
+        help=(
+            "windowed path only: the model's real 20 ms frame step instead of "
+            "the aligner library's rounded 21 (every window ran 4.8%% slow from "
+            "its slice start; Faz 9, 2026-10). Off = what production ships."
+        ),
+    )
+    parser.add_argument(
+        "--seam-policy",
+        choices=("clamp", "yield"),
+        default="clamp",
+        help=(
+            "windowed path only: at a seam, 'yield' pulls a word parked in its "
+            "window's pad back to its own line instead of pushing the next "
+            "line's words onto it (pipeline/windows.yield_pad_words)."
+        ),
+    )
     parser.add_argument("--label", help="results filename label (default: config name)")
     return parser.parse_args()
 
@@ -699,6 +728,10 @@ def _config_name(args) -> str:
     )
     if args.windowed:
         config_name += "-win"
+    if args.exact_stride:
+        config_name += "-xs"
+    if args.seam_policy != "clamp":
+        config_name += f"-{args.seam_policy}"
     if args.line_postprocess != "none":
         config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
@@ -741,6 +774,8 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         "mixback": args.mixback if args.separation != "full-mix" else None,
         "windowed": args.windowed,
         "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
+        "exact_stride": args.exact_stride,
+        "seam_policy": args.seam_policy,
         "signals": args.signals,
         "line_postprocess": args.line_postprocess,
         "trim_ends": args.trim_ends,

@@ -3,10 +3,13 @@ aggregating words instead of songs, and reading a fitted number as a gain."""
 
 from benchmarks.lateness import (
     best_offset,
+    by_initial_table,
+    held_out_by_initial,
     held_out_gain,
     lateness_stats,
     pco_at_offset,
     signed_errors_by_song,
+    words_by_song,
 )
 
 
@@ -102,3 +105,43 @@ def test_held_out_refuses_to_reward_noise():
 
 def test_a_single_song_cannot_be_cross_validated():
     assert held_out_gain({"a": [80.0]}, 100) == {}
+
+
+# --- --by-initial: one offset per first-sound class (Faz 9, 2026-10) ---------
+
+
+def _classed_song(stem, rows, verified=True):
+    return {
+        "stem": stem,
+        "word_detail": [
+            {"i": i, "token": t, "truth_ms": 1000, "hyp_ms": 1000 + e, "verified": verified}
+            for i, (t, e) in enumerate(rows)
+        ],
+    }
+
+
+def test_words_are_classed_by_their_first_sound():
+    report = _report(_classed_song("a", [("apple", 110), ("ball", 60), ("♪", 0)]))
+    assert words_by_song(report) == {"a": [("vowel", 110.0), ("plosive", 60.0), ("none", 0.0)]}
+
+
+def test_unverified_words_stay_out_of_the_class_fit_too():
+    report = _report(_classed_song("a", [("apple", 110)]), _classed_song("b", [("ball", 9)], False))
+    assert words_by_song(report) == {"a": [("vowel", 110.0)]}
+
+
+def test_each_class_gets_its_own_offset():
+    # Vowels sing 110 ms late, plosives 60: the table must tell them apart.
+    rows = [("apple", 110), ("ice", 110), ("ball", 60), ("dog", 60)]
+    songs = words_by_song(_report(*(_classed_song(s, rows) for s in "abc")))
+    base, table = by_initial_table(songs, tolerance_ms=10)
+    assert table == {"plosive": -60, "vowel": -110}
+    assert -110 <= base <= -60
+
+
+def test_the_class_table_beats_one_offset_held_out_when_the_classes_differ():
+    rows = [("apple", 110), ("ice", 110), ("ball", 60), ("dog", 60)]
+    songs = words_by_song(_report(*(_classed_song(s, rows) for s in "abcd")))
+    cv = held_out_by_initial(songs, tolerance_ms=10)
+    assert cv["by_initial"] == 1.0
+    assert cv["by_initial"] > cv["single"] >= cv["none"]

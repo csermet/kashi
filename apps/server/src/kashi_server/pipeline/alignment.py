@@ -20,7 +20,7 @@ from pathlib import Path
 from kashi_server.pipeline import japanese
 from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
-from kashi_server.pipeline.windows import plan_windows, reconcile_seams
+from kashi_server.pipeline.windows import plan_windows, reconcile_seams, yield_pad_words
 from kashi_server.vdl_kit.errors import PipelineError
 
 logger = logging.getLogger(__name__)
@@ -510,12 +510,57 @@ def _fit_to_vocab(text: str, allowed: set[str]) -> str:
     return " ".join(out)
 
 
+#: wav2vec2-family feature encoders stride 5*2*2*2*2*2*2 = 320 samples per
+#: emission frame; at 16 kHz that is exactly 20 ms.
+MODEL_HOP_SAMPLES = 320
+SAMPLE_RATE = 16_000
+_stride_fallback_logged = False
+
+# Faz 9 (2026-10) switches, OFF until the benchmark proves them: flipping either
+# default is a pipeline minor bump. See exact_stride_ms and windows.yield_pad_words.
+EXACT_STRIDE_DEFAULT = False
+SEAM_POLICY_DEFAULT = "clamp"
+SEAM_POLICIES = ("clamp", "yield")
+
+
+def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
+    """The real time step between emission frames, in ms.
+
+    ctc_forced_aligner returns ceil(samples / frames). Under 30 s (every window
+    slice) the model emits floor((n - 400) / 320) + 1 frames, so that ratio is
+    a hair above 20 and the ceiling makes it 21: inside a window every time ran
+    4.8 % slow from the slice start, and a window's last words came out up to
+    ~300 ms late (field: Stressed Out, error slope 0.0474 against 1 - 20/21 =
+    0.0476; archive word-start gaps are multiples of 21 ms in 93-98 % of
+    windowed documents). Long audio takes the library's batched branch, where
+    the ratio is at most 20 and the ceiling happens to be right.
+
+    Frame i starts at sample 320 * i on both branches, so the hop itself is the
+    answer. The model's receptive-field centre (~12.5 ms) is a constant the
+    fitted lateness offsets already absorb — it is not corrected twice here.
+    A frame count that does not fit a 320-sample hop (an unexpected checkpoint)
+    keeps the library's number, logged once.
+    """
+    global _stride_fallback_logged
+    if n_frames > 0 and abs(n_frames * MODEL_HOP_SAMPLES - n_samples) < 2 * MODEL_HOP_SAMPLES:
+        return MODEL_HOP_SAMPLES * 1000 / SAMPLE_RATE
+    if not _stride_fallback_logged:
+        _stride_fallback_logged = True
+        logger.warning(
+            "emission frames (%d over %d samples) do not fit a %d-sample hop; keeping the "
+            "aligner's own stride of %s ms",
+            n_frames, n_samples, MODEL_HOP_SAMPLES, library_stride,
+        )
+    return float(library_stride)
+
+
 def _align_texts(
     model, tokenizer, audio, texts: list[str], language: str,
-    star_frequency: str = "segment", romanize: bool = True,
+    star_frequency: str = "segment", romanize: bool = True, *, exact_stride: bool = False,
 ) -> list[dict]:
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
-    [{start, end, text, score}] in SECONDS relative to the given audio."""
+    [{start, end, text, score}] in SECONDS relative to the given audio.
+    `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         generate_emissions,
         get_alignments,
@@ -525,6 +570,8 @@ def _align_texts(
     )
 
     emissions, stride = generate_emissions(model, audio, batch_size=4)
+    if exact_stride:
+        stride = exact_stride_ms(int(audio.shape[-1]), int(emissions.shape[0]), stride)
     joined = " ".join(texts)
     if not romanize:
         joined = _fit_to_vocab(joined, _vocab_chars(tokenizer))
@@ -600,11 +647,14 @@ def _alignment_texts(
     return plans, align_texts
 
 
-def _align_windows(model, tokenizer, audio, plan, align_texts, language, romanize) -> list[dict]:
+def _align_windows(
+    model, tokenizer, audio, plan, align_texts, language, romanize, *, exact_stride: bool = False
+) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
-    whole-track clock (star tokens dropped)."""
+    whole-track clock (star tokens dropped), each tagged with its `"window"`
+    index for the seam pass."""
     merged: list[dict] = []
-    for window in plan:
+    for index, window in enumerate(plan):
         piece = audio[
             ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
         ]
@@ -613,12 +663,19 @@ def _align_windows(model, tokenizer, audio, plan, align_texts, language, romaniz
         # "edges": star tokens at BOTH slice edges absorb the pad and the
         # inter-line gap, so forced alignment doesn't stretch real words
         # over non-vocal audio (measured: "segment" cost ~0.13 PCO here).
-        for r in _align_texts(model, tokenizer, piece, texts, language, "edges", romanize=romanize):
+        aligned = _align_texts(
+            model, tokenizer, piece, texts, language, "edges",
+            romanize=romanize, exact_stride=exact_stride,
+        )
+        for r in aligned:
             if r.get("text") == STAR_TOKEN:
                 continue  # regroup drops them anyway; keep offsets word-only
-            merged.append(
-                {**r, "start": float(r["start"]) + offset_s, "end": float(r["end"]) + offset_s}
-            )
+            merged.append({
+                **r,
+                "start": float(r["start"]) + offset_s,
+                "end": float(r["end"]) + offset_s,
+                "window": index,
+            })
     return merged
 
 
@@ -631,12 +688,22 @@ def align(
     romanize: bool | None = None,
     offset_ms: int | None = None,
     offset_by_initial: dict[str, int] | None = None,
+    *,
+    exact_stride: bool = EXACT_STRIDE_DEFAULT,
+    seam_policy: str = SEAM_POLICY_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
     independently, so a CTC lock loss cannot propagate past a window edge.
     The merged word stream then flows through the same regroup/fallback path
-    as the whole-audio mode."""
+    as the whole-audio mode.
+
+    `exact_stride` and `seam_policy` only touch the windowed path (whole-audio
+    output stays byte-for-byte what it was): the real 20 ms frame step instead
+    of the library's 21, and "yield" lets the window that owns the audio keep
+    it at a seam (windows.yield_pad_words) before the forward clamp runs."""
+    if seam_policy not in SEAM_POLICIES:
+        raise ValueError(f"unknown seam policy {seam_policy!r}")
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
     spec = resolve_aligner(language, model_name, romanize, offset_ms, offset_by_initial)
@@ -662,10 +729,19 @@ def align(
     if plan is None:
         results = _align_texts(model, tokenizer, audio, align_texts, language, romanize=romanize)
     else:
-        logger.info("windowed alignment: %d windows over %d lines", len(plan), len(line_texts))
-        results = reconcile_seams(
-            _align_windows(model, tokenizer, audio, plan, align_texts, language, romanize)
+        logger.info(
+            "windowed alignment: %d windows over %d lines (stride %s, seams %s)",
+            len(plan), len(line_texts), "exact" if exact_stride else "library", seam_policy,
         )
+        results = _align_windows(
+            model, tokenizer, audio, plan, align_texts, language, romanize,
+            exact_stride=exact_stride,
+        )
+        if seam_policy == "yield":
+            results, yielded = yield_pad_words(results, plan)
+            if yielded:
+                logger.info("seam policy yield: %d pad word(s) pulled back to their line", yielded)
+        results = reconcile_seams(results)
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:
