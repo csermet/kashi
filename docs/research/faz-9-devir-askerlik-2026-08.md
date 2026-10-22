@@ -379,6 +379,66 @@ when two windows disagree. Proof needed before a pipeline bump:
    not get worse (compare gross errors, not medians — scope trap).
 3. Then a pipeline bump and a re-process wave of the affected documents.
 
+### The windowed clock runs 4.8 % slow — found 2026-10-18, switch shipped off (7cf1f26)
+
+A second driver behind the seam piles, and behind window-final lateness in
+general: ctc_forced_aligner returns `ceil(samples / frames)` as its frame step.
+Every window slice is under 30 s, where the model emits floor((n-400)/320)+1
+frames, so the ratio is ~20.03 ms and the ceiling makes it 21. Inside a window
+every time runs 4.8 % slow from the slice start; the last words of a 6 s window
+come out ~300 ms late, the first ~17 ms.
+
+- Stressed Out, 135 annotated words: the error grows with position in the window
+  (median -12 / +4 / +94 / +203 ms at 0-1.5 / 1.5-3 / 3-4.5 / 4.5-6.5 s), slope
+  0.0474 against 1 - 20/21 = 0.0476.
+- Archive: consecutive word-start gaps are multiples of 21 ms in 93-98 % of
+  windowed documents and of 20 ms on the whole-audio path (whose batched branch
+  is exact).
+- The per-class lateness offsets (base -80, vowel -110, ...) were fitted on this
+  stretched clock; they will move once it is fixed.
+
+`align(..., exact_stride=True)` uses the 320-sample hop (20.0 ms);
+`seam_policy="yield"` lets a word parked in a window's pad yield to the owning
+window (windows.yield_pad_words). Both default off; a differential harness shows
+the default path identical to the old one (4000/4000 seeded scenarios).
+Benchmark tooling added for the decision: `--exact-stride`, `--seam-policy`,
+`hyp_end_ms` in word dumps, `seam_piles --dump`, `pop_valid.py` (the pop-set
+valid region, finally in code: 278 words; the built Uptown CSV was also stale)
+and `lateness --by-initial`, which reproduces the shipped table from the
+2026-08-12 uncorrected dump. Measurement matrix and acceptance: R0 library
+clock / R1 exact / R2 exact with the correction off (refit per class) / R3 exact
++ refit / R4 exact + yield + refit, on English 20, all 79 and the pop valid
+region; flipping either default is the 2.28.0 bump.
+
+### Reprocess regressions — guard shipped 2026-10-22 (4fd77a9)
+
+The 2026-10-16 archive wave (190 jobs: 100 done, most failures lrclib 503s)
+raised the median quality 0.96 -> 1.00 and halved the seam piles on the
+documents it redid (28 -> 16), but two documents got worse in a way no score
+caught: lrclib's own record for "Never Gonna Give You Up" had degraded to one
+line ("probe") and replaced a 58-line, 0.93 document; "Party Rock Anthem"
+became one line ("day day day") scored 1.0. A new document no longer replaces
+the stored one when it keeps fewer than half its worded lines, or (same quality
+formula only) loses 0.25 or more quality. The wave's 8 client-edit failures were
+self-inflicted: old documents' stored durations were themselves gapless-poisoned
+and were sent as hints — waves now take durations from YouTube metadata.
+
+### Nightcore picks the wrong song more often than it looked — replayed 2026-10-22
+
+All 11 documents where detection fired were replayed against a local lrclib
+mirror with the production code. At least 3 are a different song
+("Electric (Remix)" -> "Electric Love"; "E.N.I.G.M.A." -> "A.I.N.Y."; "Winter
+Song" -> "Song of Winter"), and in 4 of 11 the mirror picked a different record
+than production did: the "largest duration cluster" vote follows the search
+ranking, not song identity. Two plain bugs: an initialism like E.N.I.G.M.A.
+leaves no significant token, and an empty query "covers" every record; and
+`clean_title` leaves "( - )" debris when the marker sits inside brackets. An
+ORDERED significant-token equality (brackets dropped on both sides) keeps the 7
+right matches and drops the wrong ones in this sample; same-title different
+songs (two "Firework"s) need the audio itself — the by-ear rung as a mandatory
+check on the slowed copy. Not built yet (it touches the lookup code another
+work package is changing).
+
 ### Dönünce sıra
 
 1. `apps/server/pyproject.toml` içindeki pini güncelle (07.04 → o günün
