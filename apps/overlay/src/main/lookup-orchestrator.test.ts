@@ -683,7 +683,7 @@ describe('job watch — the document lands during this play (2026-10-24)', () =>
     expect(d.sent.at(-1)).toEqual({ key: KEY, found: false });
   });
 
-  it('takes it back when the job is deferred for lrclib, or outlives the window', async () => {
+  it('takes it back when the job is deferred for lrclib, not when it outlives the window', async () => {
     const deferred = watched({ found: false }, [{ status: 'queued', errorType: 'lrclib_unavailable' }]);
     const o1 = new LookupOrchestrator(deferred);
     await o1.lookup(KEY, TRACK);
@@ -695,7 +695,8 @@ describe('job watch — the document lands during this play (2026-10-24)', () =>
     await o2.lookup(KEY, TRACK);
     await o2.watchJob(KEY, TRACK, QUEUED);
     expect(slow.getJob).toHaveBeenCalledTimes(2); // a null read is asked again
-    expect(slow.sent.at(-1)).toEqual({ key: KEY, found: false });
+    // Still running: the status stays true; the next play fetches the document.
+    expect(slow.sent.at(-1)).toEqual({ key: KEY, found: false, syncing: true });
   });
 
   it('lrclib lines on screen are left alone, then upgraded to word sync', async () => {

@@ -37,13 +37,18 @@ export const LIVE_JOB_STATUSES: readonly string[] = [
 ];
 
 /**
- * About ten minutes: a few tracks ahead of this one in a one-worker queue.
- * Past that the user has usually moved on, and the next play fetches the
- * document through the ordinary first request anyway.
+ * Thirty minutes. The worker takes ~12 min per song on CPU (2026-10-23), so a
+ * track two places back in the queue needs most of that; a 3-minute song has
+ * long ended by then, and the watch ends with it. The window only matters
+ * while the same track stays current — paused, or on repeat.
  */
 export const WATCH_DELAYS_MS: readonly number[] = [
-  15_000, 15_000, 20_000, 30_000, 30_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000,
-  60_000, 60_000,
+  15_000,
+  15_000,
+  20_000,
+  30_000,
+  30_000,
+  ...Array<number>(29).fill(60_000),
 ];
 
 /** A job that will not finish while anyone waits: LyricFix defers it without

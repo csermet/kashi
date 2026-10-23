@@ -35,10 +35,10 @@ describe('job watch (2026-10-24)', () => {
     expect(shouldWatch({ jobId: 'j', status: 'completed', reused: true })).toBe(true);
   });
 
-  it('the window is about ten minutes, and it ends', () => {
+  it('the window is about thirty minutes, and it ends', () => {
     const total = WATCH_DELAYS_MS.reduce((a, b) => a + b, 0);
-    expect(total).toBeGreaterThanOrEqual(9 * 60_000);
-    expect(total).toBeLessThanOrEqual(11 * 60_000);
+    expect(total).toBeGreaterThanOrEqual(29 * 60_000);
+    expect(total).toBeLessThanOrEqual(31 * 60_000);
   });
 
   it('parses the two server answers and refuses anything else', () => {

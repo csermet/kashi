@@ -623,9 +623,12 @@ export class LookupOrchestrator {
         return;
       }
     }
-    this.deps.log(
-      `server job for ${key}: ${step === 'wait' ? 'still running after the watch window' : 'no document'}`,
-    );
+    if (step === 'wait') {
+      // Still running: the status stays true, and the next play fetches it.
+      this.deps.log(`server job for ${key} still running after the watch window`);
+      return;
+    }
+    this.deps.log(`server job for ${key}: no document`);
     // Take the promise back only if nothing else has claimed the screen since.
     if (announced && this.showsMiss(key)) this.deps.send({ key, found: false });
   }
