@@ -423,16 +423,20 @@ function armGateTimer(track: TrackInfo): void {
     }
     if (firedKey && serverClient) {
       log(`20s of listening on ${firedKey} -> enqueueing for processing`);
-      void serverClient.enqueue(
-        { type: track.source.type, id: track.source.id },
-        {
-          title: track.title,
-          artist: track.artist,
-          album: track.album ?? undefined,
-          duration_ms: track.duration_ms ?? undefined,
-          artwork_url: track.artwork_url ?? undefined,
-        },
-      );
+      void serverClient
+        .enqueue(
+          { type: track.source.type, id: track.source.id },
+          {
+            title: track.title,
+            artist: track.artist,
+            album: track.album ?? undefined,
+            duration_ms: track.duration_ms ?? undefined,
+            artwork_url: track.artwork_url ?? undefined,
+          },
+        )
+        // Watch the job, so the document lands during THIS play (job-watch-logic).
+        .then((outcome) => (outcome ? lookups.watchJob(firedKey, track, outcome) : undefined))
+        .catch(() => {});
     }
   }, 1000);
 }
@@ -1033,6 +1037,7 @@ function buildServerConnections(): void {
       ? (type, id, signal) => serverClient!.getProcessed(type, id, signal)
       : null,
     getLyrics: (query, signal) => chain.getLyrics(query, signal),
+    getJob: serverClient ? (jobId, signal) => serverClient!.getJob(jobId, signal) : undefined,
     send: (payload) => send('kashi:lyrics', payload),
     onServerMiss: (key, track) => {
       enqueueGate.serverMiss(key, Date.now(), lastIsPlaying);

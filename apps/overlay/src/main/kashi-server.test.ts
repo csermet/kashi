@@ -105,14 +105,34 @@ describe('KashiServerClient', () => {
     await expect(readFile(join(dir, cacheFileName('youtube', 'vidY')), 'utf8')).rejects.toThrow();
   });
 
-  it('enqueue posts the source+hints and never throws', async () => {
+  it('enqueue posts the source+hints, names the job, and never throws', async () => {
     const c = client([{ status: 202, body: { job_id: 'x', status: 'queued' } }]);
-    await c.enqueue({ type: 'youtube', id: 'vid1' }, { title: 'T', artist: 'A' });
+    expect(await c.enqueue({ type: 'youtube', id: 'vid1' }, { title: 'T', artist: 'A' })).toEqual({
+      jobId: 'x',
+      status: 'queued',
+      reused: false,
+    });
     expect(calls[0]!.url).toBe('http://server.test/v1/ingest');
 
     const cDown = client([{ status: 0, fail: true }]);
     await expect(
       cDown.enqueue({ type: 'youtube', id: 'vid1' }, { title: 'T', artist: 'A' }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
+    const cRejected = client([{ status: 422, body: { detail: 'too long' } }]);
+    expect(await cRejected.enqueue({ type: 'youtube', id: 'vid1' }, {})).toBeNull();
+  });
+
+  it('getJob reads the status and treats every failure as "could not tell"', async () => {
+    const c = client([
+      { status: 200, body: { id: 'x', status: 'aligning', error_type: null } },
+      { status: 200, body: { id: 'x', status: 'queued', error_type: 'lrclib_unavailable' } },
+      { status: 404, body: { detail: 'not_found' } },
+      { status: 0, fail: true },
+    ]);
+    expect(await c.getJob('x')).toEqual({ status: 'aligning', errorType: null });
+    expect(calls[0]!.url).toBe('http://server.test/v1/jobs/x');
+    expect(await c.getJob('x')).toEqual({ status: 'queued', errorType: 'lrclib_unavailable' });
+    expect(await c.getJob('x')).toBeNull();
+    expect(await c.getJob('x')).toBeNull();
   });
 });

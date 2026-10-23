@@ -15,6 +15,12 @@ import {
   mapDocument,
   type ServerLyricsResult,
 } from './kashi-server-logic.js';
+import {
+  parseIngestOutcome,
+  parseJobState,
+  type IngestOutcome,
+  type JobState,
+} from './job-watch-logic.js';
 
 const REQUEST_TIMEOUT_MS = 5_000;
 const ENQUEUE_TIMEOUT_MS = 10_000;
@@ -167,8 +173,12 @@ export class KashiServerClient {
     }
   }
 
-  /** Fire-and-forget ingest; errors are logged, never surfaced (R-9 gate fires it). */
-  async enqueue(source: IngestSource, hints: Record<string, unknown>): Promise<void> {
+  /** Ingest (R-9 gate fires it). Errors are logged, never surfaced; the
+   * answer names the job, so the caller can watch it (null = nothing to watch). */
+  async enqueue(
+    source: IngestSource,
+    hints: Record<string, unknown>,
+  ): Promise<IngestOutcome | null> {
     try {
       const response = await this.opts.fetchFn(`${this.opts.baseUrl}/v1/ingest`, {
         method: 'POST',
@@ -176,13 +186,37 @@ export class KashiServerClient {
         body: JSON.stringify({ source, hints }),
         signal: AbortSignal.timeout(ENQUEUE_TIMEOUT_MS),
       });
+      if (!(response.ok || response.status === 202)) {
+        this.log(`kashi-server: enqueue rejected (HTTP ${response.status})`);
+        return null;
+      }
+      const outcome = parseIngestOutcome(await response.json().catch(() => null));
       this.log(
-        response.ok || response.status === 202
-          ? `kashi-server: enqueued ${source.type}:${source.id}`
-          : `kashi-server: enqueue rejected (HTTP ${response.status})`,
+        `kashi-server: enqueued ${source.type}:${source.id}` +
+          (outcome ? ` (job ${outcome.status}${outcome.reused ? ', reused' : ''})` : ''),
       );
+      return outcome;
     } catch (err) {
       this.log(`kashi-server: enqueue failed (${String(err).slice(0, 120)})`);
+      return null;
+    }
+  }
+
+  /** One job-status read; null on any failure (the watch just asks again). */
+  async getJob(jobId: string, signal?: AbortSignal): Promise<JobState | null> {
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    try {
+      const response = await this.opts.fetchFn(
+        `${this.opts.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}`,
+        {
+          headers: this.headers(),
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        },
+      );
+      if (!response.ok) return null;
+      return parseJobState(await response.json());
+    } catch {
+      return null;
     }
   }
 }

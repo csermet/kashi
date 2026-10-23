@@ -629,3 +629,138 @@ describe('LyricFix — review round', () => {
     expect(d.sent.at(-1)).toMatchObject({ sync: 'word' });
   });
 });
+
+describe('job watch — the document lands during this play (2026-10-24)', () => {
+  const WORD_DOC = {
+    found: true,
+    source: 'kashi-server',
+    sync: 'word',
+    qualityScore: 0.9,
+    lines: [],
+  } as const;
+  const QUEUED = { jobId: 'job-1', status: 'queued', reused: false };
+
+  /** Server 404 then (in the watch) whatever `later` answers; lrclib as given. */
+  function watched(
+    lrclib: Awaited<ReturnType<LookupDeps['getLyrics']>>,
+    jobs: Array<{ status: string; errorType: string | null } | null>,
+    later: unknown = WORD_DOC,
+  ) {
+    const getProcessed = vi
+      .fn()
+      .mockResolvedValueOnce({ found: false })
+      .mockResolvedValue(later);
+    const getJob = vi.fn();
+    for (const job of jobs) getJob.mockResolvedValueOnce(job);
+    return deps({
+      getProcessed,
+      getLyrics: vi.fn(async () => lrclib),
+      getJob,
+      watchDelaysMs: jobs.map(() => 0),
+    });
+  }
+
+  it('says the server is syncing, then puts the document up when the job finishes', async () => {
+    const d = watched({ found: false }, [
+      { status: 'aligning', errorType: null },
+      { status: 'completed', errorType: null },
+    ]);
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    expect(d.sent.at(-1)).toEqual({ key: KEY, found: false });
+    await o.watchJob(KEY, TRACK, QUEUED);
+    expect(d.sent).toContainEqual({ key: KEY, found: false, syncing: true });
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
+    expect(d.getJob).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes the promise back when the job fails', async () => {
+    const d = watched({ found: false }, [{ status: 'failed', errorType: 'lyrics_not_found' }]);
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    await o.watchJob(KEY, TRACK, QUEUED);
+    expect(d.sent.at(-2)).toEqual({ key: KEY, found: false, syncing: true });
+    expect(d.sent.at(-1)).toEqual({ key: KEY, found: false });
+  });
+
+  it('takes it back when the job is deferred for lrclib, or outlives the window', async () => {
+    const deferred = watched({ found: false }, [{ status: 'queued', errorType: 'lrclib_unavailable' }]);
+    const o1 = new LookupOrchestrator(deferred);
+    await o1.lookup(KEY, TRACK);
+    await o1.watchJob(KEY, TRACK, QUEUED);
+    expect(deferred.sent.at(-1)).toEqual({ key: KEY, found: false });
+
+    const slow = watched({ found: false }, [null, { status: 'aligning', errorType: null }]);
+    const o2 = new LookupOrchestrator(slow);
+    await o2.lookup(KEY, TRACK);
+    await o2.watchJob(KEY, TRACK, QUEUED);
+    expect(slow.getJob).toHaveBeenCalledTimes(2); // a null read is asked again
+    expect(slow.sent.at(-1)).toEqual({ key: KEY, found: false });
+  });
+
+  it('lrclib lines on screen are left alone, then upgraded to word sync', async () => {
+    const d = watched({ found: true, lines: [] }, [{ status: 'completed', errorType: null }]);
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    await o.watchJob(KEY, TRACK, QUEUED);
+    expect(d.sent).not.toContainEqual(expect.objectContaining({ syncing: true }));
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
+  });
+
+  it('a finished document no richer than the lrclib lines on screen is not swapped in', async () => {
+    const bareLine = { found: true, source: 'kashi-server', sync: 'line', qualityScore: 0.9, lines: [] };
+    const d = watched({ found: true, lines: [] }, [{ status: 'completed', errorType: null }], bareLine);
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    const before = d.sent.length;
+    await o.watchJob(KEY, TRACK, QUEUED);
+    expect(d.sent.length).toBe(before);
+  });
+
+  it('the network-error screen keeps its own message', async () => {
+    const d = watched({ found: false }, [{ status: 'completed', errorType: null }]);
+    d.getLyrics = vi.fn(async () => {
+      throw new Error('timeout');
+    });
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    expect(d.sent.at(-1)).toEqual({ key: KEY, found: false, error: true });
+    await o.watchJob(KEY, TRACK, QUEUED);
+    expect(d.sent).not.toContainEqual(expect.objectContaining({ syncing: true }));
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
+  });
+
+  it("the server's failure block is not watched at all", async () => {
+    const d = watched({ found: false }, []);
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    const before = d.sent.length;
+    await o.watchJob(KEY, TRACK, { jobId: 'old', status: 'failed', reused: true });
+    expect(d.getJob).not.toHaveBeenCalled();
+    expect(d.sent.length).toBe(before);
+  });
+
+  it('a track change ends the watch without a ghost swap', async () => {
+    let current = true;
+    const d = watched({ found: false }, [{ status: 'completed', errorType: null }]);
+    d.isCurrent = () => current;
+    (d.getJob as ReturnType<typeof vi.fn>).mockReset().mockImplementation(async () => {
+      current = false; // the user skipped while the status was in flight
+      return { status: 'completed', errorType: null };
+    });
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    await o.watchJob(KEY, TRACK, QUEUED);
+    expect(d.sent.at(-1)).toEqual({ key: KEY, found: false, syncing: true });
+    expect(d.getProcessed).toHaveBeenCalledTimes(1); // only the lookup's own request
+  });
+
+  it('a job already done is fetched without polling', async () => {
+    const d = watched({ found: false }, []);
+    const o = new LookupOrchestrator(d);
+    await o.lookup(KEY, TRACK);
+    await o.watchJob(KEY, TRACK, { jobId: 'j', status: 'completed', reused: true });
+    expect(d.getJob).not.toHaveBeenCalled();
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
+  });
+});

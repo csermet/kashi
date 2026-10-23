@@ -28,6 +28,14 @@ import {
   enrichmentKeys,
   type DisplayedLyrics,
 } from './server-retry-logic.js';
+import {
+  shouldWatch,
+  watchStep,
+  WATCH_DELAYS_MS,
+  type IngestOutcome,
+  type JobState,
+  type WatchStep,
+} from './job-watch-logic.js';
 
 export interface LrclibQuery {
   title: string;
@@ -91,6 +99,10 @@ export interface LookupDeps {
   serverHeadStartMs?: number;
   /** Self-heal ladder delays; injectable so a test need not wait ten seconds. */
   serverRetryDelaysMs?: readonly number[];
+  /** One read of a server job's status (watchJob); null = could not tell. */
+  getJob?: (jobId: string, signal: AbortSignal) => Promise<JobState | null>;
+  /** Waits between job-status reads; omitted = job-watch-logic's ten minutes. */
+  watchDelaysMs?: readonly number[];
   /** Clock for the latency diagnostics. */
   now?: () => number;
   /** Optional diagnostics sink (Faz 6.7 P2). Never awaited, never throws —
@@ -141,6 +153,9 @@ export class LookupOrchestrator {
   private abort: AbortController | null = null;
   /** What the current track is showing — the self-heal upgrade rule reads it. */
   private displayed: { key: string; state: DisplayedLyrics } | null = null;
+  /** The track whose screen says lrclib has no synced lyrics: a definite
+   * answer, unlike the error and still-retrying screens that also show none. */
+  private missShown: string | null = null;
 
   constructor(private readonly deps: LookupDeps) {}
 
@@ -153,6 +168,7 @@ export class LookupOrchestrator {
     this.abort?.abort();
     const abort = new AbortController();
     this.abort = abort;
+    this.missShown = null;
     const query: LrclibQuery = {
       title: track.title,
       artist: track.artist,
@@ -433,6 +449,7 @@ export class LookupOrchestrator {
       key,
       state: { source: result.found ? 'lrclib' : 'none', sync: 'line' },
     };
+    this.missShown = result.found ? null : key;
     this.deps.send({ key, ...result });
   }
 
@@ -555,5 +572,67 @@ export class LookupOrchestrator {
       };
       this.deps.send({ key, ...result });
     }
+  }
+
+  /**
+   * The enqueue gate fired and the server took the job: watch it, and put the
+   * document up the moment it exists (job-watch-logic.ts has the field case).
+   * While the screen holds lrclib's definite "no synced lyrics", it says the
+   * server is working instead; lyrics already showing stay until a richer
+   * document replaces them (lrclib lines -> word sync, mid-song).
+   */
+  async watchJob(key: string, track: TrackInfo, outcome: IngestOutcome): Promise<void> {
+    const { getJob, getProcessed } = this.deps;
+    const abort = this.abort;
+    const gone = (): boolean => !abort || abort.signal.aborted || !this.deps.isCurrent(key);
+    if (!getJob || !getProcessed || !abort || gone()) return;
+    if (!shouldWatch(outcome)) {
+      this.deps.log(
+        `server job for ${key} is ${outcome.status}${outcome.reused ? ' (reused)' : ''} — not watching`,
+      );
+      return;
+    }
+    const announced = this.showsMiss(key);
+    if (announced) this.deps.send({ key, found: false, syncing: true });
+
+    const delays = this.deps.watchDelaysMs ?? WATCH_DELAYS_MS;
+    let step: WatchStep = watchStep({ status: outcome.status, errorType: null });
+    let attempt = 0;
+    for (; step === 'wait' && attempt < delays.length; attempt++) {
+      await abortableSleep(delays[attempt] ?? 0, abort.signal);
+      if (gone()) return;
+      const job = await getJob(outcome.jobId, abort.signal).catch(() => null);
+      if (gone()) return;
+      if (job) step = watchStep(job); // null = could not tell; ask again
+    }
+
+    if (step === 'done') {
+      const result = await getProcessed(track.source.type, track.source.id, abort.signal).catch(
+        () => ({ error: true }) as const,
+      );
+      if (gone()) return;
+      if ('found' in result && result.found) {
+        const current: DisplayedLyrics =
+          this.displayed?.key === key ? this.displayed.state : { source: 'none', sync: 'line' };
+        if (shouldUpgrade(current, result)) {
+          this.deps.log(`server job for ${key} finished — document up after ${attempt} reads`);
+          this.publishUpgrade(key, track, attempt, result);
+          return;
+        }
+        this.deps.log(`server job for ${key} finished, but not richer than what is shown`);
+        return;
+      }
+    }
+    this.deps.log(
+      `server job for ${key}: ${step === 'wait' ? 'still running after the watch window' : 'no document'}`,
+    );
+    // Take the promise back only if nothing else has claimed the screen since.
+    if (announced && this.showsMiss(key)) this.deps.send({ key, found: false });
+  }
+
+  private showsMiss(key: string): boolean {
+    return (
+      this.missShown === key && this.displayed?.key === key && this.displayed.state.source === 'none'
+    );
   }
 }

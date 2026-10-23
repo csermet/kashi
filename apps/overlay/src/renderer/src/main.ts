@@ -824,6 +824,8 @@ interface LyricsPayload {
   searching?: boolean;
   /** lrclib is unavailable and main keeps asking in the background (LyricFix). */
   retrying?: boolean;
+  /** No synced lyrics anywhere yet, but the server took the job (job watch). */
+  syncing?: boolean;
   error?: boolean;
   lines?: LyricLine[];
   palette?: PaletteLike;
@@ -886,9 +888,13 @@ function applyMissingLyrics(data: LyricsPayload): void {
   rebuildFxIndex();
   rebuildBeatCursor();
   refreshPalette();
-  statusText = data.error ? 'Lyrics unavailable (network)' : 'No synced lyrics found';
+  statusText = data.error
+    ? 'Lyrics unavailable (network)'
+    : data.syncing
+      ? 'No synced lyrics yet — syncing on Kashi server'
+      : 'No synced lyrics found';
   statusDim = true;
-  window.kashi.log(`lyrics ${data.error ? 'ERROR' : 'not found'}`);
+  window.kashi.log(`lyrics ${data.error ? 'ERROR' : data.syncing ? 'syncing on server' : 'not found'}`);
 }
 
 function applyLyrics(payload: unknown): void {
