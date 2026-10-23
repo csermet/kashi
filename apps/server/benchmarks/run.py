@@ -26,7 +26,13 @@ from pathlib import Path
 from statistics import mean, median
 
 from benchmarks import datasets, metrics
-from kashi_server.pipeline.alignment import AlignResult
+from kashi_server.pipeline.alignment import (
+    EXACT_STRIDE_DEFAULT,
+    SEAM_POLICIES,
+    SEAM_POLICY_DEFAULT,
+    WINDOWED_LEAD_MS,
+    AlignResult,
+)
 from kashi_server.pipeline.line_qa import trim_word_ends
 
 logger = logging.getLogger("benchmarks")
@@ -129,8 +135,8 @@ def _align_song(
     offset_ms: int | None = None,
     by_initial: dict[str, int] | None = None,
     *,
-    exact_stride: bool = False,
-    seam_policy: str = "clamp",
+    exact_stride: bool = EXACT_STRIDE_DEFAULT,
+    seam_policy: str = SEAM_POLICY_DEFAULT,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
@@ -694,17 +700,19 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--exact-stride",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=EXACT_STRIDE_DEFAULT,
         help=(
-            "windowed path only: the model's real 20 ms frame step instead of "
-            "the aligner library's rounded 21 (every window ran 4.8%% slow from "
-            "its slice start; Faz 9, 2026-10). Off = what production ships."
+            "windowed path only: the model's real 20 ms frame step (plus "
+            "alignment.WINDOWED_LEAD_MS) instead of the aligner library's rounded "
+            "21 (every window ran 4.8%% slow from its slice start; Faz 9, "
+            "2026-10). Default = what production ships (on since 2.28.0)."
         ),
     )
     parser.add_argument(
         "--seam-policy",
-        choices=("clamp", "yield"),
-        default="clamp",
+        choices=SEAM_POLICIES,
+        default=SEAM_POLICY_DEFAULT,
         help=(
             "windowed path only: at a seam, 'yield' pulls a word parked in its "
             "window's pad back to its own line instead of pushing the next "
@@ -728,9 +736,13 @@ def _config_name(args) -> str:
     )
     if args.windowed:
         config_name += "-win"
-    if args.exact_stride:
-        config_name += "-xs"
-    if args.seam_policy != "clamp":
+    # Suffixes name departures from what production ships (2.28.0 on); both
+    # switches only exist on the windowed path. Labels alone do not compare
+    # across 2.28.0: "-win" meant the library clock and clamp before it, so
+    # read meta.exact_stride.
+    if args.windowed and not args.exact_stride:
+        config_name += "-libstride"
+    if args.windowed and args.seam_policy != SEAM_POLICY_DEFAULT:
         config_name += f"-{args.seam_policy}"
     if args.line_postprocess != "none":
         config_name += f"-{args.line_postprocess}"
@@ -775,6 +787,7 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         "windowed": args.windowed,
         "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
         "exact_stride": args.exact_stride,
+        "windowed_lead_ms": WINDOWED_LEAD_MS if args.exact_stride and args.windowed else 0,
         "seam_policy": args.seam_policy,
         "signals": args.signals,
         "line_postprocess": args.line_postprocess,

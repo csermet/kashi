@@ -136,6 +136,13 @@ class Settings(BaseSettings):
     # 76% / +80 ms / 20-of-20. Still measured per language before shipping,
     # because "we expect it to transfer" is how unmeasured claims get in.
     # Tool: `python -m benchmarks.lateness <run>.json` (leave-one-song-out).
+    #
+    # Faz 9, 2026-10: most of that +80 ms was the windowed path's 21 ms clock
+    # (alignment.exact_stride_ms), not the singing. Since 2.28.0 an offset here
+    # (and in `align_models`) describes the model over the WHOLE track, and the
+    # windowed path adds alignment.WINDOWED_LEAD_MS on top — so fit it on a
+    # run WITHOUT --windowed. MMS measured best within 30 ms of 0 there in all
+    # four JamendoLyrics languages, so it ships with none.
     align_offset_ms: int = Field(default=0, ge=-500, le=500)
     # PER-LANGUAGE routing over the three fields above (Faz 8.1, Faz 9 P1). Empty by
     # default: with no entry for a job's language, `align_model` /

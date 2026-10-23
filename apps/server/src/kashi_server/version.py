@@ -628,5 +628,27 @@
 # ladder moves on. lrclib's record for "Never Gonna Give You Up" had rotted to
 # the single line "probe", and a one-line "day day day" record replaced "Party
 # Rock Anthem" at quality 1.0 in the 2026-10-16 wave.
-PIPELINE_VERSION = "2.27.2"
+# 2.28.0: the windowed clock (Faz 9; four GPU benchmark rounds on
+# JamendoLyrics and the pop set, 2026-10-23). ctc_forced_aligner rounds the
+# frame step of every window slice (all under 30 s) up to 21 ms; the real hop
+# is 20 ms, so inside a window time ran 4.8 % slow and a window's last words
+# came out up to ~300 ms late. Three changes, all windowed-only — whole-track
+# output is byte-identical (differential harness, 4000 seeded scenarios):
+#   · exact stride: the 320-sample hop, guarded (alignment.exact_stride_ms);
+#   · seam yield: a word parked in its window's pad goes back to its own line
+#     instead of pushing the next line's opening words onto it (zero-length
+#     piles 15 -> 3 lines over 79 songs, 3 -> 0 in English);
+#   · a 70 ms windowed lead: on the exact clock a windowed word lands ~70 ms
+#     earlier than the same model places it over the whole track, so the
+#     configured offsets now describe the whole track and windows add this.
+# The 2026-08 "+80 ms lateness of singing" was mostly the 21 ms clock: on the
+# exact clock MMS wants no offset to speak of over the whole track (best within
+# 30 ms of 0). Measured: English windowed PCO@0.1 0.585 -> 0.731 (shipped table
+# plus lead, post hoc; a dedicated windowed fit scored 0.733; @0.3 0.902 ->
+# 0.905; 0.670 if the English table in ALIGN_MODELS lags this release); English whole-track 0.775 ->
+# 0.835 with the refitted table; MMS deu/fra/spa/eng windowed 0.568 -> 0.758
+# (@0.3 0.917 -> 0.930, all four up). Line QA and the arbiter now see the
+# exact clock (shift_ms carries the lead, so raw = start - shift_ms is the
+# model's own clock again), and their nudge counts move with it.
+PIPELINE_VERSION = "2.28.0"
 PIPELINE_MAJOR = 2

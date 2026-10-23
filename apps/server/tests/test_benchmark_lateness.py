@@ -2,11 +2,14 @@
 aggregating words instead of songs, and reading a fitted number as a gain."""
 
 from benchmarks.lateness import (
+    DEFAULT_OFFSETS_MS,
     best_offset,
     by_initial_table,
+    format_report,
     held_out_by_initial,
     held_out_gain,
     lateness_stats,
+    on_grid_edge,
     pco_at_offset,
     signed_errors_by_song,
     words_by_song,
@@ -145,3 +148,26 @@ def test_the_class_table_beats_one_offset_held_out_when_the_classes_differ():
     cv = held_out_by_initial(songs, tolerance_ms=10)
     assert cv["by_initial"] == 1.0
     assert cv["by_initial"] > cv["single"] >= cv["none"]
+
+
+def test_an_early_model_is_fitted_past_plus_fifty():
+    """2026-10-23: on the exact windowed clock fra/spa run ~80 ms EARLY, and the
+    old -200..+50 grid returned its own edge, +50, as the answer."""
+    planted = {f"s{i}": [-80.0, -75.0, -85.0] for i in range(4)}
+    assert best_offset(planted, 50) == 80
+    assert not on_grid_edge(80)
+
+
+def test_a_fit_on_the_grid_edge_is_flagged():
+    assert on_grid_edge(max(DEFAULT_OFFSETS_MS))
+    assert on_grid_edge(min(DEFAULT_OFFSETS_MS))
+    report = {
+        "meta": {"label": "edge"},
+        "jamendo": {"songs": [
+            {"stem": f"s{i}", "word_detail": [
+                {"i": 0, "token": "go", "truth_ms": 1_000, "hyp_ms": 700}
+            ]} for i in range(3)
+        ]},
+    }
+    assert "grid edge" in format_report(report, 100)
+

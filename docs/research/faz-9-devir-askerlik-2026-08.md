@@ -379,7 +379,13 @@ when two windows disagree. Proof needed before a pipeline bump:
    not get worse (compare gross errors, not medians — scope trap).
 3. Then a pipeline bump and a re-process wave of the affected documents.
 
-### The windowed clock runs 4.8 % slow — found 2026-10-18, switch shipped off (7cf1f26)
+### The windowed clock runs 4.8 % slow — found 2026-10-18, ON since 2.28.0
+
+**2026-10-23:** four GPU rounds decided it; both switches default on in pipeline 2.28.0
+with a 70 ms windowed lead, and the offsets now describe the whole track (English
+table refitted in the deployment config). Numbers, rollout order and the Turkish-set
+trap: [faz-9-pencere-saati-2026-10.md](faz-9-pencere-saati-2026-10.md). The text below
+is the 2026-10-18 diagnosis.
 
 A second driver behind the seam piles, and behind window-final lateness in
 general: ctc_forced_aligner returns `ceil(samples / frames)` as its frame step.

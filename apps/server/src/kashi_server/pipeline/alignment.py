@@ -516,11 +516,24 @@ MODEL_HOP_SAMPLES = 320
 SAMPLE_RATE = 16_000
 _stride_fallback_logged = False
 
-# Faz 9 (2026-10) switches, OFF until the benchmark proves them: flipping either
-# default is a pipeline minor bump. See exact_stride_ms and windows.yield_pad_words.
-EXACT_STRIDE_DEFAULT = False
-SEAM_POLICY_DEFAULT = "clamp"
+# Faz 9 (2026-10) switches, ON since 2.28.0 after four GPU benchmark rounds
+# (docs/research/faz-9-pencere-saati-2026-10.md). Both touch only the windowed
+# path; switched off they reproduce the 2.27 windowed output byte for byte.
+# See exact_stride_ms and windows.yield_pad_words.
+EXACT_STRIDE_DEFAULT = True
+SEAM_POLICY_DEFAULT = "yield"
 SEAM_POLICIES = ("clamp", "yield")
+
+#: On the exact clock a word aligned inside a window comes out this much
+#: EARLIER than the same model places it over the whole track. Measured as the
+#: gap between the best offsets of the two paths on JamendoLyrics: -50..-70 ms
+#: for MMS across four languages, -70..-80 ms per initial class for the English
+#: checkpoint. The configured offsets (ALIGN_MODELS, ALIGN_OFFSET_MS) describe
+#: the model over the whole track; the windowed path adds this on top, so one
+#: table serves both paths. Not isolated to a cause: the paths differ in star
+#: topology ("edges" vs "segment") and in how much context the model hears.
+#: Rides with exact_stride: the 2.27 tables were fitted on the 21 ms clock.
+WINDOWED_LEAD_MS = 70
 
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
@@ -701,7 +714,9 @@ def align(
     `exact_stride` and `seam_policy` only touch the windowed path (whole-audio
     output stays byte-for-byte what it was): the real 20 ms frame step instead
     of the library's 21, and "yield" lets the window that owns the audio keep
-    it at a seam (windows.yield_pad_words) before the forward clamp runs."""
+    it at a seam (windows.yield_pad_words) before the forward clamp runs. On
+    the exact clock the windowed path also takes WINDOWED_LEAD_MS on top of
+    the configured offsets."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
@@ -726,12 +741,21 @@ def align(
         total_ms = audio.shape[-1] // SAMPLES_PER_MS
         plan = plan_windows(line_texts, synced_starts_ms, total_ms)
 
+    lead_ms = WINDOWED_LEAD_MS if plan is not None and exact_stride else 0
+    path_offset_ms = spec.offset_ms + lead_ms
+    path_by_initial = (
+        {cls: value + lead_ms for cls, value in spec.offset_by_initial.items()}
+        if spec.offset_by_initial
+        else None
+    )
+
     if plan is None:
         results = _align_texts(model, tokenizer, audio, align_texts, language, romanize=romanize)
     else:
         logger.info(
-            "windowed alignment: %d windows over %d lines (stride %s, seams %s)",
+            "windowed alignment: %d windows over %d lines (stride %s, seams %s, lead %+d ms)",
             len(plan), len(line_texts), "exact" if exact_stride else "library", seam_policy,
+            lead_ms,
         )
         results = _align_windows(
             model, tokenizer, audio, plan, align_texts, language, romanize,
@@ -747,7 +771,7 @@ def align(
     if regrouped is None:
         return shift_result(
             _line_only_fallback(line_texts, results, plan is not None, model_name),
-            spec.offset_ms,
+            path_offset_ms,
         )  # line mode has no words to classify
 
     lines, words_per_line = regrouped
@@ -768,6 +792,6 @@ def align(
             windowed=plan is not None,
             model_name=model_name,
         ),
-        spec.offset_ms,
-        spec.offset_by_initial,
+        path_offset_ms,
+        path_by_initial,
     )

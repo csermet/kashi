@@ -31,6 +31,11 @@ fricative, plosive, sonorant — pipeline/phonetics.py), which is the shape of
 the shipped English correction, and compares it held-out against the single
 offset. Fit it on a run with the correction OFF (`--align-offset-ms 0`, no
 `--align-offset-by-initial`), or the table comes out as a residual.
+
+Since pipeline 2.28.0 the configured offsets describe the model over the WHOLE
+track, and windowed alignment adds alignment.WINDOWED_LEAD_MS on top. So fit a
+table for the config on a run WITHOUT --windowed; a windowed fit (with the
+lead) lands within ~10 ms of it but answers a different question.
 """
 
 import argparse
@@ -42,11 +47,11 @@ from statistics import mean, median
 from benchmarks.metrics import error_stats
 
 # Applying an offset means hyp' = hyp + offset, so a LATE model (positive
-# error) is corrected by a NEGATIVE offset. The default grid brackets the
-# measured consonant-duration scale (~80 ms) generously in both directions;
-# the positive side exists so a model that is EARLY cannot be mistaken for a
-# model with no bias at all.
-DEFAULT_OFFSETS_MS = tuple(range(-200, 51, 10))
+# error) is corrected by a NEGATIVE offset. Symmetric since 2026-10-23: on the
+# exact windowed clock models run EARLY (fra/spa want +80), and the old
+# -200..+50 grid quietly returned its own edge, +50, for them. A best value
+# on either edge is reported as such (`on_grid_edge`), never trusted.
+DEFAULT_OFFSETS_MS = tuple(range(-200, 201, 10))
 DEFAULT_TOLERANCES_MS = (100, 200, 300, 500)
 
 
@@ -153,6 +158,12 @@ def best_offset(
         row.offset_ms for row in rows if row.pco.get(key, 0.0) >= best - 1e-12
     )
     return 0 if 0 in plateau else plateau[len(plateau) // 2]
+
+
+def on_grid_edge(offset_ms: int, offsets_ms: tuple[int, ...] = DEFAULT_OFFSETS_MS) -> bool:
+    """True when a fitted offset is the grid's own limit, i.e. the real
+    optimum may lie beyond it."""
+    return offset_ms in (min(offsets_ms), max(offsets_ms))
 
 
 def held_out_gain(
@@ -267,6 +278,11 @@ def format_by_initial(report: dict, tolerance_ms: int = 100) -> str:
     lines.append(f"  {'none':10} {counts.get('none', 0):6d} words  (plain)")
     flag = ",".join(f"{cls}={off}" for cls, off in table.items())
     lines.append(f"flags: --align-offset-ms {base} --align-offset-by-initial {flag}")
+    edged = [name for name, off in [("plain", base), *table.items()] if on_grid_edge(off)]
+    if edged:
+        lines.append(
+            f"WARNING: {', '.join(edged)} sit on the grid edge — the optimum may lie beyond it"
+        )
     cv = held_out_by_initial(songs, tolerance_ms)
     if cv:
         lines += [
@@ -289,7 +305,8 @@ def format_report(report: dict, tolerance_ms: int = 100) -> str:
     lines = [
         f"run   : {meta.get('label')}  ({meta.get('alignment_model')})",
         f"chain : separation={meta.get('separation')} windowed={meta.get('windowed')} "
-        f"jitter={meta.get('anchor_jitter_ms')}",
+        f"jitter={meta.get('anchor_jitter_ms')} exact_stride={meta.get('exact_stride', False)} "
+        f"lead={meta.get('windowed_lead_ms', 0)}",
         f"scope : {stats['songs']} songs, {stats['words']} verified words",
         "",
         f"late share      : {stats['late_share']:.1%}   (0.5 = no bias)",
@@ -304,6 +321,8 @@ def format_report(report: dict, tolerance_ms: int = 100) -> str:
         mark = " <- best" if row.offset_ms == fitted else ""
         cells = "  ".join(f"{row.pco[f'{t / 1000:g}']:8.4f}" for t in DEFAULT_TOLERANCES_MS)
         lines.append(f"{row.offset_ms:+5d} ms   {cells}{mark}")
+    if on_grid_edge(fitted):
+        lines.append(f"WARNING: the best offset ({fitted:+d} ms) is the grid edge")
 
     cv = held_out_gain(errors_by_song, tolerance_ms)
     if cv:

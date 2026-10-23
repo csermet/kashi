@@ -86,13 +86,16 @@ vowel and reports the start about one consonant late. Subtracting that bias is
 the cheapest accuracy in the project: **PCO@0.1 0.480 → 0.560**, held out.
 
 The bias belongs to the CHECKPOINT, so it has to be re-measured after every
-aligner change rather than inherited:
+aligner change rather than inherited. Since pipeline 2.28.0 the configured
+offsets describe the WHOLE track (windowed alignment adds
+`alignment.WINDOWED_LEAD_MS`), so fit on a run without `--windowed` and with the
+correction off:
 
 ```bash
 python -m benchmarks.run --dataset jamendo --languages eng --separation kim-base \
-  --windowed --anchor-jitter-ms 400 --dump-words \
+  --mixback 0 --dump-words --align-offset-ms 0 \
   --align-model <hf-id> --label wd-<name>
-python -m benchmarks.lateness results/<date>-wd-<name>.json --tolerance 0.1
+python -m benchmarks.lateness results/<date>-wd-<name>.json --tolerance 0.1 --by-initial
 ```
 
 Two things the tool insists on, because both were got wrong by hand first:
@@ -179,6 +182,13 @@ python -m benchmarks.run --dataset jamendo --jamendo-root jamendolyrics-tr \
 `--jamendo-root` is the only new flag: anything other than the default is a
 LOCAL set, and a missing one is a hard error rather than a 390 MB download of
 the wrong dataset.
+
+**Do not judge a clock or offset change on this set at 100 ms.** Annotation
+fixed only the obvious errors, so in 7 of its 10 songs 92-99 % of the "truth" is
+the 2.15/2.19 pipeline output itself — the old windowed clock scores itself
+(docs/research/faz-9-pencere-saati-2026-10.md, finding 6). PCO@0.3 holds up
+better; for timing changes, score only the words the annotation moved (compare
+against `eval/packets`).
 
 **Anchor bias.** The pre-marks come from the very pipeline being evaluated, so
 a reviewer who accepts rather than checks would produce a set that certifies
