@@ -29,6 +29,7 @@ One general system, calibrated per language.
 |---|---|---|
 | 8 / 8.1 | Lyric alignment review + licence-clean model chain | done (chain live since 2026-08-12) |
 | 9 | Perceived accuracy, English | open — audio downloads unblocked (server 0.30.1) and the 2.27.0 response-onset rule verified in the field on one song; the archive re-scan waits for the owner. Remaining perceived complaints: repeated sections, window-seam piles (diagnosed 2026-10-13: 63 of 283 windowed documents open a line with zero-length words; fix direction in the hand-off note, unmeasured), and word-duration collapse (cheap candidate: a render-side minimum display time per word — measured weak on the pop set, where collapses are mostly placement errors; see the hand-off note) |
+| 9.2 | LyricFix: lyrics lookup that survives an unavailable lrclib (own LAN mirror, worker deferral without downloads, degenerate-record gate) | round 1 live 2026-10-16 (overlay 0.29.0, mirror); round 2 2026-10-22: worker server 0.31.0, record gate pipeline 2.27.2 / overlay 0.29.1 |
 | 9.5 | Turkish parity (calibration) | planned |
 | 10 | Effects (incl. the unfinished "poison" archetype and song-mood-aware effects; leave the lexicon alone until then) | planned |
 | 11 | Hardening | planned |

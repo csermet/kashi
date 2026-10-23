@@ -33,6 +33,7 @@ new evidence (a new data set, a new model class, a changed constraint) — and s
 | YouTube auto-captions for songs lrclib misses | 8 of 8 misses had no captions at all (manual or automatic). | this file (2026-08-13 coverage audit) |
 | "More audio is better" for by-ear matching | Three 30 s slices scored worse than one 45 s slice (+0.088 vs +0.134): spreading reaches instrumental regions. | this file (by-ear rung, server 0.29.2) |
 | Tuning a threshold on easy examples only | A 0.30 by-ear threshold would have rejected the cover the rung exists for (Heathens 0.296). Calibrate on the hard case. | this file (by-ear rung) |
+| Title-only lrclib rung (drop the artist, keep a ±3 s duration) | 3 000 random mirror tracks: a genuinely different artist has the same title within ±3 s for **46.4 %** of them, and exactly one such stranger (the case a "unique match" rule would silently accept) for **14.5 %**; with no duration, 65.8 %. The server's r=1 path has no wrong-song gate (the CTC score is saturated at 1.00 for 51 % of the archive), so alignment would not catch the wrong text either. The two "gaps" it was meant for resolve today; they had failed on lrclib's 503 day. | lyricfix-lrclib-availability-2026-10.md §5 |
 
 ## Measurement traps (they produce fake wins)
 

@@ -1,7 +1,8 @@
 # LyricFix — lyrics lookup that survives an unavailable lrclib (2026-10)
 
-**Status: DECIDED (v2, 2026-10-16) — in progress. §1-§3 are the v1 analysis; §4 records the
-v2 decision that supersedes the v1 package order.**
+**Status: DECIDED (v2, 2026-10-16); round 2 (2026-10-22) shipped the worker and the record gate.
+§1-§3 are the v1 analysis; §4 records the v2 decision that supersedes the v1 package order;
+§5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2).**
 
 Field complaint (Caner, recurring): when lrclib answers 503, the overlay shows
 "Lyrics unavailable (network)" and never asks again for the rest of the song. On
@@ -272,6 +273,104 @@ Next time, stage the dump on an ext4 SSD rather than the NTFS disk. The read spe
 of the staging disk sets the pace of both the unpack and the trim. Plain lyrics are kept
 on the synced rows. Dropping them would roughly halve the copy, but the server pipeline
 reads them, and size is not the constraint.
+
+## 5. Round 2 (2026-10-22)
+
+Round 1 left P3 (worker) and P4 (search-ladder gaps). Re-measured against the live mirror
+first, which changed both.
+
+### Findings (read-only measurements)
+
+1. **The mirror was OOM-looping.** Killed at its 4 GiB limit about every 80 minutes since it
+   went live (88 times in six days), with nothing but uptime probes reaching it (5 requests a
+   minute). Resident memory grew from ~290 MiB in ~285 MiB steps, about every 10 minutes, all of
+   it anonymous heap (`smaps`: 3.2 GB anonymous vs 0.01 GB file-backed one hour in). Each restart
+   meant a cold cache, which is the "mirror answered in 5 s" seen on 2026-10-18. Upstream
+   defaults: a pool of 16 SQLite connections, each with `PRAGMA cache_size` 256 MiB, which caps
+   at exactly 4 GiB.
+2. **P4's two "known gaps" were not gaps.** Against the mirror, the server ladder resolves "Got 2
+   Luv U" (155 records) and "Get Jinxed" (38 records) for every plausible hint variant. Both had
+   failed on lrclib's 503 day. §2 e's "filed under the wrong artist" and "143 s vs 155 s" were
+   wrong.
+3. **A title-only rung is dangerous.** On 3 000 random mirror tracks, a genuinely different
+   artist has the same title within ±3 s for 46.4 % of them, and exactly one such stranger
+   (what a "unique match" rule would silently accept) for 14.5 %; with no duration, 65.8 %. The
+   server's r=1 path has no wrong-song gate, and the CTC score is saturated at 1.00 for 51 % of
+   the archive, so alignment would not catch a wrong text either. Rejected (olu-fikirler.md).
+4. **`lyrics_not_found` inventory** (120 days, 143 distinct tracks): 68 resolve today (they failed
+   on outage days or with absurd hint durations) and 75 are genuinely absent (about 60 of them
+   AMV, nightcore, remix, cover or bootleg uploads). Nothing to build; the 68 go into the next
+   re-queue wave.
+5. **A cold mirror search is slow**: `/api/search` takes 4-8 s on the first touch of a popular
+   title (hundreds of records read off the spinning disk), milliseconds warm. `/api/get` is
+   milliseconds either way.
+6. **lrclib records rot.** Record 1009665 ("Never Gonna Give You Up") is now the single line
+   "probe", in the dump too, and a one-line "day day day" record replaced "Party Rock Anthem" at
+   quality 1.0 in the 2026-10-16 wave. Neither the server nor the overlay checked for minimal
+   content. The archive (339 documents): stamped lines p2 = 20; words per minute p2 = 22.7,
+   p5 = 37.4.
+
+### P2.1 — mirror memory hotfix
+
+A control run of the same image on a three-record database, same environment and the same
+probe traffic, stayed flat for 34 minutes (16 MiB) with the default pool of 16 **and** with a
+pool of 1, while the live pod grew from 292 to 3 156 MiB over the same window. The growth is
+data-dependent: per-connection page caches filling from the 107 GB database, not connection
+recycling or the allocator on their own. Fix: pool 2 (two clients at most: overlay and worker),
+32 MiB cache per connection, mmap unchanged, more headroom while it is measured. Acceptance:
+resident-memory slope ≤ 50 MiB/h over 2 h and no restart for 24 h.
+
+**Result:** after the change the pod opened at 42 MiB (the old one opened at 292 MiB and added
+~285 MiB at the tenth minute). The slope was +0.2 MiB/h over the first 2 h and +0.1 MiB/h over
+the following 6 h. The peak was 43.8 MiB, with no restart in the first 9.5 h and the uptime
+probe green throughout. The 24 h check closes on 2026-10-23.
+
+### P3 — worker: lrclib.net → mirror → defer (server 0.31.0)
+
+- One gateway for every lrclib call in the worker. A transient lrclib.net failure (429, 5xx,
+  403, timeout) asks the mirror. A mirror miss while lrclib.net is unavailable is a new
+  transient type, `lrclib_unavailable`, never `lyrics_not_found`: the dump lags lrclib.net, and
+  a permanent miss would take the 7-day block. A clean lrclib.net 404 never asks the mirror.
+- A breaker opens after two consecutive lrclib.net failures, for max(60 s × 2^(n−1) capped at
+  15 min, Retry-After); then one probe. A single failure carrying Retry-After pauses lrclib.net
+  for that long without opening, so Retry-After is honoured on every path.
+- While lrclib.net is off limits, a plain job whose lyrics the mirror cannot supply is
+  **deferred before the download**: re-queued on a 10 min → 4 h schedule with its attempt
+  refunded, for up to 24 h, then failed as transient `network`. Nightcore-marked jobs keep the
+  old order (their lookup needs the audio's duration); they are rare.
+- 250 ms between lrclib.net requests; `Retry-After` on every busy error; request counts by
+  target, endpoint and status (timeouts included). The dead third retry delay is gone
+  (`[60, 300]`).
+- Proof: 10 DB-backed worker tests on a throwaway Postgres 17 (deferral with zero download
+  calls, attempt refunded, the widening schedule, the patience boundary exactly on the
+  second, caller lyrics and nightcore paths) plus 21 gateway/breaker tests. 18 guard mutations,
+  each killed by a test: the 2-failure threshold, `max(backoff, Retry-After)`, the Retry-After
+  pause, the busy-type check, `lrclib_unavailable` on a mirror miss (fetch and search), the
+  shared request pacer, the digits-only Retry-After parse, the attempt refund, the
+  pre-download check, the patience `<`, the defer branch, the schedule index, the cleared
+  error note, the caller-lyrics exemption and the transient type. Publishing still targets
+  lrclib.net only (contract test).
+- **Field, first minutes after the rollout (2026-10-22 19:03Z), during a live lrclib.net 503
+  spell:** the first job's original-song search failed on lrclib.net and missed on the mirror;
+  it was deferred 600 s with its attempt refunded (`attempts` 0, `deferrals` 1). The breaker
+  opened on the second failure. The next job took its lyrics from the mirror (42 synced lines,
+  multi-artist rung) and finished as a normal word-sync document (quality 0.76): the first
+  document a lrclib outage did not cost. lrclib.net answered from the same pod a minute later,
+  so the 503s were lrclib's weather, not our egress.
+- The request counter's `endpoint` label arrived in Prometheus as `exported_endpoint`: the
+  Prometheus Operator adds its own `endpoint` target label. Renamed to `route` in 0.31.1.
+
+### P4 — record acceptance (pipeline 2.27.2, overlay 0.29.1)
+
+The title-only rung and the "release-length mismatch → text only" rule were dropped (findings
+2 and 3). In their place, the record gate from finding 6, on both twins: a synced record with
+fewer than 4 stamped lines, or under 8 words per minute of its own duration (records of a minute
+or more), is unusable like an instrumental one, and the ladder moves on. On the server a miss
+caused only by rejection stays an ordinary `lyrics_not_found`. In the overlay such a miss is not
+negative-cached, since lrclib may repair the record, and a rotted record already cached as a
+hit is asked again. `LOOKUP_LADDER_VERSION` 3. The overlay's mirror timeout went from 1.5 s to
+2.5 s (finding 5): `/api/get` is milliseconds, and a cold search beyond that still falls through
+to lrclib.net.
 
 ## Sources
 
