@@ -322,8 +322,12 @@ resident-memory slope ≤ 50 MiB/h over 2 h and no restart for 24 h.
 
 **Result:** after the change the pod opened at 42 MiB (the old one opened at 292 MiB and added
 ~285 MiB at the tenth minute). The slope was +0.2 MiB/h over the first 2 h and +0.1 MiB/h over
-the following 6 h. The peak was 43.8 MiB, with no restart in the first 9.5 h and the uptime
-probe green throughout. The 24 h check closes on 2026-10-23.
+the following 6 h. **Accepted after 24 h** (2026-10-23 17:57Z): no restart, resident memory flat
+(24 h slope −0.01 MiB/h, peak 43.8 MiB). One uptime-probe sample of 1 440 failed, at exactly
+24 h after start: upstream runs its daily `PRAGMA optimize` synchronously inside the async
+runtime, which stalled the server for ~30 s on the 107 GB database (its once-a-minute metrics
+line came 30 s late). That costs one ~30 s fall-through to lrclib.net a day. It was invisible
+before only because the pod never lived a day.
 
 ### P3 — worker: lrclib.net → mirror → defer (server 0.31.0)
 
