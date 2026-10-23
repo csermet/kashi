@@ -357,6 +357,14 @@ probe green throughout. The 24 h check closes on 2026-10-23.
   multi-artist rung) and finished as a normal word-sync document (quality 0.76): the first
   document a lrclib outage did not cost. lrclib.net answered from the same pod a minute later,
   so the 503s were lrclib's weather, not our egress.
+- **First 9.5 hours** (2026-10-22 19:03Z → 10-23 04:30Z, lrclib.net still flapping): 47
+  documents completed; their lyrics came 38 times from the mirror and 15 times from lrclib.net.
+  The breaker opened 23 times. 12 deferrals, 2 of them before the download; nothing reached the
+  24 h patience limit. Of the 17 jobs that had failed on lrclib 503s earlier that day and were
+  re-queued, 15 completed, one turned out genuinely absent (`lyrics_not_found` once lrclib.net
+  answered, after two deferrals) and one failed in alignment for an unrelated reason. The late
+  deferrals are the design's known edge: with 503s interleaved with 200s, each success closes the
+  breaker, so the next job downloads before it meets the next failure.
 - The request counter's `endpoint` label arrived in Prometheus as `exported_endpoint`: the
   Prometheus Operator adds its own `endpoint` target label. Renamed to `route` in 0.31.1.
 
