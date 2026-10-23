@@ -32,7 +32,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   drift silently. Add a new migration.
 - Schema change ⇒ `pnpm --filter @kashi/schemas codegen` and commit the generated output.
 - Guards are proven by mutation: remove the fix, the test must fail. Several first-draft guards
-  here were toothless until checked this way.
+  here were toothless until checked this way. Run mutation loops with `PYTHONDONTWRITEBYTECODE=1`: a
+  same-size edit within the same second reuses the stale `.pyc`, and the run reports the
+  PREVIOUS mutation's result (seen 2026-10-23).
 - Refactors are proven the same way: run a copy of the old module and the new one side by side
   under a seeded differential harness (fakes for I/O, models and clocks), feed it values that sit
   EXACTLY on every threshold, then mutate one line of the new code — the harness must notice.
