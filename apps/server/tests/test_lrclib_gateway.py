@@ -182,8 +182,9 @@ def test_a_primary_hit_never_asks_the_mirror():
 
 def test_a_clean_primary_404_is_lyrics_not_found_and_never_asks_the_mirror():
     primary, mirror = Target(404), Target(200)
+    gateway = _gateway(primary, mirror)
     with pytest.raises(PipelineError) as err:
-        _gateway(primary, mirror).fetch_lyrics(HINTS)
+        gateway.fetch_lyrics(HINTS)
     assert err.value.error_type == "lyrics_not_found"
     assert mirror.paths == []
 
@@ -200,22 +201,25 @@ def test_a_busy_primary_falls_through_to_the_mirror(status):
 
 def test_a_mirror_miss_during_an_outage_is_unavailable_never_not_found():
     primary, mirror = Target(503), Target(404)
+    gateway = _gateway(primary, mirror)
     with pytest.raises(PipelineError) as err:
-        _gateway(primary, mirror).fetch_lyrics(HINTS)
+        gateway.fetch_lyrics(HINTS)
     assert err.value.error_type == "lrclib_unavailable"
     assert is_transient_error(err.value.error_type)  # never the 7-day block
 
 
 def test_a_failing_mirror_is_unavailable_too():
     primary, mirror = Target(503), Target(500)
+    gateway = _gateway(primary, mirror)
     with pytest.raises(PipelineError) as err:
-        _gateway(primary, mirror).fetch_lyrics(HINTS)
+        gateway.fetch_lyrics(HINTS)
     assert err.value.error_type == "lrclib_unavailable"
 
 
 def test_no_mirror_configured_means_unavailable():
+    gateway = _gateway(Target(429, retry_after="120"), None)
     with pytest.raises(PipelineError) as err:
-        _gateway(Target(429, retry_after="120"), None).fetch_lyrics(HINTS)
+        gateway.fetch_lyrics(HINTS)
     assert err.value.error_type == "lrclib_unavailable"
     assert err.value.retry_after_s == 120
 
@@ -247,8 +251,9 @@ def test_a_primary_retry_after_reaches_the_breaker():
 def test_an_empty_mirror_search_during_an_outage_is_unavailable():
     # [] would read as "no such song" to nightcore detection.
     primary, mirror = Target(503), Target(404)
+    gateway = _gateway(primary, mirror)
     with pytest.raises(PipelineError) as err:
-        _gateway(primary, mirror).search_candidates("Sean Paul Got 2 Luv U")
+        gateway.search_candidates("Sean Paul Got 2 Luv U")
     assert err.value.error_type == "lrclib_unavailable"
 
 
@@ -266,7 +271,8 @@ def test_mirror_only_lookup_never_touches_the_breaker_or_the_primary():
     assert gateway.breaker.opens == 0
     mirror.status = 200
     found = gateway.mirror_only_lookup(HINTS)
-    assert found is not None and found.source_id == 42
+    assert found is not None
+    assert found.source_id == 42
 
 
 def test_mirror_only_lookup_without_a_mirror_is_a_miss():
