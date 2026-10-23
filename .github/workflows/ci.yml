@@ -155,21 +155,64 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           # A pasted secret often carries a trailing newline, which the scanner
           # sends verbatim and the HTTP layer rejects ("invalid header value").
           SONAR_TOKEN="$(printf '%s' "$SONAR_TOKEN" | tr -d '[:space:]')"
           SONAR_HOST_URL="$(printf '%s' "$SONAR_HOST_URL" | tr -d '[:space:]')"
-          export SONAR_TOKEN SONAR_HOST_URL
+          CF_ACCESS_CLIENT_ID="$(printf '%s' "$CF_ACCESS_CLIENT_ID" | tr -d '[:space:]')"
+          CF_ACCESS_CLIENT_SECRET="$(printf '%s' "$CF_ACCESS_CLIENT_SECRET" | tr -d '[:space:]')"
+          export SONAR_TOKEN SONAR_HOST_URL CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
           if [ -z "$SONAR_HOST_URL" ] || [ -z "$SONAR_TOKEN" ]; then
             echo "SONAR_HOST_URL / SONAR_TOKEN not set - skipping the scan."
             exit 0
+          fi
+          docker network create sonar-net >/dev/null
+          # The server sits behind a Cloudflare Access gate (since 2026-10-12) that
+          # admits the owner's network and a service token, not GitHub's runners.
+          # The scanner cannot send extra headers, so a local nginx adds the
+          # token's two CF-Access-* headers. The secrets reach nginx as env vars
+          # (the image's envsubst templating), never as a file or a log line.
+          if [ -n "$CF_ACCESS_CLIENT_ID" ] && [ -n "$CF_ACCESS_CLIENT_SECRET" ]; then
+            UPSTREAM_HOST="${SONAR_HOST_URL#*://}"; UPSTREAM_HOST="${UPSTREAM_HOST%%/*}"
+            export UPSTREAM_HOST
+            mkdir -p "$RUNNER_TEMP/sonar-gate"
+            cat > "$RUNNER_TEMP/sonar-gate/default.conf.template" <<'NGINX'
+          server {
+            listen 8080;
+            client_max_body_size 512m;
+            location / {
+              proxy_pass https://${UPSTREAM_HOST};
+              proxy_ssl_server_name on;
+              proxy_set_header Host ${UPSTREAM_HOST};
+              proxy_set_header CF-Access-Client-Id ${CF_ACCESS_CLIENT_ID};
+              proxy_set_header CF-Access-Client-Secret ${CF_ACCESS_CLIENT_SECRET};
+              proxy_read_timeout 300s;
+            }
+          }
+          NGINX
+            docker run -d --rm --name sonar-gate --network sonar-net -p 127.0.0.1:18080:8080 \
+              -e UPSTREAM_HOST -e CF_ACCESS_CLIENT_ID -e CF_ACCESS_CLIENT_SECRET \
+              -e NGINX_ENVSUBST_FILTER='^(UPSTREAM_HOST|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET)$' \
+              -v "$RUNNER_TEMP/sonar-gate:/etc/nginx/templates:ro" \
+              nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03 >/dev/null
+            # One status line, no body, no redirect following: 200 = the gate let
+            # us through, 302/403 = it did not (the scan then fails, informational).
+            code=000
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/api/server/version || true)"
+              [ "$code" != "000" ] && break; sleep 1
+            done
+            echo "Cloudflare Access gate check: HTTP $code"
+            SONAR_HOST_URL="http://sonar-gate:8080"
           fi
           # Same pinned scanner image as the homelab CI template (amd64 only).
           # The checkout is mounted at the SAME absolute path: coverage.xml names
           # files under the runner's absolute source dir. Runner uid, and a work
           # dir inside the checkout (the image's /tmp default is not writable).
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --user "$(id -u):$(id -g)" --network sonar-net \
             -e SONAR_HOST_URL -e SONAR_TOKEN -e SONAR_USER_HOME=/tmp/.sonar \
             -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" -w "$GITHUB_WORKSPACE" \
             sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9 \
