@@ -180,3 +180,10 @@ one emission pass and two Viterbi passes (emissions dominate alignment cost);
 `segment` words take the configured table, `edges` words the table plus the lead;
 per-word selection at T = 400 ms; a GPU confirmation run of the real code; a
 pipeline minor bump; then the GPU helper worker (phase 9.3) and one full refresh.
+
+**Third vote: the whole track** (simulated with the round 3/4 whole-track dumps; held
+out). After the hybrid, take the whole-track time when it lies within 400 ms of it:
+English 20 0.779/0.891/0.916 -> **0.804/0.902/0.920**; MMS deu 0.909 -> 0.932, eng
+0.776 -> 0.798, fra 0.858 -> 0.873, spa 0.890 -> 0.904 at 100 ms; +1 point at 200 ms;
+gross errors flat. One extra whole-track pass per song: cheap on a GPU, about a
+minute on the CPU worker. It belongs in the same package.
