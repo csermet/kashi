@@ -30,11 +30,16 @@ One general system, calibrated per language.
 | 8 / 8.1 | Lyric alignment review + licence-clean model chain | done (chain live since 2026-08-12) |
 | 9 | Perceived accuracy, English | open — audio downloads unblocked (server 0.30.1) and the 2.27.0 response-onset rule verified in the field on one song; archive re-scan done 2026-10-16/23 with a persist regression guard. **2.28.0 (server 0.32.0): the windowed clock ran on 21 ms frames; exact stride + seam yield + a 70 ms windowed lead, English PCO@0.1 0.585 → 0.731, MMS 0.568 → 0.758, seam piles 15 → 3 (faz-9-pencere-saati-2026-10.md); rollout with the refitted English offset table, then an archive wave.** Remaining perceived complaints: repeated sections, and word-duration collapse (cheap candidate: a render-side minimum display time per word — measured weak on the pop set, where collapses are mostly placement errors; see the hand-off note) |
 | 9.2 | LyricFix: lyrics lookup that survives an unavailable lrclib (own LAN mirror, worker deferral without downloads, degenerate-record gate) | round 1 live 2026-10-16 (overlay 0.29.0, mirror); round 2 2026-10-22: worker server 0.31.0, record gate pipeline 2.27.2 / overlay 0.29.1; overlay 0.29.2 (2026-10-24): a track with no synced lyrics anywhere says "syncing on Kashi server" and its document lands during the same play (the overlay watches the job) |
+| 9.3 | GPU helper worker: a second worker on the owner's GPU PC pulling from the same queue (also speeds up first listens while that PC is on) | planned — **prerequisite of the next full archive refresh**: CPU worker ~12 min/track (≈60 h for 300 tracks), GPU ≈1 min/track (≈5 h), measured 2026-10-25 |
 | 9.5 | Turkish parity (calibration) | planned |
 | 10 | Effects (incl. the unfinished "poison" archetype and song-mood-aware effects; leave the lexicon alone until then) | planned |
 | 11 | Hardening | planned |
 
 Phase order changes only by the owner's decision.
+
+**Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
+improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
+of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).
 
 ## Standing constraints
 
