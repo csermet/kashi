@@ -137,3 +137,46 @@ English windows. No benchmark round ran line QA, so this is unmeasured.
 - The star-topology experiment (finding 7).
 - A Turkish truth that is independent of the pipeline (hand-correct at 100 ms
   precision, or mark only touched words as verified, as `pop_valid.py` does).
+
+## Round 5 — star placement inside windows (2026-10-25)
+
+Finding 7 asked whether the windows' `edges` star topology costs precision. Run
+with the new `--window-star` switch (9272d7a), correction off, both modes on the
+exact clock (results `2026-10-25-x-{edges,seg}-*`, commit dedc422). Each mode gets
+its own fitted offset; leave-one-song-out:
+
+| set | edges @0.1 / @0.2 / @0.3, >500 ms | segment |
+|---|---|---|
+| English 20 (jg1b) | 0.709 / 0.863 / 0.904, 5.0 % | 0.770 / 0.876 / 0.900, 7.3 % |
+| MMS, 4 languages | 0.767 / 0.893 / 0.929, 3.8 % | 0.839 / 0.893 / 0.908, 6.9 % |
+
+`segment` places a word it finds more precisely, but nearly doubles the gross
+errors: PCO@0.2 (the roadmap's primary metric) is flat and @0.3 drops. Not
+shippable alone.
+
+**Per-word hybrid** (simulated from the two dumps): take the `segment` time when it
+lies within T of the `edges` time, otherwise keep `edges`. Held out, T = 400 ms (the
+middle of a flat 300-500 ms plateau):
+
+| set | edges | hybrid T400 |
+|---|---|---|
+| English 20 (jg1b) | 0.709 / 0.863 / 0.904, 5.0 % | **0.779 / 0.891 / 0.916**, 5.1 % |
+| MMS deu | 0.836 / 0.934 / 0.962, 1.7 % | **0.909 / 0.958 / 0.968**, 1.7 % |
+| MMS eng | 0.708 / 0.852 / 0.902, 5.2 % | **0.776 / 0.875 / 0.906**, 5.4 % |
+| MMS fra | 0.765 / 0.885 / 0.918, 5.1 % | **0.858 / 0.909 / 0.926**, 5.3 % |
+| MMS spa | 0.758 / 0.901 / 0.934, 2.8 % | **0.890 / 0.937 / 0.945**, 2.9 % |
+
++7 to +13 points at 100 ms, +2 to +4 at 200 ms, @0.3 up, gross errors flat. The pop
+valid region (278 words) is neutral: pooled @0.1 0.647 -> 0.640, @0.3 0.892 ->
+0.896, gross errors 23 -> 23.
+
+**Mechanism check.** `segment` windows want the whole-track table, not the lead:
+fitted with the 70 ms lead included they land at −120 ms (English; net −50 = the
+whole-track base) and −80/−90/−50/−70 (MMS; net −10..+20 = the whole-track
+optima). The windowed lead is a property of the `edges` topology, as suspected.
+
+**What it would take** (a "large improvement" under the refresh policy): per window
+one emission pass and two Viterbi passes (emissions dominate alignment cost);
+`segment` words take the configured table, `edges` words the table plus the lead;
+per-word selection at T = 400 ms; a GPU confirmation run of the real code; a
+pipeline minor bump; then the GPU helper worker (phase 9.3) and one full refresh.
