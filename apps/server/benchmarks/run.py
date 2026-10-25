@@ -30,6 +30,8 @@ from kashi_server.pipeline.alignment import (
     EXACT_STRIDE_DEFAULT,
     SEAM_POLICIES,
     SEAM_POLICY_DEFAULT,
+    WINDOW_STAR_DEFAULT,
+    WINDOW_STARS,
     WINDOWED_LEAD_MS,
     AlignResult,
 )
@@ -137,6 +139,7 @@ def _align_song(
     *,
     exact_stride: bool = EXACT_STRIDE_DEFAULT,
     seam_policy: str = SEAM_POLICY_DEFAULT,
+    window_star: str = WINDOW_STAR_DEFAULT,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
@@ -145,7 +148,7 @@ def _align_song(
         started = time.monotonic()
         result = align(
             wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial,
-            exact_stride=exact_stride, seam_policy=seam_policy,
+            exact_stride=exact_stride, seam_policy=seam_policy, window_star=window_star,
         )
     return result, time.monotonic() - started
 
@@ -269,7 +272,7 @@ def _align_jamendo_song(args, song):
     result, align_s = _align_song(
         audio, song.line_texts, song.language, anchors, args.align_model,
         args.align_romanize, args.align_offset_ms, _by_initial(args),
-        exact_stride=args.exact_stride, seam_policy=args.seam_policy,
+        exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
     )
     return audio, separate_s, anchors, result, align_s
 
@@ -566,7 +569,7 @@ def _align_case(args, case):
     result, align_s = _align_song(
         source, line_texts, case.language, anchors, args.align_model,
         args.align_romanize, args.align_offset_ms, _by_initial(args),
-        exact_stride=args.exact_stride, seam_policy=args.seam_policy,
+        exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
     )
     return reference, separate_s, anchors, result, align_s
 
@@ -719,6 +722,16 @@ def _parse_args() -> argparse.Namespace:
             "line's words onto it (pipeline/windows.yield_pad_words)."
         ),
     )
+    parser.add_argument(
+        "--window-star",
+        choices=WINDOW_STARS,
+        default=WINDOW_STAR_DEFAULT,
+        help=(
+            "windowed path only: star tokens at the slice edges (production) or "
+            "before every word, as the whole-track path does "
+            "(alignment.WINDOW_STAR_DEFAULT)."
+        ),
+    )
     parser.add_argument("--label", help="results filename label (default: config name)")
     return parser.parse_args()
 
@@ -744,6 +757,8 @@ def _config_name(args) -> str:
         config_name += "-libstride"
     if args.windowed and args.seam_policy != SEAM_POLICY_DEFAULT:
         config_name += f"-{args.seam_policy}"
+    if args.windowed and args.window_star != WINDOW_STAR_DEFAULT:
+        config_name += f"-star{args.window_star}"
     if args.line_postprocess != "none":
         config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
@@ -788,6 +803,7 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed else None,
         "exact_stride": args.exact_stride,
         "windowed_lead_ms": WINDOWED_LEAD_MS if args.exact_stride and args.windowed else 0,
+        "window_star": args.window_star,
         "seam_policy": args.seam_policy,
         "signals": args.signals,
         "line_postprocess": args.line_postprocess,

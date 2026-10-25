@@ -535,6 +535,17 @@ SEAM_POLICIES = ("clamp", "yield")
 #: Rides with exact_stride: the 2.27 tables were fitted on the 21 ms clock.
 WINDOWED_LEAD_MS = 70
 
+#: Star-token placement inside a window slice (ctc_forced_aligner's
+#: `star_frequency`): "edges" puts one at each slice edge, "segment" one before
+#: every word, as the whole-track path does. "edges" was chosen in 2026-07 on
+#: the 21 ms clock ("segment" measured ~0.13 PCO worse); over the whole track,
+#: on the exact clock, segment-starred MMS scores PCO@0.1 0.87-0.93 against
+#: 0.76-0.84 windowed (Faz 9 round 4). Re-measured behind this switch before
+#: any default changes (a change of it is a pipeline minor bump, and any lead
+#: re-fit with it).
+WINDOW_STAR_DEFAULT = "edges"
+WINDOW_STARS = ("edges", "segment")
+
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
     """The real time step between emission frames, in ms.
@@ -661,7 +672,8 @@ def _alignment_texts(
 
 
 def _align_windows(
-    model, tokenizer, audio, plan, align_texts, language, romanize, *, exact_stride: bool = False
+    model, tokenizer, audio, plan, align_texts, language, romanize, *,
+    exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT,
 ) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
     whole-track clock (star tokens dropped), each tagged with its `"window"`
@@ -673,11 +685,11 @@ def _align_windows(
         ]
         texts = [align_texts[i] for i in window.line_indices]
         offset_s = window.slice_start_ms / 1000
-        # "edges": star tokens at BOTH slice edges absorb the pad and the
-        # inter-line gap, so forced alignment doesn't stretch real words
-        # over non-vocal audio (measured: "segment" cost ~0.13 PCO here).
+        # "edges" (the default): star tokens at BOTH slice edges absorb the pad
+        # and the inter-line gap, so forced alignment doesn't stretch real
+        # words over non-vocal audio. See WINDOW_STAR_DEFAULT for "segment".
         aligned = _align_texts(
-            model, tokenizer, piece, texts, language, "edges",
+            model, tokenizer, piece, texts, language, star,
             romanize=romanize, exact_stride=exact_stride,
         )
         for r in aligned:
@@ -704,6 +716,7 @@ def align(
     *,
     exact_stride: bool = EXACT_STRIDE_DEFAULT,
     seam_policy: str = SEAM_POLICY_DEFAULT,
+    window_star: str = WINDOW_STAR_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -719,6 +732,8 @@ def align(
     the configured offsets."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
+    if window_star not in WINDOW_STARS:
+        raise ValueError(f"unknown window star placement {window_star!r}")
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
     spec = resolve_aligner(language, model_name, romanize, offset_ms, offset_by_initial)
@@ -753,13 +768,13 @@ def align(
         results = _align_texts(model, tokenizer, audio, align_texts, language, romanize=romanize)
     else:
         logger.info(
-            "windowed alignment: %d windows over %d lines (stride %s, seams %s, lead %+d ms)",
+            "windowed alignment: %d windows over %d lines (stride %s, seams %s, lead %+d ms%s)",
             len(plan), len(line_texts), "exact" if exact_stride else "library", seam_policy,
-            lead_ms,
+            lead_ms, "" if window_star == WINDOW_STAR_DEFAULT else f", stars {window_star}",
         )
         results = _align_windows(
             model, tokenizer, audio, plan, align_texts, language, romanize,
-            exact_stride=exact_stride,
+            exact_stride=exact_stride, star=window_star,
         )
         if seam_policy == "yield":
             results, yielded = yield_pad_words(results, plan)

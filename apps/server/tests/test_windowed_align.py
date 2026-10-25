@@ -107,7 +107,7 @@ def run_align(monkeypatch, tmp_path, **kwargs):
     in window 1, so the word count no longer matches and alignment drops to
     line timings."""
     line_mode = kwargs.pop("line_mode", False)
-    seen: dict = {"exact": []}
+    seen: dict = {"exact": [], "star": []}
     monkeypatch.setitem(
         sys.modules,
         "ctc_forced_aligner",
@@ -118,6 +118,7 @@ def run_align(monkeypatch, tmp_path, **kwargs):
 
     def fake_align_texts(model, tokenizer, piece, texts, language, star, *, romanize, exact_stride):
         seen["exact"].append(exact_stride)
+        seen["star"].append(star)
         words = texts[0].split()
         if texts[0] == LINES[0]:  # window 0: slice starts at 0.65 s
             rel = [0.5, 2.0, 5.9]  # "three" -> 6.55 s absolute
@@ -235,6 +236,22 @@ def test_stamps_the_planner_declines_take_no_lead_either(monkeypatch, tmp_path):
     result = _whole_track_align(monkeypatch, tmp_path, STAMPS)
     assert not result.windowed
     assert [w.start_ms for w in result.words_per_line[0]] == [950, 1_950, 2_950]
+
+
+def test_windows_keep_edge_stars_by_default(monkeypatch, tmp_path):
+    _, seen = run_align(monkeypatch, tmp_path)
+    assert alignment.WINDOW_STAR_DEFAULT == "edges"
+    assert seen["star"] == ["edges"] * 4
+
+
+def test_segment_stars_reach_every_window(monkeypatch, tmp_path):
+    _, seen = run_align(monkeypatch, tmp_path, window_star="segment")
+    assert seen["star"] == ["segment"] * 4
+
+
+def test_an_unknown_star_placement_is_refused(monkeypatch, tmp_path):
+    with pytest.raises(ValueError):
+        run_align(monkeypatch, tmp_path, window_star="every-frame")
 
 
 def test_an_unknown_seam_policy_is_refused(monkeypatch, tmp_path):
