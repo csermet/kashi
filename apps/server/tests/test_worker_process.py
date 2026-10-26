@@ -1731,3 +1731,84 @@ def test_resolve_plain_lyrics_replays_a_remembered_miss_into_by_ear(monkeypatch,
     with pytest.raises(PipelineError) as err:
         wp._resolve_plain_lyrics(*args)
     assert err.value is miss  # the original error, with the hints the user sent
+
+
+# --- Faz 9.3: a run that lost its lease is dropped ---------------------------
+
+
+def _another_worker_took(db_session, job_id, status="downloading", bump=True):
+    from sqlalchemy import text
+
+    db_session.execute(
+        text(
+            "UPDATE jobs SET status=:status, attempts = attempts + :bump,"
+            " lease_expires_at = clock_timestamp() + interval '10 minutes' WHERE id=:id"
+        ),
+        {"status": status, "bump": 1 if bump else 0, "id": job_id},
+    )
+    db_session.commit()
+
+
+def _no_document(db_session):
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    return db_session.scalars(select(ProcessedTrack)).first() is None
+
+
+@pytest.mark.parametrize(
+    ("status", "bump"), [("downloading", True), ("queued", False)], ids=["reclaimed", "requeued"]
+)
+def test_a_run_whose_job_changed_hands_is_dropped_untouched(
+    db_session, job, scratch, monkeypatch, status, bump
+):
+    _happy_stages(monkeypatch, scratch)
+    real_download = wp.download_audio
+
+    def slept_through_the_lease(source_id, dest_dir, **kw):
+        _another_worker_took(db_session, job.id, status, bump)
+        return real_download(source_id, dest_dir, **kw)
+
+    monkeypatch.setattr(wp, "download_audio", slept_through_the_lease)
+    claimed_at = job.attempts
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    # The new owner's row, exactly: not failed, not re-queued, not completed.
+    assert (job.status, job.attempts) == (status, claimed_at + (1 if bump else 0))
+    assert job.error_type is None
+    assert _no_document(db_session)
+    assert list(scratch.glob("job-*")) == []
+
+
+def test_a_lease_lost_during_postprocessing_persists_nothing(db_session, job, scratch, monkeypatch):
+    _happy_stages(monkeypatch, scratch)
+
+    def beats_then_sleep(path):
+        _another_worker_took(db_session, job.id)
+        return None
+
+    monkeypatch.setattr(wp, "extract_beats", beats_then_sleep)
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "downloading"  # the new owner's
+    assert _no_document(db_session)
+
+
+def test_a_checkpoint_renews_only_its_own_claim(db_session, job, monkeypatch):
+    # Between a checkpoint's re-read and its renewal another worker could
+    # reclaim the row; the renewal itself must carry the claim, too.
+    seen: list = []
+    real = queue.heartbeat
+
+    def spy(s, job_id, attempts=None):
+        seen.append(attempts)
+        return real(s, job_id, attempts)
+
+    monkeypatch.setattr(wp.queue, "heartbeat", spy)
+    token = wp._CLAIM_ATTEMPTS.set(job.attempts)
+    try:
+        wp.checkpoint(db_session, job)
+    finally:
+        wp._CLAIM_ATTEMPTS.reset(token)
+    assert seen == [job.attempts]

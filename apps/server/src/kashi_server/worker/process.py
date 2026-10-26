@@ -13,6 +13,7 @@ import subprocess
 import threading
 import wave
 from contextlib import suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from kashi_server import queue
 from kashi_server.config import settings
-from kashi_server.db.models import Job, UploadedAudio
+from kashi_server.db.models import RUNNING_STATUSES, Job, UploadedAudio
 from kashi_server.pipeline.alignment import (
     AlignResult,
     align,
@@ -221,13 +222,31 @@ def _drop_staged_upload(s: Session, job: Job) -> None:
     s.execute(delete(UploadedAudio).where(UploadedAudio.id == job.source_id))
 
 
+class LeaseLost(JobCanceled):
+    """This run no longer owns its job: the lease ran out (a sleeping or
+    partitioned worker) and the job was reclaimed — re-queued or already
+    claimed by another worker (Faz 9.3). The run is dropped without touching
+    the row: the job's fate belongs to whoever holds it now."""
+
+
+# The `attempts` value the running claim left on its row (every claim bumps
+# it), set by process_job for the duration of the run. None outside a run.
+_CLAIM_ATTEMPTS: ContextVar[int | None] = ContextVar("claim_attempts", default=None)
+
+
 def checkpoint(s: Session, job: Job) -> None:
     """Re-read the row: a cancel or a stolen lease aborts between stages."""
     s.expire(job)
     s.refresh(job)
     if job.status == "canceled":
         raise JobCanceled
-    queue.heartbeat(s, job.id)
+    claimed = _CLAIM_ATTEMPTS.get()
+    if claimed is not None and (job.attempts != claimed or job.status not in RUNNING_STATUSES):
+        raise LeaseLost(
+            f"job {job.id}: claimed at attempt {claimed}, row now {job.status} "
+            f"at attempt {job.attempts}"
+        )
+    queue.heartbeat(s, job.id, claimed)
     s.commit()
 
 
@@ -733,6 +752,7 @@ def _tag_fx(result, lyrics, sections=None):
 def process_job(s: Session, job: Job) -> None:
     tmp = settings.data_dir / f"job-{job.id}"
     tmp.mkdir(parents=True, exist_ok=True)
+    claim = _CLAIM_ATTEMPTS.set(job.attempts)
     try:
         checkpoint(s, job)
 
@@ -803,6 +823,9 @@ def process_job(s: Session, job: Job) -> None:
             vocals_separated=vocals_separated,
             speed_factor=speed_factor,
         )
+    except LeaseLost as exc:
+        s.rollback()
+        logger.warning("%s — another worker owns it now; this run is dropped", exc)
     except JobCanceled:
         s.rollback()
         logger.info("job %s canceled mid-flight", job.id)
@@ -824,6 +847,7 @@ def process_job(s: Session, job: Job) -> None:
         logger.exception("job %s crashed", job.id)
         _fail_or_retry(s, job, "other", str(exc))
     finally:
+        _CLAIM_ATTEMPTS.reset(claim)
         # AUDIO DELETION GUARANTEE — every path ends here.
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1109,6 +1133,10 @@ def _postprocess(
         energy=energy_and_sections[0] if energy_and_sections else None,
         sections=sections,
     )
+    # Postprocessing can run long; a worker that slept through it must not
+    # overwrite what the job's new owner produced. The checkpoint also renews
+    # the lease, so nobody can reclaim it between here and the commit.
+    checkpoint(s, job)
     persist_processed_track(s, job, doc)
     queue.mark_completed(s, job)
     _drop_staged_upload(s, job)  # same transaction as the completion
@@ -1152,10 +1180,14 @@ class HeartbeatThread:
     """Extends the lease every 60 s while a job runs — belt to the checkpoint
     suspenders (a long alignment must not lose its lease mid-stage)."""
 
-    def __init__(self, job_id, session_factory, interval_s: float = 60.0) -> None:
+    def __init__(
+        self, job_id, session_factory, interval_s: float = 60.0, attempts: int | None = None
+    ) -> None:
         self._job_id = job_id
         self._session_factory = session_factory
         self._interval = interval_s
+        # The claim's attempts: renew only while that claim owns the job.
+        self._attempts = attempts
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -1163,7 +1195,7 @@ class HeartbeatThread:
         while not self._stop.wait(self._interval):
             try:
                 with self._session_factory() as s:
-                    queue.heartbeat(s, self._job_id)
+                    queue.heartbeat(s, self._job_id, self._attempts)
                     s.commit()
             except Exception:  # noqa: BLE001 - heartbeat is best-effort
                 logger.warning("heartbeat for job %s failed", self._job_id, exc_info=True)

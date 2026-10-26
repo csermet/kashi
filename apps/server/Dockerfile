@@ -22,6 +22,18 @@ COPY apps/server/pyproject.toml apps/server/uv.lock ./
 # The benchmark container overrides SERVER_EXTRAS to add --extra bench.
 ARG SERVER_EXTRAS="--extra align --extra separate --extra semantics"
 RUN uv sync --frozen --no-dev --no-install-project $SERVER_EXTRAS
+# GPU helper worker (Faz 9.3, docs/gpu-worker.md): --build-arg TORCH_CUDA=cu130
+# swaps the locked CPU torch for CUDA builds — the pins benchmarks/Dockerfile.gpu
+# verified on an RTX 5070 Ti. Empty (the default) = the published image, as is.
+# Never published: the owner builds it locally. ctc-forced-aligner's C++ part
+# works on numpy arrays, so it does not care which torch it sits next to.
+ARG TORCH_CUDA=""
+RUN if [ -n "$TORCH_CUDA" ]; then \
+      uv pip install --python /app/.venv \
+        --index-url "https://download.pytorch.org/whl/${TORCH_CUDA}" \
+        "torch==2.9.1+${TORCH_CUDA}" "torchaudio==2.9.1+${TORCH_CUDA}" \
+        "torchvision==0.24.1+${TORCH_CUDA}"; \
+    fi
 
 FROM python:3.12-slim
 # Static ffmpeg/ffprobe: avoids the apt ffmpeg dependency tree, and this build

@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -250,14 +250,25 @@ def claim_next(s: Session) -> Job | None:
     return job
 
 
-def heartbeat(s: Session, job_id: uuid.UUID) -> None:
-    s.execute(
-        text(
-            "UPDATE jobs SET lease_expires_at = clock_timestamp() + make_interval(secs => :ttl),"
-            " updated_at = clock_timestamp() WHERE id = :id"
-        ),
-        {"ttl": settings.lease_ttl_s, "id": job_id},
+def heartbeat(s: Session, job_id: uuid.UUID, attempts: int | None = None) -> bool:
+    """Extend the lease. With `attempts` — the value the claim left — only
+    while THAT claim still owns the job: still running, not re-claimed (every
+    claim bumps `attempts`). Two workers share the queue since Faz 9.3; a
+    worker that slept through its lease must not keep renewing a job another
+    worker now runs. Returns whether a row was extended."""
+    sql = (
+        "UPDATE jobs SET lease_expires_at = clock_timestamp() + make_interval(secs => :ttl),"
+        " updated_at = clock_timestamp() WHERE id = :id"
     )
+    params: dict[str, Any] = {"ttl": settings.lease_ttl_s, "id": job_id}
+    stmt = text(sql)
+    if attempts is not None:
+        stmt = text(sql + " AND attempts = :attempts AND status IN :running").bindparams(
+            bindparam("running", expanding=True)
+        )
+        params |= {"attempts": attempts, "running": list(RUNNING_STATUSES)}
+    result = s.execute(stmt, params)
+    return bool(getattr(result, "rowcount", 0))
 
 
 # State-transition helpers FLUSH their mutation (raw-SQL heartbeats already hit
@@ -339,7 +350,10 @@ def reclaim_expired(s: Session) -> int:
     reclaimed = 0
     expired = s.scalars(
         select(Job)
-        .where(Job.status.in_(RUNNING_STATUSES), Job.lease_expires_at < _now())
+        # The DATABASE clock, which wrote the lease (clock_timestamp()): a
+        # second worker on another host (Faz 9.3) with a fast clock would
+        # otherwise reclaim jobs that are still running.
+        .where(Job.status.in_(RUNNING_STATUSES), Job.lease_expires_at < func.clock_timestamp())
         .execution_options(populate_existing=True)  # bypass stale identity-map copies
     ).all()
     for job in expired:

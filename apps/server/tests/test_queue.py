@@ -185,3 +185,100 @@ def test_cancel_only_queued(db_session):
     queue.claim_next(db_session)
     db_session.refresh(job2)
     assert queue.cancel(db_session, job2.id, None, is_admin=True) is False
+
+
+# --- Faz 9.3: two workers share the queue ------------------------------------
+
+
+def _lease(s, job_id):
+    from sqlalchemy import text
+
+    sql = text("SELECT lease_expires_at FROM jobs WHERE id=:id")
+    return s.execute(sql, {"id": job_id}).scalar()
+
+
+def _reclaimed_by_another_worker(s, job_id):
+    """What a second worker's reclaim + claim leaves: attempts bumped, a fresh lease."""
+    from sqlalchemy import text
+
+    s.execute(
+        text(
+            "UPDATE jobs SET attempts = attempts + 1, status = 'downloading',"
+            " lease_expires_at = clock_timestamp() + interval '10 minutes' WHERE id = :id"
+        ),
+        {"id": job_id},
+    )
+    s.commit()
+
+
+def test_heartbeat_renews_only_the_claim_that_owns_the_job(db_session):
+    from kashi_server import queue
+
+    _enqueue(db_session)
+    job = queue.claim_next(db_session)
+    db_session.commit()
+    mine = job.attempts
+    assert queue.heartbeat(db_session, job.id, mine)
+
+    _reclaimed_by_another_worker(db_session, job.id)
+    before = _lease(db_session, job.id)
+    assert not queue.heartbeat(db_session, job.id, mine)  # the stale claim
+    assert _lease(db_session, job.id) == before
+    assert queue.heartbeat(db_session, job.id, mine + 1)  # the new owner
+    assert queue.heartbeat(db_session, job.id)  # unguarded call: as before
+
+
+def test_heartbeat_does_not_revive_a_requeued_job(db_session):
+    from sqlalchemy import text
+
+    from kashi_server import queue
+
+    _enqueue(db_session)
+    job = queue.claim_next(db_session)
+    db_session.execute(text("UPDATE jobs SET status='queued' WHERE id=:id"), {"id": job.id})
+    db_session.commit()
+    assert not queue.heartbeat(db_session, job.id, job.attempts)
+
+
+def test_reclaim_reads_the_database_clock(db_session, monkeypatch):
+    """A worker whose own clock runs a day fast must not reclaim a live lease,
+    and one a day slow must still reclaim a dead one."""
+    from sqlalchemy import text
+
+    from kashi_server import queue
+
+    _enqueue(db_session)
+    job = queue.claim_next(db_session)
+    db_session.commit()
+    monkeypatch.setattr(queue, "_now", lambda: datetime.now(UTC) + timedelta(days=1))
+    assert queue.reclaim_expired(db_session) == 0
+
+    db_session.execute(
+        text(
+            "UPDATE jobs SET lease_expires_at = clock_timestamp() - interval '1 minute'"
+            " WHERE id=:id"
+        ),
+        {"id": job.id},
+    )
+    db_session.commit()
+    monkeypatch.setattr(queue, "_now", lambda: datetime.now(UTC) - timedelta(days=1))
+    assert queue.reclaim_expired(db_session) == 1
+
+
+def test_the_heartbeat_thread_keeps_away_from_a_reclaimed_job(db_session):
+    import time
+
+    from kashi_server import queue
+    from kashi_server.db.engine import SessionLocal
+    from kashi_server.worker.process import HeartbeatThread
+
+    _enqueue(db_session)
+    job = queue.claim_next(db_session)
+    db_session.commit()
+    mine = job.attempts
+    _reclaimed_by_another_worker(db_session, job.id)
+    before = _lease(db_session, job.id)
+    with HeartbeatThread(job.id, SessionLocal, interval_s=0.01, attempts=mine):
+        time.sleep(0.15)
+    db_session.rollback()  # leave the snapshot: read what the thread committed
+    assert _lease(db_session, job.id) == before

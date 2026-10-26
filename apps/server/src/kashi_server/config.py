@@ -5,6 +5,7 @@ the house convention). `schema_path` also accepts KASHI_SCHEMA_PATH, which the
 Docker image sets to the baked-in schema copy.
 """
 
+import socket
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -248,6 +249,9 @@ class Settings(BaseSettings):
     # retries: the old third value (900) was never used.
     retry_delays_s: list[int] = [60, 300]
     lease_ttl_s: int = 600
+    # Which worker this is, in its log lines (claim, lease lost). Two workers
+    # can share the queue since Faz 9.3 (the GPU helper on the owner's PC).
+    worker_name: str = Field(default_factory=socket.gethostname)
     bgutil_pot_provider_url: str | None = None
     metrics_port: int = 9090
     schema_path: Path = Field(

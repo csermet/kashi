@@ -115,8 +115,14 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     _warm_up()
     sweep_orphans(settings.data_dir)
     start_http_server(settings.metrics_port)
+    from kashi_server.version import PIPELINE_VERSION
+
+    # Two workers can share the queue (Faz 9.3): the first line to check is
+    # that both run the same pipeline — documents carry the version that made them.
     logger.info(
-        "worker ready (poll %.1fs, metrics :%d)",
+        "worker %s ready: pipeline %s (poll %.1fs, metrics :%d)",
+        settings.worker_name,
+        PIPELINE_VERSION,
         settings.worker_poll_interval_s,
         settings.metrics_port,
     )
@@ -198,10 +204,13 @@ def _idle_slot(session, should_stop) -> None:
 
 
 def _run_claimed(session, job, session_factory, heartbeat_cls, process_job) -> None:
-    logger.info("claimed job %s (%s:%s)", job.id, job.source_type, job.source_id)
+    logger.info(
+        "claimed job %s (%s:%s) attempt %d on %s",
+        job.id, job.source_type, job.source_id, job.attempts, settings.worker_name,
+    )
     session.commit()
     started = time.monotonic()
-    with heartbeat_cls(job.id, session_factory):
+    with heartbeat_cls(job.id, session_factory, attempts=job.attempts):
         process_job(session, job)
     JOB_SECONDS.observe(time.monotonic() - started)
     session.refresh(job)
