@@ -4,7 +4,8 @@
 round 3 (2026-10-26) moved the plain lookup before the download.
 §1-§3 are the v1 analysis; §4 records the v2 decision that supersedes the v1 package order;
 §5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2);
-§6 is round 3 (deferrals after the download, the breaker's window, the mirror's memory limit).**
+§6 is round 3 (deferrals after the download, the breaker's window, the mirror's memory limit,
+upstream notes).**
 
 Field complaint (Caner, recurring): when lrclib answers 503, the overlay shows
 "Lyrics unavailable (network)" and never asks again for the rest of the song. On
@@ -459,6 +460,94 @@ nightcore ones always come after the download, so round 3 can save at most 27 of
   boundary; the window surviving a success; the backoff reset only on a clean window; the half-open
   lapse, its boundary and a too-early variant; both setting bounds; the close log; the busy-answer
   log; the settings wiring; and the gauge refresh.
+
+### Mirror memory limit (2026-10-26)
+
+Three days after the round-2 fix, with no restart: resident memory peaked at 43 MiB and stayed
+flat. The container's working set averaged 651 MiB (p95 2 310, max 2 810) and its cgroup usage
+filled up to the old 6 GiB limit, but that is the kernel's page cache of the 107 GB database
+(reads plus the 2 GB mmap): reclaimable, so a lower limit means a smaller hot cache, not an OOM
+kill. The limit goes to 2 GiB (private IaC change), near the working set's p95; `/api/get` stays in
+milliseconds, and a cold search beyond the overlay's 2.5 s budget falls through to lrclib.net.
+
+The uptime probe failed 3 times in those 3 days, each exactly 24 h, 48 h and 72 h after the process
+started: the daily `PRAGMA optimize` stall from §5, confirmed as daily.
+
+### Upstream notes (drafts; the owner sends them)
+
+Two notes for lrclib upstream, written for its tracker. Facts checked on 2026-10-26: the repository
+has no contributing guide or issue templates, Discussions are enabled, maintenance jobs are clap
+subcommands (`backfill-*`), no issue mentions the optimize stall, and Discussion #120 covers the
+dump's size (trimmed by hand there, no script).
+
+#### Draft A — GitHub issue
+
+**Title:** Daily `PRAGMA optimize` blocks the async runtime for ~30 s on a large database
+
+**Body:**
+
+Hi, thanks for publishing the server and the dumps. I run the stock server (main @ `04369d3`)
+as a private, read-only mirror on a trimmed copy of the 2026-10-12 dump (synced rows only,
+~107 GB, spinning disk). Once every 24 hours it stops answering for about 30 seconds.
+
+What I see:
+
+- An uptime check hitting `/api/get/<id>` once a minute fails exactly once a day, always at
+  the same minute: 24 h, 48 h and 72 h after the process started (three days so far, no other
+  failures). Restarting the process moves the minute.
+- The once-a-minute metrics log line arrives ~30 s late at that moment.
+- Memory and CPU are otherwise flat.
+
+That timing matches `spawn_optimize_pragma` in `server/src/background.rs` (L104-116 at
+`04369d3`): a `tokio::time::interval` of 24 h whose task calls `state.pool.get()` and
+`conn.execute_batch("PRAGMA optimize;")` synchronously on the async executor. On a database
+this size the optimize takes ~30 s, and while it runs the server does not respond. (I have not
+profiled which part of the runtime is starved; the synchronous call on an executor thread is
+the obvious suspect. The routes already use `tokio::task::spawn_blocking` for their queries,
+e.g. `routes/search_lyrics.rs:178`.)
+
+Possible fixes, in case they help:
+
+1. Run the optimize inside `tokio::task::spawn_blocking`, like the routes do.
+2. Optionally set `PRAGMA analysis_limit` (e.g. 400) before it, which bounds the work
+   SQLite does per index on a big database.
+
+The startup `PRAGMA optimize=0x10002` in `db.rs` runs before the server listens, so it is not
+affected. I know lrclib.net itself may run newer code than the public repository, so this may
+already be different there. Happy to test a patch on the mirror.
+
+---
+
+#### Draft B — GitHub Discussion (category: Show and tell)
+
+**Title:** trim.py: a synced-only, lyricsfile-free copy of the dump for self-hosted mirrors (262 GB → 107 GB)
+
+**Body:**
+
+Following up on #120 (dump size): I needed a private mirror that answers one question,
+"synced lyrics for this track", and the full 2026-10-12 dump unpacks to ~262 GB, most of it
+lyrics history and the per-row `lyricsfile` YAML. So I wrote a small stdlib-only Python script
+that makes a trimmed copy the stock server starts on without changes:
+
+- keeps every track whose **latest** lyrics row has synced lyrics, and exactly that one lyrics
+  row per track; track and lyrics ids are unchanged, so a mirror answer and an lrclib.net
+  answer name the same record;
+- drops `lyricsfile` (and zeroes `has_lyricsfile` / `has_word_sync`);
+- copies the full schema, triggers and `PRAGMA user_version`, so the server's migration check
+  passes (it refuses a database that is ahead of it).
+
+On the 2026-10-12 dump: 33.7 M tracks → 21.5 M, 106.8 GB, about 2 h 20 min, bound by the
+sequential read of the source on a spinning disk. The stock server (main @ `04369d3`) starts on
+it in about a second and builds its Tantivy index in ~3.5 min. `/api/get` matched lrclib.net on
+every record I compared (29 of 29 same id).
+
+Script: https://github.com/csermet/kashi/blob/main/tools/lrclib-mirror/trim.py (MIT, like the
+rest of that repository). Usage: `python3 -I trim.py SOURCE.sqlite3 DEST.sqlite3`; the source is
+opened read-only and immutable. One warning from experience: the final `VACUUM` writes a second
+full copy, so stage it on a disk with room for both.
+
+If a trim step like this would be useful upstream, for example as a subcommand next to the
+`backfill-*` ones, I'm glad to port it.
 
 ## Sources
 
