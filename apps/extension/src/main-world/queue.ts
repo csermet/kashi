@@ -132,10 +132,12 @@ export function readNextFromQueue(state: unknown, options: QueueReadOptions): Qu
 }
 
 /**
- * Shuffle stays untrusted until the live probe shows that YTM writes the
- * shuffled order into `items` (plan P1 prerequisite). Flip after the check.
+ * Under shuffle YTM writes the shuffled order into `items`: measured live on
+ * 2026-10-26 (shuffle on, 25 items): the playing track sat at index 0, the
+ * index moved 0 -> 1 on the transition, and the predicted next track is the
+ * one that played. Set false again if a YTM update breaks that.
  */
-export const TRUST_SHUFFLE = false;
+export const TRUST_SHUFFLE = true;
 
 const QUEUE_DEBOUNCE_MS = 500;
 const QUEUE_SAFETY_NET_MS = 5000;

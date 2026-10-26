@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLength, readNextFromQueue } from './queue.js';
+import { TRUST_SHUFFLE, parseLength, readNextFromQueue } from './queue.js';
 
 const opts = { trustShuffle: false };
 
@@ -129,6 +129,13 @@ describe('readNextFromQueue', () => {
     for (const s of [null, undefined, 3, 'x', {}, { items: 'x' }, { items: [] }]) {
       expect(readNextFromQueue(s, opts)).toEqual([]);
     }
+  });
+});
+
+describe('TRUST_SHUFFLE', () => {
+  it('is on: the live check showed the shuffled order lives in the queue', () => {
+    // Pinned, not derived: flipping it changes what gets prefetched.
+    expect(TRUST_SHUFFLE).toBe(true);
   });
 });
 

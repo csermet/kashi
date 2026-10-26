@@ -475,9 +475,11 @@ fetched while the previous one plays, if the client knows what comes next.
   The content script re-validates the post (at most two entries, video ids, bounded text and
   duration) and sends a new, additive protocol message `queue_changed` (no protocol version
   bump; an older overlay drops it with a log line). Predictions: the next items after the
-  selected one, then automix while autoplay is on; repeat-all wraps; repeat-one, the end of the
-  queue with autoplay off, and shuffle predict nothing. Shuffle stays off until a live check
-  shows YTM writes the shuffled order into the queue.
+  selected one, then automix while autoplay is on; repeat-all wraps; repeat-one and the end of
+  the queue with autoplay off predict nothing. Shuffle is trusted: a live check (2026-10-26,
+  shuffle on, 25 items) showed YTM writes the shuffled order into the queue (the playing track
+  at index 0, the index moving 0 → 1 on the transition, and the predicted track the one that
+  played).
 - **Budget.** Only while the current track plays, past its first minute (half of a track shorter
   than two minutes), never during an ad. The next track gets the server document, then the
   mirror → lrclib.net chain once (plus the live ladder's duration-less second try on a miss, as
