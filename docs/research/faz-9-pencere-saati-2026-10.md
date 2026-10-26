@@ -187,3 +187,37 @@ English 20 0.779/0.891/0.916 -> **0.804/0.902/0.920**; MMS deu 0.909 -> 0.932, e
 0.776 -> 0.798, fra 0.858 -> 0.873, spa 0.890 -> 0.904 at 100 ms; +1 point at 200 ms;
 gross errors flat. One extra whole-track pass per song: cheap on a GPU, about a
 minute on the CPU worker. It belongs in the same package.
+
+## Round 6 — the hybrid and the vote in the real code (2026-10-26)
+
+**Implementation, opt-in** (`window_star="hybrid"`, `whole_vote=True`; defaults
+unchanged, so the pipeline version is too). Per window one emission pass and two
+Viterbi passes (`alignment._align_slice_hybrid`; ctc_forced_aligner's emissions
+are text-independent and its Viterbi does not mutate them). Per word
+`windows.hybrid_star_words` keeps the `segment` time where it lies within 400 ms
+(inclusive, whole ms) of the `edges` time plus the 70 ms lead; after the seam
+passes `windows.whole_track_vote` does the same against one whole-track pass,
+then the seams are re-clamped. Word probs stay the `edges` ones (line QA and the
+quality gate were calibrated on them); only timings move.
+
+**One clock.** The first draft carried the lead per word (`edges` +70, `segment`
+and whole-track 0) and applied it at the aligner's exit. Review found the seam
+passes, regrouping's end clip, the Japanese mora fold and the line-mode fallback
+all compare raw starts across rows — on mixed clocks an `edges` word yielded in
+front of a `segment` word came out as a zero-length pile again. Shipped instead:
+`segment`- and whole-track-placed rows are moved BACK by the lead onto the
+`edges` clock as they are chosen, and the lead stays path-wide as in 2.28. Every
+pass then compares like with like, and the arbiter's raw clock (`start −
+shift_ms`) is the `edges` clock for every word, the clock its onset gate was
+last calibrated against.
+
+**Proof.** Switched off, the windowed output equals 2.28.0 byte for byte (seeded
+differential harness, 4000 scenarios incl. disagreements exactly on 400 ms after
+the lead; whole-track identical under every setting; hybrid and vote never
+raise). 24 mutations caught by `tests/test_windowed_align.py` and
+`test_alignment_regroup.py`. A CPU smoke run on one German song (MMS, full mix)
+went end to end: 304 of 367 words placed by `segment`; with the vote, 305 taken
+from the whole track.
+
+**Next:** the GPU confirmation runs (commands in `benchmarks/README.md`, "Faz 9
+round 6"), then the default flip as pipeline 2.29.0 with refitted tables.

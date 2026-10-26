@@ -20,7 +20,13 @@ from pathlib import Path
 from kashi_server.pipeline import japanese
 from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
-from kashi_server.pipeline.windows import plan_windows, reconcile_seams, yield_pad_words
+from kashi_server.pipeline.windows import (
+    hybrid_star_words,
+    plan_windows,
+    reconcile_seams,
+    whole_track_vote,
+    yield_pad_words,
+)
 from kashi_server.vdl_kit.errors import PipelineError
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,9 @@ class AlignedWord:
     # starts against them silently spends 60-110 ms of a 200 ms tolerance
     # (found independently by two 2026-08-12 audit reviews).
     shift_ms: int = 0
+    # Which pass placed it: "edges" | "segment" | "whole" on the windowed path,
+    # "" elsewhere. Provenance for the benchmark and the per-song log line.
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -261,6 +270,7 @@ def _fold_units_onto_surfaces(chunk: list[AlignedWord], plan: PreparedLine) -> l
                 end_ms=max(owned[-1].end_ms, owned[0].start_ms),
                 text=surface,
                 prob=min(w.prob for w in owned),
+                source=owned[0].source,
             )
         )
     return folded
@@ -316,6 +326,7 @@ def regroup_words_into_lines(
                 end_ms=end_ms,
                 text=str(word["text"]),
                 prob=_word_prob(float(word.get("score", 0.0))),
+                source=str(word.get("star", "")),
             )
         )
 
@@ -544,7 +555,21 @@ WINDOWED_LEAD_MS = 70
 #: any default changes (a change of it is a pipeline minor bump, and any lead
 #: re-fit with it).
 WINDOW_STAR_DEFAULT = "edges"
-WINDOW_STARS = ("edges", "segment")
+WINDOW_STARS = ("edges", "segment", "hybrid")
+
+#: "hybrid" (Faz 9 round 5): each window slice is aligned ONCE into emissions
+#: and twice through Viterbi, `edges` and `segment`; a word takes the
+#: `segment` time when it lies within this many ms of the `edges` one on the
+#: corrected clock, else keeps `edges` (windows.hybrid_star_words). Held out on
+#: JamendoLyrics, a flat optimum over 300-500 ms.
+HYBRID_T_MS = 400
+
+#: The whole-track third vote (Faz 9 round 5): after the windowed passes, the
+#: lyric is aligned once over the whole track and a word takes that time when
+#: it lies within WHOLE_VOTE_T_MS of its windowed one (windows.whole_track_vote).
+#: One extra emission pass per song.
+WHOLE_VOTE_DEFAULT = False
+WHOLE_VOTE_T_MS = 400
 
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
@@ -578,24 +603,36 @@ def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> flo
     return float(library_stride)
 
 
-def _align_texts(
-    model, tokenizer, audio, texts: list[str], language: str,
-    star_frequency: str = "segment", romanize: bool = True, *, exact_stride: bool = False,
+def _emit(model, audio, *, exact_stride: bool = False):
+    """The emission pass over `audio`: (emissions, frame step in ms).
+
+    Text-independent — ctc_forced_aligner's star column is appended here, and
+    the star PLACEMENT only shapes the token list Viterbi walks — so one pass
+    can serve several Viterbi passes (`_align_slice_hybrid`). Emissions
+    dominate alignment cost. `exact_stride` replaces the library's rounded
+    frame step (exact_stride_ms)."""
+    from ctc_forced_aligner import generate_emissions  # pyright: ignore[reportMissingImports]
+
+    emissions, stride = generate_emissions(model, audio, batch_size=4)
+    if exact_stride:
+        stride = exact_stride_ms(int(audio.shape[-1]), int(emissions.shape[0]), stride)
+    return emissions, stride
+
+
+def _viterbi(
+    emissions, stride, tokenizer, texts: list[str], language: str,
+    star_frequency: str = "segment", romanize: bool = True,
 ) -> list[dict]:
-    """One emissions+Viterbi pass over `audio` for `texts`. Results are
-    [{start, end, text, score}] in SECONDS relative to the given audio.
-    `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
+    """One forced-alignment (Viterbi) pass of `texts` over ready emissions.
+    Results are [{start, end, text, score}] in SECONDS relative to the audio
+    the emissions came from; star rows are already dropped by the library."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
-        generate_emissions,
         get_alignments,
         get_spans,
         postprocess_results,
         preprocess_text,
     )
 
-    emissions, stride = generate_emissions(model, audio, batch_size=4)
-    if exact_stride:
-        stride = exact_stride_ms(int(audio.shape[-1]), int(emissions.shape[0]), stride)
     joined = " ".join(texts)
     if not romanize:
         joined = _fit_to_vocab(joined, _vocab_chars(tokenizer))
@@ -612,6 +649,29 @@ def _align_texts(
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     spans = get_spans(tokens_starred, segments, blank)
     return postprocess_results(text_starred, spans, stride, scores)
+
+
+def _align_texts(
+    model, tokenizer, audio, texts: list[str], language: str,
+    star_frequency: str = "segment", romanize: bool = True, *, exact_stride: bool = False,
+) -> list[dict]:
+    """One emissions+Viterbi pass over `audio` for `texts`. Results are
+    [{start, end, text, score}] in SECONDS relative to the given audio.
+    `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
+    emissions, stride = _emit(model, audio, exact_stride=exact_stride)
+    return _viterbi(emissions, stride, tokenizer, texts, language, star_frequency, romanize)
+
+
+def _align_slice_hybrid(
+    model, tokenizer, piece, texts: list[str], language: str, *,
+    romanize: bool, exact_stride: bool,
+) -> tuple[list[dict], list[dict]]:
+    """(edges, segment): one emission pass over the slice, two Viterbi passes."""
+    emissions, stride = _emit(model, piece, exact_stride=exact_stride)
+    return (
+        _viterbi(emissions, stride, tokenizer, texts, language, "edges", romanize),
+        _viterbi(emissions, stride, tokenizer, texts, language, "segment", romanize),
+    )
 
 
 SAMPLES_PER_MS = 16  # load_audio normalizes to 16 kHz mono
@@ -673,11 +733,18 @@ def _alignment_texts(
 
 def _align_windows(
     model, tokenizer, audio, plan, align_texts, language, romanize, *,
-    exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT,
+    exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT, hybrid_t_ms: int = HYBRID_T_MS,
 ) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
     whole-track clock (star tokens dropped), each tagged with its `"window"`
-    index for the seam pass."""
+    index for the seam pass and the `"star"` pass that placed it.
+
+    ONE clock for every row: the `edges` aligner's. The windowed lead belongs
+    to the `edges` topology (Faz 9 round 5): a `segment` word needs none, so it
+    is moved back by the lead here and the path-wide lead in align() nets it to
+    zero. Seams, regrouping and the arbiter's raw clock (start - shift_ms) then
+    compare like with like, whichever pass placed each word."""
+    edges_lead_ms = WINDOWED_LEAD_MS if exact_stride else 0
     merged: list[dict] = []
     for index, window in enumerate(plan):
         piece = audio[
@@ -685,13 +752,35 @@ def _align_windows(
         ]
         texts = [align_texts[i] for i in window.line_indices]
         offset_s = window.slice_start_ms / 1000
-        # "edges" (the default): star tokens at BOTH slice edges absorb the pad
-        # and the inter-line gap, so forced alignment doesn't stretch real
-        # words over non-vocal audio. See WINDOW_STAR_DEFAULT for "segment".
-        aligned = _align_texts(
-            model, tokenizer, piece, texts, language, star,
-            romanize=romanize, exact_stride=exact_stride,
-        )
+        if star == "hybrid":
+            edges, segment = _align_slice_hybrid(
+                model, tokenizer, piece, texts, language,
+                romanize=romanize, exact_stride=exact_stride,
+            )
+            aligned, paired = hybrid_star_words(
+                [r for r in edges if r.get("text") != STAR_TOKEN],
+                [r for r in segment if r.get("text") != STAR_TOKEN],
+                hybrid_t_ms,
+                edges_lead_ms,
+            )
+            if not paired:
+                logger.warning(
+                    "window %d: edges and segment passes disagree on the words "
+                    "(%d vs %d); the window keeps edges", index, len(edges), len(segment),
+                )
+        else:
+            # "edges" (the default): star tokens at BOTH slice edges absorb the pad
+            # and the inter-line gap, so forced alignment doesn't stretch real
+            # words over non-vocal audio. See WINDOW_STAR_DEFAULT for "segment".
+            back_s = edges_lead_ms / 1000 if star == "segment" else 0.0
+            aligned = [
+                {**r, "start": r["start"] - back_s, "end": r["end"] - back_s, "star": star}
+                if back_s else {**r, "star": star}
+                for r in _align_texts(
+                    model, tokenizer, piece, texts, language, star,
+                    romanize=romanize, exact_stride=exact_stride,
+                )
+            ]
         for r in aligned:
             if r.get("text") == STAR_TOKEN:
                 continue  # regroup drops them anyway; keep offsets word-only
@@ -702,6 +791,16 @@ def _align_windows(
                 "window": index,
             })
     return merged
+
+
+def _source_counts(results: list[dict]) -> dict[str, int]:
+    counts = {"edges": 0, "segment": 0, "whole": 0}
+    for r in results:
+        if r.get("text") != STAR_TOKEN and str(r.get("text", "")).strip():
+            key = str(r.get("star", ""))
+            if key in counts:
+                counts[key] += 1
+    return counts
 
 
 def align(
@@ -717,6 +816,9 @@ def align(
     exact_stride: bool = EXACT_STRIDE_DEFAULT,
     seam_policy: str = SEAM_POLICY_DEFAULT,
     window_star: str = WINDOW_STAR_DEFAULT,
+    whole_vote: bool = WHOLE_VOTE_DEFAULT,
+    hybrid_t_ms: int = HYBRID_T_MS,
+    whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -729,7 +831,13 @@ def align(
     of the library's 21, and "yield" lets the window that owns the audio keep
     it at a seam (windows.yield_pad_words) before the forward clamp runs. On
     the exact clock the windowed path also takes WINDOWED_LEAD_MS on top of
-    the configured offsets."""
+    the configured offsets.
+
+    `window_star="hybrid"` and `whole_vote` (Faz 9 round 5) are windowed-only
+    too: per word the `segment`-starred time where it agrees with `edges`
+    (HYBRID_T_MS), then the whole-track time where it agrees with that
+    (WHOLE_VOTE_T_MS). Words they place need no lead; they are moved onto the
+    edges clock so the path-wide lead nets out for them (_align_windows)."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -756,6 +864,9 @@ def align(
         total_ms = audio.shape[-1] // SAMPLES_PER_MS
         plan = plan_windows(line_texts, synced_starts_ms, total_ms)
 
+    # Every windowed row is on the edges clock (_align_windows), so the lead
+    # is path-wide, as in 2.28: segment- and whole-placed words were moved
+    # back by it and net to zero.
     lead_ms = WINDOWED_LEAD_MS if plan is not None and exact_stride else 0
     path_offset_ms = spec.offset_ms + lead_ms
     path_by_initial = (
@@ -768,19 +879,38 @@ def align(
         results = _align_texts(model, tokenizer, audio, align_texts, language, romanize=romanize)
     else:
         logger.info(
-            "windowed alignment: %d windows over %d lines (stride %s, seams %s, lead %+d ms%s)",
+            "windowed alignment: %d windows over %d lines (stride %s, seams %s, lead %+d ms, "
+            "stars %s%s, whole-track vote %s)",
             len(plan), len(line_texts), "exact" if exact_stride else "library", seam_policy,
-            lead_ms, "" if window_star == WINDOW_STAR_DEFAULT else f", stars {window_star}",
+            lead_ms, window_star, f" T={hybrid_t_ms} ms" if window_star == "hybrid" else "",
+            f"on T={whole_vote_t_ms} ms" if whole_vote else "off",
         )
         results = _align_windows(
             model, tokenizer, audio, plan, align_texts, language, romanize,
-            exact_stride=exact_stride, star=window_star,
+            exact_stride=exact_stride, star=window_star, hybrid_t_ms=hybrid_t_ms,
         )
         if seam_policy == "yield":
             results, yielded = yield_pad_words(results, plan)
             if yielded:
                 logger.info("seam policy yield: %d pad word(s) pulled back to their line", yielded)
         results = reconcile_seams(results)
+        vote_note = ""
+        if whole_vote:
+            whole = _align_texts(
+                model, tokenizer, audio, align_texts, language, "segment",
+                romanize=romanize, exact_stride=exact_stride,
+            )
+            results, _taken, paired = whole_track_vote(results, whole, whole_vote_t_ms, lead_ms)
+            if not paired:
+                vote_note = " (skipped: the whole-track pass found other words)"
+            # The voted times were never seam-clamped; restore monotonicity.
+            results = reconcile_seams(results)
+        counts = _source_counts(results)
+        logger.info(
+            "window stars: %d segment, %d edges; whole-track vote: %d of %d taken%s",
+            counts["segment"], counts["edges"], counts["whole"], sum(counts.values()),
+            vote_note if whole_vote else " (off)",
+        )
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:

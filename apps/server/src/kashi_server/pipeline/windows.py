@@ -263,3 +263,96 @@ def reconcile_seams(results: list[dict]) -> list[dict]:
         out.append(r)
         cursor = start
     return out
+
+
+def _start_ms(row: dict) -> int:
+    return round(float(row["start"]) * 1000)
+
+
+def _is_word(row: dict) -> bool:
+    text = str(row.get("text", ""))
+    return text != "<star>" and bool(text.strip())
+
+
+def hybrid_star_words(
+    edges: list[dict], segment: list[dict], t_ms: int, edges_lead_ms: int = 0
+) -> tuple[list[dict], bool]:
+    """Per word, the `segment`-starred time where it agrees with `edges` (Faz 9 round 5).
+
+    One window slice, aligned twice over the same emissions: `edges` (a star at
+    each slice edge) and `segment` (a star before every word). `segment` places
+    a word it finds more precisely but nearly doubles the gross errors, so it
+    only wins where the two agree: within `t_ms` of each other, inclusive, in
+    whole milliseconds. An `edges` word lands `edges_lead_ms` EARLIER than the
+    same model places it with `segment` stars or over the whole track (round 5
+    mechanism check), so the two are compared after that lead.
+
+    Every row comes back on the EDGES clock — a chosen `segment` row moved back
+    by the lead — so seams and regrouping downstream compare like with like and
+    the caller's path-wide lead nets the move out. Timings come from the
+    winning pass; the score stays the `edges` one, because word probs feed line
+    QA and the quality gate, and those were calibrated on `edges`. Rows are
+    tagged `"star"`: "segment" or "edges".
+
+    When the two passes disagree on the word sequence (they cannot, given one
+    text: this is the guard for a library change) the whole window keeps
+    `edges` and the second value is False.
+    """
+    tagged_edges = [{**row, "star": "edges"} for row in edges]
+    if len(edges) != len(segment) or any(
+        str(e.get("text")) != str(s.get("text")) for e, s in zip(edges, segment, strict=True)
+    ):
+        return tagged_edges, False
+    back_s = edges_lead_ms / 1000
+    out: list[dict] = []
+    for edge, seg, tagged in zip(edges, segment, tagged_edges, strict=True):
+        if _is_word(edge) and abs(_start_ms(seg) - (_start_ms(edge) + edges_lead_ms)) <= t_ms:
+            out.append({
+                **tagged,
+                "start": float(seg["start"]) - back_s,
+                "end": float(seg["end"]) - back_s,
+                "star": "segment",
+            })
+        else:
+            out.append(tagged)
+    return out, True
+
+
+def whole_track_vote(
+    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0
+) -> tuple[list[dict], int, bool]:
+    """A third vote from the whole track (Faz 9 round 5, "Third vote").
+
+    `results` is the windowed word stream on the EDGES clock (hybrid_star_words);
+    `whole` is the same lyric aligned over the whole track, which sits
+    `edges_lead_ms` later on the same sounds. A word takes the whole-track
+    time when it lies within `t_ms` (inclusive, whole ms) of its windowed time
+    plus that lead; the taken time is moved back by the lead, onto the edges
+    clock like every other row, and tagged `"star": "whole"`. The score stays
+    the windowed one.
+
+    Words are matched by position among WORD rows only (blank segments differ:
+    the whole track joins every line, windows join only their own). A
+    different word count or text means the two streams cannot be paired, and
+    nothing changes. Returns (rows, words taken, paired).
+    """
+    mine = [i for i, row in enumerate(results) if _is_word(row)]
+    theirs = [row for row in whole if _is_word(row)]
+    if len(mine) != len(theirs) or any(
+        str(results[i].get("text")) != str(w.get("text")) for i, w in zip(mine, theirs, strict=True)
+    ):
+        return results, 0, False
+    back_s = edges_lead_ms / 1000
+    out = list(results)
+    taken = 0
+    for i, w in zip(mine, theirs, strict=True):
+        row = out[i]
+        if abs(_start_ms(w) - (_start_ms(row) + edges_lead_ms)) <= t_ms:
+            out[i] = {
+                **row,
+                "start": float(w["start"]) - back_s,
+                "end": float(w["end"]) - back_s,
+                "star": "whole",
+            }
+            taken += 1
+    return out, taken, True

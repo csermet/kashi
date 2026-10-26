@@ -171,3 +171,18 @@ def test_a_fit_on_the_grid_edge_is_flagged():
     }
     assert "grid edge" in format_report(report, 100)
 
+
+
+def test_only_languages_keeps_the_named_songs_and_leaves_the_report_alone():
+    from benchmarks.lateness import only_languages, signed_errors_by_song
+
+    def song(stem, language):
+        return {"stem": stem, "language": language,
+                "word_detail": [{"hyp_ms": 1_050, "truth_ms": 1_000}]}
+
+    report = {"meta": {"label": "x"},
+              "jamendo": {"songs": [song("a", "deu"), song("b", "fra"), song("c", "deu")]}}
+    kept = only_languages(report, {"deu"})
+    assert sorted(signed_errors_by_song(kept)) == ["a", "c"]
+    assert kept["meta"] == {"label": "x"}
+    assert len(report["jamendo"]["songs"]) == 3  # a copy, not a mutation

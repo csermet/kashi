@@ -262,3 +262,29 @@ def test_the_non_romanized_path_actually_applies_the_fitting():
     fitted = source.index("_fit_to_vocab(joined")
     guard = source.rindex("if not romanize:", 0, fitted)
     assert fitted - guard < 120, "sözlüğe indirgeme romanize koşulundan koptu"
+
+
+def test_a_surface_takes_the_source_of_its_first_mora():
+    from kashi_server.pipeline.alignment import AlignedWord, _fold_units_onto_surfaces
+    from kashi_server.pipeline.japanese import PreparedLine
+
+    plan = PreparedLine(surfaces=["宇宙"], units=list("うちゅー"), units_per_surface=[4])
+    chunk = [
+        AlignedWord(0, 300, "う", 0.9, source="edges"),
+        AlignedWord(300, 600, "ち", 0.9, source="segment"),
+        AlignedWord(600, 750, "ゅ", 0.9, source="segment"),
+        AlignedWord(750, 900, "ー", 0.9, source="segment"),
+    ]
+    assert _fold_units_onto_surfaces(chunk, plan)[0].source == "edges"
+
+
+def test_regroup_carries_each_words_source():
+    from kashi_server.pipeline.alignment import regroup_words_into_lines
+
+    results = [
+        {"text": "hello", "start": 1.0, "end": 1.2, "score": -0.1, "star": "edges"},
+        {"text": "world", "start": 1.3, "end": 1.5, "score": -0.1, "star": "whole"},
+    ]
+    regrouped = regroup_words_into_lines(["hello world"], results)
+    assert regrouped is not None
+    assert [w.source for w in regrouped[1][0]] == ["edges", "whole"]

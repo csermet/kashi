@@ -84,6 +84,13 @@ def signed_errors_by_song(report: dict) -> dict[str, list[float]]:
     return songs
 
 
+def only_languages(report: dict, languages: set[str]) -> dict:
+    """The report with only the jamendo songs in `languages` (a copy)."""
+    jamendo = report.get("jamendo", {})
+    songs = [song for song in jamendo.get("songs", []) if song.get("language") in languages]
+    return {**report, "jamendo": {**jamendo, "songs": songs}}
+
+
 def lateness_stats(errors_by_song: dict[str, list[float]]) -> dict:
     """The bias itself, before any correction is applied."""
     pooled = [error for errors in errors_by_song.values() for error in errors]
@@ -352,8 +359,18 @@ def main() -> None:
         help="fit one offset per first-sound class and compare it held-out "
         "against the single offset (run the benchmark with the correction OFF)",
     )
+    parser.add_argument(
+        "--languages",
+        help="comma-separated ISO-639-3 codes: fit only these songs (one offset per "
+        "language from a mixed run, e.g. --languages deu)",
+    )
     args = parser.parse_args()
     report = json.loads(args.result.read_text())
+    if args.languages:
+        wanted = {code.strip() for code in args.languages.split(",") if code.strip()}
+        report = only_languages(report, wanted)
+        if not report["jamendo"]["songs"]:
+            raise SystemExit(f"no songs in {sorted(wanted)} — check the language codes (ISO-639-3)")
     tolerance_ms = round(args.tolerance * 1000)
     print((format_by_initial if args.by_initial else format_report)(report, tolerance_ms))
 

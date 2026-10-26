@@ -237,6 +237,35 @@ baseline. Voc_FT's MDX arch runs on CPU inside this image on purpose
 still fast. If `nvidia-smi` works in a container but torch reports no CUDA,
 the known WSL2 culprit is the driver dir mount (see Dockerfile.gpu header).
 
+### Faz 9 round 6: hybrid stars + whole-track vote, real code (2026-10)
+
+Round 5 simulated a per-word hybrid from two dumps (`--window-star edges` and
+`segment`) plus a whole-track third vote. `--window-star hybrid` and
+`--whole-vote` run it for real: one emission pass per window, two Viterbi
+passes, the per-word lead applied in code. Same settings as rounds 1-5
+(`kim-base`, mixback 0, jitter 400), correction OFF so the fit reads the
+residual; the `edges` baselines are the `2026-10-25-x-edges-*` files (the
+switched-off code is byte-identical). Windows cmd, from the repo root:
+
+```bat
+git pull
+docker build -f apps/server/benchmarks/Dockerfile.gpu -t kashi-bench-gpu .
+
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation kim-base --mixback 0 --windowed --dump-words --align-offset-ms 0 --align-model jonatasgrosman/wav2vec2-xls-r-1b-english --languages eng --window-star hybrid --whole-vote --label h-eng20-raw
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation kim-base --mixback 0 --windowed --dump-words --align-offset-ms 0 --window-star hybrid --whole-vote --label h-all79-raw
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --jamendo-root jamendolyrics-pop --separation kim-base --mixback 0 --windowed --dump-words --align-offset-ms 0 --align-model jonatasgrosman/wav2vec2-xls-r-1b-english --window-star hybrid --whole-vote --label h-pop-raw
+docker run --rm --gpus all --ipc=host -v "%cd%:/repo" -v kashi-bench-models:/models kashi-bench-gpu python -m benchmarks.run --dataset jamendo --separation kim-base --mixback 0 --windowed --dump-words --align-offset-ms 0 --align-model jonatasgrosman/wav2vec2-xls-r-1b-english --languages eng --window-star hybrid --no-whole-vote --label h-eng20-novote
+
+git add apps/server/benchmarks/results
+git commit -m "bench: Faz 9 round 6 hybrid confirmation (RTX 5070 Ti)"
+git push
+```
+
+Then the offsets: `python -m benchmarks.lateness results/<date>-h-eng20-raw.json
+--by-initial` (English table) and `--languages deu` / `fra` / `spa` / `eng` on
+the all79 file (one MMS offset per language). `word_detail[].source` says which
+pass placed each word.
+
 ## Results
 
 `results/YYYY-MM-DD-<label>.json`: `meta` (config, versions, host), per-song

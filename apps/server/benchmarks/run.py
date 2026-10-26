@@ -28,8 +28,11 @@ from statistics import mean, median
 from benchmarks import datasets, metrics
 from kashi_server.pipeline.alignment import (
     EXACT_STRIDE_DEFAULT,
+    HYBRID_T_MS,
     SEAM_POLICIES,
     SEAM_POLICY_DEFAULT,
+    WHOLE_VOTE_DEFAULT,
+    WHOLE_VOTE_T_MS,
     WINDOW_STAR_DEFAULT,
     WINDOW_STARS,
     WINDOWED_LEAD_MS,
@@ -140,6 +143,9 @@ def _align_song(
     exact_stride: bool = EXACT_STRIDE_DEFAULT,
     seam_policy: str = SEAM_POLICY_DEFAULT,
     window_star: str = WINDOW_STAR_DEFAULT,
+    whole_vote: bool = WHOLE_VOTE_DEFAULT,
+    hybrid_t_ms: int = HYBRID_T_MS,
+    whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
@@ -149,6 +155,7 @@ def _align_song(
         result = align(
             wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial,
             exact_stride=exact_stride, seam_policy=seam_policy, window_star=window_star,
+            whole_vote=whole_vote, hybrid_t_ms=hybrid_t_ms, whole_vote_t_ms=whole_vote_t_ms,
         )
     return result, time.monotonic() - started
 
@@ -273,6 +280,8 @@ def _align_jamendo_song(args, song):
         audio, song.line_texts, song.language, anchors, args.align_model,
         args.align_romanize, args.align_offset_ms, _by_initial(args),
         exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
+        whole_vote=args.whole_vote, hybrid_t_ms=args.hybrid_t_ms,
+        whole_vote_t_ms=args.whole_vote_t_ms,
     )
     return audio, separate_s, anchors, result, align_s
 
@@ -316,6 +325,7 @@ def _word_metrics(args, song, result: AlignResult, onset_ms, tolerances_ms, entr
         # The hypothesis END too: without it a dump cannot show a word the
         # aligner squeezed to nothing (benchmarks.seam_piles --dump).
         ends = [end_ms for end_ms, _ in _hyp_word_ends(result)]
+        sources = [w.source for chunk in result.words_per_line for w in chunk]
         entry["word_detail"] = [
             {
                 "i": i,
@@ -324,6 +334,9 @@ def _word_metrics(args, song, result: AlignResult, onset_ms, tolerances_ms, entr
                 "hyp_ms": round(truth_ms + deviations[i]),
                 "hyp_end_ms": ends[i],
                 "line": line_of[i],
+                # Which pass placed the word (windowed path: edges / segment /
+                # whole), so per-source accuracy reads straight off a dump.
+                "source": sources[i],
                 **({} if song.verified is None else {"verified": song.verified[i]}),
             }
             for i, (truth_ms, token) in enumerate(song.words)
@@ -570,6 +583,8 @@ def _align_case(args, case):
         source, line_texts, case.language, anchors, args.align_model,
         args.align_romanize, args.align_offset_ms, _by_initial(args),
         exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
+        whole_vote=args.whole_vote, hybrid_t_ms=args.hybrid_t_ms,
+        whole_vote_t_ms=args.whole_vote_t_ms,
     )
     return reference, separate_s, anchors, result, align_s
 
@@ -729,8 +744,32 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "windowed path only: star tokens at the slice edges (production) or "
             "before every word, as the whole-track path does "
-            "(alignment.WINDOW_STAR_DEFAULT)."
+            "(alignment.WINDOW_STAR_DEFAULT); 'hybrid' aligns both over one "
+            "emission pass and keeps segment per word where it agrees with "
+            "edges (--hybrid-t-ms; Faz 9 round 5)."
         ),
+    )
+    parser.add_argument(
+        "--hybrid-t-ms",
+        type=int,
+        default=HYBRID_T_MS,
+        help="windowed hybrid stars: agreement window, ms (alignment.HYBRID_T_MS)",
+    )
+    parser.add_argument(
+        "--whole-vote",
+        action=argparse.BooleanOptionalAction,
+        default=WHOLE_VOTE_DEFAULT,
+        help=(
+            "windowed path only: one extra whole-track pass; a word takes its "
+            "whole-track time where it agrees with the windowed one "
+            "(--whole-vote-t-ms; Faz 9 round 5, 'Third vote')."
+        ),
+    )
+    parser.add_argument(
+        "--whole-vote-t-ms",
+        type=int,
+        default=WHOLE_VOTE_T_MS,
+        help="whole-track vote: agreement window, ms (alignment.WHOLE_VOTE_T_MS)",
     )
     parser.add_argument("--label", help="results filename label (default: config name)")
     return parser.parse_args()
@@ -759,6 +798,12 @@ def _config_name(args) -> str:
         config_name += f"-{args.seam_policy}"
     if args.windowed and args.window_star != WINDOW_STAR_DEFAULT:
         config_name += f"-star{args.window_star}"
+    if args.windowed and args.window_star == "hybrid" and args.hybrid_t_ms != HYBRID_T_MS:
+        config_name += f"-t{args.hybrid_t_ms}"
+    if args.windowed and args.whole_vote != WHOLE_VOTE_DEFAULT:
+        config_name += "-vote" if args.whole_vote else "-novote"
+    if args.windowed and args.whole_vote and args.whole_vote_t_ms != WHOLE_VOTE_T_MS:
+        config_name += f"-vt{args.whole_vote_t_ms}"
     if args.line_postprocess != "none":
         config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
@@ -804,6 +849,15 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         "exact_stride": args.exact_stride,
         "windowed_lead_ms": WINDOWED_LEAD_MS if args.exact_stride and args.windowed else 0,
         "window_star": args.window_star,
+        # Since the 2.29 groundwork the lead is the EDGES topology's: words
+        # placed by segment stars or the whole-track vote net no lead. The
+        # 2026-10-25 `-starsegment` runs predate this (every word took it).
+        "lead_rule": "edges-only",
+        "hybrid_t_ms": (
+            args.hybrid_t_ms if args.windowed and args.window_star == "hybrid" else None
+        ),
+        "whole_vote": args.whole_vote if args.windowed else None,
+        "whole_vote_t_ms": args.whole_vote_t_ms if args.windowed and args.whole_vote else None,
         "seam_policy": args.seam_policy,
         "signals": args.signals,
         "line_postprocess": args.line_postprocess,

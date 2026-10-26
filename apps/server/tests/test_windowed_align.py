@@ -244,9 +244,12 @@ def test_windows_keep_edge_stars_by_default(monkeypatch, tmp_path):
     assert seen["star"] == ["edges"] * 4
 
 
-def test_segment_stars_reach_every_window(monkeypatch, tmp_path):
-    _, seen = run_align(monkeypatch, tmp_path, window_star="segment")
+def test_segment_stars_reach_every_window_and_take_no_lead(monkeypatch, tmp_path):
+    # Round 5: the lead is a property of the `edges` topology; `segment` words
+    # want the whole-track table as it is.
+    result, seen = run_align(monkeypatch, tmp_path, window_star="segment")
     assert seen["star"] == ["segment"] * 4
+    assert result.words_per_line[1][0].start_ms == 6_150
 
 
 def test_an_unknown_star_placement_is_refused(monkeypatch, tmp_path):
@@ -257,3 +260,254 @@ def test_an_unknown_star_placement_is_refused(monkeypatch, tmp_path):
 def test_an_unknown_seam_policy_is_refused(monkeypatch, tmp_path):
     with pytest.raises(ValueError):
         run_align(monkeypatch, tmp_path, seam_policy="median")
+
+
+# --- 2.29 groundwork: per-word hybrid stars and the whole-track vote ----------
+
+from kashi_server.pipeline.windows import hybrid_star_words, whole_track_vote  # noqa: E402
+
+
+def _row(text, start, score=-0.1, **extra):
+    return {"text": text, "start": start, "end": start + 0.1, "score": score, **extra}
+
+
+def test_hybrid_takes_segment_at_exactly_t_and_edges_one_ms_past():
+    edges = [_row("a", 1.0), _row("b", 3.0), _row("c", 5.0)]
+    segment = [_row("a", 1.4), _row("b", 3.401), _row("c", 4.6)]
+    out, paired = hybrid_star_words(edges, segment, 400)
+    assert paired
+    assert [r["star"] for r in out] == ["segment", "edges", "segment"]
+    assert [r["start"] for r in out] == [1.4, 3.0, 4.6]
+
+
+def test_hybrid_compares_after_the_lead_and_returns_the_edges_clock():
+    # An edges word lands 70 ms earlier than segment places the same sound:
+    # 1.000 s edges meets segment 1.070, so 1.470 agrees and 0.669 does not.
+    # The chosen segment time comes back moved onto the edges clock.
+    edges = [_row("a", 1.0), _row("b", 3.0)]
+    segment = [_row("a", 1.47), _row("b", 2.669)]
+    out, _ = hybrid_star_words(edges, segment, 400, edges_lead_ms=70)
+    assert [r["star"] for r in out] == ["segment", "edges"]
+    assert out[0]["start"] == pytest.approx(1.40)
+    assert out[0]["end"] == pytest.approx(1.50)
+    assert out[1]["start"] == 3.0
+
+
+def test_hybrid_compares_whole_milliseconds():
+    # 400.4 ms rounds to 400: float noise must not flip the boundary.
+    out, _ = hybrid_star_words([_row("a", 1.0)], [_row("a", 1.4004)], 400)
+    assert out[0]["star"] == "segment"
+
+
+def test_a_segment_word_keeps_the_edges_score():
+    # Word probs feed line QA and the quality gate, calibrated on edges.
+    out, _ = hybrid_star_words([_row("a", 1.0, score=-3.0)], [_row("a", 1.1, score=-0.1)], 400)
+    assert out[0]["star"] == "segment"
+    assert out[0]["score"] == -3.0
+    assert out[0]["end"] == pytest.approx(1.2)
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [[_row("a", 1.0)], [_row("a", 1.0), _row("x", 2.0)]],
+    ids=["count", "text"],
+)
+def test_passes_that_disagree_on_the_words_keep_edges(segment):
+    edges = [_row("a", 1.0), _row("b", 2.0)]
+    out, paired = hybrid_star_words(edges, segment, 400)
+    assert not paired
+    assert [(r["start"], r["star"]) for r in out] == [(1.0, "edges"), (2.0, "edges")]
+
+
+def test_whole_vote_takes_the_whole_time_within_t_after_the_lead():
+    results = [_row("a", 1.0), _row("b", 3.0), _row("c", 5.0)]
+    whole = [_row("a", 1.47, score=-9.0), _row("b", 3.471), _row("c", 4.67)]
+    out, taken, paired = whole_track_vote(results, whole, 400, edges_lead_ms=70)
+    assert paired
+    assert taken == 2
+    assert [r.get("star") for r in out] == ["whole", None, "whole"]
+    # Moved back onto the edges clock; the windowed score stays.
+    assert [round(r["start"], 3) for r in out] == [1.4, 3.0, 4.6]
+    assert out[0]["score"] == -0.1
+
+
+@pytest.mark.parametrize(
+    "whole",
+    [[_row("a", 1.0)], [_row("a", 1.0), _row("x", 2.0)]],
+    ids=["count", "text"],
+)
+def test_whole_vote_skips_streams_it_cannot_pair(whole):
+    results = [_row("a", 1.0), _row("b", 2.0)]
+    out, taken, paired = whole_track_vote(results, whole, 400)
+    assert (out, taken, paired) == (results, 0, False)
+
+
+def test_whole_vote_pairs_words_not_blank_segments():
+    # A Japanese job splits per character: the whole track joins every line
+    # with a space (a blank segment of its own), a window only its own lines.
+    results = [_row("う", 1.0), _row("ち", 1.2)]
+    whole = [_row("う", 1.05), _row(" ", 1.1), _row("ち", 1.25)]
+    out, taken, paired = whole_track_vote(results, whole, 400)
+    assert paired and taken == 2
+    assert [r["start"] for r in out] == [1.05, 1.25]
+
+
+def run_hybrid(monkeypatch, tmp_path, seg_deltas, whole=None, **kwargs):
+    """run_align's four windows, with `_align_slice_hybrid` faked: the segment
+    pass is the edges pass moved by `seg_deltas[line][word]` seconds. `whole`
+    (12 absolute starts) answers the full-length pass of the vote."""
+    line_mode = kwargs.pop("line_mode", False)
+    seen: dict = {"lengths": []}
+    monkeypatch.setitem(
+        sys.modules,
+        "ctc_forced_aligner",
+        types.SimpleNamespace(load_audio=lambda *a, **k: FakeAudio(TOTAL_S * 16_000)),
+    )
+    fake_model = types.SimpleNamespace(dtype=None, device="cpu")
+    monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
+    rels = {LINES[0]: [0.5, 2.0, 5.9], LINES[1]: [0.5, 1.5, 3.0]}
+
+    def edges_rows(texts):
+        words = texts[0].split()
+        rel = rels.get(texts[0], [0.5, 1.5, 3.0])
+        if line_mode and texts[0] == LINES[1]:
+            words, rel = words[:2], rel[:2]
+        return [
+            {"text": t, "start": r, "end": r + 0.2, "score": -0.1}
+            for t, r in zip(words, rel, strict=True)
+        ]
+
+    def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride):
+        edges = edges_rows(texts)
+        deltas = seg_deltas[LINES.index(texts[0])]
+        segment = [
+            {**r, "start": r["start"] + d, "end": r["end"] + d}
+            for r, d in zip(edges, deltas, strict=False)
+        ]
+        return edges, segment
+
+    def fake_align_texts(model, tokenizer, piece, texts, language, star, *, romanize, exact_stride):
+        seen["lengths"].append(piece.shape[0])
+        seen.setdefault("vote", []).append((star, exact_stride))
+        words = " ".join(texts).split()
+        return [
+            {"text": t, "start": s, "end": s + 0.05, "score": -0.1}
+            for t, s in zip(words, whole or [], strict=False)
+        ]
+
+    monkeypatch.setattr(alignment, "_align_slice_hybrid", fake_hybrid)
+    monkeypatch.setattr(alignment, "_align_texts", fake_align_texts)
+    offset_ms = kwargs.pop("offset_ms", 0)
+    result = alignment.align(
+        tmp_path / "x.wav", LINES, "eng", STAMPS, "m", True, offset_ms, None,
+        window_star="hybrid", **kwargs,
+    )
+    return result, seen
+
+
+FAR = [2.0, 2.0, 2.0]
+
+
+def test_hybrid_segment_words_net_no_lead_and_edges_words_seventy(monkeypatch, tmp_path):
+    # Window 0: "two" 2.65 edges / 3.10 segment is 450 ms off raw but 380 after
+    # the lead (2.72): segment. Window 1 (slice 5.65 s): "four" 6.15 / 6.48
+    # (260 after the lead), "five" 7.15 / 7.621 (401), "six" 8.65 / 8.32 (400).
+    result, seen = run_hybrid(
+        monkeypatch, tmp_path, [[0, 0.45, 0], [0.33, 0.471, -0.33], FAR, FAR], whole_vote=False
+    )
+    assert seen["lengths"] == []  # no whole-track pass with the vote off
+    one, two, three = result.words_per_line[0]
+    four, five, six = result.words_per_line[1]
+    assert [w.source for w in (one, two, four, five, six)] == [
+        "segment", "segment", "segment", "edges", "segment"
+    ]
+    starts = (two.start_ms, four.start_ms, five.start_ms, six.start_ms)
+    assert starts == (3_100, 6_480, 7_220, 8_320)
+    assert (one.start_ms, three.start_ms, three.end_ms) == (1_150, 6_460, 6_480)
+    # One raw clock for the arbiter: the edges aligner's, whoever placed the word.
+    assert all(w.shift_ms == 70 for chunk in result.words_per_line for w in chunk)
+    assert (four.start_ms - four.shift_ms, five.start_ms - five.shift_ms) == (6_410, 7_150)
+
+
+def test_an_edges_word_yields_to_a_segment_word_on_one_clock(monkeypatch, tmp_path):
+    # Review finding (2026-10-26): "three" (edges) parked in window 0's pad at
+    # 6.55 s, "four" placed by segment at 6.15 s. On mixed clocks yield ended
+    # "three" at four's raw start and the lead pushed it past "four" (a pile).
+    result, _ = run_hybrid(
+        monkeypatch, tmp_path, [[0, 0.45, 2.0], [0.0, 0.471, -0.33], FAR, FAR], whole_vote=False
+    )
+    three = result.words_per_line[0][-1]
+    four = result.words_per_line[1][0]
+    assert (three.source, four.source) == ("edges", "segment")
+    assert (three.start_ms, three.end_ms) == (6_130, 6_150)
+    assert four.start_ms == 6_150
+
+
+def test_whole_vote_takes_agreeing_words_and_reclamps_seams(monkeypatch, tmp_path):
+    # Edges everywhere (segment far off). Windowed starts after the lead: one
+    # 1.22, two 2.72, three 6.20 (yielded to 6.13 raw), four 6.22. The whole
+    # track says one 1.48 (260 ms: taken), two 3.121 (401: not), four 5.82 (400:
+    # taken — but that lands before "three", so the second seam pass clamps it).
+    far = [FAR, FAR, FAR, FAR]
+    windowed = [1.15, 2.65, 6.13, 6.15, 7.15, 8.65, 11.15, 12.15, 13.65, 16.15, 17.15, 18.65]
+    whole = [s + 2.0 for s in windowed]
+    whole[0], whole[1], whole[3] = 1.48, 3.121, 5.82
+    result, seen = run_hybrid(monkeypatch, tmp_path, far, whole=whole, whole_vote=True)
+    assert seen["lengths"] == [TOTAL_S * 16_000]
+    assert seen["vote"] == [("segment", True)]  # whole-track stars, the exact clock
+    one, two, three = result.words_per_line[0]
+    four = result.words_per_line[1][0]
+    assert (one.source, one.start_ms) == ("whole", 1_480)
+    assert (two.source, two.start_ms) == ("edges", 2_720)
+    assert four.source == "whole"
+    assert four.start_ms == three.start_ms == 6_200
+    assert four.start_ms - four.shift_ms == 6_130  # clamped on the raw clock, not 5.75
+
+
+def test_line_mode_with_hybrid_stars_keeps_segment_lines_unshifted(monkeypatch, tmp_path):
+    # Review finding: line mode applies the lead to every line, so a line whose
+    # first word segment placed must already sit on the edges clock.
+    result, _ = run_hybrid(
+        monkeypatch, tmp_path, [[0.05, 0, 0], FAR, FAR, FAR], whole_vote=False, line_mode=True
+    )
+    assert result.sync == "line"
+    assert result.lines[0].start_ms == 1_150 + 50  # segment's own time, net of the lead
+    # (an all-edges line takes the lead: test_line_timings_take_the_lead_too)
+
+
+def test_one_emission_pass_serves_both_star_placements(monkeypatch):
+    calls: dict = {"emit": 0, "align": 0, "stars": []}
+
+    def generate_emissions(model, audio, batch_size=4):
+        calls["emit"] += 1
+        frames = (audio.shape[-1] - 400) // MODEL_HOP_SAMPLES + 1
+        return types.SimpleNamespace(shape=(frames, 32)), 21
+
+    def preprocess_text(text, romanize, language, split_size, star_frequency):
+        calls["stars"].append(star_frequency)
+        return ["w"], ["w"]
+
+    def get_alignments(emissions, tokens, tokenizer):
+        calls["align"] += 1
+        return [], [], 0
+
+    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", types.SimpleNamespace(
+        generate_emissions=generate_emissions,
+        preprocess_text=preprocess_text,
+        get_alignments=get_alignments,
+        get_spans=lambda *a, **k: [],
+        postprocess_results=lambda text, spans, stride, scores: [
+            {"text": "w", "start": stride / 1000, "end": stride / 1000, "score": 0.0}
+        ],
+    ))
+    edges, segment = alignment._align_slice_hybrid(
+        None, None, FakeAudio(SLICE_SAMPLES), ["w"], "eng", romanize=True, exact_stride=True
+    )
+    assert (calls["emit"], calls["align"], calls["stars"]) == (1, 2, ["edges", "segment"])
+    assert edges[0]["start"] == segment[0]["start"] == pytest.approx(0.02)  # exact stride on both
+
+
+def test_hybrid_is_a_known_star_placement():
+    assert "hybrid" in alignment.WINDOW_STARS
+    assert alignment.HYBRID_T_MS == 400
+    assert alignment.WHOLE_VOTE_T_MS == 400
