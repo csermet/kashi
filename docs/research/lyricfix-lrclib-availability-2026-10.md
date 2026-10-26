@@ -541,7 +541,7 @@ has no contributing guide or issue templates, Discussions are enabled, maintenan
 subcommands (`backfill-*`), no issue mentions the optimize stall, and Discussion #120 covers the
 dump's size (trimmed by hand there, no script).
 
-#### Draft A — GitHub issue
+#### Draft A — GitHub issue (sent as lrclib issue #135, 2026-10-26)
 
 **Title:** Daily `PRAGMA optimize` blocks the async runtime for ~30 s on a large database
 
