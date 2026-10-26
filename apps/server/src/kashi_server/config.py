@@ -198,6 +198,13 @@ class Settings(BaseSettings):
     # How long a job may keep deferring before it fails as plain `network`
     # (transient: a later listen may enqueue it again).
     lrclib_patience_s: int = 86400
+    # The worker's lrclib.net breaker (LyricFix round 3): it opens once this
+    # many busy answers (429/5xx/403/timeout) fall inside the sliding window.
+    # Not "in a row": lrclib.net answered 503 and 200 interleaved in 2026-10,
+    # and a success used to reset the count. Defaults mirror
+    # pipeline/lrclib_gateway.py's constants (a test pins them equal).
+    lrclib_breaker_window_s: float = Field(default=1800.0, gt=0)
+    lrclib_breaker_failure_threshold: int = Field(default=2, ge=1)
     # lrclib's client rules ask for 200-500 ms between sequential requests
     # during batch work. Primary only: the mirror is ours.
     lrclib_request_gap_s: float = 0.25

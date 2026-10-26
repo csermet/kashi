@@ -1279,6 +1279,7 @@ def test_open_breaker_and_mirror_miss_defers_without_downloading(
     attempts_before = job.attempts - 1  # the claim counted this run
 
     wp.process_job(db_session, job)
+    db_session.rollback()  # the worker loop's session ends here; only commits count
     db_session.refresh(job)
     assert downloads == []
     assert lrclib.calls == ["mirror"]  # lrclib.net left alone while open
@@ -1302,23 +1303,45 @@ def test_open_breaker_and_mirror_hit_proceeds(db_session, job, scratch, monkeypa
     db_session.refresh(job)
     assert job.status == "completed"
     assert downloads == ["workerVid01"]
-    assert "primary" not in lrclib.calls
+    assert lrclib.calls == ["mirror"]  # asked once, the answer reused after the download
 
 
-def test_busy_primary_after_download_tries_the_mirror_then_defers(
-    db_session, job, scratch, monkeypatch, two_lrclibs
+@pytest.fixture
+def worker_log(caplog, monkeypatch):
+    """caplog for the worker's own logger. Alembic's env.py runs
+    logging.config.fileConfig, which disables every logger that already
+    exists, so a migration test earlier in the run would leave it silent."""
+    import logging
+
+    log = logging.getLogger("kashi_server.worker.process")
+    monkeypatch.setattr(log, "disabled", False)
+    caplog.set_level(logging.WARNING, logger=log.name)
+    return caplog
+
+
+def test_busy_primary_before_the_download_tries_the_mirror_then_defers(
+    db_session, job, scratch, monkeypatch, two_lrclibs, worker_log
 ):
-    # Breaker closed: the job downloads, the primary fails, the mirror misses.
+    # Breaker CLOSED (the round-3 field case: its cooldown always ran out
+    # between two jobs): the plain lookup runs first, the primary is busy, the
+    # mirror misses -> deferred with nothing downloaded.
     _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
     lrclib = _Lrclib(primary="busy", mirror="miss")
     monkeypatch.setattr(wp, "fetch_lyrics", lrclib)
 
     wp.process_job(db_session, job)
+    # The worker loop closes its session after the job (`with SessionLocal()`):
+    # anything process_job did not commit is gone.
+    db_session.rollback()
     db_session.refresh(job)
+    assert downloads == []
     assert lrclib.calls == ["primary", "mirror"]
     assert job.status == "queued"
     assert job.attempts == 0
     assert job.deferrals == 1
+    assert job.error_type == "lrclib_unavailable"
+    assert "(deferral 1, precheck, attempt refunded)" in worker_log.text
 
 
 def test_deferrals_follow_the_widening_schedule(
@@ -1463,3 +1486,248 @@ def test_nightcore_marked_jobs_keep_the_download_first_order(
     assert downloads == ["p3Night01"]  # one download per attempt (documented)
     assert job.status == "queued"
     assert job.error_type == "lrclib_unavailable"
+
+
+# --- LyricFix round 3: the plain lookup runs before the download -------------
+
+
+def test_a_cancel_during_the_lookup_wins_over_the_deferral(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    from sqlalchemy import text
+
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+    lrclib = _Lrclib(primary="busy", mirror="miss")
+
+    def cancel_then_ask(hints, base_url):
+        if not lrclib.calls:  # an admin cancels while lrclib.net times out
+            db_session.execute(
+                text("UPDATE jobs SET status='canceled' WHERE id=:id"), {"id": job.id}
+            )
+            db_session.commit()
+        return lrclib(hints, base_url)
+
+    monkeypatch.setattr(wp, "fetch_lyrics", cancel_then_ask)
+    wp.process_job(db_session, job)
+    db_session.rollback()
+    db_session.refresh(job)
+    assert job.status == "canceled"
+    assert job.deferrals == 0
+    assert downloads == []
+
+
+def test_plain_lookup_runs_before_the_download(db_session, job, scratch, monkeypatch, two_lrclibs):
+    _happy_stages(monkeypatch, scratch)
+    events: list[str] = []
+    real_download = wp.download_audio
+
+    def download(source_id, dest_dir, **kw):
+        events.append("download")
+        return real_download(source_id, dest_dir, **kw)
+
+    def fetch(hints, base_url):
+        events.append("lrclib")
+        return LyricsText(["hello world"], "hello world", 5, True)
+
+    monkeypatch.setattr(wp, "download_audio", download)
+    monkeypatch.setattr(wp, "fetch_lyrics", fetch)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert events == ["lrclib", "download"]
+
+
+def test_the_ladder_runs_exactly_once_per_job(db_session, job, scratch, monkeypatch, two_lrclibs):
+    _happy_stages(monkeypatch, scratch)
+    lrclib = _Lrclib(primary="hit")
+    monkeypatch.setattr(wp, "fetch_lyrics", lrclib)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert lrclib.calls == ["primary"]
+
+
+def test_a_remembered_miss_still_reaches_by_ear(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    _happy_stages(monkeypatch, scratch)
+    lrclib = _Lrclib(primary="miss")  # a clean lrclib.net 404
+    monkeypatch.setattr(wp, "fetch_lyrics", lrclib)
+    heard: list[Path] = []
+
+    def by_ear(j, download, tmp):
+        heard.append(download.path)
+        return LyricsText(["hello world"], "hello world", None, True)
+
+    monkeypatch.setattr(wp, "_lyrics_by_ear", by_ear)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert [p.name for p in heard] == ["audio.webm"]  # after the download
+    assert lrclib.calls == ["primary"]  # the miss was not asked again
+
+
+def test_a_remembered_miss_still_tries_the_composite_title(
+    db_session, scratch, monkeypatch, two_lrclibs
+):
+    job = _nightcore_job(db_session, title="Artist - Song", source_id="r3Compo01")
+    _happy_stages(monkeypatch, scratch)
+    events: list[str] = []
+    real_download = wp.download_audio
+
+    def download(source_id, dest_dir, **kw):
+        events.append("download")
+        return real_download(source_id, dest_dir, **kw)
+
+    def fetch(hints, base_url):
+        events.append(f"lrclib:{hints['artist']}/{hints['title']}")
+        raise PipelineError("lyrics_not_found", "no lyrics")
+
+    monkeypatch.setattr(wp, "download_audio", download)
+    monkeypatch.setattr(wp, "fetch_lyrics", fetch)
+    monkeypatch.setattr(wp, "_lyrics_by_ear", lambda *a, **k: None)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.error_type == "lyrics_not_found"
+    assert events == ["lrclib:Chan/Artist - Song", "lrclib:Artist/Song", "download"]
+
+
+def test_precheck_other_errors_are_not_deferred(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+
+    def broken(j):
+        raise PipelineError("other", "boom")
+
+    monkeypatch.setattr(wp, "_plain_lyrics", broken)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert downloads == []
+    assert job.status == "failed"
+    assert job.error_type == "other"
+    assert job.deferrals == 0
+
+
+def test_patience_expires_from_the_precheck_with_a_closed_breaker(
+    db_session, job, scratch, monkeypatch, two_lrclibs
+):
+    from kashi_server.config import settings
+
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    _deferred_since(db_session, job, settings.lrclib_patience_s + 60)
+
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert downloads == []
+    assert job.status == "failed"
+    assert job.error_type == "network"
+
+
+def test_nightcore_marked_jobs_download_first_even_with_a_closed_breaker(
+    db_session, scratch, monkeypatch, two_lrclibs, worker_log
+):
+    job = _nightcore_job(db_session, title="Nightcore - Song", source_id="r3Night01")
+    _happy_stages(monkeypatch, scratch)
+    downloads = _counting_download(monkeypatch)
+    monkeypatch.setattr(wp, "fetch_lyrics", _Lrclib(primary="busy", mirror="miss"))
+    monkeypatch.setattr(
+        wp,
+        "search_candidates",
+        lambda query, *, base_url: (_ for _ in ()).throw(
+            PipelineError("network", "lrclib unreachable")
+        )
+        if base_url == PRIMARY_URL
+        else [],
+    )
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert downloads == ["r3Night01"]  # its lookup needs the audio's duration
+    assert job.status == "queued"
+    assert "(deferral 1, lookup, attempt refunded)" in worker_log.text
+
+
+class _PlainJob:
+    id = "job-r3"
+    hints = {"title": "T", "artist": "A", "duration_ms": 200_000}
+    options: dict = {}
+
+
+class _StubGateway:
+    def __init__(self, error_type=None):
+        self.error_type = error_type
+        self.calls = 0
+
+    def fetch_lyrics(self, hints):
+        self.calls += 1
+        if self.error_type is not None:
+            raise PipelineError(self.error_type, "stub")
+        return LyricsText(["hello world"], "hello world", 5, True)
+
+
+def test_lookup_before_download_returns_the_miss_instead_of_raising(monkeypatch):
+    monkeypatch.setattr(wp, "LRCLIB", _StubGateway("lyrics_not_found"))
+    result = wp._lookup_before_download(_PlainJob())
+    assert isinstance(result, PipelineError)
+    assert result.error_type == "lyrics_not_found"
+
+
+def test_lookup_before_download_lets_unavailable_through(monkeypatch):
+    monkeypatch.setattr(wp, "LRCLIB", _StubGateway("lrclib_unavailable"))
+    with pytest.raises(PipelineError) as err:
+        wp._lookup_before_download(_PlainJob())
+    assert err.value.error_type == "lrclib_unavailable"
+
+
+def test_lookup_before_download_skips_nightcore_marked_jobs(monkeypatch):
+    stub = _StubGateway()
+    monkeypatch.setattr(wp, "LRCLIB", stub)
+
+    class _Night(_PlainJob):
+        hints = {"title": "Nightcore - Song", "artist": "Chan"}
+
+    assert wp._lookup_before_download(_Night()) is None
+    assert stub.calls == 0
+
+
+def _plain_download(tmp_path):
+    return DownloadResult(
+        path=tmp_path / "audio.webm", abr=128.0, acodec="opus", duration_s=200.0, info={}
+    )
+
+
+def test_resolve_plain_lyrics_reuses_a_remembered_hit(monkeypatch, tmp_path):
+    remembered = LyricsText(["hello world"], "hello world", 5, True)
+    monkeypatch.setattr(
+        wp, "_plain_lyrics", lambda j: (_ for _ in ()).throw(AssertionError("asked twice"))
+    )
+    result = wp._resolve_plain_lyrics(
+        _PlainJob(), _plain_download(tmp_path), tmp_path, (1.0, None, None), remembered
+    )
+    assert result is remembered
+
+
+def test_resolve_plain_lyrics_replays_a_remembered_miss_into_by_ear(monkeypatch, tmp_path):
+    miss = PipelineError("lyrics_not_found", "no lyrics")
+    monkeypatch.setattr(
+        wp, "_plain_lyrics", lambda j: (_ for _ in ()).throw(AssertionError("asked twice"))
+    )
+    found = LyricsText(["by ear"], "by ear", None, True)
+    monkeypatch.setattr(wp, "_lyrics_by_ear", lambda *a, **k: found)
+    args = (_PlainJob(), _plain_download(tmp_path), tmp_path, (1.0, None, None), miss)
+    assert wp._resolve_plain_lyrics(*args) is found
+
+    monkeypatch.setattr(wp, "_lyrics_by_ear", lambda *a, **k: None)
+    with pytest.raises(PipelineError) as err:
+        wp._resolve_plain_lyrics(*args)
+    assert err.value is miss  # the original error, with the hints the user sent

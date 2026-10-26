@@ -1,8 +1,10 @@
 # LyricFix — lyrics lookup that survives an unavailable lrclib (2026-10)
 
-**Status: DECIDED (v2, 2026-10-16); round 2 (2026-10-22) shipped the worker and the record gate.
+**Status: DECIDED (v2, 2026-10-16); round 2 (2026-10-22) shipped the worker and the record gate;
+round 3 (2026-10-26) moved the plain lookup before the download.
 §1-§3 are the v1 analysis; §4 records the v2 decision that supersedes the v1 package order;
-§5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2).**
+§5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2);
+§6 is round 3 (deferrals after the download, the breaker's window, the mirror's memory limit).**
 
 Field complaint (Caner, recurring): when lrclib answers 503, the overlay shows
 "Lyrics unavailable (network)" and never asks again for the rest of the song. On
@@ -383,6 +385,80 @@ negative-cached, since lrclib may repair the record, and a rotted record already
 hit is asked again. `LOOKUP_LADDER_VERSION` 3. The overlay's mirror timeout went from 1.5 s to
 2.5 s (finding 5): `/api/get` is milliseconds, and a cold search beyond that still falls through
 to lrclib.net.
+
+## 6. Round 3 (2026-10-26)
+
+### Deferrals were landing after the download (measured)
+
+Worker logs, P3 rollout to 2026-10-26 (two pod lifetimes, ~90 hours):
+
+| | count |
+|---|---|
+| lrclib.net answers 200 / 503 / 404 | 140 / 104 / 53 |
+| deferrals (`lrclib_unavailable`) | 33 |
+| of them after the YouTube download | **30** |
+| downloads / repeat downloads of the same video | 198 / **45** |
+| breaker opens (cooldowns 60-480 s) | 50 |
+| worst single job | 10 deferrals, 10 downloads |
+
+§5 blamed the breaker's rule ("each success closes it"). The rule was part of it: after a busy
+answer the next answer was 200 about as often as 503, so "two failures in a row" rarely happened.
+The bigger cause was cadence. One worker finishes a job every ~12 minutes, and every measured
+cooldown had already run out when the next job was claimed. The pre-download check only ran while
+the breaker was open, so it almost never ran: the job downloaded, then met the 503. Replaying the
+second pod's log (16 deferrals) against a sliding-window rule alone caught 7 to 13 of them at best
+(15-60 min windows), because a single probe meets a 503 only ~40 % of the time. 30 of the 33
+deferrals were plain jobs (no nightcore marker; "slowed", "AMV" and "remix" are not markers); the 3
+nightcore ones always come after the download, so round 3 can save at most 27 of the 30.
+
+### Change (server 0.32.1)
+
+- **Plain jobs run the whole lrclib ladder before the download** (composite-title fallback and
+  caller lyrics included). Nothing in it reads the audio: the hints are the job's own plus
+  `options.original_title`. A busy lrclib.net with a mirror miss now defers with nothing
+  downloaded. The answer is kept and reused after the download, so the ladder still runs once per
+  job; a `lyrics_not_found` is remembered, not raised, and is replayed into the by-ear rung, which
+  needs the audio. Nightcore-marked jobs keep the download-first order (their lookup needs the
+  audio's duration); in the measured window they were 3 of the 33 deferrals. The old open-breaker
+  mirror check is gone (the gateway goes mirror-first by itself while the breaker is open).
+- **The breaker counts busy answers in a 30-minute window**, not in a row. A success closes it but
+  does not empty the window, so one more busy answer while earlier ones are still inside re-opens
+  it at once, on the next backoff step; the backoff resets only on a success with a clean window.
+  Window and threshold are settings (`lrclib_breaker_window_s`, `lrclib_breaker_failure_threshold`).
+  A half-open breaker that nobody probes for a whole window closes by itself (one busy answer
+  hours later is not a failed probe). Both settings are bounded (window > 0, threshold ≥ 1). New
+  gauge `kashi_lrclib_window_failures` (refreshed only when the worker asks lrclib: it keeps its
+  last value while the queue is empty, so do not alert on it); the breaker now logs when it closes
+  and on each busy answer below the threshold. With the lookup ahead of the download, the breaker
+  no longer decides whether a job downloads; it decides how soon lookups go mirror-first.
+- A cancel that lands during the pre-download lookup wins over the deferral (checkpoint first).
+- Side effects:
+  - a job whose download fails permanently, or whose hinted duration fails the client-edit gate,
+    now spends its 1-5 lrclib requests first; during an outage it defers instead of failing, and
+    after the 24 h patience it fails as transient `network` rather than its real (blocking) error.
+    A later listen may enqueue it again; the real error then blocks it. Rare, bounded;
+  - a transient download failure re-runs the ladder on each of its (at most 3) attempts;
+  - the `lyrics for ... via ...` log line now comes before the yt-dlp lines;
+  - a mirror answer with the breaker open is one mirror request instead of two, but it is also
+    final: the round-2 open-breaker path asked again after the download and could still reach
+    lrclib.net's `lyricsfile` fast path. Mirror copies carry no `lyricsfile`, so such a job goes
+    through CTC (as every mirror-sourced job already did in round 2).
+- Remaining late deferrals: the by-ear rung's candidate search still runs after the download (only
+  after a genuine `lyrics_not_found`), and so does every nightcore job's lookup.
+- Open question, not changed here: a mirror-sourced document is filed as `lyrics_source="lrclib"`,
+  so the tray's "Report good sync" can publish a machine alignment for a record that may carry
+  human word timings on lrclib.net (the publish gate only blocks `lyricsfile` documents). Round 2
+  had the same exposure.
+- Proof: 25 new test functions, 5 adjusted, 2 removed with the dead mirror-only check (DB-backed
+  worker tests on a throwaway Postgres 17), and 25 guard mutations, each killed: the pre-download
+  call; reuse of the answer; the returned (not raised) miss, twice (returned as nothing, re-raised
+  early); the replay inside the by-ear `try`; the plain-job gate; the `lrclib_unavailable`-only
+  deferral; the `precheck` label; the full ladder instead of a bare fetch (composite title, caller
+  lyrics); the commit after the deferral (a test was blind to it until it rolled back the session
+  the way the worker loop does); the cancel checkpoint; the threshold `>=`; window eviction and its
+  boundary; the window surviving a success; the backoff reset only on a clean window; the half-open
+  lapse, its boundary and a too-early variant; both setting bounds; the close log; the busy-answer
+  log; the settings wiring; and the gauge refresh.
 
 ## Sources
 

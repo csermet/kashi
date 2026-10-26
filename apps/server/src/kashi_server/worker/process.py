@@ -54,7 +54,7 @@ from kashi_server.pipeline.lrclib import (
     search_candidates,
     title_covers,
 )
-from kashi_server.pipeline.lrclib_gateway import LrclibGateway
+from kashi_server.pipeline.lrclib_gateway import LrclibBreaker, LrclibGateway
 from kashi_server.pipeline.lyricsfile import alignresult_from_lyricsfile
 from kashi_server.pipeline.nightcore import (
     detect_speed_factor,
@@ -147,7 +147,8 @@ IMPLAUSIBLE_DURATION_HINTS = Counter(
 JOBS_DEFERRED = Counter(
     "kashi_jobs_deferred_total",
     "Jobs re-queued without spending an attempt because lrclib was unavailable",
-    # precheck = before the download (the saving); lookup = after it;
+    # precheck = before the download (the saving; every plain job since round
+    # 3); lookup = after it (nightcore-marked jobs, and by-ear's search);
     # patience = gave up after lrclib_patience_s and failed as `network`
     ["reason"],
 )
@@ -162,6 +163,10 @@ def build_gateway() -> LrclibGateway:
         search=lambda query, url: search_candidates(query, base_url=url),
         primary_url=settings.lrclib_base_url,
         mirror_url=settings.lrclib_fallback_base_url,
+        breaker=LrclibBreaker(
+            window_s=settings.lrclib_breaker_window_s,
+            failure_threshold=settings.lrclib_breaker_failure_threshold,
+        ),
     )
 
 
@@ -731,8 +736,15 @@ def process_job(s: Session, job: Job) -> None:
     try:
         checkpoint(s, job)
 
-        if _defer_before_download(job):
-            _defer_or_give_up(s, job, "lrclib unavailable and the mirror has no lyrics", "precheck")
+        try:
+            lookup = _lookup_before_download(job)
+        except PipelineError as exc:
+            if exc.error_type != "lrclib_unavailable":
+                raise  # the handler below files it, as after a download
+            # The lookup can take a while (timeouts on both targets): a cancel
+            # that landed meanwhile wins over re-queueing the job.
+            checkpoint(s, job)
+            _defer_or_give_up(s, job, exc.message, "precheck")
             s.commit()
             return
 
@@ -755,7 +767,7 @@ def process_job(s: Session, job: Job) -> None:
         # a doomed lyrics_not_found no longer pays for separation first
         # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
         detection = _detect_nightcore(job, download)
-        plain_lyrics = _resolve_plain_lyrics(job, download, tmp, detection)
+        plain_lyrics = _resolve_plain_lyrics(job, download, tmp, detection, lookup)
         fast_result = (
             alignresult_from_lyricsfile(plain_lyrics.lyricsfile_raw, download.duration_s)
             if plain_lyrics is not None and plain_lyrics.source == "lrclib"
@@ -828,19 +840,30 @@ def _is_plain_lookup(job: Job) -> bool:
     return not options.get("original_title") and clean_title(title) is None
 
 
-def _defer_before_download(job: Job) -> bool:
-    """While lrclib.net is off limits (breaker open or Retry-After pause), a
-    plain job whose lyrics the mirror cannot supply is deferred BEFORE the
-    YouTube download: the download is the cost P3 exists to save.
+def _lookup_before_download(job: Job) -> LyricsText | PipelineError | None:
+    """The plain r=1 lyrics ladder, run BEFORE the YouTube download (LyricFix
+    round 3). The download is the cost deferral exists to save, and lrclib.net
+    answers 503 and 200 interleaved: a breaker that has to be open at claim
+    time saw the next job download, then meet the 503 (30 of 33 deferrals
+    landed after the download, 2026-10-22..26). Asking first means a busy
+    lrclib.net plus a mirror miss defers with nothing downloaded.
 
-    Nightcore-marked jobs keep the old order (download, then search): their
-    lookup depends on the audio's duration. That costs one download per
-    attempt during an outage; they are rare."""
-    if LRCLIB.breaker.allows_primary():
-        return False
-    if _caller_lyrics(job) is not None or not _is_plain_lookup(job):
-        return False
-    return LRCLIB.mirror_only_lookup(_lookup_hints(job)) is None
+    Nothing in the ladder reads the audio: `_lookup_hints` is job hints plus
+    `options.original_title`. Returns the lyrics, or the `lyrics_not_found`
+    error itself — RETURNED, not raised, because the by-ear rung needs the
+    audio and must still get its turn after the download.
+    `lrclib_unavailable` propagates (the caller defers).
+
+    None = not a plain lookup: nightcore-marked jobs keep the old order, as
+    their lookup depends on the audio's duration."""
+    if not _is_plain_lookup(job):
+        return None
+    try:
+        return _plain_lyrics(job)
+    except PipelineError as exc:
+        if exc.error_type != "lyrics_not_found":
+            raise
+        return exc
 
 
 def _defer_or_give_up(s: Session, job: Job, message: str, reason: str) -> None:
@@ -889,12 +912,22 @@ def _check_client_edit(job: Job, download: DownloadResult) -> None:
 
 
 def _resolve_plain_lyrics(
-    job: Job, download: DownloadResult, tmp: Path, detection: tuple
+    job: Job,
+    download: DownloadResult,
+    tmp: Path,
+    detection: tuple,
+    lookup: LyricsText | PipelineError | None = None,
 ) -> LyricsText | None:
-    """Lyrics for the r=1 flow (lrclib, then the by-ear rung); None for nightcore."""
+    """Lyrics for the r=1 flow (lrclib, then the by-ear rung); None for nightcore.
+
+    `lookup` is the pre-download answer (`_lookup_before_download`): reused, so
+    the lrclib ladder runs once per job; a remembered miss is replayed into
+    the by-ear rung exactly as a fresh one would be."""
     if is_original_speed(detection[0]):
         try:
-            plain_lyrics = _plain_lyrics(job)
+            if isinstance(lookup, PipelineError):
+                raise lookup
+            plain_lyrics = lookup if lookup is not None else _plain_lyrics(job)
         except PipelineError as exc:
             # Every metadata rung has now failed. The words themselves are
             # the last thing left to ask, and they only get asked here so

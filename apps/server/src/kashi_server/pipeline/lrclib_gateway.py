@@ -15,11 +15,14 @@ download. So:
 - A clean primary 404 is `lyrics_not_found` as before; the mirror is not asked
   (it cannot know more than lrclib.net does).
 - After repeated primary failures a breaker keeps the worker off lrclib.net for
-  a cooldown, so an outage costs a request or two, not one per job.
+  a cooldown, so an outage costs a request or two, not one per job. It counts
+  busy answers in a sliding window, not in a row: lrclib.net answers 503 and
+  200 interleaved (2026-10), and a success used to wipe the count.
 """
 
 import logging
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
@@ -34,9 +37,14 @@ logger = logging.getLogger(__name__)
 # 5xx, 403, timeouts and DNS -> network.
 BUSY_ERROR_TYPES = frozenset({"rate_limited", "network"})
 
-# Two in a row, not one: a single 503 is lrclib's documented "busy, retry in
-# a second" and should not send the next jobs to the mirror for a minute.
+# Two, not one: a single 503 is lrclib's documented "busy, retry in a second"
+# and should not send the next jobs to the mirror for a minute. Counted inside
+# BREAKER_WINDOW_S, not in a row (LyricFix round 3): in the 2026-10 weather the
+# answer after a busy one was 200 as often as 503, so "two in a row" rarely
+# happened and every success reset the count. Defaults; the worker passes
+# settings.lrclib_breaker_* (pinned equal by a test).
 BREAKER_FAILURE_THRESHOLD = 2
+BREAKER_WINDOW_S = 1800.0
 BREAKER_BASE_COOLDOWN_S = 60.0
 # Cap on the exponential part only. A Retry-After longer than this is still
 # honoured (lrclib's rules: ignoring it "may result in a temporary ban");
@@ -48,62 +56,111 @@ BREAKER_OPEN = Gauge(
     "1 from the moment the breaker opens until a request succeeds again",
     ["target"],
 )
+WINDOW_FAILURES = Gauge(
+    "kashi_lrclib_window_failures",
+    "Busy lrclib answers inside the breaker's sliding window",
+    ["target"],
+)
 
 
 class LrclibBreaker:
-    """closed -> open after BREAKER_FAILURE_THRESHOLD consecutive transient
-    failures; open for max(60 s * 2^(n-1) capped at 15 min, Retry-After), where
-    n counts the opens since the last success; then half-open: the next request
-    is the probe. A probe that fails re-opens at once with the next n; any
-    success closes and resets n.
+    """closed -> open once `failure_threshold` busy answers fall inside the
+    last `window_s` seconds (not necessarily in a row); open for
+    max(60 s * 2^(n-1) capped at 15 min, Retry-After); then half-open: the
+    next request is the probe. A probe that fails re-opens at once with the
+    next n. A success closes the breaker but does NOT empty the window: one
+    more busy answer while earlier ones are still inside it re-opens at once.
+    n resets only on a success with a clean window, or when a whole window
+    passes after the cooldown with no request at all (the half-open state
+    lapses: one busy answer hours later is not a failed probe).
 
     A failure below the threshold that carries Retry-After pauses the primary
     for that long without opening (and without touching n)."""
 
-    def __init__(self, now: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        now: Callable[[], float] = time.monotonic,
+        *,
+        window_s: float = BREAKER_WINDOW_S,
+        failure_threshold: int = BREAKER_FAILURE_THRESHOLD,
+    ) -> None:
         self._now = now
-        self._failures = 0
+        self._window_s = window_s
+        self._threshold = failure_threshold
+        self._failures: deque[float] = deque()
         self._opens = 0
         self._open_until: float | None = None
         self._pause_until = 0.0
         BREAKER_OPEN.labels("primary").set(0)
+        WINDOW_FAILURES.labels("primary").set(0)
 
     @property
     def opens(self) -> int:
         return self._opens
 
+    def _in_window(self, now: float) -> int:
+        """Drop failures that have left the window; count the rest."""
+        while self._failures and now - self._failures[0] >= self._window_s:
+            self._failures.popleft()
+        WINDOW_FAILURES.labels("primary").set(len(self._failures))
+        return len(self._failures)
+
+    def _lapse(self, now: float) -> None:
+        """A half-open breaker nobody probed for a whole window closes."""
+        if self._open_until is not None and now - self._open_until >= self._window_s:
+            logger.info("lrclib breaker closed (quiet since open #%d)", self._opens)
+            self._open_until = None
+            self._opens = 0
+            BREAKER_OPEN.labels("primary").set(0)
+
     def allows_primary(self) -> bool:
         """False while open or paused; True when closed or half-open."""
         now = self._now()
+        self._in_window(now)
+        self._lapse(now)
         if now < self._pause_until:
             return False
         return self._open_until is None or now >= self._open_until
 
     def record_success(self) -> None:
-        self._failures = 0
-        self._opens = 0
+        self._lapse(self._now())
+        if self._open_until is not None:
+            logger.info("lrclib breaker closed (after open #%d)", self._opens)
         self._open_until = None
         self._pause_until = 0.0
         BREAKER_OPEN.labels("primary").set(0)
+        if self._in_window(self._now()) == 0:
+            self._opens = 0
 
     def record_failure(self, retry_after_s: float | None = None) -> None:
+        now = self._now()
+        self._lapse(now)
         half_open = self._open_until is not None
-        self._failures += 1
+        self._failures.append(now)
+        failures = self._in_window(now)
         retry_after = retry_after_s or 0.0
-        if half_open or self._failures >= BREAKER_FAILURE_THRESHOLD:
+        if half_open or failures >= self._threshold:
             self._opens += 1
             backoff = min(BREAKER_BASE_COOLDOWN_S * 2 ** (self._opens - 1), BREAKER_MAX_BACKOFF_S)
             cooldown = max(backoff, retry_after)
-            self._open_until = self._now() + cooldown
-            self._failures = 0
+            self._open_until = now + cooldown
             BREAKER_OPEN.labels("primary").set(1)
             logger.warning(
-                "lrclib breaker OPEN for %.0fs (open #%d since the last success)",
+                "lrclib breaker OPEN for %.0fs (open #%d; %d busy answers in the last %.0f min)",
                 cooldown,
                 self._opens,
+                failures,
+                self._window_s / 60,
             )
-        elif retry_after > 0:
-            self._pause_until = self._now() + retry_after
+            return
+        logger.info(
+            "lrclib busy answer (%d in the last %.0f min; the breaker opens at %d)",
+            failures,
+            self._window_s / 60,
+            self._threshold,
+        )
+        if retry_after > 0:
+            self._pause_until = now + retry_after
 
 
 # (hints, base_url) -> LyricsText and (query, base_url) -> list[dict]. The
@@ -139,18 +196,6 @@ class LrclibGateway:
         # caller would read [] as "no such song" (nightcore detection would
         # fall back to r=1 on a nightcore upload).
         return self._ask(lambda url: self._search(query, url), f"q={query!r}", lambda r: not r)
-
-    def mirror_only_lookup(self, hints: dict) -> LyricsText | None:
-        """The pre-download check while the primary is unavailable: lyrics
-        from the mirror, or None (no mirror, a miss, or the mirror failing).
-        Never touches the breaker."""
-        if self.mirror_url is None:
-            return None
-        try:
-            return self._fetch(hints, self.mirror_url)
-        except PipelineError as exc:
-            logger.info("mirror-only lookup missed (%s): %s", exc.error_type, exc.message[:200])
-            return None
 
     def _ask(self, call: Callable[[str], Any], context: str, is_miss: Callable[[Any], bool]) -> Any:
         primary_error: PipelineError | None = None
