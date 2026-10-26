@@ -114,9 +114,24 @@ interface LrclibRecord {
   instrumental?: boolean;
 }
 
+/**
+ * Kashi's registered LRCLIB application id (client-side model, registered by
+ * the owner on 2026-10-26). Public by design: lrclib's docs call it "not a
+ * secret, safe to ship in a client". Sent to lrclib.net only, never to a
+ * mirror. Twin of LRCLIB_APP_ID in the server's pipeline/lrclib.py.
+ */
+export const LRCLIB_APP_ID = 'yLeWPTPmzzUBKKvZroldkf_vtRR2fCDuKJzP6jMhKg8';
+
 export interface LrclibClientOptions {
   cacheDir: string;
   userAgent?: string;
+  /**
+   * `Lrclib-App-Id` to send (lrclib.net only). If lrclib answers 401 to it
+   * (revoked or unknown), the client drops it for the rest of the process,
+   * says so once, and repeats that request without it: anonymous access keeps
+   * working.
+   */
+  appId?: string;
   fetchFn?: typeof fetch;
   nowFn?: () => number;
   negativeTtlMs?: number;
@@ -408,18 +423,34 @@ export class LrclibClient {
     return bestDiff <= SEARCH_DURATION_TOLERANCE_S ? best : null;
   }
 
+  /** Set once lrclib rejected the app id: anonymous from then on. */
+  private appIdRejected = false;
+
   private async request(path: string, signal?: AbortSignal): Promise<Response> {
+    const appId = this.appIdRejected ? undefined : this.opts.appId;
+    const resp = await this.send(path, appId, signal);
+    if (resp.status === 401 && appId !== undefined) {
+      this.appIdRejected = true;
+      this.opts.log?.('[lrclib] app id rejected (401) — continuing without it');
+      return this.send(path, undefined, signal);
+    }
+    return resp;
+  }
+
+  private async send(path: string, appId: string | undefined, signal?: AbortSignal): Promise<Response> {
     const fetchFn = this.opts.fetchFn ?? fetch;
     // Each request gets its own timeout budget — a single slow lrclib response
     // must not eat the whole lookup (exact-get + search are sequential).
     const timeout = AbortSignal.timeout(this.opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
+    const headers: Record<string, string> = {
+      'User-Agent':
+        this.opts.userAgent ?? `kashi/${KASHI_VERSION} (+https://github.com/csermet/kashi)`,
+    };
+    if (appId !== undefined) headers['Lrclib-App-Id'] = appId;
     try {
       return await fetchFn(`${this.opts.baseUrl ?? 'https://lrclib.net'}${path}`, {
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-        headers: {
-          'User-Agent':
-            this.opts.userAgent ?? `kashi/${KASHI_VERSION} (+https://github.com/csermet/kashi)`,
-        },
+        headers,
       });
     } catch (err) {
       // The CALLER's abort is a cancellation, not an outage: it must stay

@@ -5,7 +5,7 @@ round 3 (2026-10-26) moved the plain lookup before the download.
 §1-§3 are the v1 analysis; §4 records the v2 decision that supersedes the v1 package order;
 §5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2);
 §6 is round 3 (deferrals after the download, the breaker's window, next-track prefetch, the
-mirror's memory limit, upstream notes).**
+lrclib app id, the mirror's memory limit, upstream notes).**
 
 Field complaint (Caner, recurring): when lrclib answers 503, the overlay shows
 "Lyrics unavailable (network)" and never asks again for the rest of the song. On
@@ -506,6 +506,21 @@ fetched while the previous one plays, if the client knows what comes next.
   forged post dropped); and the real overlay with lrclib.net answering 503 throughout: the next
   song was warmed from the mirror at the current song's 60 s mark, and after the switch its 40
   lines were on screen 0.5 s later (the overlay's own debounce) with no request for it at all.
+
+### Lrclib-App-Id (registered 2026-10-26)
+
+lrclib now offers optional application registration. The client-side model gives a public
+`Lrclib-App-Id` ("not a secret, safe to ship in a client"); the server-side model gives a secret
+key that a desktop client could not use, and the choice is permanent. Its docs promise higher
+limits for registered clients (~180/min per IP vs ~90 for an identified User-Agent), while the
+portal and the 2026-09-30 terms say registration "currently provides no additional rate limits".
+At our volume the limit is not the point; the contact channel is (lrclib can reach the owner
+instead of blocking the User-Agent). The owner registered one client-side application, "Kashi".
+
+Both twins send the id to lrclib.net only, never to the mirror (the overlay's lrclib.net client,
+the server's primary transport). If lrclib answers 401 to it (revoked or unknown), the client
+drops it for the rest of the process, logs once, and repeats that request without it (paced like
+any other on the server), so anonymous access keeps working. 10 guard mutations, each killed.
 
 ### Mirror memory limit (2026-10-26)
 

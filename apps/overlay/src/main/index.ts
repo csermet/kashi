@@ -35,7 +35,7 @@ import { enableUtf8Console, makeLogger, makeWarnLogger } from './log.js';
 import { KashiServerClient } from './kashi-server.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
 import { LookupOrchestrator } from './lookup-orchestrator.js';
-import { LrclibClient } from './lrclib.js';
+import { LRCLIB_APP_ID, LrclibClient } from './lrclib.js';
 import { LyricsChain } from './lyrics-chain.js';
 import { SourceCooldown } from './source-cooldown.js';
 import { Prefetcher } from './prefetcher.js';
@@ -1127,6 +1127,8 @@ app.whenReady().then(async () => {
   const lrclibOverride = process.env['KASHI_LRCLIB_BASE_URL'] || undefined;
   lrclib = new LrclibClient({
     baseUrl: lrclibOverride,
+    // lrclib.net only: the mirror client (buildLyricsChain) never gets it.
+    appId: LRCLIB_APP_ID,
     cacheDir: join(app.getPath('userData'), 'cache', lrclibOverride ? 'lrclib-override' : 'lrclib'),
     cooldown: lrclibCooldown,
     // Chromium's network stack (proper happy-eyeballs/IPv6 fallback, OS proxy)

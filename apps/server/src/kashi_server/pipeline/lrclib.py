@@ -33,6 +33,11 @@ from kashi_server.version import PIPELINE_VERSION
 logger = logging.getLogger(__name__)
 
 USER_AGENT = f"kashi-server/{PIPELINE_VERSION} (+https://github.com/csermet/kashi)"
+# Kashi's registered LRCLIB application id (client-side model, registered by
+# the owner on 2026-10-26). Public by design: lrclib's docs call it "not a
+# secret, safe to ship in a client". Sent to lrclib.net only, never to the
+# mirror. Twin of LRCLIB_APP_ID in the overlay's lrclib.ts.
+LRCLIB_APP_ID = "yLeWPTPmzzUBKKvZroldkf_vtRR2fCDuKJzP6jMhKg8"
 PRIMARY_TIMEOUT_S = 15.0
 # lrclib asks clients to honour Retry-After. A value past an hour is not a
 # plan we can act on (and a typo'd header must not park the worker for a day).
@@ -215,20 +220,51 @@ def _endpoint(path: str) -> str:
     return "other"
 
 
+class _AppIdState:
+    """Process-wide: once lrclib rejects the app id (401), stay anonymous."""
+
+    rejected = False
+
+
+APP_ID_STATE = _AppIdState()
+
+
 class _InstrumentedTransport(httpx.BaseTransport):
-    """Counts every request (status, or "error" when none came back) and paces
-    the primary. A transport rather than event hooks: a hook never sees a
-    timeout or a refused connection, and during an outage those are exactly
-    the requests worth counting."""
+    """Counts every request (status, or "error" when none came back), paces
+    the primary and sends its app id. A transport rather than event hooks: a
+    hook never sees a timeout or a refused connection, and during an outage
+    those are exactly the requests worth counting.
+
+    A 401 to the app id (revoked or unknown) drops it for the rest of the
+    process and repeats that request without it: anonymous access keeps
+    working, and the warning says why."""
 
     def __init__(
-        self, inner: httpx.BaseTransport, target: str, pacer: RequestPacer | None
+        self,
+        inner: httpx.BaseTransport,
+        target: str,
+        pacer: RequestPacer | None,
+        app_id: str | None = None,
     ) -> None:
         self._inner = inner
         self._target = target
         self._pacer = pacer
+        self._app_id = app_id
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
+        send_id = self._app_id is not None and not APP_ID_STATE.rejected
+        if send_id and self._app_id is not None:
+            request.headers["Lrclib-App-Id"] = self._app_id
+        response = self._send(request)
+        if response.status_code == 401 and send_id:
+            APP_ID_STATE.rejected = True
+            logger.warning("lrclib rejected the app id (401); continuing without it")
+            response.close()
+            del request.headers["Lrclib-App-Id"]
+            response = self._send(request)
+        return response
+
+    def _send(self, request: httpx.Request) -> httpx.Response:
         if self._pacer is not None:
             self._pacer.wait()
         endpoint = _endpoint(request.url.path)
@@ -264,7 +300,12 @@ def _client(
         base_url=base_url,
         timeout=timeout_s,
         headers={"User-Agent": USER_AGENT},
-        transport=_InstrumentedTransport(transport or httpx.HTTPTransport(), target, pacer),
+        transport=_InstrumentedTransport(
+            transport or httpx.HTTPTransport(),
+            target,
+            pacer,
+            LRCLIB_APP_ID if target == "primary" else None,
+        ),
     )
 
 

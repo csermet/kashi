@@ -995,3 +995,87 @@ def test_record_gate_words_per_minute_boundary(shipped_record_gate):
     assert is_degenerate_synced(_entries(4, 1), 60.0)  # 4/min at exactly a minute
     # No duration: only the line floor applies.
     assert not is_degenerate_synced(_entries(4, 1), None)
+
+
+# --- Lrclib-App-Id (LyricFix round 3, P4) ------------------------------------
+
+
+def test_the_app_id_is_the_registered_public_one():
+    from kashi_server.pipeline.lrclib import LRCLIB_APP_ID
+
+    assert LRCLIB_APP_ID == "yLeWPTPmzzUBKKvZroldkf_vtRR2fCDuKJzP6jMhKg8"
+
+
+def test_the_app_id_goes_to_lrclib_net_only(monkeypatch):
+    from kashi_server.config import settings
+    from kashi_server.pipeline.lrclib import APP_ID_STATE, LRCLIB_APP_ID, RequestPacer, _client
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
+    monkeypatch.setattr(APP_ID_STATE, "rejected", False)
+    seen: dict[str, list[str | None]] = {"primary": [], "mirror": []}
+
+    def recorder(name):
+        def handler(request):
+            seen[name].append(request.headers.get("Lrclib-App-Id"))
+            return httpx.Response(404)
+
+        return handler
+
+    pacer = RequestPacer(lambda: 0.0)
+    with _client(
+        "https://lrclib.test", transport=httpx.MockTransport(recorder("primary")), pacer=pacer
+    ) as primary:
+        primary.get("/api/get")
+    with _client("http://mirror.test", transport=httpx.MockTransport(recorder("mirror"))) as mirror:
+        mirror.get("/api/get")
+    assert seen == {"primary": [LRCLIB_APP_ID], "mirror": [None]}
+
+
+def test_a_401_to_the_app_id_drops_it_for_good_and_repeats_the_request(monkeypatch, caplog):
+    import logging
+
+    from kashi_server.pipeline import lrclib as lrclib_mod
+    from kashi_server.pipeline.lrclib import APP_ID_STATE, RequestPacer, _client
+
+    monkeypatch.setattr(APP_ID_STATE, "rejected", False)
+    log = logging.getLogger(lrclib_mod.__name__)
+    monkeypatch.setattr(log, "disabled", False)  # alembic's fileConfig can leave it off
+    sent: list[str | None] = []
+
+    def handler(request):
+        app_id = request.headers.get("Lrclib-App-Id")
+        sent.append(app_id)
+        return httpx.Response(401) if app_id else httpx.Response(404)
+
+    fake = _FakeTime()
+    pacer = RequestPacer(lambda: 0.25, clock=fake.clock, sleep=fake.sleep)
+    with caplog.at_level(logging.WARNING, logger=log.name):
+        with _client(
+            "https://lrclib.test", transport=httpx.MockTransport(handler), pacer=pacer
+        ) as client:
+            first = client.get("/api/get")
+            second = client.get("/api/search")
+    assert first.status_code == 404  # the repeat's answer, not the 401
+    assert second.status_code == 404
+    assert sent == [lrclib_mod.LRCLIB_APP_ID, None, None]
+    assert APP_ID_STATE.rejected
+    assert len(fake.slept) == 2  # the repeat is paced like any request
+    assert caplog.text.count("rejected the app id") == 1
+
+
+def test_a_401_without_an_app_id_is_not_repeated(monkeypatch):
+    from kashi_server.config import settings
+    from kashi_server.pipeline.lrclib import APP_ID_STATE, _client
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", "http://mirror.test")
+    monkeypatch.setattr(APP_ID_STATE, "rejected", False)
+    hits: list[str] = []
+
+    def handler(request):
+        hits.append(request.url.path)
+        return httpx.Response(401)
+
+    with _client("http://mirror.test", transport=httpx.MockTransport(handler)) as mirror:
+        assert mirror.get("/api/get").status_code == 401
+    assert hits == ["/api/get"]
+    assert not APP_ID_STATE.rejected

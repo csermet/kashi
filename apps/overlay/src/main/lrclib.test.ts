@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SourceCooldown } from './source-cooldown.js';
-import { LrclibClient, LrclibUnavailableError, MAX_RETRY_AFTER_MS, normalizeArtist, parseLrc, parseRetryAfter,
+import { LRCLIB_APP_ID, LrclibClient, LrclibUnavailableError, MAX_RETRY_AFTER_MS, normalizeArtist, parseLrc, parseRetryAfter,
   isDegenerateLines, isDegenerateSynced, splitArtists,
 } from './lrclib.js';
 
@@ -25,14 +25,16 @@ function jsonResponse(status: number, body: unknown): Response {
 
 interface FetchCall {
   url: string;
+  headers: Record<string, string>;
 }
 
-function makeFetch(handler: (url: string) => Response | Promise<Response>) {
+function makeFetch(handler: (url: string, headers: Record<string, string>) => Response | Promise<Response>) {
   const calls: FetchCall[] = [];
-  const fetchFn = (async (input: RequestInfo | URL) => {
+  const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    calls.push({ url });
-    return handler(url);
+    const headers = { ...((init?.headers as Record<string, string> | undefined) ?? {}) };
+    calls.push({ url, headers });
+    return handler(url, headers);
   }) as typeof fetch;
   return { fetchFn, calls };
 }
@@ -652,5 +654,53 @@ describe('degenerate lrclib records (LyricFix P4, twin of the server gate)', () 
     expect(isDegenerateSynced(lines(4, 1), 60)).toBe(true);
     expect(isDegenerateSynced(lines(4, 1), null)).toBe(false); // no duration: line floor only
     expect(isDegenerateLines(['a', 'b', 'c', 'd'], null)).toBe(false);
+  });
+});
+
+describe('Lrclib-App-Id', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'kashi-appid-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const record = { id: 7, syncedLyrics: SONG_LRC, duration: 200, instrumental: false };
+  const query = { title: 'T', artist: 'A', duration_ms: 200_000 };
+
+  it('is the registered public id', () => {
+    expect(LRCLIB_APP_ID).toBe('yLeWPTPmzzUBKKvZroldkf_vtRR2fCDuKJzP6jMhKg8');
+  });
+
+  it('goes out on every request when configured, and not otherwise', async () => {
+    const withId = makeFetch(() => jsonResponse(200, record));
+    await new LrclibClient({ cacheDir: dir, fetchFn: withId.fetchFn, appId: 'app-123' }).getLyrics(query);
+    expect(withId.calls.map((c) => c.headers['Lrclib-App-Id'])).toEqual(['app-123']);
+    expect(withId.calls[0]?.headers['User-Agent']).toMatch(/^kashi\//);
+
+    const without = makeFetch(() => jsonResponse(200, record));
+    await new LrclibClient({ cacheDir: join(dir, 'b'), fetchFn: without.fetchFn }).getLyrics(query);
+    expect(without.calls[0]?.headers['Lrclib-App-Id']).toBeUndefined();
+  });
+
+  it('a 401 to the id drops it for good and repeats the request without it', async () => {
+    const logs: string[] = [];
+    const { fetchFn, calls } = makeFetch((_url, headers) =>
+      headers['Lrclib-App-Id'] ? new Response('{"name":"InvalidAppIdError"}', { status: 401 }) : jsonResponse(200, record),
+    );
+    const client = new LrclibClient({ cacheDir: dir, fetchFn, appId: 'revoked', log: (l) => logs.push(l) });
+    const first = await client.getLyrics(query);
+    expect(first.found).toBe(true);
+    expect(calls.map((c) => c.headers['Lrclib-App-Id'] ?? '-')).toEqual(['revoked', '-']);
+    await client.getLyrics({ ...query, title: 'Other' });
+    expect(calls.slice(2).every((c) => c.headers['Lrclib-App-Id'] === undefined)).toBe(true);
+    expect(logs.filter((l) => l.includes('app id rejected'))).toHaveLength(1);
+  });
+
+  it('a 401 without an id is not retried', async () => {
+    const { fetchFn, calls } = makeFetch(() => new Response('{}', { status: 401 }));
+    const client = new LrclibClient({ cacheDir: dir, fetchFn });
+    await expect(client.getLyrics(query)).rejects.toBeInstanceOf(LrclibUnavailableError);
+    expect(calls).toHaveLength(1);
   });
 });
