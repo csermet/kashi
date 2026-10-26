@@ -215,9 +215,16 @@ last calibrated against.
 differential harness, 4000 scenarios incl. disagreements exactly on 400 ms after
 the lead; whole-track identical under every setting; hybrid and vote never
 raise). 24 mutations caught by `tests/test_windowed_align.py` and
-`test_alignment_regroup.py`. A CPU smoke run on one German song (MMS, full mix)
-went end to end: 304 of 367 words placed by `segment`; with the vote, 305 taken
-from the whole track.
+`test_alignment_regroup.py`.
+
+**Parity with the simulation** (CPU, one German song from the all79 set, MMS,
+`kim-base`, the round 5 settings; results not committed — one song is a
+check, not a measurement). `edges`: 367 of 367 word starts equal the round 5
+GPU dump exactly. Hybrid: 97.5 % of words within 25 ms of the simulated hybrid
+built from the two dumps; with the vote 98.6 % (the rest is the seam passes,
+which the simulation never ran on the chosen times). 331 words placed by
+`segment`; with the vote 344 taken from the whole track. PCO@0.1 without
+offsets on that song: 0.861 `edges` → 0.891 hybrid → 0.924 with the vote.
 
 **Next:** the GPU confirmation runs (commands in `benchmarks/README.md`, "Faz 9
 round 6"), then the default flip as pipeline 2.29.0 with refitted tables.
