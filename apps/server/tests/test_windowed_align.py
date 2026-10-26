@@ -107,6 +107,10 @@ def run_align(monkeypatch, tmp_path, **kwargs):
     in window 1, so the word count no longer matches and alignment drops to
     line timings."""
     line_mode = kwargs.pop("line_mode", False)
+    # The edges mechanics (2.28's windows). The shipped hybrid + whole-track
+    # vote run through run_hybrid below.
+    kwargs.setdefault("window_star", "edges")
+    kwargs.setdefault("whole_vote", False)
     seen: dict = {"exact": [], "star": []}
     monkeypatch.setitem(
         sys.modules,
@@ -167,7 +171,7 @@ def test_exact_stride_reaches_every_window(monkeypatch, tmp_path):
 # --- 2.28.0: the shipped defaults and the windowed lead ----------------------
 
 
-def test_the_shipped_defaults_are_the_exact_clock_yield_and_the_lead(monkeypatch, tmp_path):
+def test_the_shipped_clock_seams_and_lead(monkeypatch, tmp_path):
     result, seen = run_align(monkeypatch, tmp_path)
     assert seen["exact"] == [True] * 4
     three = result.words_per_line[0][-1]
@@ -238,9 +242,8 @@ def test_stamps_the_planner_declines_take_no_lead_either(monkeypatch, tmp_path):
     assert [w.start_ms for w in result.words_per_line[0]] == [950, 1_950, 2_950]
 
 
-def test_windows_keep_edge_stars_by_default(monkeypatch, tmp_path):
+def test_edges_stars_reach_every_window(monkeypatch, tmp_path):
     _, seen = run_align(monkeypatch, tmp_path)
-    assert alignment.WINDOW_STAR_DEFAULT == "edges"
     assert seen["star"] == ["edges"] * 4
 
 
@@ -511,3 +514,35 @@ def test_hybrid_is_a_known_star_placement():
     assert "hybrid" in alignment.WINDOW_STARS
     assert alignment.HYBRID_T_MS == 400
     assert alignment.WHOLE_VOTE_T_MS == 400
+
+
+def test_the_shipped_defaults_are_hybrid_stars_and_the_whole_track_vote(monkeypatch, tmp_path):
+    # 2.29.0: align() called as the worker calls it — no star or vote arguments.
+    assert alignment.WINDOW_STAR_DEFAULT == "hybrid"
+    assert alignment.WHOLE_VOTE_DEFAULT is True
+    calls: dict = {"hybrid": 0, "whole": 0}
+    monkeypatch.setitem(
+        sys.modules,
+        "ctc_forced_aligner",
+        types.SimpleNamespace(load_audio=lambda *a, **k: FakeAudio(TOTAL_S * 16_000)),
+    )
+    fake_model = types.SimpleNamespace(dtype=None, device="cpu")
+    monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
+
+    def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride):
+        calls["hybrid"] += 1
+        rows = [
+            {"text": t, "start": 0.5 + i, "end": 0.7 + i, "score": -0.1}
+            for i, t in enumerate(texts[0].split())
+        ]
+        return rows, rows
+
+    def fake_align_texts(model, tokenizer, piece, texts, language, star, *, romanize, exact_stride):
+        calls["whole"] += 1
+        return []  # cannot pair: the vote is skipped, the windows stand
+
+    monkeypatch.setattr(alignment, "_align_slice_hybrid", fake_hybrid)
+    monkeypatch.setattr(alignment, "_align_texts", fake_align_texts)
+    result = alignment.align(tmp_path / "x.wav", LINES, "eng", STAMPS)
+    assert calls == {"hybrid": 4, "whole": 1}
+    assert {w.source for chunk in result.words_per_line for w in chunk} == {"segment"}

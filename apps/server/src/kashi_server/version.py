@@ -650,5 +650,23 @@
 # (@0.3 0.917 -> 0.930, all four up). Line QA and the arbiter now see the
 # exact clock (shift_ms carries the lead, so raw = start - shift_ms is the
 # model's own clock again), and their nudge counts move with it.
-PIPELINE_VERSION = "2.28.0"
+# 2.29.0: hybrid window stars and a whole-track vote (Faz 9 rounds 5-6). Each
+# window slice is aligned once into emissions and twice through Viterbi:
+# star tokens at the slice edges ("edges", 2.28) and before every word
+# ("segment", the whole-track topology). "segment" alone places the words it
+# finds more precisely but nearly doubles the gross errors, so per word the
+# "segment" time wins only within 400 ms of the "edges" one (after the 70 ms
+# windowed lead, which belongs to the edges topology). Then one whole-track
+# pass votes the same way. Rows the hybrid or the vote place are moved onto
+# the edges clock as they are chosen, so seams, regrouping and the arbiter's
+# raw clock compare like with like; word probs stay the edges ones. Measured
+# on JamendoLyrics (GPU round 6, the shipped tables, PCO@0.1/0.2/0.3, per-song
+# means): English 0.731/0.865/0.905 -> 0.817/0.901/0.920; MMS @0.1 deu 0.825
+# -> 0.932, fra 0.759 -> 0.863, spa 0.762 -> 0.902; @0.3 up in every language;
+# gross errors (>500 ms) flat (English 5.1 % -> 5.1 %). Pop valid region @0.1
+# 0.622 -> 0.633, gross 23 -> 22 words. The real code reproduces the round 5
+# simulation within 0.002 everywhere. Refitted tables move by <= 10 ms, so the
+# English table and the MMS zero offsets stay. One extra emission pass per
+# song (the vote): about a minute on the CPU worker.
+PIPELINE_VERSION = "2.29.0"
 PIPELINE_MAJOR = 2

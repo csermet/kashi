@@ -551,10 +551,11 @@ WINDOWED_LEAD_MS = 70
 #: every word, as the whole-track path does. "edges" was chosen in 2026-07 on
 #: the 21 ms clock ("segment" measured ~0.13 PCO worse); over the whole track,
 #: on the exact clock, segment-starred MMS scores PCO@0.1 0.87-0.93 against
-#: 0.76-0.84 windowed (Faz 9 round 4). Re-measured behind this switch before
-#: any default changes (a change of it is a pipeline minor bump, and any lead
-#: re-fit with it).
-WINDOW_STAR_DEFAULT = "edges"
+#: 0.76-0.84 windowed (Faz 9 round 4). Alone, "segment" places the words it
+#: finds more precisely but nearly doubles the gross errors (round 5), so
+#: 2.29.0 ships "hybrid": both, per word (HYBRID_T_MS). "edges" alone
+#: reproduces 2.28 byte for byte.
+WINDOW_STAR_DEFAULT = "hybrid"
 WINDOW_STARS = ("edges", "segment", "hybrid")
 
 #: "hybrid" (Faz 9 round 5): each window slice is aligned ONCE into emissions
@@ -568,7 +569,7 @@ HYBRID_T_MS = 400
 #: lyric is aligned once over the whole track and a word takes that time when
 #: it lies within WHOLE_VOTE_T_MS of its windowed one (windows.whole_track_vote).
 #: One extra emission pass per song.
-WHOLE_VOTE_DEFAULT = False
+WHOLE_VOTE_DEFAULT = True
 WHOLE_VOTE_T_MS = 400
 
 

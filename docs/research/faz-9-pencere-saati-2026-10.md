@@ -1,4 +1,4 @@
-# The windowed clock — four GPU rounds and what shipped (Faz 9, 2026-10-23)
+# The windowed clock — six GPU rounds and what shipped (Faz 9, 2026-10-23 / 10-26)
 
 **Question.** The windowed aligner ran on a 21 ms frame step where the model's
 real hop is 20 ms, and windows pushed the next line's opening words onto a word
@@ -130,11 +130,11 @@ English windows. No benchmark round ran line QA, so this is unmeasured.
 
 - First-document inspection and the 63-document pilot (Rollout) before the wave;
   if dropped lines rise, re-calibrate the arbiter's onset gate on the exact clock.
-- A confirmation run of the released code (defaults on, refitted English table)
-  for result files of the shipped configuration.
-- Per-language MMS leads (windowed optima deu +50, eng +40, fra/spa +80) — one
-  value serves all four today. Japanese and Turkish take the lead unmeasured.
-- The star-topology experiment (finding 7).
+- ~~A confirmation run of the released code~~ — done for 2.29.0 (round 6).
+- ~~Per-language MMS leads~~ — moot since 2.29.0: the hybrid and the vote place
+  most words on the whole-track clock, where MMS wants 0..+10 ms (round 6).
+  Japanese and Turkish take the lead and the hybrid unmeasured.
+- ~~The star-topology experiment (finding 7)~~ — rounds 5-6, shipped as 2.29.0.
 - A Turkish truth that is independent of the pipeline (hand-correct at 100 ms
   precision, or mark only touched words as verified, as `pop_valid.py` does).
 
@@ -226,5 +226,41 @@ which the simulation never ran on the chosen times). 331 words placed by
 `segment`; with the vote 344 taken from the whole track. PCO@0.1 without
 offsets on that song: 0.861 `edges` → 0.891 hybrid → 0.924 with the vote.
 
-**Next:** the GPU confirmation runs (commands in `benchmarks/README.md`, "Faz 9
-round 6"), then the default flip as pipeline 2.29.0 with refitted tables.
+**GPU confirmation** (Caner's PC, results `2026-10-26-h-*`, round 5 settings:
+`kim-base`, jitter 400, correction off; LOSO single offset as in the
+simulation; the `edges` baselines are the `2026-10-25-x-edges-*` files):
+
+| set | edges | hybrid | hybrid + vote | simulation (+vote) |
+|---|---|---|---|---|
+| English 20 (jg1b) | 0.709 / 0.863 / 0.904, 5.0 % | 0.780 / 0.892 / 0.917 | **0.802 / 0.900 / 0.919**, 5.2 % | 0.804 / 0.902 / 0.920 |
+| MMS deu | 0.836 / 0.934 / 0.962 | — | **0.932 / 0.966 / 0.972**, 1.6 % | 0.932 |
+| MMS eng | 0.708 / 0.852 / 0.902 | — | **0.799 / 0.892 / 0.915**, 5.3 % | 0.798 |
+| MMS fra | 0.765 / 0.885 / 0.918 | — | **0.872 / 0.919 / 0.930**, 5.2 % | 0.873 |
+| MMS spa | 0.758 / 0.901 / 0.934 | — | **0.904 / 0.942 / 0.949**, 2.9 % | 0.904 |
+
+The real code lands within 0.002 of the simulation everywhere; the vote adds
++2.2 points at 100 ms on English. Of 5693 English words the vote took 5276,
+`segment` placed 184 and `edges` kept 233.
+
+**Tables.** `benchmarks.lateness --by-initial` on the English run: base −50,
+fricative −50, plosive −20 (shipped −30), sonorant −20, vowel −80, held out
+0.816; the SHIPPED table scores 0.817 on the same run (fixed, so held out by
+construction) — it stays. MMS per language: deu 0, fra +10, spa +10, eng −30;
+under the 20 ms bar, so MMS keeps no offset. The rollout is the image alone.
+
+**As shipped** (the production tables, per-song means): English 0.731 / 0.865
+/ 0.905 → **0.817 / 0.901 / 0.920**, gross 5.1 % → 5.1 %; MMS @0.1 deu 0.825 →
+0.932, fra 0.759 → 0.863, spa 0.762 → 0.902 (@0.3 up in all). Pop valid region
+(278 words, `pop_valid.py`): @0.1 0.622 → 0.633, @0.3 0.896 → 0.899, gross 23 →
+22. With a single English offset instead of the table, pop reads 0.612 → 0.586
+at 100 ms: five songs, 278 words, about seven words either way.
+
+## What shipped (2.29.0)
+
+- `WINDOW_STAR_DEFAULT = "hybrid"`, `WHOLE_VOTE_DEFAULT = True`, both at 400 ms.
+  Switched back (`window_star="edges"`, `whole_vote=False`) the windowed output
+  equals 2.28.0 byte for byte (4000 seeded scenarios against a0a72b7).
+- No table change; the image ships alone (gitops: the tag).
+- Cost: one extra whole-track emission pass per song on the worker.
+- Archive: a "large improvement" under the refresh policy (+8 to +14 points
+  at 100 ms) — one full refresh, on the GPU helper worker (phase 9.3).

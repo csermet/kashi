@@ -24,6 +24,7 @@ new evidence (a new data set, a new model class, a changed constraint) — and s
 | Second opinion from the same model family (XLS-R 1B vs MMS) | Correlation +0.945 — not an independent witness. | this file (Faz 8.1 round 4) |
 | Fine-tuning on song data | NO-GO: no legally usable singing data; pseudo-labels inherit our own bias. (Label-prior LoRA on speech data remains a conditional option.) | denetim-ve-strateji-2026-08-12.md |
 | Timestamp adaptation in the overlay (`t' = a·t + b` between edits) | Mathematically unsolvable client-side: only the target's total duration is known (one equation, two unknowns; trailing silence changes the total but not the map). Needs ≥2 independent anchors on the target timeline → server-side only. | roadmap.md (constraint) |
+| `segment` star placement alone inside windows | More precise where it finds the word (PCO@0.1 +6 to +7) but gross errors nearly double (English 5.0 % → 7.3 %, MMS 3.8 % → 6.9 %); @0.3 drops. Shipped instead as one half of the per-word hybrid (2.29.0). | faz-9-pencere-saati-2026-10.md (round 5) |
 | Client duration as a video-vs-song selector | Dead end; shipped behaviour stays honest-fail + upload escape. | video-song-substitution-memo.md |
 
 ## Lyrics coverage
