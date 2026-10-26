@@ -579,7 +579,7 @@ already be different there. Happy to test a patch on the mirror.
 
 ---
 
-#### Draft B — GitHub Discussion (category: Show and tell)
+#### Draft B — GitHub Discussion (category: Show and tell; not sent, the owner's call for now)
 
 **Title:** trim.py: a synced-only, lyricsfile-free copy of the dump for self-hosted mirrors (262 GB → 107 GB)
 
