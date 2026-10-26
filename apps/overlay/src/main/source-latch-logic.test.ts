@@ -97,3 +97,38 @@ describe('clearReasonOnDisconnect', () => {
     expect(clearReasonOnDisconnect(latch, 1, 2)).toBeNull();
   });
 });
+
+describe('applyExtensionMessage — queue_changed', () => {
+  function queue(tabId: number): ExtensionToOverlayMessage {
+    return {
+      type: 'queue_changed',
+      seq: 0,
+      sent_at: 0,
+      tab_id: tabId,
+      next: [{ ...TRACK, source: { type: 'youtube', id: 'vid2' } }],
+    };
+  }
+
+  it('passes the prediction on from the playing tab only', () => {
+    const latch = emptyLatch();
+    applyExtensionMessage(latch, announce(5), 1);
+    const decision = applyExtensionMessage(latch, queue(5), 1);
+    expect(decision).toEqual({
+      action: 'queue',
+      next: [{ ...TRACK, source: { type: 'youtube', id: 'vid2' } }],
+    });
+    expect(applyExtensionMessage(latch, queue(6), 1).action).toBe('ignore');
+    expect(applyExtensionMessage(latch, queue(5), 2).action).toBe('ignore');
+  });
+
+  it('is ignored before any track has been announced', () => {
+    expect(applyExtensionMessage(emptyLatch(), queue(5), 1).action).toBe('ignore');
+  });
+
+  it('never changes the current track', () => {
+    const latch = emptyLatch();
+    applyExtensionMessage(latch, announce(5), 1);
+    applyExtensionMessage(latch, queue(5), 1);
+    expect(latch.currentTrackKey).toBe('youtube:vid1');
+  });
+});

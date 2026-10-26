@@ -11,11 +11,13 @@
  */
 import {
   MAIN_WORLD_MARKER,
+  type MainWorldQueue,
   PLAYHEAD_EVENT,
   PLAYHEAD_REQUEST_EVENT,
   type MainWorldSnapshot,
 } from '../shared/messages.js';
 import { readPlayhead, type PlayerApi } from './playhead.js';
+import { observeQueue } from './queue.js';
 
 const SAFETY_NET_MS = 5000;
 
@@ -151,6 +153,11 @@ function init(): void {
   document.addEventListener('yt-navigate-finish', () => post(true));
   setInterval(() => post(false), SAFETY_NET_MS);
   post(false);
+  // What plays next: a prefetch hint for the overlay (LyricFix round 3).
+  observeQueue((next) => {
+    const message: MainWorldQueue = { source: MAIN_WORLD_MARKER, kind: 'queue', next };
+    window.postMessage(message, window.location.origin);
+  });
 }
 
 // Same prerender gate as the ISOLATED script: phantom documents must not

@@ -147,6 +147,14 @@ describe('telemetry_enabled', () => {
   });
 });
 
+describe('prefetch_next_track', () => {
+  it('defaults to on and honors an explicit opt-out', () => {
+    expect(parseSettings('{}').prefetch_next_track).toBe(true);
+    expect(DEFAULT_SETTINGS.prefetch_next_track).toBe(true);
+    expect(parseSettings('{"prefetch_next_track":false}').prefetch_next_track).toBe(false);
+  });
+});
+
 describe('parseSettings', () => {
   it('returns defaults for corrupt JSON', () => {
     expect(parseSettings('{oops')).toEqual(DEFAULT_SETTINGS);
@@ -167,6 +175,7 @@ describe('parseSettings', () => {
       theme_scope: 'fixed-text',
       fill_style: 'neutral',
       telemetry_enabled: true,
+      prefetch_next_track: false,
       text_scale: 'medium',
       box_scale: 'medium',
     };

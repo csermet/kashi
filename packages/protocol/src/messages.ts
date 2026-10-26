@@ -107,6 +107,23 @@ export interface LogMessage extends Envelope {
   line: string;
 }
 
+/** Most items a `queue_changed` message may carry. */
+export const QUEUE_LOOKAHEAD_MAX = 2;
+
+/**
+ * What YouTube Music will play next, in play order, read from its queue in the
+ * page (LyricFix round 3). A HINT for warming lyrics ahead of time only: never
+ * a track change, never shown. Empty = nothing predictable (repeat-one, the
+ * end of the queue with autoplay off, shuffle). Sent when the prediction
+ * changes. Additive in v1: an older overlay drops it with one log line.
+ */
+export interface QueueChangedMessage extends Envelope {
+  type: 'queue_changed';
+  tab_id: number;
+  /** At most QUEUE_LOOKAHEAD_MAX items. */
+  next: TrackInfo[];
+}
+
 /**
  * The active source disappeared and NO playing tab can take over — the
  * overlay must clear to idle immediately (additive in v1).
@@ -124,7 +141,8 @@ export type ExtensionToOverlayMessage =
   | PlaybackStateMessage
   | PongMessage
   | LogMessage
-  | SourceGoneMessage;
+  | SourceGoneMessage
+  | QueueChangedMessage;
 
 // ---------------------------------------------------------------------------
 // Overlay → extension

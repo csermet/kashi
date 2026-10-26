@@ -27,6 +27,24 @@ export interface MainWorldSnapshot {
   trackSignal: boolean;
 }
 
+/** One predicted upcoming track, as the MAIN-world queue reader posts it. */
+export interface QueueEntry {
+  videoId: string;
+  title: string;
+  artist: string;
+  durationMs?: number;
+}
+
+/**
+ * Posted by the MAIN-world queue reader when YTM's predicted next tracks
+ * change (LyricFix round 3). Page data: the content script re-validates it.
+ */
+export interface MainWorldQueue {
+  source: typeof MAIN_WORLD_MARKER;
+  kind: 'queue';
+  next: QueueEntry[];
+}
+
 /**
  * Synchronous playhead sample, ISOLATED ↔ MAIN world. The content script
  * dispatches PLAYHEAD_REQUEST_EVENT on `document`; the bridge answers INSIDE
@@ -81,4 +99,5 @@ export type ContentEvent =
       sent_at: number;
     }
   | { kind: 'ad_state'; is_ad: boolean; sent_at: number }
+  | { kind: 'queue_changed'; next: QueueEntry[]; sent_at: number }
   | { kind: 'log'; line: string; sent_at: number };

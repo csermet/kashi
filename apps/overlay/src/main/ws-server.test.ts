@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { PROTOCOL_VERSION, type ExtensionToOverlayMessage } from '@kashi/protocol';
-import { OverlayWsServer, type OverlayWsServerOptions } from './ws-server.js';
+import { OverlayWsServer, isValidExtensionMessage, type OverlayWsServerOptions } from './ws-server.js';
 
 // Off the production 17890-17894 range so tests never collide with a real overlay.
 let nextPort = 19870;
@@ -231,5 +231,44 @@ describe('OverlayWsServer', () => {
     expect(closedCode).toBe(4000);
     expect(messages.filter((m) => (m as { type: string }).type === 'ping').length)
       .toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('queue_changed validation', () => {
+  const item = (id: string) => ({
+    source: { type: 'youtube', id },
+    title: `Song ${id}`,
+    artist: 'Artist',
+    duration_ms: 200_000,
+  });
+  const msg = (next: unknown, extra: Record<string, unknown> = {}) => ({
+    type: 'queue_changed',
+    seq: 1,
+    sent_at: 0,
+    tab_id: 7,
+    next,
+    ...extra,
+  });
+
+  it('accepts up to two well-formed items, and an empty prediction', () => {
+    expect(isValidExtensionMessage(msg([item('a'), item('b')]))).toBe(true);
+    expect(isValidExtensionMessage(msg([]))).toBe(true);
+  });
+
+  it('rejects more items than the lookahead allows', () => {
+    expect(isValidExtensionMessage(msg([item('a'), item('b'), item('c')]))).toBe(false);
+  });
+
+  it('rejects a malformed item, a missing list or a missing tab', () => {
+    expect(isValidExtensionMessage(msg([{ ...item('a'), title: 5 }]))).toBe(false);
+    expect(isValidExtensionMessage(msg([{ title: 'x', artist: 'y' }]))).toBe(false);
+    expect(isValidExtensionMessage(msg('a'))).toBe(false);
+    expect(isValidExtensionMessage(msg([item('a')], { tab_id: 'x' }))).toBe(false);
+  });
+
+  it('keeps validating track_changed through the shared track check', () => {
+    const good = { type: 'track_changed', seq: 1, sent_at: 0, tab_id: 1, track: item('a') };
+    expect(isValidExtensionMessage(good)).toBe(true);
+    expect(isValidExtensionMessage({ ...good, track: { ...item('a'), artist: null } })).toBe(false);
   });
 });

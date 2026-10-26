@@ -249,3 +249,72 @@ describe('snapshotReplayMessages', () => {
     expect(snapshotReplayMessages(freshState(), NOW)).toEqual([]);
   });
 });
+
+describe('queue_changed (prefetch hint)', () => {
+  function queue(...ids: string[]): SeatEvent {
+    return {
+      kind: 'queue_changed',
+      next: ids.map((videoId) => ({ videoId, title: `S ${videoId}`, artist: 'A', durationMs: 1000 })),
+      sent_at: NOW,
+    };
+  }
+
+  it('goes out for the seat tab as protocol tracks', () => {
+    const state = freshState();
+    applyContentEvent(state, announce('vid1'), 7, false, NOW);
+    const out = applyContentEvent(state, queue('vid2', 'vid3'), 7, undefined, NOW + 1);
+    expect(out.sends).toEqual([
+      {
+        type: 'queue_changed',
+        sent_at: NOW,
+        tab_id: 7,
+        next: [
+          { source: { type: 'youtube', id: 'vid2' }, title: 'S vid2', artist: 'A', duration_ms: 1000 },
+          { source: { type: 'youtube', id: 'vid3' }, title: 'S vid3', artist: 'A', duration_ms: 1000 },
+        ],
+      },
+    ]);
+  });
+
+  it('never reaches the overlay from a non-seat tab', () => {
+    const state = freshState();
+    applyContentEvent(state, announce('vid1'), 7, false, NOW);
+    expect(applyContentEvent(state, queue('vid2'), 8, undefined, NOW + 1).sends).toEqual([]);
+  });
+
+  it('neither claims an empty seat nor changes isPlaying', () => {
+    const state = freshState();
+    applyContentEvent(state, position(true), 8, undefined, NOW); // tab 8 playing, seat claimed
+    state.activeTabId = null;
+    const out = applyContentEvent(state, queue('vid2'), 8, undefined, NOW + 1);
+    expect(state.activeTabId).toBeNull();
+    expect(out.sends).toEqual([]);
+    expect(state.tabs[8]?.isPlaying).toBe(true);
+  });
+
+  it('is replayed after the track and position, and forgotten on the next track', () => {
+    const state = freshState();
+    applyContentEvent(state, announce('vid1'), 7, false, NOW);
+    applyContentEvent(state, position(true), 7, undefined, NOW);
+    applyContentEvent(state, queue('vid2'), 7, undefined, NOW);
+    expect(snapshotReplayMessages(state, NOW + 1000).map((m) => m.type)).toEqual([
+      'track_changed',
+      'position',
+      'queue_changed',
+    ]);
+    applyContentEvent(state, announce('vid2'), 7, false, NOW + 2);
+    expect(snapshotReplayMessages(state, NOW + 1000).map((m) => m.type)).toEqual([
+      'track_changed',
+    ]);
+  });
+
+  it('is handed over with the successor tab', () => {
+    const state = freshState();
+    applyContentEvent(state, announce('vid1'), 7, true, NOW);
+    applyContentEvent(state, announce('vid5'), 8, false, NOW);
+    applyContentEvent(state, position(true), 8, undefined, NOW);
+    applyContentEvent(state, queue('vid6'), 8, undefined, NOW);
+    const out = handleTabRemoved(state, 7, NOW + 1);
+    expect(out.sends.map((m) => m.type)).toEqual(['track_changed', 'position', 'queue_changed']);
+  });
+});

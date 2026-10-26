@@ -765,3 +765,79 @@ describe('job watch — the document lands during this play (2026-10-24)', () =>
     expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
   });
 });
+
+describe('LookupOrchestrator — prefetched answers (LyricFix round 3)', () => {
+  const SERVER_DOC = {
+    found: true as const,
+    source: 'kashi-server' as const,
+    sync: 'word' as const,
+    qualityScore: 0.9,
+    lines: [],
+  };
+  const LINES = [
+    { start_ms: 1000, end_ms: 2000, text: 'one' },
+    { start_ms: 2000, end_ms: 3000, text: 'two' },
+  ];
+
+  it('a warmed server document is shown with no network at all', async () => {
+    const getProcessed = vi.fn(async () => ({ found: false as const }));
+    const d = deps({
+      getProcessed,
+      takePrefetched: () => ({ kind: 'server', result: SERVER_DOC }),
+    });
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    expect(getProcessed).not.toHaveBeenCalled();
+    expect(d.getLyrics).not.toHaveBeenCalled();
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, found: true, sync: 'word' });
+  });
+
+  it('warmed lrclib lines go up at once, and the server is still asked', async () => {
+    const getProcessed = vi.fn(async () => ({ found: false as const }));
+    const d = deps({
+      getProcessed,
+      takePrefetched: () => ({
+        kind: 'lrclib',
+        result: { found: true, lines: LINES, recordDurationMs: 200_000, via: 'mirror' },
+      }),
+    });
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    expect(d.getLyrics).not.toHaveBeenCalled();
+    expect(d.sent.find((p) => p['found'] === true)).toMatchObject({ key: KEY, lines: LINES });
+    expect(getProcessed).toHaveBeenCalledTimes(1);
+    expect(d.onServerMiss).toHaveBeenCalledWith(KEY, TRACK); // listening now: the gate arms
+  });
+
+  it('a server document still replaces warmed lrclib lines (R-8)', async () => {
+    const d = deps({
+      getProcessed: async () => SERVER_DOC,
+      takePrefetched: () => ({
+        kind: 'lrclib',
+        result: { found: true, lines: LINES, recordDurationMs: 200_000 },
+      }),
+    });
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    expect(d.sent.at(-1)).toMatchObject({ key: KEY, sync: 'word', source: 'kashi-server' });
+  });
+
+  it('warmed lines for a different edit are dropped and the normal ladder runs', async () => {
+    const d = deps({
+      takePrefetched: () => ({
+        kind: 'lrclib',
+        // a 60 s longer record with stamps past the announced track's end
+        result: {
+          found: true,
+          lines: [...LINES, { start_ms: 250_000, end_ms: 251_000, text: 'late' }],
+          recordDurationMs: 260_000,
+        },
+      }),
+    });
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    expect(d.getLyrics).toHaveBeenCalled();
+  });
+
+  it('without a warmed answer the flow is unchanged', async () => {
+    const d = deps({ takePrefetched: () => undefined });
+    await new LookupOrchestrator(d).lookup(KEY, TRACK);
+    expect(d.getLyrics).toHaveBeenCalled();
+  });
+});

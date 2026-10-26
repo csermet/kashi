@@ -88,6 +88,10 @@ file:line and the checklist item it violates.
 ### E. Network etiquette
 - lrclib: meaningful User-Agent (`kashi/x.y (+repo url)`), positive AND negative caching
   (404 → ~7 days), single in-flight request per track + ~500 ms debounce, no bulk prefetch.
+  One-ahead prefetch from the YTM queue is allowed (LyricFix round 3): at most the next two
+  tracks, one pass each (full chain only for the very next, with the ladder's duration-less
+  second try; server document for the second), no retries, a per-track budget, a late result for
+  a track that already started is dropped, never arms the enqueue gate or emits telemetry.
 - All track-scoped fetches use `AbortController`, and responses are matched to the current
   `source_id` before applying (stale-response guard).
 - Auto-enqueue only after ≥20 s of continuous listening.

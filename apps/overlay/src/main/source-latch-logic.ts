@@ -26,7 +26,8 @@ export type LatchDecision =
   | { action: 'clear' }
   | { action: 'duplicate-track'; key: string }
   | { action: 'new-track'; key: string; track: TrackInfo }
-  | { action: 'playback'; msg: ExtensionToOverlayMessage; isPlaying: boolean | null };
+  | { action: 'playback'; msg: ExtensionToOverlayMessage; isPlaying: boolean | null }
+  | { action: 'queue'; next: TrackInfo[] };
 
 /**
  * Applies a non-log extension message to the latch (mutating `state` for
@@ -72,6 +73,16 @@ export function applyExtensionMessage(
         isPlaying: 'is_playing' in msg ? msg.is_playing : null,
       };
     }
+    case 'queue_changed':
+      // A prefetch hint, and only from the tab whose track is playing.
+      if (
+        !state.activeSource ||
+        clientId !== state.activeSource.clientId ||
+        msg.tab_id !== state.activeSource.tabId
+      ) {
+        return { action: 'ignore' };
+      }
+      return { action: 'queue', next: msg.next };
     default:
       return { action: 'ignore' };
   }

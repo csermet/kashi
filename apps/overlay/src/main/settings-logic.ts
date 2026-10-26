@@ -88,6 +88,13 @@ export interface StoredSettings {
    */
   telemetry_enabled: boolean;
   /**
+   * Warm the next track's lyrics while the current one plays (LyricFix round
+   * 3): one server request per upcoming track, plus one mirror/lrclib.net
+   * lookup for the very next one. Always on, with no switch in the UI (owner,
+   * 2026-10-26); `false` in the settings file is a hidden escape hatch.
+   */
+  prefetch_next_track: boolean;
+  /**
    * Lyric text size and box size, as three presets each (Faz 7 P3). Presets
    * rather than free values: every box size has to keep enough margin for the
    * particle layer to fade out in, and a slider would let a user pick a
@@ -109,6 +116,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   theme_scope: DEFAULT_THEME_SCOPE,
   fill_style: DEFAULT_FILL_STYLE,
   telemetry_enabled: true,
+  prefetch_next_track: true,
   text_scale: DEFAULT_TEXT_SCALE,
   box_scale: DEFAULT_BOX_SCALE,
 };
@@ -293,6 +301,7 @@ export function parseSettings(raw: string): StoredSettings {
     // Only an explicit false opts out — a corrupt or absent value keeps the
     // default rather than silently disabling the channel we debug with.
     telemetry_enabled: record['telemetry_enabled'] !== false,
+    prefetch_next_track: record['prefetch_next_track'] !== false,
     text_scale: parseTextScale(record['text_scale']),
     box_scale: parseBoxScale(record['box_scale']),
   };

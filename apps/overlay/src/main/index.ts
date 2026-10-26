@@ -38,6 +38,7 @@ import { LookupOrchestrator } from './lookup-orchestrator.js';
 import { LrclibClient } from './lrclib.js';
 import { LyricsChain } from './lyrics-chain.js';
 import { SourceCooldown } from './source-cooldown.js';
+import { Prefetcher } from './prefetcher.js';
 import { isDurationCorrection } from './edit-check.js';
 import { DurationLedger, type DurationVerdict } from './duration-ledger.js';
 import { AnchorGuard, positionTooDeepForAFreshTrack } from './position-sanity.js';
@@ -129,6 +130,10 @@ let publishable: { key: string; source: { type: string; id: string } } | null = 
 // The current track's lookup inputs — replayed after a live server-settings
 // re-init (Faz 6 P6) so lyrics refresh without waiting for a track change.
 let lastTrack: { key: string; track: TrackInfo } | null = null;
+/** Next-track lyrics warm-up (LyricFix round 3); rebuilt with the server connections. */
+let prefetcher: Prefetcher | null = null;
+/** An ad is playing (from ad_state); the warm-up waits for the music. */
+let lastIsAd = false;
 /**
  * What the PAGE said about the current and the previous track, before the
  * ledger had its say. Only these raw numbers can expose a carry-over: once a
@@ -177,6 +182,8 @@ function clearSource(reason: string): void {
   lookups?.cancel();
   if (debounceTimer) clearTimeout(debounceTimer);
   Object.assign(latch, emptyLatch());
+  lastIsAd = false;
+  prefetcher?.onQueue([]); // the prediction belonged to the source that left
   replay.clearSourceChannels();
   send('kashi:source-gone', {});
 }
@@ -244,6 +251,10 @@ function onExtensionMessage(msg: ExtensionToOverlayMessage, clientId: number): v
     }
     case 'playback':
       onPlayback(decision);
+      return;
+    case 'queue':
+      log(`queue: next ${decision.next.map((t) => t.source.id).join(', ') || '-'}`);
+      prefetcher?.onQueue(decision.next);
       return;
     default:
       return;
@@ -340,6 +351,9 @@ function onNewTrack(decision: Extract<LatchDecision, { action: 'new-track' }>): 
     previousObservedDurationMs,
   );
   lastTrack = { key: decision.key, track: settled };
+  // An ad_state=false lost with a dying content script must not keep the
+  // warm-up off for good; a new track starts clean.
+  lastIsAd = false;
   telemetry?.record('track_changed', {
     video_id: settled.source.id,
     title: settled.title,
@@ -367,6 +381,7 @@ function onPlayback(decision: Extract<LatchDecision, { action: 'playback' }>): v
     lastIsPlaying = decision.isPlaying;
     enqueueGate.playback(decision.isPlaying, Date.now());
   }
+  if (decision.msg.type === 'ad_state') lastIsAd = decision.msg.is_ad;
   // Until the first plausible position lands, screen out reports that sit
   // past the end of the track — under gapless playback an older extension
   // build reports the PREVIOUS track's time here, and the clock anchors on
@@ -408,6 +423,18 @@ function onPlayback(decision: Extract<LatchDecision, { action: 'playback' }>): v
       source: 'overlay_anchor_guard',
     });
     return;
+  }
+  if ('position_ms' in decision.msg) {
+    prefetcher?.tick(
+      {
+        enabled: settings?.get().prefetch_next_track ?? true,
+        isPlaying: lastIsPlaying,
+        isAd: lastIsAd,
+        positionMs: decision.msg.position_ms,
+        durationMs: lastTrack?.track.duration_ms,
+      },
+      latch.currentTrackKey,
+    );
   }
   send('kashi:playback', decision.msg);
 }
@@ -1029,6 +1056,20 @@ function buildServerConnections(): void {
     warn('server_url and server_api_key must BOTH be set -> server disabled');
   }
 
+  prefetcher?.stop();
+  prefetcher = new Prefetcher({
+    getProcessed: serverClient
+      ? (type, id, signal) => serverClient!.getProcessed(type, id, signal)
+      : null,
+    getLyrics: (query, signal) => chain.getLyrics(query, signal),
+    // The chain honours each source's cooldown itself; this only spares a
+    // fail-fast call when neither source could answer now.
+    lyricsAvailable: () =>
+      (mirrorUrl !== null && mirrorCooldown.remainingMs() === 0) ||
+      lrclibCooldown.remainingMs() === 0,
+    log: makeLogger('prefetch'),
+  });
+
   lookups = new LookupOrchestrator({
     // Server first when configured. A processed document is the SINGLE source
     // of truth — it always wins the screen and is never blended (R-8); lrclib
@@ -1050,6 +1091,8 @@ function buildServerConnections(): void {
     onServerDuration: (key, durationMs) => durations.learn(key, durationMs, 'server'),
     isCurrent: (key) => key === latch.currentTrackKey,
     isPlaying: () => lastIsPlaying,
+    takePrefetched: (key) =>
+      (settings?.get().prefetch_next_track ?? true) ? prefetcher?.take(key) : undefined,
     emit: (kind, payload) => telemetry?.record(kind, payload),
     log: makeLogger('lookup'),
   });

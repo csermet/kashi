@@ -20,6 +20,7 @@ import {
   PING_INTERVAL_MS,
   PORT_MAX,
   PROTOCOL_VERSION,
+  QUEUE_LOOKAHEAD_MAX,
   type ExtensionToOverlayMessage,
   type HelloAckMessage,
   type HelloMessage,
@@ -70,6 +71,20 @@ const isStr = (v: unknown): v is string => typeof v === 'string';
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
 
+function isTrackInfo(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const track = value as Record<string, unknown>;
+  const source = track['source'] as Record<string, unknown> | undefined;
+  return (
+    typeof source === 'object' &&
+    source !== null &&
+    isStr(source['type']) &&
+    isStr(source['id']) &&
+    isStr(track['title']) &&
+    isStr(track['artist'])
+  );
+}
+
 /**
  * Minimal per-type shape validation. Anything reaching `onMessage` is safe to
  * destructure. Kept in sync with packages/protocol (fixture-tested there when
@@ -85,18 +100,15 @@ export function isValidExtensionMessage(msg: unknown): msg is ExtensionToOverlay
       return isNum(m['protocol_version']) && isStr(m['client']);
     case 'pong':
       return true;
-    case 'track_changed': {
-      if (!isNum(m['tab_id'])) return false;
-      const track = m['track'] as Record<string, unknown> | undefined;
-      if (typeof track !== 'object' || track === null) return false;
-      const source = track['source'] as Record<string, unknown> | undefined;
+    case 'track_changed':
+      return isNum(m['tab_id']) && isTrackInfo(m['track']);
+    case 'queue_changed': {
+      const next = m['next'];
       return (
-        typeof source === 'object' &&
-        source !== null &&
-        isStr(source['type']) &&
-        isStr(source['id']) &&
-        isStr(track['title']) &&
-        isStr(track['artist'])
+        isNum(m['tab_id']) &&
+        Array.isArray(next) &&
+        next.length <= QUEUE_LOOKAHEAD_MAX &&
+        next.every(isTrackInfo)
       );
     }
     case 'position':

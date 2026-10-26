@@ -105,12 +105,22 @@ export interface LookupDeps {
   watchDelaysMs?: readonly number[];
   /** Clock for the latency diagnostics. */
   now?: () => number;
+  /**
+   * What the next-track prefetch warmed for this key, handed over once
+   * (LyricFix round 3). Omitted = no prefetch, today's flow.
+   */
+  takePrefetched?: (key: string) => WarmAnswer | undefined;
   /** Optional diagnostics sink (Faz 6.7 P2). Never awaited, never throws —
    * the ladder's behavior must not depend on whether anyone is listening. */
   emit?: (kind: 'lyrics_outcome', payload: Record<string, unknown>) => void;
 }
 
-type LrclibAnswer = Awaited<ReturnType<LookupDeps['getLyrics']>>;
+export type LrclibAnswer = Awaited<ReturnType<LookupDeps['getLyrics']>>;
+
+/** An answer warmed before the track started (prefetcher.ts). */
+export type WarmAnswer =
+  | { kind: 'server'; result: Extract<ServerLyricsResult, { found: true }> }
+  | { kind: 'lrclib'; result: LrclibAnswer };
 
 const DEFAULT_RETRY_DELAYS_MS = [0, 2000, 6000];
 const PATIENT_FIRST_MS = 15_000;
@@ -179,6 +189,8 @@ export class LookupOrchestrator {
     this.deps.send({ key, searching: true });
     const startedAt = this.now();
 
+    if (await this.useWarm(key, track, query, abort, startedAt)) return;
+
     // One lrclib rung per lookup, however many paths ask for it.
     let rung: Promise<void> | null = null;
     const startLrclib = (): Promise<void> =>
@@ -207,6 +219,43 @@ export class LookupOrchestrator {
     }
     if (first) return; // server hit (or stale)
     return startLrclib();
+  }
+
+  /**
+   * Show what the prefetch warmed for this track, at once. A server document
+   * is the answer (R-8). lrclib lines go up immediately, and the server is
+   * still asked: its document replaces them, and its 404 arms the enqueue
+   * gate as usual (the user IS listening now). The lines were fetched with the
+   * queue's metadata, so they pass the different-edit check against THIS
+   * announce first. False = nothing usable, run the normal ladder.
+   */
+  private async useWarm(
+    key: string,
+    track: TrackInfo,
+    query: LrclibQuery,
+    abort: AbortController,
+    startedAt: number,
+  ): Promise<boolean> {
+    const warm = this.deps.takePrefetched?.(key);
+    if (warm === undefined) return false;
+    if (warm.kind === 'server') {
+      this.deps.log(`prefetched server document for ${key}`);
+      this.showServerHit(key, track, warm.result, abort, startedAt);
+      return true;
+    }
+    const verdict = classifyEdit(
+      query.duration_ms,
+      warm.result.recordDurationMs ?? null,
+      warm.result.lines ?? [],
+    );
+    if (!warm.result.found || verdict === 'different-edit') {
+      this.deps.log(`prefetched lrclib answer for ${key} does not fit this edit — normal lookup`);
+      return false;
+    }
+    this.deps.log(`prefetched lrclib lyrics for ${key} (via ${warm.result.via ?? '?'})`);
+    this.showLrclib(key, track, 0, warm.result, startedAt, false);
+    if (this.deps.getProcessed) await this.tryServer(key, track, abort, startedAt);
+    return true;
   }
 
   /**

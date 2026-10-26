@@ -67,6 +67,8 @@ export function selectActiveTab(
 export type Snapshot = {
   track?: Extract<ExtensionToOverlayMessage, { type: 'track_changed' }>;
   position?: Extract<ExtensionToOverlayMessage, { type: 'position' }>;
+  /** The last predicted next tracks (prefetch hint), replayed after the track. */
+  queue?: Extract<ExtensionToOverlayMessage, { type: 'queue_changed' }>;
   savedAt?: number;
 };
 
@@ -119,6 +121,18 @@ export function toProtocolMessage(event: ContentEvent, tabId: number): Sendable 
       };
     case 'ad_state':
       return { type: 'ad_state', sent_at: event.sent_at, tab_id: tabId, is_ad: event.is_ad };
+    case 'queue_changed':
+      return {
+        type: 'queue_changed',
+        sent_at: event.sent_at,
+        tab_id: tabId,
+        next: event.next.map((entry) => ({
+          source: { type: 'youtube', id: entry.videoId },
+          title: entry.title,
+          artist: entry.artist,
+          duration_ms: entry.durationMs,
+        })),
+      };
     default:
       return null;
   }
@@ -137,7 +151,9 @@ export function applyContentEvent(
   // proves nothing (phantom/prerender pages announce without ever playing).
   const wasPlaying = state.tabs[tabId]?.isPlaying ?? false;
   const isPlaying =
-    event.kind === 'track_changed' || event.kind === 'ad_state' ? wasPlaying : event.is_playing;
+    event.kind === 'track_changed' || event.kind === 'ad_state' || event.kind === 'queue_changed'
+      ? wasPlaying
+      : event.is_playing;
   const audible = freshAudible ?? state.tabs[tabId]?.audible;
   state.tabs[tabId] = { isPlaying, lastEventAt: now, audible };
 
@@ -148,7 +164,10 @@ export function applyContentEvent(
   if (msg.type === 'track_changed') {
     snapshot.track = { ...msg, seq: 0 } as Snapshot['track'];
     snapshot.position = undefined;
+    snapshot.queue = undefined; // the queue moves on with the track; a fresh one follows
     snapshot.savedAt = now;
+  } else if (msg.type === 'queue_changed') {
+    snapshot.queue = { ...msg, seq: 0 } as Snapshot['queue'];
   } else if (msg.type === 'position') {
     snapshot.position = { ...msg, seq: 0 } as Snapshot['position'];
     snapshot.savedAt = now;
@@ -176,7 +195,12 @@ export function applyContentEvent(
   // which made any state-based handover jump to another tab mid-listening.
   // An empty seat is claimed by the first tab that plays (or announces);
   // succession on close lives in handleTabRemoved.
-  if (state.activeTabId === null && (isPlaying || msg.type === 'track_changed')) {
+  // A queue hint never claims the seat: it says nothing about playback.
+  if (
+    state.activeTabId === null &&
+    msg.type !== 'queue_changed' &&
+    (isPlaying || msg.type === 'track_changed')
+  ) {
     state.activeTabId = tabId;
     outcome.logs.push({ context: 'seat', line: `tab - -> ${tabId} (claim, via ${event.kind})` });
   }
@@ -224,6 +248,7 @@ export function handleTabRemoved(
   const next = state.snapshots[state.activeTabId];
   if (next?.track) outcome.sends.push(next.track);
   if (next?.position) outcome.sends.push({ ...next.position, is_playing: false });
+  if (next?.track && next.queue) outcome.sends.push(next.queue);
   outcome.reannounceTabId = state.activeTabId;
   return outcome;
 }
@@ -240,5 +265,6 @@ export function snapshotReplayMessages(state: SessionState, now: number): Sendab
   // spot instead of extrapolating a stale is_playing=true report (the
   // latency clamp caps compensation at 5s, so minutes-old gaps time-shift).
   if (snapshot.position) sends.push({ ...snapshot.position, is_playing: false });
+  if (snapshot.track && snapshot.queue) sends.push(snapshot.queue);
   return sends;
 }

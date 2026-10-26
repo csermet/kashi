@@ -11,9 +11,12 @@ import {
   PLAYHEAD_EVENT,
   PLAYHEAD_REQUEST_EVENT,
   type ContentEvent,
+  type MainWorldQueue,
   type MainWorldSnapshot,
   type PlayheadSample,
+  type QueueEntry,
 } from '../shared/messages.js';
+import { parseQueueEntries } from './queue-guard.js';
 import {
   durationIsAuthoritative,
   PositionClamp,
@@ -30,9 +33,13 @@ import {
 } from './timeline.js';
 
 const TRACK_DEBOUNCE_MS = 500;
-const AD_SELECTOR = '.ytmusic-player-bar.advertisement';
+// The `ytmusic-miniplayer` UI (A/B since ~2026-09-29) replaces the player bar;
+// web-scrobbler PR #6243 uses the same pair (unverified on our account).
+const AD_SELECTOR = 'ytmusic-miniplayer.advertisement, .ytmusic-player-bar.advertisement';
 
 let latestSnapshot: MainWorldSnapshot | null = null;
+/** The last predicted next tracks, re-sent on a reannounce. */
+let latestQueue: QueueEntry[] | null = null;
 let announcedVideoId: string | null = null;
 let trackTimer: number | undefined;
 let adActive = false;
@@ -312,8 +319,17 @@ function init(): void {
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
-    const data = event.data as MainWorldSnapshot;
-    if (data?.source !== MAIN_WORLD_MARKER || data.kind !== 'snapshot') return;
+    const posted = event.data as MainWorldSnapshot | MainWorldQueue;
+    if (posted?.source !== MAIN_WORLD_MARKER) return;
+    if (posted.kind === 'queue') {
+      const next = parseQueueEntries(posted.next);
+      if (next === null) return; // forged or malformed: drop
+      latestQueue = next;
+      sendEvent({ kind: 'queue_changed', next, sent_at: Date.now() });
+      return;
+    }
+    if (posted.kind !== 'snapshot') return;
+    const data = posted;
     latestSnapshot = data;
     if (data.trackSignal) attachVideo(); // element may have been swapped
     if (data.trackSignal || data.title) maybeAnnounceTrack();
@@ -338,6 +354,7 @@ function init(): void {
     maybeAnnounceTrack();
     const evt = positionEvent('playback_state');
     if (evt) sendEvent(evt);
+    if (latestQueue !== null) sendEvent({ kind: 'queue_changed', next: latestQueue, sent_at: Date.now() });
   });
 
   // The <video> element renders late on cold loads AND can be REPLACED on

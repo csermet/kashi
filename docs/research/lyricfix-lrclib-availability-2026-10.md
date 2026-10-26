@@ -4,8 +4,8 @@
 round 3 (2026-10-26) moved the plain lookup before the download.
 §1-§3 are the v1 analysis; §4 records the v2 decision that supersedes the v1 package order;
 §5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2);
-§6 is round 3 (deferrals after the download, the breaker's window, the mirror's memory limit,
-upstream notes).**
+§6 is round 3 (deferrals after the download, the breaker's window, next-track prefetch, the
+mirror's memory limit, upstream notes).**
 
 Field complaint (Caner, recurring): when lrclib answers 503, the overlay shows
 "Lyrics unavailable (network)" and never asks again for the rest of the song. On
@@ -446,10 +446,11 @@ nightcore ones always come after the download, so round 3 can save at most 27 of
     through CTC (as every mirror-sourced job already did in round 2).
 - Remaining late deferrals: the by-ear rung's candidate search still runs after the download (only
   after a genuine `lyrics_not_found`), and so does every nightcore job's lookup.
-- Open question, not changed here: a mirror-sourced document is filed as `lyrics_source="lrclib"`,
-  so the tray's "Report good sync" can publish a machine alignment for a record that may carry
-  human word timings on lrclib.net (the publish gate only blocks `lyricsfile` documents). Round 2
-  had the same exposure.
+- Latent, not changed here: a mirror-sourced document is filed as `lyrics_source="lrclib"`, and
+  the publish gate only blocks `lyricsfile` documents, so publishing one could put a machine
+  alignment on a record that carries human word timings on lrclib.net. No path reaches it today:
+  the tray's "Report good sync" entry was removed on 2026-07-24 and the backend is dormant. Close
+  it before that entry comes back.
 - Proof: 25 new test functions, 5 adjusted, 2 removed with the dead mirror-only check (DB-backed
   worker tests on a throwaway Postgres 17), and 25 guard mutations, each killed: the pre-download
   call; reuse of the answer; the returned (not raised) miss, twice (returned as nothing, re-raised
@@ -460,6 +461,49 @@ nightcore ones always come after the download, so round 3 can save at most 27 of
   boundary; the window surviving a success; the backoff reset only on a clean window; the half-open
   lapse, its boundary and a too-early variant; both setting bounds; the close log; the busy-answer
   log; the settings wiring; and the gauge refresh.
+
+### Next-track prefetch (overlay 0.30.0, extension 0.1.17)
+
+The live complaint was a first listen with no lyrics for the first seconds. A song's lyrics can be
+fetched while the previous one plays, if the client knows what comes next.
+
+- **Signal.** YouTube Music's own queue store, `#queue`'s `queue.store.store.getState().queue`
+  (items, automix items, selected index, autoplay, shuffle, repeat mode), the same signal
+  pear-desktop and ytmdesktop read. It lives in the page's world, so the extension's MAIN-world
+  bridge subscribes to it (re-read every 5 s as a safety net, debounced, posted only on change).
+  Media Session has no "next track"; the queue DOM carries video ids only in element properties.
+  The content script re-validates the post (at most two entries, video ids, bounded text and
+  duration) and sends a new, additive protocol message `queue_changed` (no protocol version
+  bump; an older overlay drops it with a log line). Predictions: the next items after the
+  selected one, then automix while autoplay is on; repeat-all wraps; repeat-one, the end of the
+  queue with autoplay off, and shuffle predict nothing. Shuffle stays off until a live check
+  shows YTM writes the shuffled order into the queue.
+- **Budget.** Only while the current track plays, past its first minute (half of a track shorter
+  than two minutes), never during an ad. The next track gets the server document, then the
+  mirror → lrclib.net chain once (plus the live ladder's duration-less second try on a miss, as
+  the queue's length is rounded to the second); the one after gets the server document only. No
+  retries, one run per track at a time, at most four prefetches per playing track (a page could
+  forge well-formed hints), results held 30 minutes by video id. A prefetch never arms the enqueue gate (only listening enqueues) and never
+  emits telemetry. Asking the server to process upcoming tracks early was rejected: a job takes
+  ~12 minutes, the next track starts within ~3, and it would mean a YouTube download for a song
+  that may never play.
+- **Hand-over.** The live lookup takes the warmed answer once. A server document is shown as is.
+  lrclib lines are checked against the real announce (the different-edit check) and shown at
+  once; the server is still asked, so its document replaces them and its 404 arms the gate as
+  before. The prefetch has its own abort signal and is never cancelled when its track starts, so
+  the lrclib client's in-flight sharing cannot fail the live lookup; a prefetch still in flight
+  when its track starts is claimed, the live ladder goes ahead, and the late result is dropped.
+  Each started track logs `prefetch <server|lrclib|none|cold|in-flight> for <key>`: the hit-rate
+  measure. A warmed server document is shown without revalidation (at most 30 minutes old); a
+  reprocess inside that window shows on the next play. It is always on, with no switch in the
+  UI (owner's call); `prefetch_next_track: false` in the settings file is a hidden escape hatch.
+- **Proof.** 52 guard mutations across the queue parser, the content-script validation, the
+  service worker's forwarding, the prefetch decisions, the prefetcher and the orchestrator, each
+  killed. Two end-to-end runs: the real extension in Chromium against a fake YTM page with a
+  queue store (initial prediction, a reorder, shuffle and repeat-one emptying it, a malformed
+  forged post dropped); and the real overlay with lrclib.net answering 503 throughout: the next
+  song was warmed from the mirror at the current song's 60 s mark, and after the switch its 40
+  lines were on screen 0.5 s later (the overlay's own debounce) with no request for it at all.
 
 ### Mirror memory limit (2026-10-26)
 
