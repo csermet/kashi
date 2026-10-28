@@ -65,6 +65,7 @@ import {
   deriveView,
   findActiveWord,
   findDisplayLine,
+  popScaleCap,
   shouldAnimateLineChange,
   viewsEqual,
   watchdogShouldReset,
@@ -598,12 +599,25 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
     lineEl.appendChild(span);
     return span;
   });
+  capWordPops(lineEl, wordSpans);
   wordLineIndex = lineIndex;
   activeWordIndex = -1;
   // The old fill spans are gone with the rebuild; without this reset a
   // repeated identical ad-lib line ("Ooh" x4) never re-arms (retro finding).
   fillRunStart = -1;
   fillActiveIndex = -1;
+}
+
+/**
+ * Each word's pop cap from its laid-out width (view-logic popScaleCap). One
+ * layout read per line rebuild, not per frame; transforms do not change
+ * offsetWidth, so a word measured mid-pop still reads its resting width.
+ */
+function capWordPops(line: HTMLElement, spans: readonly HTMLElement[]): void {
+  const fontPx = Number.parseFloat(getComputedStyle(line).fontSize);
+  for (const span of spans) {
+    span.style.setProperty('--kashi-pop-cap', String(popScaleCap(span.offsetWidth, fontPx)));
+  }
 }
 
 /**

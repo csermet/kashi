@@ -326,3 +326,28 @@ export function accumulateWheel(
   const steps = Math.trunc(total / WHEEL_PX_PER_STEP) || 0;
   return { accumulatedPx: total - steps * WHEEL_PX_PER_STEP, steps };
 }
+
+/**
+ * How far, per side, the active word's pop may grow past its own box, as a
+ * fraction of the line's font size. The pop is a transform, so it never
+ * reflows: a long word scaled from its centre ate the space to its
+ * neighbours ("kalpte|aksesuar") and, first or last on a row, ran out of
+ * `.lyric`'s clip box and lost half a letter (field screenshots 2026-10-28).
+ * A word space is ~0.27 em; 0.09 em per side leaves two thirds of it, and it
+ * fits inside the clip room the stylesheet gives every line.
+ */
+export const POP_OVERHANG_EM = 0.09;
+
+/** The scale that would grow nothing: what an unmeasurable word gets. */
+export const POP_CAP_NONE = 9;
+
+/**
+ * The largest scale a word of `wordWidthPx` may pop to: short words keep the
+ * stylesheet's scale untouched (their cap sits above it), long words grow by
+ * the same few pixels instead of the same percentage. Written per span as
+ * `--kashi-pop-cap`; the stylesheet takes min(its scale, this).
+ */
+export function popScaleCap(wordWidthPx: number, fontSizePx: number): number {
+  if (!(wordWidthPx > 0) || !(fontSizePx > 0)) return POP_CAP_NONE;
+  return Math.min(POP_CAP_NONE, 1 + (2 * POP_OVERHANG_EM * fontSizePx) / wordWidthPx);
+}

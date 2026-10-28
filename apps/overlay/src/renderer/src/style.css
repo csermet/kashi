@@ -86,6 +86,15 @@ body {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* Clip room for the active word's pop (capped at 0.09 em per side, see
+     .word-active) and its 1 px lift: the 3-row clamp clips at the padding
+     box, so a popped first or last word lost half a letter (field 2026-10-28).
+     The padding widens the clip box and the negative margin cancels it, so
+     text width, wrap points and the box's shrink-to-fit width do not move.
+     Ad-lib lines widen it further for italic overhang. */
+  --kashi-clip-room: 0.12em;
+  padding-inline: var(--kashi-clip-room);
+  margin-inline: calc(-1 * var(--kashi-clip-room));
   /* Line-level emphasis is a PRODUCT of independent fades, never a race
      between rules. Both factors default to 1, so a line with neither class is
      pixel-identical to the old `opacity`-less rule. The alternative — each
@@ -188,9 +197,13 @@ body.fill-neutral .word {
   color: inherit; /* neutral dialect: unsung stays the plain text tone */
 }
 
+/* Every active-word pop is min(its scale, --kashi-pop-cap): the cap, written
+   per span from its measured width (view-logic popScaleCap), holds a long
+   word to a few pixels of growth per side so it neither eats the space to its
+   neighbours nor runs out of the line's clip box. Unset = 9 = no cap. */
 body.fx-simple .word-active,
 body.fx-full .word-active {
-  transform: translateY(-1px) scale(1.04);
+  transform: translateY(-1px) scale(min(1.04, var(--kashi-pop-cap, 9)));
   color: var(--kashi-primary, #fff);
 }
 
@@ -540,7 +553,8 @@ body.fx-hype .word.fx-word.word-active {
   /* Modest scale: transform does NOT reflow text, so a big glyph visually
      collides with its neighbour (field screenshot: "askimiz|zehirli").
      The tint + icon carry the emphasis; scale is only a nudge. */
-  transform: translateY(-1px) scale(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)));
+  transform: translateY(-1px)
+    scale(min(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)), var(--kashi-pop-cap, 9)));
   transition:
     opacity 120ms ease-out,
     color 120ms ease-out,
@@ -630,12 +644,13 @@ body.fx-hype #lyric-box.energy-high::after {
   opacity: calc(0.1 + var(--kashi-energy, 0) * 0.22);
 }
 body.fx-hype #lyric-box.energy-high .word-active {
-  transform: translateY(-1px) scale(1.06);
+  transform: translateY(-1px) scale(min(1.06, var(--kashi-pop-cap, 9)));
 }
 /* fx words keep their own (stronger, intensity-scaled) pop — re-stated so
    source order can't demote it under the energy-high rule above. */
 body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
-  transform: translateY(-1px) scale(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)));
+  transform: translateY(-1px)
+    scale(min(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)), var(--kashi-pop-cap, 9)));
 }
 
 /* ------------------------------------------------------------------------

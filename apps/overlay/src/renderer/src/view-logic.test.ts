@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   INTERLUDE_GAP_MS,
+  POP_CAP_NONE,
+  POP_OVERHANG_EM,
   WHEEL_PX_PER_STEP,
   accumulateWheel,
   deriveView,
   findActiveWord,
   findDisplayLine,
+  popScaleCap,
   shouldAnimateLineChange,
   viewsEqual,
   watchdogShouldReset,
@@ -429,5 +432,34 @@ describe('plain lines wear the theme, and know it from their own data', () => {
       } as typeof view;
       expect(viewsEqual(view, flipped)).toBe(false);
     }
+  });
+});
+
+describe('popScaleCap', () => {
+  it('lets a short word keep the stylesheet scale', () => {
+    // 40 px word at 28 px: 1 + 5.04 / 40 = 1.126, above every pop in style.css.
+    expect(popScaleCap(40, 28)).toBeCloseTo(1.126, 3);
+    expect(popScaleCap(40, 28)).toBeGreaterThan(1.08);
+  });
+
+  it('holds a long word to POP_OVERHANG_EM per side', () => {
+    const cap = popScaleCap(150, 28);
+    expect(cap).toBeCloseTo(1.0336, 4);
+    // Growth per side, in em, at exactly the budget.
+    expect(((cap - 1) * 150) / 2 / 28).toBeCloseTo(POP_OVERHANG_EM, 6);
+  });
+
+  it('scales with the text: same words at a bigger preset get the same cap', () => {
+    expect(popScaleCap(300, 56)).toBeCloseTo(popScaleCap(150, 28), 9);
+  });
+
+  it('leaves an unmeasurable word alone', () => {
+    expect(popScaleCap(0, 28)).toBe(POP_CAP_NONE);
+    expect(popScaleCap(Number.NaN, 28)).toBe(POP_CAP_NONE);
+    expect(popScaleCap(120, 0)).toBe(POP_CAP_NONE);
+  });
+
+  it('never exceeds POP_CAP_NONE for a tiny word', () => {
+    expect(popScaleCap(0.5, 28)).toBe(POP_CAP_NONE);
   });
 });
