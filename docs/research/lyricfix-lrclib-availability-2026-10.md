@@ -530,7 +530,7 @@ any other on the server), so anonymous access keeps working. 10 guard mutations,
   mirror answered and the lyrics were in hand before the download: the exact round-3 case that used
   to cost a download first. 9 lrclib.net requests with the app id, none rejected. The "busy and the
   mirror has nothing → defer before the download" path did not occur yet (lrclib was calm); it is
-  proven by tests and mutations, and its first field occurrence is a watch item.
+  proven by tests and mutations; no field watch is kept (the owner's call).
 - Overlay 0.30.1 with extension 0.1.17: two of two track changes found their answer warmed (one
   lrclib record via the mirror, one word-synced server document), on screen 0.5 s after the switch
   (the overlay's own debounce) with no lrclib request. A live probe confirmed YTM writes the
