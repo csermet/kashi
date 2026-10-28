@@ -1,7 +1,8 @@
 # LyricFix — lyrics lookup that survives an unavailable lrclib (2026-10)
 
-**Status: DECIDED (v2, 2026-10-16); round 2 (2026-10-22) shipped the worker and the record gate;
-round 3 (2026-10-26) moved the plain lookup before the download.
+**Status: CLOSED (2026-10-28).** v2 decided 2026-10-16; round 2 (2026-10-22) shipped the worker and
+the record gate; round 3 (2026-10-26) moved the plain lookup before the download and added the
+next-track prefetch, both confirmed in the field on 2026-10-28.
 §1-§3 are the v1 analysis; §4 records the v2 decision that supersedes the v1 package order;
 §5 is round 2 (mirror memory, worker deferral, degenerate records, and two corrections to §2);
 §6 is round 3 (deferrals after the download, the breaker's window, next-track prefetch, the
@@ -521,6 +522,20 @@ Both twins send the id to lrclib.net only, never to the mirror (the overlay's lr
 the server's primary transport). If lrclib answers 401 to it (revoked or unknown), the client
 drops it for the rest of the process, logs once, and repeats that request without it (paced like
 any other on the server), so anonymous access keeps working. 10 guard mutations, each killed.
+
+### Field confirmation (2026-10-28) — closure
+
+- Worker (server 0.33.0, live 21 h): plain jobs fetched their lyrics before the download (e.g.
+  lyrics at 18:24:03, download at 18:24:08). On 18:37:56 lrclib.net answered 503 mid-lookup; the
+  mirror answered and the lyrics were in hand before the download: the exact round-3 case that used
+  to cost a download first. 9 lrclib.net requests with the app id, none rejected. The "busy and the
+  mirror has nothing → defer before the download" path did not occur yet (lrclib was calm); it is
+  proven by tests and mutations, and its first field occurrence is a watch item.
+- Overlay 0.30.1 with extension 0.1.17: two of two track changes found their answer warmed (one
+  lrclib record via the mirror, one word-synced server document), on screen 0.5 s after the switch
+  (the overlay's own debounce) with no lrclib request. A live probe confirmed YTM writes the
+  shuffled order into its queue, so shuffle is prefetched too.
+- Mirror at 2 GiB: 24 h with no restart, uptime probe 1440 of 1440, `/api/get` p95 74 ms.
 
 ### Mirror memory limit (2026-10-26)
 
