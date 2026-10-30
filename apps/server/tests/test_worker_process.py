@@ -1795,6 +1795,92 @@ def test_a_lease_lost_during_postprocessing_persists_nothing(db_session, job, sc
     assert _no_document(db_session)
 
 
+def _row_is_free(job_id):
+    from sqlalchemy import text
+
+    from kashi_server.db.engine import engine
+
+    with engine.connect() as other:
+        other.execute(text("SELECT 1 FROM jobs WHERE id = :id FOR UPDATE NOWAIT"), {"id": job_id})
+        other.rollback()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PipelineError("network", "connection reset"),  # transient: would re-queue
+        PipelineError("copyright", "blocked"),  # permanent: would fail
+        PipelineError("lrclib_unavailable", "lrclib unreachable"),  # would defer
+        RuntimeError("socket closed during suspend"),  # crash: would fail as "other"
+    ],
+    ids=["transient", "permanent", "deferral", "crash"],
+)
+@pytest.mark.parametrize(
+    ("status", "bump"), [("downloading", True), ("queued", False)], ids=["reclaimed", "requeued"]
+)
+def test_an_error_after_the_job_changed_hands_is_not_filed(
+    db_session, job, scratch, monkeypatch, error, status, bump
+):
+    # The PC woke from suspend: the reclaim happened while it slept, and the
+    # dead connection fails the download BEFORE the next checkpoint.
+    _happy_stages(monkeypatch, scratch)
+
+    def slept_then_failed(source_id, dest_dir, **kw):
+        _another_worker_took(db_session, job.id, status, bump)
+        raise error
+
+    monkeypatch.setattr(wp, "download_audio", slept_then_failed)
+    claimed_at = job.attempts
+    wp.process_job(db_session, job)
+    # Dropping the verdict must also release the row lock it was read under,
+    # or the new owner's next checkpoint stalls behind this idle session.
+    _row_is_free(job.id)
+    db_session.refresh(job)
+    # The new owner's row, exactly: not re-queued, failed or deferred by us.
+    assert (job.status, job.attempts) == (status, claimed_at + (1 if bump else 0))
+    assert job.lease_expires_at is not None
+    assert (job.error_type, job.finished_at, job.deferrals) == (None, None, 0)
+    assert list(scratch.glob("job-*")) == []
+
+
+def test_filing_an_error_locks_the_row_against_a_concurrent_reclaim(
+    db_session, job, scratch, monkeypatch
+):
+    # The ownership check and the write are one step: a reclaim landing
+    # between them would be overwritten by this run's verdict.
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    from kashi_server.db.engine import engine
+
+    _happy_stages(monkeypatch, scratch)
+    monkeypatch.setattr(
+        wp,
+        "download_audio",
+        lambda *a, **k: (_ for _ in ()).throw(PipelineError("network", "reset")),
+    )
+    seen: list[str] = []
+    real_retry = queue.retry
+
+    def retry_while_another_worker_reclaims(s, j, delay_s):
+        with engine.connect() as other:
+            try:
+                other.execute(
+                    text("SELECT 1 FROM jobs WHERE id = :id FOR UPDATE NOWAIT"), {"id": j.id}
+                )
+                seen.append("free")
+            except OperationalError:
+                seen.append("locked")
+            other.rollback()
+        return real_retry(s, j, delay_s)
+
+    monkeypatch.setattr(wp.queue, "retry", retry_while_another_worker_reclaims)
+    wp.process_job(db_session, job)
+    assert seen == ["locked"]
+    db_session.refresh(job)
+    assert job.status == "queued"  # filed by its owner
+
+
 def test_a_checkpoint_renews_only_its_own_claim(db_session, job, monkeypatch):
     # Between a checkpoint's re-read and its renewal another worker could
     # reclaim the row; the renewal itself must carry the claim, too.

@@ -240,14 +240,22 @@ def checkpoint(s: Session, job: Job) -> None:
     s.refresh(job)
     if job.status == "canceled":
         raise JobCanceled
+    lost = _lease_lost(job)
+    if lost:
+        raise LeaseLost(lost)
+    queue.heartbeat(s, job.id, _CLAIM_ATTEMPTS.get())
+    s.commit()
+
+
+def _lease_lost(job: Job) -> str | None:
+    """Why this run no longer owns its (freshly read) row, or None while it does."""
     claimed = _CLAIM_ATTEMPTS.get()
     if claimed is not None and (job.attempts != claimed or job.status not in RUNNING_STATUSES):
-        raise LeaseLost(
+        return (
             f"job {job.id}: claimed at attempt {claimed}, row now {job.status} "
             f"at attempt {job.attempts}"
         )
-    queue.heartbeat(s, job.id, claimed)
-    s.commit()
+    return None
 
 
 def _decode(
@@ -1151,7 +1159,17 @@ def _postprocess(
 
 
 def _fail_or_retry(s: Session, job: Job, error_type: str, message: str) -> None:
-    s.refresh(job)
+    # A run that slept through its lease (the GPU helper's PC suspended
+    # mid-download) wakes to a dead connection and errors out BEFORE its next
+    # checkpoint: filing that verdict would re-queue or fail a row another
+    # worker now owns (Faz 9.3). The row stays locked from this read to the
+    # commit, so a reclaim cannot land in between either.
+    s.refresh(job, with_for_update=True)
+    lost = _lease_lost(job)
+    if lost:
+        s.rollback()
+        logger.warning("%s — %s not filed; this run is dropped", lost, error_type)
+        return
     if error_type == "lrclib_unavailable":
         # Checked before the attempt budget: a deferral refunds the attempt,
         # so an outage can never exhaust it (patience bounds it instead).
