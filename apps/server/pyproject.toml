@@ -57,6 +57,9 @@ semantics = [
 # Benchmark harness only (benchmarks/ never ships in the image; the bench
 # container build opts in with --build-arg SERVER_EXTRAS).
 bench = []
+# Perceptual audit (apps/server/audit): plots for the agent to read. Never in
+# the shipped image; the audit image (audit/Dockerfile) adds it on top.
+audit = ["matplotlib==3.11.2"]
 
 [dependency-groups]
 dev = [
@@ -98,10 +101,10 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.pyright]
-# Typecheck the shipped code (+ the benchmark harness, which is plain-typed).
+# Typecheck the shipped code (+ the benchmark and audit harnesses, plain-typed).
 # Tests lean on fixtures and assert-based narrowing that pyright can't follow;
 # they're guarded by pytest instead.
-include = ["src", "benchmarks"]
+include = ["src", "benchmarks", "audit"]
 # The downloaded dataset ships its own python scripts — not our code.
 exclude = ["benchmarks/data"]
 
