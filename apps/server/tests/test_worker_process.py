@@ -33,7 +33,9 @@ def job(db_session):
 
 
 @pytest.fixture
-def scratch(tmp_path, monkeypatch):
+def scratch(tmp_path, monkeypatch, lrclib_has_no_record):
+    # lrclib_has_no_record: nothing here may reach lrclib.net; tests that need
+    # lyrics stub fetch_lyrics themselves (_happy_stages), which wins.
     from kashi_server.config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)

@@ -137,7 +137,9 @@ def _fake_result():
     )
 
 
-def test_missing_staged_row_fails_permanent(db_session, monkeypatch, tmp_path):
+def test_missing_staged_row_fails_permanent(
+    db_session, monkeypatch, tmp_path, lrclib_has_no_record
+):
     from kashi_server import queue
     from kashi_server.config import settings
     from kashi_server.version import PIPELINE_MAJOR
