@@ -58,6 +58,30 @@ CONTROLS_PER_SONG = 2
 
 # pile: per extra word in the pile (a 4-word pile weighs 3 x 0.6), see Event.size
 LINE_OFFSET_MS = 1000
+# A placement that lands on another line which looks alike AND is itself heard
+# where the document has it belongs to that line ("it's ya girl, B" heard for
+# "it's ya boy, Young"). In a real section shift the neighbour is shifted too,
+# so it owns nothing and the shift is still reported.
+NEIGHBOUR_SIMILARITY = 0.4
+NEIGHBOUR_SLACK_MS = 1000  # around the other line's span (Crazy L2 ends 8.60, heard 8.68)
+
+
+def heard_on_owned_neighbour(lines: Sequence[dict], offsets: dict[int, int], index: int,
+                             heard_ms: int) -> bool:
+    """``offsets``: line index -> heard minus document start, for placed lines."""
+    from audit.textmatch import letters, partial_similarity
+
+    mine = letters(lines[index].get("text", ""))
+    for oi, other in enumerate(lines):
+        if oi == index or oi not in offsets or abs(offsets[oi]) > LINE_OFFSET_MS:
+            continue
+        if not (other["start_ms"] - NEIGHBOUR_SLACK_MS <= heard_ms
+                <= other["end_ms"] + NEIGHBOUR_SLACK_MS):
+            continue
+        if partial_similarity(mine, letters(other.get("text", ""))) >= NEIGHBOUR_SIMILARITY:
+            return True
+    return False
+
 
 WEIGHTS = {
     "pile": 0.6, "short_run": 1.0, "zero": 0.3, "orphan_voice": 1.0, "line_vs_voice": 1.0,
@@ -202,19 +226,27 @@ def ear_events(doc: dict, version: str, ear: dict,
 
 
 def text_events(doc: dict, version: str, ear: dict) -> list[Event]:
-    """Lines whose own letters the ear hears more than LINE_OFFSET_MS away."""
+    """Lines whose own letters the ear hears more than LINE_OFFSET_MS away
+    (unless that place belongs to an alike neighbour heard in its own place)."""
     from audit.textmatch import ear_stream, locate, sung_span
 
     stream, times = ear_stream(ear["tokens"])
-    out: list[Event] = []
-    for ln in doc.get("lines", []):
+    lines = doc.get("lines", [])
+    offsets: dict[int, int] = {}
+    for li, ln in enumerate(lines):
         start = (ln.get("words") or [ln])[0]["start_ms"]
-        match = locate(ln.get("text", ""), start, stream, times,
-                       line_ms=sung_span(ln))
-        if match is not None and abs(match.heard_ms - start) > LINE_OFFSET_MS:
-            off = match.heard_ms - start
-            out.append(Event(start, "line_offset", version,
-                             f"heard {off:+d} ms (r {match.ratio}): {ln['text']}"))
+        match = locate(ln.get("text", ""), start, stream, times, line_ms=sung_span(ln))
+        if match is not None:
+            offsets[li] = match.heard_ms - start
+    out: list[Event] = []
+    for li, off in sorted(offsets.items()):
+        if abs(off) <= LINE_OFFSET_MS:
+            continue
+        ln = lines[li]
+        start = (ln.get("words") or [ln])[0]["start_ms"]
+        if heard_on_owned_neighbour(lines, offsets, li, start + off):
+            continue
+        out.append(Event(start, "line_offset", version, f"heard {off:+d} ms: {ln['text']}"))
     return out
 
 

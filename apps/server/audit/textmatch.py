@@ -38,6 +38,17 @@ def letters(text: str) -> str:
     return re.sub(r"[^a-z]", "", text.lower())
 
 
+def partial_similarity(a: str, b: str) -> float:
+    """Best SequenceMatcher ratio of the shorter string against every window of
+    the longer one of the same length (a short line inside a long one scores
+    as the overlap, not diluted by the long line's other letters)."""
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if not short:
+        return 0.0
+    windows = [long_[i : i + len(short)] for i in range(max(1, len(long_) - len(short) + 1))]
+    return max(SequenceMatcher(None, short, w, autojunk=False).ratio() for w in windows)
+
+
 @dataclass(frozen=True)
 class LineMatch:
     heard_ms: int

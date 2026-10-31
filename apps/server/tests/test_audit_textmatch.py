@@ -1,8 +1,8 @@
 """audit.textmatch: placing a line by its letters in the ear's letter stream."""
 
-from audit import textmatch
+from audit import finder, textmatch
 from audit.finder import text_events
-from audit.textmatch import ear_stream, letters, locate, sung_span
+from audit.textmatch import ear_stream, letters, locate, partial_similarity, sung_span
 
 
 def _stream(text, t0, step=50):
@@ -108,3 +108,28 @@ def test_the_letter_rate_is_clamped_and_taken_from_the_words():
     fast = locate("Hello there my new rules", 5000, stream, times, line_ms=1)
     assert slow is not None and slow.heard_ms == 5000 - 2 * 150
     assert fast is not None and fast.heard_ms == 5000 - 2 * 50
+
+
+def test_a_placement_on_an_alike_neighbour_heard_in_place_is_that_neighbour():
+    assert (finder.NEIGHBOUR_SIMILARITY, finder.NEIGHBOUR_SLACK_MS) == (0.4, 1000)
+    lines = [
+        {"text": "Most incredibly, it's ya girl, B", "start_ms": 6080, "end_ms": 8600},
+        {"text": "It's ya boy, Young", "start_ms": 10420, "end_ms": 12000},
+        {"text": "You ready?", "start_ms": 12760, "end_ms": 13620},
+    ]
+    owned = finder.heard_on_owned_neighbour
+    # Crazy In Love L3, heard at 8.68 (2026-10-31); L2 is heard in its own place
+    assert owned(lines, {0: 20, 1: -1740}, 1, 8680)
+    assert owned(lines, {0: 1000, 1: -1740}, 1, 9600)     # 1000 counts as in place; slack inclusive
+    assert not owned(lines, {0: 20, 1: -1740}, 1, 9601)
+    assert not owned(lines, {0: 1001, 1: -1740}, 1, 8680)  # L2 itself shifted: a real shift
+    assert not owned(lines, {1: -1740}, 1, 8680)           # L2 not placed: no owner
+    assert not owned(lines, {2: 0, 1: 2000}, 1, 13000)     # "You ready?" is unlike it
+
+
+def test_partial_similarity_scores_the_overlap():
+    assert partial_similarity("abc", "xxabcxx") == 1.0
+    assert partial_similarity("xxabcxx", "abc") == 1.0
+    assert partial_similarity("", "abc") == 0.0
+    assert round(partial_similarity("itsyaboyyoung", "mostincrediblyitsyagirlb"), 3) >= 0.4
+    assert partial_similarity("itsyaboyyoung", "youready") < 0.4
