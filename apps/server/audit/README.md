@@ -52,6 +52,8 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 |---|---|---|
 | `audit.stems <id>...` | audit image | download → separate with the live model (mixback 0) → keep the stem and its 16 kHz decode; the download is deleted |
 | `audit.ear <id> --doc D --times T` | audit image | the aligner checkpoint's emissions over ±2.5 s of the stem: greedy letters with times + P(some letter) per frame → `ear/<id>/<t>.json` |
+| `audit.ear <id> --doc D --whole` | audit image | the same over the whole stem (~2.5 min CPU incl. model load) → `ear/<id>/whole.json`; render cuts each moment's window from it |
+| `audit.find <id> --doc L=D,...` | host | ranks the song's suspicious moments (`audit.finder`) → `runs/<id>/moments.json`, prints the ranking, two seeded control moments and the ear-text summary |
 | `audit.moment <id> <t> --doc D` | host (`uv run --extra audit`) | prints the overlay strip's player times for a moment |
 | `apps/overlay/scripts/audit-strip.mjs` | host Node / Playwright image | what the overlay shows at those times: `sim` runs the renderer's own pure functions, `real` the built renderer in Chromium (PNG per frame) and asserts both agree |
 | `audit.render <id> <t> --doc L=D,...` | host | the picture (`moment-<t>.png`, ≤1568 px wide) and its numbers (`moment-<t>.json`) |
@@ -62,6 +64,31 @@ functions, on the 16 kHz stem) and **voice onsets** — where the voice returns
 after ≥150 ms below line QA's −25 dB silence threshold. On pop, librosa onsets
 are dense (one every ~344 ms), so they prove little; voice onsets are the
 evidence for "this line starts late".
+
+### The finder
+
+`audit.finder` turns one song into events, clusters them into ≤ 3 s moments
+(each tag counts at most three times toward a moment's score) and ranks them.
+Tags: `pile` (≥ 2 word starts within 60 ms, weighted per extra word),
+`short_run` (≥ 3 words < 60 ms in a row), `zero`, `orphan_voice` (the voice
+returns, gets loud — peak ≥ −19 dB — and no word starts within 250 ms),
+`line_vs_voice` (a line after ≥ 500 ms of silence starts 250–1500 ms from the
+voice's return), `sung_unboxed` / `boxed_silent` (the ear hears letters outside
+every box / nothing inside a long quiet box), `qa`, `moved` (> 250 ms between
+versions) and `line_offset` (below). Thresholds are pinned as numbers in
+`tests/test_audit_finder.py`; they were set on New Rules, Got 2 Luv U and
+Crazy In Love (2026-10-31) and are to be revisited on the favourite set.
+
+**Ear-text match** (`audit.textmatch`): each line's letters are slid along the
+whole-song ear's letter stream within 8 s of the document's start. A strong,
+unambiguous match says where the model hears the line, even in patois; the
+time is the first run of 3+ matching letters stepped back by its place in the
+line. Lines heard > 1 s away become `line_offset` events, unless the spot
+belongs to a look-alike neighbour that is itself heard in place. `audit.find`
+prints the song summary (lines placed, median offset, how many > 1 s off):
+healthy songs read a median of +20..+90 ms (the model's raw clock against the
+documents' offset table); Got 2 Luv U reads −3.8 s for 26 of 27 placed lines,
+because lrclib's own stamps for its verses are 3–4 s late.
 
 ### Reading a picture
 
@@ -97,4 +124,7 @@ go to `caner-dinle.md` (song, mm:ss, one question).
 
 | step | host | per track |
 |---|---|---|
-| separation, CPU | cnr-intel (4 cores) | (first run pending) |
+| separation, CPU | cnr-intel (4 cores) | 670–980 s (≈ 4.5× real time) |
+| whole-song ear, CPU | cnr-intel | ~2.5 min (1 min of it loading the 1B model) |
+| one moment (`moment.sh`, sim strip, whole ear cached) | cnr-intel | ~10 s |
+| one moment with `--real` frames | cnr-intel | ~40 s |
