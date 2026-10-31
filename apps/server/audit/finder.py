@@ -225,9 +225,9 @@ def ear_events(doc: dict, version: str, ear: dict,
     return out
 
 
-def text_events(doc: dict, version: str, ear: dict) -> list[Event]:
-    """Lines whose own letters the ear hears more than LINE_OFFSET_MS away
-    (unless that place belongs to an alike neighbour heard in its own place)."""
+def line_offsets(doc: dict, ear: dict) -> tuple[dict[int, int], set[int]]:
+    """Ear-text placement of every line: (line index -> heard minus document
+    start, the indices whose placement belongs to an alike neighbour)."""
     from audit.textmatch import ear_stream, locate, sung_span
 
     stream, times = ear_stream(ear["tokens"])
@@ -238,14 +238,25 @@ def text_events(doc: dict, version: str, ear: dict) -> list[Event]:
         match = locate(ln.get("text", ""), start, stream, times, line_ms=sung_span(ln))
         if match is not None:
             offsets[li] = match.heard_ms - start
+    borrowed = {
+        li for li, off in offsets.items()
+        if abs(off) > LINE_OFFSET_MS and heard_on_owned_neighbour(
+            lines, offsets, li, (lines[li].get("words") or [lines[li]])[0]["start_ms"] + off)
+    }
+    return offsets, borrowed
+
+
+def text_events(doc: dict, version: str, ear: dict) -> list[Event]:
+    """Lines whose own letters the ear hears more than LINE_OFFSET_MS away
+    (unless that place belongs to an alike neighbour heard in its own place)."""
+    offsets, borrowed = line_offsets(doc, ear)
+    lines = doc.get("lines", [])
     out: list[Event] = []
     for li, off in sorted(offsets.items()):
-        if abs(off) <= LINE_OFFSET_MS:
+        if abs(off) <= LINE_OFFSET_MS or li in borrowed:
             continue
         ln = lines[li]
         start = (ln.get("words") or [ln])[0]["start_ms"]
-        if heard_on_owned_neighbour(lines, offsets, li, start + off):
-            continue
         out.append(Event(start, "line_offset", version, f"heard {off:+d} ms: {ln['text']}"))
     return out
 

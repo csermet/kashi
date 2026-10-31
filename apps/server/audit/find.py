@@ -23,24 +23,18 @@ from audit.paths import RUNS_DIR, stem_path
 
 
 def text_summary(doc: dict, ear: dict) -> dict:
-    """Song-level view of the ear-text match: where the model hears each line."""
+    """Song-level view of the ear-text match (borrowed placements left out)."""
     import statistics
 
-    from audit.textmatch import ear_stream, locate, sung_span
+    from audit.finder import LINE_OFFSET_MS, line_offsets
 
-    stream, times = ear_stream(ear["tokens"])
-    offsets = []
-    for ln in doc.get("lines", []):
-        start = (ln.get("words") or [ln])[0]["start_ms"]
-        m = locate(ln.get("text", ""), start, stream, times,
-                   line_ms=sung_span(ln))
-        if m is not None:
-            offsets.append(m.heard_ms - start)
+    offsets, borrowed = line_offsets(doc, ear)
+    kept = [o for li, o in offsets.items() if li not in borrowed]
     return {
         "lines": len(doc.get("lines", [])),
-        "matched": len(offsets),
-        "median_ms": round(statistics.median(offsets)) if offsets else None,
-        "off_1s": sum(1 for o in offsets if abs(o) > 1000),
+        "matched": len(kept),
+        "median_ms": round(statistics.median(kept)) if kept else None,
+        "off_1s": sum(1 for o in kept if abs(o) > LINE_OFFSET_MS),
     }
 
 
