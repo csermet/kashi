@@ -22,7 +22,7 @@ from pathlib import Path
 
 from audit.analysis import SongAnalysis, analyse
 from audit.docs import load_document
-from audit.ear import ear_path
+from audit.ear import ear_path, whole_path
 from audit.moment import ear_letters_in, line_numbers, lines_in, word_flags
 from audit.paths import RUNS_DIR
 from audit.stems import decode_16k
@@ -119,6 +119,27 @@ def _spectrogram(video_id: str, t0: int, t1: int):
     return librosa.power_to_db(mel, ref=np.max), max(0, t0)
 
 
+def load_ear(video_id: str, t_ms: int) -> dict | None:
+    """The moment's own ear clip, else the window cut from the whole-song ear."""
+    clip = ear_path(video_id, t_ms)
+    if clip.exists():
+        return json.loads(clip.read_text())
+    whole = whole_path(video_id)
+    if not whole.exists():
+        return None
+    ear = json.loads(whole.read_text())
+    stride = ear["stride_ms"]
+    lo = max(0, t_ms - HALF_MS)
+    i0 = int(lo / stride)
+    i1 = int((t_ms + HALF_MS) / stride) + 1
+    ear["letter_prob"] = ear["letter_prob"][i0:i1]
+    ear["start_ms"] = round(i0 * stride)
+    ear["tokens"] = [t for t in ear["tokens"] if lo <= t["start_ms"] <= t_ms + HALF_MS]
+    ear["text"] = "".join(t["text"] for t in ear["tokens"]).replace("|", " ").strip()
+    ear["t_ms"] = t_ms
+    return ear
+
+
 def doc_beats(doc: dict, t0: int, t1: int) -> list[tuple[int, bool]]:
     """(time, is bar start) for the document's beats inside [t0, t1]."""
     beats = doc.get("beats") or {}
@@ -169,8 +190,7 @@ def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: di
     from matplotlib.patches import Rectangle
 
     song = analyse(video_id)
-    ear_file = ear_path(video_id, t_ms)
-    ear = json.loads(ear_file.read_text()) if ear_file.exists() else None
+    ear = load_ear(video_id, t_ms)
     numbers = build_numbers(video_id, t_ms, versions, song, ear, strip, offset_ms)
     t0, t1 = t_ms - HALF_MS, t_ms + HALF_MS
     frames = strip["frames"] if strip else []
@@ -297,6 +317,11 @@ def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: di
                 axs.imshow(img, extent=(0.57, 0.57 + frac, y + 0.46, y - 0.46), aspect="auto")
             if f["line"] < 0:
                 axs.text(0.15, y, "♪ (no line)", fontsize=13, va="center", color=THEME["muted"])
+                continue
+            if not f["words"]:
+                # A line without word timings shows as plain, static text.
+                axs.text(0.15, y, f"[plain] {f['text']}", fontsize=13, va="center",
+                         color=THEME["sung"], fontfamily="monospace")
                 continue
             # Monospace: a character is CHAR_W of the axis at 13 pt; shrink to fit.
             room = (0.55 if use_real else 0.84) - 0.15

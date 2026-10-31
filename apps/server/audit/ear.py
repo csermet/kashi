@@ -85,6 +85,18 @@ def letters_text(tokens: Sequence[dict]) -> str:
 
 def hear(video_id: str, model_name: str, t_ms: int, half_ms: int = HALF_WINDOW_MS) -> dict:
     """Emissions over [t - half, t + half] of the stem: tokens and the letter curve."""
+    start_ms = max(0, t_ms - half_ms)
+    out = _hear_span(video_id, model_name, start_ms, 2 * half_ms)
+    out["t_ms"] = t_ms
+    return out
+
+
+def hear_whole(video_id: str, model_name: str) -> dict:
+    """The whole stem in one emission pass (the library batches it in 30 s windows)."""
+    return _hear_span(video_id, model_name, 0, None)
+
+
+def _hear_span(video_id: str, model_name: str, start_ms: int, length_ms: int | None) -> dict:
     import torch  # pyright: ignore[reportMissingImports]
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
@@ -92,13 +104,14 @@ def hear(video_id: str, model_name: str, t_ms: int, half_ms: int = HALF_WINDOW_M
     from kashi_server.pipeline.asr import usable_columns
     from kashi_server.worker.process import _decode
 
-    start_ms = max(0, t_ms - half_ms)
     model, tokenizer = _load_model(model_name)
     with tempfile.TemporaryDirectory(prefix="kashi-ear-") as tmp:
         clip = _decode(stem_path(video_id), Path(tmp) / "clip.wav", rate=16000,
-                       start_s=start_ms / 1000, length_s=2 * half_ms / 1000)
+                       start_s=start_ms / 1000 if start_ms else None,
+                       length_s=length_ms / 1000 if length_ms else None)
         audio = load_audio(str(clip), model.dtype, model.device)
-        emissions, stride = _emit(model, audio, exact_stride=True)
+        with torch.inference_mode():
+            emissions, stride = _emit(model, audio, exact_stride=True)
     vocab = tokenizer.get_vocab()
     keep = usable_columns(int(emissions.shape[-1]), len(vocab))
     logp = emissions[:, :keep]
@@ -115,7 +128,6 @@ def hear(video_id: str, model_name: str, t_ms: int, half_ms: int = HALF_WINDOW_M
     return {
         "id": video_id,
         "model": model_name,
-        "t_ms": t_ms,
         "start_ms": start_ms,
         "stride_ms": round(float(stride), 4),
         "text": letters_text(tokens),
@@ -127,6 +139,10 @@ def hear(video_id: str, model_name: str, t_ms: int, half_ms: int = HALF_WINDOW_M
     }
 
 
+def whole_path(video_id: str) -> Path:
+    return EAR_DIR / video_id / "whole.json"
+
+
 def ear_path(video_id: str, t_ms: int) -> Path:
     return EAR_DIR / video_id / f"{t_ms}.json"
 
@@ -135,14 +151,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="What the aligner's model hears.")
     parser.add_argument("id")
     parser.add_argument("--doc", required=True, help="document JSON or a [{id, doc}] dump")
-    parser.add_argument("--times", required=True, help="comma-separated ms (document clock)")
+    parser.add_argument("--times", help="comma-separated ms (document clock)")
+    parser.add_argument("--whole", action="store_true", help="whole song -> ear/<id>/whole.json")
     parser.add_argument("--model", help="override the checkpoint taken from alignment.method")
     parser.add_argument("--half-window-ms", type=int, default=HALF_WINDOW_MS)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     doc = load_document(Path(args.doc), args.id)
     model_name = args.model or checkpoint_for(doc["alignment"]["method"])
-    for t in (int(x) for x in args.times.split(",")):
+    if args.whole:
+        dest = whole_path(args.id)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        out = hear_whole(args.id, model_name)
+        dest.write_text(json.dumps(out) + "\n")
+        logger.info("%s whole: %d frames, %d tokens", args.id, out["frames"], len(out["tokens"]))
+    for t in (int(x) for x in (args.times.split(",") if args.times else [])):
         out = hear(args.id, model_name, t, args.half_window_ms)
         dest = ear_path(args.id, t)
         dest.parent.mkdir(parents=True, exist_ok=True)

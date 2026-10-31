@@ -27,7 +27,7 @@ if [ "$REAL" = "--real" ]; then
     --png-dir "$OUT/frames-$T" --out "$OUT/strip-real-$T.json"
   REAL_ARGS=(--real-dir "$OUT/frames-$T")
 fi
-if [ ! -f "$REPO/scratch/audit/ear/$ID/$T.json" ]; then
+if [ ! -f "$REPO/scratch/audit/ear/$ID/$T.json" ] && [ ! -f "$REPO/scratch/audit/ear/$ID/whole.json" ]; then
   docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:/repo" -w /repo/apps/server \
     -e PYTHONPATH=/repo/apps/server/src:/repo/apps/server \
     -v "$SERVER/benchmarks/data/hf:/models" kashi-audit \
