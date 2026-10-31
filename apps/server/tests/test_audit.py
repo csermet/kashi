@@ -44,6 +44,8 @@ def test_timed_tokens_uses_the_exact_stride():
 def test_checkpoint_for_reads_alignment_method():
     m = "ctc-forced-aligner/wav2vec2-xls-r-1b-english+line-windowed"
     assert checkpoint_for(m) == "jonatasgrosman/wav2vec2-xls-r-1b-english"
+    mms = "MahmoudAshraf/mms-300m-1130-forced-aligner"
+    assert checkpoint_for("ctc-forced-aligner/mms-300m+line-windowed") == mms
 
 
 def _contour(levels, hop=10):

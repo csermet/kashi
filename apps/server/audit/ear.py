@@ -37,6 +37,8 @@ CHECKPOINTS = {
     "wav2vec2-xls-r-1b-english": "jonatasgrosman/wav2vec2-xls-r-1b-english",
     "wav2vec2-xls-r-300m-cv7-turkish": "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish",
     "mms-300m-1130-forced-aligner": "MahmoudAshraf/mms-300m-1130-forced-aligner",
+    # the MMS default is recorded under its short name (Gasolina, BxMxC)
+    "mms-300m": "MahmoudAshraf/mms-300m-1130-forced-aligner",
 }
 WORD_DELIMITER = "|"
 
