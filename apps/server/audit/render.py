@@ -23,7 +23,7 @@ from pathlib import Path
 from audit.analysis import SongAnalysis, analyse
 from audit.docs import load_document
 from audit.ear import ear_path, whole_path
-from audit.moment import ear_letters_in, line_numbers, lines_in, word_flags
+from audit.moment import BUMP_SPAN_PAD_MS, ear_letters_in, line_numbers, lines_in, word_flags
 from audit.paths import RUNS_DIR
 from audit.stems import decode_16k
 
@@ -124,7 +124,7 @@ def _spectrogram(video_id: str, t0: int, t1: int):
     return librosa.power_to_db(mel, ref=np.max), max(0, t0)
 
 
-def load_ear(video_id: str, t_ms: int) -> dict | None:
+def load_ear(video_id: str, t_ms: int, half_ms: int = HALF_MS) -> dict | None:
     """The moment's own ear clip, else the window cut from the whole-song ear."""
     clip = ear_path(video_id, t_ms)
     if clip.exists():
@@ -134,12 +134,12 @@ def load_ear(video_id: str, t_ms: int) -> dict | None:
         return None
     ear = json.loads(whole.read_text())
     stride = ear["stride_ms"]
-    lo = max(0, t_ms - HALF_MS)
+    lo = max(0, t_ms - half_ms)
     i0 = int(lo / stride)
-    i1 = int((t_ms + HALF_MS) / stride) + 1
+    i1 = int((t_ms + half_ms) / stride) + 1
     ear["letter_prob"] = ear["letter_prob"][i0:i1]
     ear["start_ms"] = round(i0 * stride)
-    ear["tokens"] = [t for t in ear["tokens"] if lo <= t["start_ms"] <= t_ms + HALF_MS]
+    ear["tokens"] = [t for t in ear["tokens"] if lo <= t["start_ms"] <= t_ms + half_ms]
     ear["text"] = "".join(t["text"] for t in ear["tokens"]).replace("|", " ").strip()
     ear["t_ms"] = t_ms
     return ear
@@ -155,10 +155,13 @@ def doc_beats(doc: dict, t0: int, t1: int) -> list[tuple[int, bool]]:
 
 def build_numbers(video_id: str, t_ms: int, versions: list[tuple[str, dict]],
                   song: SongAnalysis, ear: dict | None, strip: dict | None,
-                  offset_ms: int) -> dict:
-    t0, t1 = t_ms - HALF_MS, t_ms + HALF_MS
+                  offset_ms: int, half_ms: int = HALF_MS) -> dict:
+    t0, t1 = t_ms - half_ms, t_ms + half_ms
     out: dict = {"id": video_id, "t_ms": t_ms, "offset_ms": offset_ms, "versions": {}}
+    from audit.syllables import doc_language
+
     for label, doc in versions:
+        lang = doc_language(doc)
         rows = []
         for li, line in lines_in(doc, t0, t1):
             words = line.get("words") or []
@@ -166,8 +169,11 @@ def build_numbers(video_id: str, t_ms: int, versions: list[tuple[str, dict]],
             vo = song.nearest(song.voice_onsets, start)
             if vo is not None and abs(vo - start) > VOICE_ONSET_MATCH_MS:
                 vo = None
+            span = (start - BUMP_SPAN_PAD_MS,
+                    (words[-1]["end_ms"] if words else line["end_ms"]) + BUMP_SPAN_PAD_MS)
             row = line_numbers(line, offset_ms, vo, song.nearest(song.onsets, start),
-                               song.level_at(start))
+                               song.level_at(start), song.bumps(*span) if words else None,
+                               lang)
             row["line"] = li
             row["ear_letters"] = ear_letters_in(ear, line["start_ms"], line["end_ms"])
             rows.append(row)
@@ -189,15 +195,16 @@ def build_numbers(video_id: str, t_ms: int, versions: list[tuple[str, dict]],
 
 
 def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: dict | None,
-           real_dir: Path | None, out_png: Path, offset_ms: int) -> dict:
+           real_dir: Path | None, out_png: Path, offset_ms: int,
+           half_ms: int = HALF_MS) -> dict:
     plt = _setup_matplotlib()
     from matplotlib import gridspec  # pyright: ignore[reportMissingImports]
     from matplotlib.patches import Rectangle  # pyright: ignore[reportMissingImports]
 
     song = analyse(video_id)
-    ear = load_ear(video_id, t_ms)
-    numbers = build_numbers(video_id, t_ms, versions, song, ear, strip, offset_ms)
-    t0, t1 = t_ms - HALF_MS, t_ms + HALF_MS
+    ear = load_ear(video_id, t_ms, half_ms)
+    numbers = build_numbers(video_id, t_ms, versions, song, ear, strip, offset_ms, half_ms)
+    t0, t1 = t_ms - half_ms, t_ms + half_ms
     frames = strip["frames"] if strip else []
     use_real = real_dir is not None and all((real_dir / f"frame-{f['t']}.png").exists()
                                             for f in frames)
@@ -244,6 +251,11 @@ def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: di
     ex.axhline(-25, color=THEME["energy"], lw=0.8, ls=":")
     ex.set_ylim(-60, 2)
     ex.set_ylabel("dB")
+    # Loudness bumps (roughly: sung syllables) as small marks above the line.
+    for b in song.bumps(t0, t1):
+        lvl = song.level_at(b)
+        if lvl is not None:
+            ex.plot([b], [min(0.0, lvl + 3)], marker="v", color=THEME["energy"], markersize=8)
     for k, f in enumerate(frames, 1):
         ax.text(f["t"], 7600, str(k), color=THEME["accent"], fontsize=12, ha="center",
                 fontweight="bold")
@@ -363,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", help="default: scratch/audit/runs/<id>")
     parser.add_argument("--theme", choices=sorted(THEMES), default="kontrast")
     parser.add_argument("--suffix", default="", help="appended to the output file names")
+    parser.add_argument("--half-ms", type=int, default=HALF_MS,
+                        help="analysis window either side of t (zoom: 1000)")
     args = parser.parse_args(argv)
     THEME.clear()
     THEME.update(THEMES[args.theme])
@@ -374,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir) if args.out_dir else RUNS_DIR / args.id
     png = out_dir / f"moment-{args.t_ms}{args.suffix}.png"
     numbers = render(args.id, args.t_ms, versions, strip,
-                     Path(args.real_dir) if args.real_dir else None, png, args.offset)
+                     Path(args.real_dir) if args.real_dir else None, png, args.offset,
+                     args.half_ms)
     (out_dir / f"moment-{args.t_ms}{args.suffix}.json").write_text(
         json.dumps(numbers, indent=1, ensure_ascii=False) + "\n")
     print(png)

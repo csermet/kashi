@@ -26,6 +26,12 @@ SILENCE_DB = -25.0
 # A gap must last this long to count as silence before a voice onset; shorter
 # dips are consonants and breaths inside a phrase.
 MIN_SILENCE_MS = 150
+# Loudness bumps (sung syllables, roughly): peaks above the silence line that
+# stand BUMP_PROMINENCE_DB over the dips on both sides, at least BUMP_GAP_MS
+# apart, on a contour smoothed over BUMP_SMOOTH frames (~58 ms).
+BUMP_PROMINENCE_DB = 6.0
+BUMP_GAP_MS = 90
+BUMP_SMOOTH = 5
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,10 @@ class SongAnalysis:
         i1 = min(len(self.energy), round((t_ms + window_ms) / self.hop_ms) + 1)
         return max((db for _, db in self.energy[i0:i1]), default=-99.0)
 
+    def bumps(self, t0: int, t1: int) -> list[int]:
+        """Loudness bump peaks in [t0, t1] (see BUMP_*)."""
+        return loudness_bumps(self.energy, self.hop_ms, t0, t1)
+
     def level_at(self, t_ms: int) -> float | None:
         if not self.energy:
             return None
@@ -69,6 +79,24 @@ def voice_onsets(frames: list[tuple[int, float]], hop_ms: float,
                 out.append(t)
             quiet_since = None
     return out
+
+
+def loudness_bumps(frames: list[tuple[int, float]], hop_ms: float, t0: int, t1: int,
+                   prominence_db: float = BUMP_PROMINENCE_DB, gap_ms: int = BUMP_GAP_MS,
+                   smooth: int = BUMP_SMOOTH) -> list[int]:
+    """Peak times of the smoothed loudness contour inside [t0, t1]."""
+    import numpy as np
+    from scipy.signal import find_peaks
+
+    window = [db for t, db in frames if t0 <= t <= t1]
+    times = [t for t, _ in frames if t0 <= t <= t1]
+    if len(window) < 3:
+        return []
+    level = np.convolve(np.asarray(window), np.ones(smooth) / smooth, mode="same") \
+        if smooth > 1 else np.asarray(window)
+    peaks, _ = find_peaks(level, height=SILENCE_DB, prominence=prominence_db,
+                          distance=max(1, round(gap_ms / hop_ms)))
+    return [times[i] for i in peaks]
 
 
 def _cache_path(video_id: str):

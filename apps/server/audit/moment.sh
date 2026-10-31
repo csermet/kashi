@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One audit moment end to end: strip times -> overlay strip -> ear -> picture.
 #   audit/moment.sh <video id> <t_ms> <label=dump>[,<label=dump>...] [--real]
+# HALF_MS=1000 in the environment draws a +-1 s close-up (moment-<t>-zoom.*).
 # The LAST label is the version the overlay strip shows. Run from anywhere on
 # cnr-intel; needs the kashi-audit image (README) and, for --real, the
 # Playwright image. Output: scratch/audit/runs/<id>/moment-<t>.{png,json}.
@@ -16,16 +17,19 @@ case $DOC in /*) ;; *) DOC=$PWD/$DOC ;; esac
 ABS_DOCS=$(python3 -c 'import os,sys;print(",".join(l+"="+os.path.abspath(p) for l,p in (x.split("=",1) for x in sys.argv[1].split(","))))' "$DOCS")
 cd "$SERVER"
 export PYTHONPATH="$SERVER/src:$SERVER"
-TIMES=$(uv run -q --extra audit python -m audit.moment "$ID" "$T" --doc "$DOC")
+HALF=${HALF_MS:-2500}
+SUFFIX=""
+[ "$HALF" != 2500 ] && SUFFIX="-zoom"
+TIMES=$(uv run -q --extra audit python -m audit.moment "$ID" "$T" --doc "$DOC" --half-ms "$HALF")
 node "$REPO/apps/overlay/scripts/audit-strip.mjs" --doc "$DOC" --id "$ID" --times "$TIMES" \
-  --out "$OUT/strip-$T.json"
+  --out "$OUT/strip-$T$SUFFIX.json"
 REAL_ARGS=()
 if [ "$REAL" = "--real" ]; then
   docker run --rm --init --user "$(id -u):$(id -g)" --shm-size=1g -e HOME=/tmp \
     -v "$REPO:$REPO" -w "$REPO/apps/overlay" mcr.microsoft.com/playwright:v1.63.0-noble \
     node scripts/audit-strip.mjs --doc "$DOC" --id "$ID" --times "$TIMES" --mode real \
-    --png-dir "$OUT/frames-$T" --out "$OUT/strip-real-$T.json"
-  REAL_ARGS=(--real-dir "$OUT/frames-$T")
+    --png-dir "$OUT/frames-$T$SUFFIX" --out "$OUT/strip-real-$T$SUFFIX.json"
+  REAL_ARGS=(--real-dir "$OUT/frames-$T$SUFFIX")
 fi
 if [ ! -f "$REPO/scratch/audit/ear/$ID/$T.json" ] && [ ! -f "$REPO/scratch/audit/ear/$ID/whole.json" ]; then
   docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:/repo" -w /repo/apps/server \
@@ -34,4 +38,4 @@ if [ ! -f "$REPO/scratch/audit/ear/$ID/$T.json" ] && [ ! -f "$REPO/scratch/audit
     python -m audit.ear "$ID" --doc "${DOC/#$REPO//repo}" --times "$T"
 fi
 uv run -q --extra audit python -m audit.render "$ID" "$T" --doc "$ABS_DOCS" \
-  --strip "$OUT/strip-$T.json" "${REAL_ARGS[@]}"
+  --strip "$OUT/strip-$T$SUFFIX.json" --half-ms "$HALF" --suffix="$SUFFIX" "${REAL_ARGS[@]}"

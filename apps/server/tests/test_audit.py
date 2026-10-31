@@ -100,3 +100,49 @@ def test_strip_times_merges_piled_words_into_one_frame():
     doc = _doc([(10_000, 10_000), (10_000, 10_000), (10_010, 10_400)])
     events = [t for t in strip_times(doc, 10_000, 200) if 9_800 <= t <= 9_850]
     assert events == [9_830]
+
+
+def test_syllables_counts_vowel_groups_with_a_silent_final_e():
+    from audit.syllables import doc_language, line_syllables, syllables
+
+    cases = {"It's": 1, "so": 1, "crazy": 2, "right": 1, "now": 1, "love": 1, "make": 1,
+             "the": 1, "be": 1, "little": 2, "remedy": 3, "gettin'": 2, "(woo!": 1, "Hova?": 2,
+             "agree": 2, "goodbye": 2, "...": 0}
+    assert {w: syllables(w) for w in cases} == cases
+    assert line_syllables(["It's", "so", "crazy", "right", "now"]) == 6
+    turkish = {"kalpte": 2, "aksesuar": 4, "acısı": 3, "da": 1}
+    assert {w: syllables(w, "tur") for w in turkish} == turkish
+    assert syllables("bueno", "other") == 2 and syllables("kalpte", "other") == 2
+    method = "ctc-forced-aligner/wav2vec2-xls-r-300m-cv7-turkish+line-windowed"
+    assert doc_language({"alignment": {"method": method}}) == "tur"
+    assert doc_language({"alignment": {"method": "x/wav2vec2-xls-r-1b-english"}}) == "eng"
+    assert doc_language({}) == "other"
+
+
+def test_loudness_bumps_need_a_6_db_dip_on_both_sides():
+    from audit.analysis import loudness_bumps
+
+    def contour(levels):
+        return [(i * 10, db) for i, db in enumerate(levels)]
+
+    # the second, lower peak (-6) counts only when the dip before it is 6 dB under it
+    deep = [-30.0] * 5 + [-5.0] * 5 + [-12.0] * 5 + [-6.0] * 5 + [-30.0] * 5
+    assert len(loudness_bumps(contour(deep), 10.0, 0, 240, gap_ms=10, smooth=1)) == 2
+    shallow = [-30.0] * 5 + [-5.0] * 5 + [-11.9] * 5 + [-6.0] * 5 + [-30.0] * 5
+    assert len(loudness_bumps(contour(shallow), 10.0, 0, 240, gap_ms=10, smooth=1)) == 1
+    quiet = [-40.0] * 5 + [-26.0] * 5 + [-40.0] * 5
+    assert loudness_bumps(contour(quiet), 10.0, 0, 140, gap_ms=10, smooth=1) == []
+
+
+def test_line_numbers_report_whether_bumps_can_be_mapped_in_order():
+    from audit.moment import line_numbers
+
+    line = {"text": "It's so crazy", "start_ms": 1000, "end_ms": 2000,
+            "words": [{"text": "It's", "start_ms": 1000, "end_ms": 1200},
+                      {"text": "so", "start_ms": 1300, "end_ms": 1500},
+                      {"text": "crazy", "start_ms": 1600, "end_ms": 2000}]}
+    four = line_numbers(line, 200, None, None, None, [1000, 1300, 1600, 1800])
+    assert (four["syllables"], four["bump_mapping"]) == (4, "1:1")
+    assert line_numbers(line, 200, None, None, None, [1000, 1300])["bump_mapping"] == "fewer bumps"
+    assert line_numbers(line, 200, None, None, None, [1] * 5)["bump_mapping"] == "more bumps"
+    assert "bump_mapping" not in line_numbers(line, 200, None, None, None)

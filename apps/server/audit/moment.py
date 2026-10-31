@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 STRIP_HALF_MS = 1250
+BUMP_SPAN_PAD_MS = 300
 STRIP_MAX_FRAMES = 10
 STRIP_MIN_FRAMES = 8
 STRIP_GRID_MS = 250
@@ -88,8 +89,10 @@ def word_flags(words: Sequence[dict]) -> list[list[str]]:
 
 
 def line_numbers(line: dict, offset_ms: int, voice_onset: int | None,
-                 onset: int | None, level_db: float | None) -> dict:
-    """How a line's first word sits against the audio evidence."""
+                 onset: int | None, level_db: float | None,
+                 bumps: list[int] | None = None, lang: str = "eng") -> dict:
+    """How a line's first word sits against the audio evidence. ``bumps``:
+    loudness bump peaks over the line's sung span (+-300 ms)."""
     words = line.get("words") or []
     start = words[0]["start_ms"] if words else line["start_ms"]
     out: dict = {
@@ -103,6 +106,16 @@ def line_numbers(line: dict, offset_ms: int, voice_onset: int | None,
     if voice_onset is not None:
         out["doc_minus_voice_ms"] = start - voice_onset
         out["screen_minus_voice_ms"] = start - offset_ms - voice_onset
+    if words and bumps is not None:
+        from audit.syllables import line_syllables
+
+        syl = line_syllables([w["text"] for w in words], lang)
+        out["syllables"] = syl
+        out["bumps_ms"] = bumps
+        # Equal counts allow mapping bumps to syllables in order; otherwise the
+        # order of bumps (or of the ear's letters) says nothing about which word.
+        out["bump_mapping"] = "1:1" if len(bumps) == syl else (
+            "fewer bumps" if len(bumps) < syl else "more bumps")
     if words:
         flags = word_flags(words)
         out["words"] = [
@@ -138,9 +151,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("t_ms", type=int)
     parser.add_argument("--doc", required=True)
     parser.add_argument("--offset", type=int, default=200)
+    parser.add_argument("--half-ms", type=int, default=STRIP_HALF_MS,
+                        help="strip window either side of t (capped at STRIP_HALF_MS)")
     args = parser.parse_args(argv)
     doc = load_document(Path(args.doc), args.id)
-    print(",".join(str(t) for t in strip_times(doc, args.t_ms, args.offset)))
+    half = min(STRIP_HALF_MS, args.half_ms)
+    print(",".join(str(t) for t in strip_times(doc, args.t_ms, args.offset, half_ms=half)))
     return 0
 
 
