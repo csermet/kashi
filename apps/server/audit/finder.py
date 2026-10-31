@@ -28,6 +28,13 @@ PILE_SPAN_MS = 60
 SHORT_WORD_MS = 60
 SHORT_RUN = 3
 ORPHAN_MS = 250
+# A voice return only counts as orphaned when it gets loud: its peak in the
+# next ORPHAN_PEAK_WINDOW_MS reaches ORPHAN_MIN_PEAK_DB (re the song max).
+# Calibrated 2026-10-31 on New Rules: sung but unboxed 'don't's peak at
+# -12.6..-18.0 dB, breath/backing bursts at -19.9..-23.9 (thin: 10 vs 3
+# events, one song; revisit on the favourite set).
+ORPHAN_MIN_PEAK_DB = -19.0
+ORPHAN_PEAK_WINDOW_MS = 250
 LINE_GAP_MS = 500
 LINE_VOICE_MIN_MS = 250
 LINE_VOICE_MAX_MS = 1500
@@ -121,8 +128,10 @@ def _near(sorted_times: Sequence[int], t: int, within: int) -> bool:
     return i < len(sorted_times) and sorted_times[i] <= t + within
 
 
-def voice_events(doc: dict, version: str, voice_onsets: Sequence[int]) -> list[Event]:
-    """Voice returns no word explains, and lines that start far from one."""
+def voice_events(doc: dict, version: str, voice_onsets: Sequence[int],
+                 peak_after=None) -> list[Event]:
+    """Voice returns no word explains (loud ones, when ``peak_after(t, window)``
+    is given), and lines that start far from one."""
     words = flat_words(doc)
     if not words or not voice_onsets:
         return []
@@ -131,6 +140,8 @@ def voice_events(doc: dict, version: str, voice_onsets: Sequence[int]) -> list[E
     out: list[Event] = []
     for v in voice_onsets:
         if first - ORPHAN_MS <= v <= last + ORPHAN_MS and not _near(starts, v, ORPHAN_MS):
+            if peak_after is not None and peak_after(v, ORPHAN_PEAK_WINDOW_MS) < ORPHAN_MIN_PEAK_DB:
+                continue
             out.append(Event(v, "orphan_voice", version))
     prev_end: int | None = None
     for ln in doc.get("lines", []):
@@ -263,12 +274,12 @@ def controls(doc: dict, moments: Sequence[Moment], seed: str,
 
 
 def find(versions: Sequence[tuple[str, dict]], voice_onsets: Sequence[int] | None = None,
-         ear: dict | None = None, level_at=None) -> list[Event]:
+         ear: dict | None = None, level_at=None, peak_after=None) -> list[Event]:
     events: list[Event] = []
     for label, doc in versions:
         events += word_events(doc, label) + qa_events(doc, label)
         if voice_onsets:
-            events += voice_events(doc, label, voice_onsets)
+            events += voice_events(doc, label, voice_onsets, peak_after)
         if ear:
             events += ear_events(doc, label, ear, level_at)
     for (_, old), (label, new) in zip(versions, versions[1:], strict=False):

@@ -32,6 +32,7 @@ def tags(events):
 def test_thresholds_are_the_calibrated_numbers():
     assert (finder.PILE_SPAN_MS, finder.SHORT_WORD_MS, finder.SHORT_RUN) == (60, 60, 3)
     assert (finder.ORPHAN_MS, finder.LINE_GAP_MS) == (250, 500)
+    assert (finder.ORPHAN_MIN_PEAK_DB, finder.ORPHAN_PEAK_WINDOW_MS) == (-19.0, 250)
     assert (finder.LINE_VOICE_MIN_MS, finder.LINE_VOICE_MAX_MS) == (250, 1500)
     assert (finder.MOVED_MS, finder.CLUSTER_MS, finder.CLUSTER_MAX_SPAN_MS) == (250, 1500, 3000)
     assert (finder.TAG_COUNT_CAP, finder.CONTROL_CLEARANCE_MS) == (3, (3000, 2000, 1000))
@@ -172,3 +173,14 @@ def test_controls_keep_5000_ms_apart():
     for seed in ("a", "b", "c", "seed"):
         picks = [m.t_ms for m in controls(doc, [], seed)]
         assert len(picks) == 2 and picks[1] - picks[0] >= 5000
+
+
+def test_a_quiet_voice_return_is_not_an_orphan():
+    doc = _doc([_w("a", 1000, 1400), _w("b", 3000, 3400)])
+    loud = voice_events(doc, "v", [2000], peak_after=lambda t, w: -19.0)
+    assert tags(loud) == ["orphan_voice"]                       # exactly -19 counts
+    quiet = voice_events(doc, "v", [2000], peak_after=lambda t, w: -19.1)
+    assert tags(quiet) == []
+    seen = []
+    voice_events(doc, "v", [2000], peak_after=lambda t, w: seen.append((t, w)) or -10.0)
+    assert seen == [(2000, 250)]

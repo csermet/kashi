@@ -42,6 +42,12 @@ class SongAnalysis:
         candidates = items[max(0, i - 1) : i + 1]
         return min(candidates, key=lambda x: abs(x - t_ms))
 
+    def peak_after(self, t_ms: int, window_ms: int) -> float:
+        """Loudest level in [t, t + window] (dB re the song max); -99 off-contour."""
+        i0 = max(0, round(t_ms / self.hop_ms))
+        i1 = min(len(self.energy), round((t_ms + window_ms) / self.hop_ms) + 1)
+        return max((db for _, db in self.energy[i0:i1]), default=-99.0)
+
     def level_at(self, t_ms: int) -> float | None:
         if not self.energy:
             return None

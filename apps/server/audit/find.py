@@ -36,15 +36,15 @@ def main(argv: list[str] | None = None) -> int:
     for item in args.doc.split(","):
         label, path = item.split("=", 1)
         versions.append((label, load_document(Path(path), args.id)))
-    voice, level_at = None, None
+    voice, level_at, peak_after = None, None, None
     if stem_path(args.id).exists():
         from audit.analysis import analyse
 
         song = analyse(args.id)
-        voice, level_at = song.voice_onsets, song.level_at
+        voice, level_at, peak_after = song.voice_onsets, song.level_at, song.peak_after
     ear_file = whole_path(args.id)
     ear = json.loads(ear_file.read_text()) if ear_file.exists() else None
-    events = find(versions, voice, ear, level_at)
+    events = find(versions, voice, ear, level_at, peak_after)
     moments = cluster(events)
     ctrl = controls(versions[-1][1], moments, seed=args.id)
     out_dir = RUNS_DIR / args.id

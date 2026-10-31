@@ -94,10 +94,11 @@ def ear_words(tokens: list[dict]) -> list[tuple[int, str]]:
 
 
 def _setup_matplotlib():
-    import matplotlib
+    # The [audit] extra (not installed in CI, like torch for alignment).
+    import matplotlib  # pyright: ignore[reportMissingImports]
 
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt  # pyright: ignore[reportMissingImports]
 
     plt.rcParams.update({
         "font.size": 13, "axes.facecolor": THEME["panel"], "figure.facecolor": THEME["bg"],
@@ -186,8 +187,8 @@ def build_numbers(video_id: str, t_ms: int, versions: list[tuple[str, dict]],
 def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: dict | None,
            real_dir: Path | None, out_png: Path, offset_ms: int) -> dict:
     plt = _setup_matplotlib()
-    from matplotlib import gridspec
-    from matplotlib.patches import Rectangle
+    from matplotlib import gridspec  # pyright: ignore[reportMissingImports]
+    from matplotlib.patches import Rectangle  # pyright: ignore[reportMissingImports]
 
     song = analyse(video_id)
     ear = load_ear(video_id, t_ms)
@@ -307,7 +308,7 @@ def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: di
             axs.text(0.0, y, f"{k:>2}  {f['t'] / 1000:7.2f}s", fontsize=13, va="center",
                      fontfamily="monospace", color=THEME["accent"])
             if use_real and real_dir is not None:
-                import matplotlib.image as mpimg
+                import matplotlib.image as mpimg  # pyright: ignore[reportMissingImports]
 
                 img = mpimg.imread(str(real_dir / f"frame-{f['t']}.png"))
                 hgt, wid = img.shape[0], img.shape[1]
