@@ -264,3 +264,32 @@ at 100 ms: five songs, 278 words, about seven words either way.
 - Cost: one extra whole-track emission pass per song on the worker.
 - Archive: a "large improvement" under the refresh policy (+8 to +14 points
   at 100 ms) — one full refresh, on the GPU helper worker (phase 9.3).
+
+## Field finding — 2.29 collapses word durations (2026-10-31)
+
+The owner's ear test on the 20-track pilot set: lines arrive with most of their
+words already lit, the last word goes out without lighting, runs of short
+words flash by. Counted on the documents (no audio needed):
+
+| 20 pilot tracks, 8 375 words | 2.28.0 | 2.29.0 |
+|---|---|---|
+| words with duration 0 ms | 2.0 % | 7.6 % |
+| words shorter than 60 ms | 6.5 % | 22.3 % |
+| runs of 3+ words starting within 60 ms | 18 | 50 |
+| word order reversed inside a line | 0 | 0 |
+
+Mechanism, from the round-6 dumps (eng20): words placed by the `edges`
+passes keep a median 300 ms (1.5 % under 60 ms); words taken from `segment`
+or the whole-track vote keep 100-140 ms (16-33 % under 60 ms). A `<star>`
+before every word swallows the silence between words, so each word keeps
+little more than its CTC peak. Onsets improved, ends collapsed.
+
+The bench scores onsets only (PCO): it was blind to this. A cheap repair is
+known (onset from the hybrid/vote, end from `edges`, clipped to the next
+onset), but it is deliberately NOT shipped yet. Some complaints from the same
+listen exist in 2.28 too (a line late by most of a second, a pile of three
+repeated words), so the owner chose to build a perceptual audit first:
+per suspicious spot, a picture of the separated vocal (spectrogram) with the
+word boxes and frames of the rendered overlay, reviewed by the agent, the
+owner only listening where it is unsure. Timing work after phase 9 is
+re-planned around that tool. The full archive refresh to 2.29 is on hold.
