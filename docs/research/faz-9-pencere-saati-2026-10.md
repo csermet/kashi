@@ -284,7 +284,14 @@ or the whole-track vote keep 100-140 ms (16-33 % under 60 ms). A `<star>`
 before every word swallows the silence between words, so each word keeps
 little more than its CTC peak. Onsets improved, ends collapsed.
 
-The bench scores onsets only (PCO): it was blind to this. A cheap repair is
+The bench did see it, and nobody read it. `run.py` scores word ENDS too
+(`word_ends`, `over_extension`): on the English 20, `edges` → hybrid + vote
+moved the end MAE 318.5 → 367.7 ms (median 147 → 180; `2026-10-25-x-edges-eng20`
+vs `2026-10-26-h-eng20-raw`). Every decision in rounds 5-6 was read off PCO,
+which scores starts only. `over_extension` counts only LATE ends (> 250 ms),
+so it even improved (0.057 → 0.026) while the ends collapsed: no metric counts
+zero-length words or EARLY ends. (Corrected 2026-10-31; the first version of
+this section said the bench scores onsets only.) A cheap repair is
 known (onset from the hybrid/vote, end from `edges`, clipped to the next
 onset), but it is deliberately NOT shipped yet. Some complaints from the same
 listen exist in 2.28 too (a line late by most of a second, a pile of three
