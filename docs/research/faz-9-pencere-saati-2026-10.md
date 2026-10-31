@@ -291,7 +291,16 @@ vs `2026-10-26-h-eng20-raw`). Every decision in rounds 5-6 was read off PCO,
 which scores starts only. `over_extension` counts only LATE ends (> 250 ms),
 so it even improved (0.057 → 0.026) while the ends collapsed: no metric counts
 zero-length words or EARLY ends. (Corrected 2026-10-31; the first version of
-this section said the bench scores onsets only.) A cheap repair is
+this section said the bench scores onsets only.) Read back from the rounds'
+own word dumps (`benchmarks.hygiene`, no new run), `edges` -> hybrid + vote:
+
+| set | 0 ms words | < 60 ms | runs of 3+ within 60 ms | ends > 250 ms early | ends > 250 ms late |
+|---|---|---|---|---|---|
+| English 20 | 0.1 % -> 6.0 % | 1.8 % -> 14.6 % | 3 -> 14 | 9.2 % -> 18.1 % | 5.7 % -> 2.6 % |
+| all 79 | 0.2 % -> 3.5 % | 1.4 % -> 8.7 % | 19 -> 41 | 7.0 % -> 15.9 % | 5.2 % -> 2.3 % |
+| pop 5 | 1.1 % -> 3.8 % | 7.8 % -> 17.8 % | 0 -> 11 | 15.4 % -> 25.8 % | 6.4 % -> 5.5 % |
+
+Every run now reports these next to PCO. A cheap repair is
 known (onset from the hybrid/vote, end from `edges`, clipped to the next
 onset), but it is deliberately NOT shipped yet. Some complaints from the same
 listen exist in 2.28 too (a line late by most of a second, a pile of three

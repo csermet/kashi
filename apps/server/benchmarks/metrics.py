@@ -95,6 +95,51 @@ def over_extension_rate(
     return sum(d > threshold_ms for d in signed_end_deviations_ms) / n
 
 
+def end_collapse_rate(
+    signed_end_deviations_ms: list[float], threshold_ms: int = 250
+) -> float:
+    """Fraction of words whose hypothesis END comes more than the threshold
+    BEFORE the reference end: the twin of over_extension_rate. 2.29 collapsed
+    word durations (0 ms words 2.0 % -> 7.6 % on the owner's pilot set) while
+    over_extension IMPROVED, because it only counts late ends."""
+    if not signed_end_deviations_ms:
+        return 0.0
+    n = len(signed_end_deviations_ms)
+    return sum(d < -threshold_ms for d in signed_end_deviations_ms) / n
+
+
+# Duration hygiene thresholds (the 2026-10-31 field finding's own measures).
+SHORT_WORD_MS = 60
+BUNCH_SPAN_MS = 60
+BUNCH_MIN_WORDS = 3
+
+
+def duration_hygiene(starts_ms: list[int], ends_ms: list[int]) -> dict:
+    """Hypothesis-only health of word durations, no truth needed:
+    zero_len_frac (end <= start), short_frac (shorter than SHORT_WORD_MS) and
+    bunched_runs (runs of >= BUNCH_MIN_WORDS consecutive words that all start
+    within BUNCH_SPAN_MS of the run's first word)."""
+    n = len(starts_ms)
+    if n == 0:
+        return {"words": 0, "zero_len_frac": 0.0, "short_frac": 0.0, "bunched_runs": 0}
+    durations = [e - s for s, e in zip(starts_ms, ends_ms, strict=True)]
+    runs = 0
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and starts_ms[j + 1] - starts_ms[i] <= BUNCH_SPAN_MS:
+            j += 1
+        if j - i + 1 >= BUNCH_MIN_WORDS:
+            runs += 1
+        i = j + 1
+    return {
+        "words": n,
+        "zero_len_frac": round(sum(d <= 0 for d in durations) / n, 4),
+        "short_frac": round(sum(d < SHORT_WORD_MS for d in durations) / n, 4),
+        "bunched_runs": runs,
+    }
+
+
 @dataclass(frozen=True)
 class LineRow:
     index: int

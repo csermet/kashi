@@ -112,6 +112,22 @@ PCO is a step function, so the best offset is a plateau rather than a point:
 the tool returns its MIDDLE (most margin on both sides), and returns 0 whenever
 0 ties (no evidence of a bias means no shift).
 
+### Duration hygiene and end collapse (2026-10-31)
+
+Onset PCO cannot see a word squeezed to nothing, and `over_extension` counts
+only LATE ends, so it IMPROVED while 2.29 collapsed word durations. Every run
+now also reports, per song and in the aggregate: `hygiene` (`zero_len_frac`,
+`short_frac` < 60 ms, `bunched_runs` = runs of >= 3 words starting within
+60 ms; hypothesis only) and `end_collapse` (verified words ending > 250 ms
+EARLY). `word_detail` carries `truth_end_ms`. Older dumps read back with:
+
+```bash
+python -m benchmarks.hygiene results/2026-10-25-x-edges-eng20.json results/2026-10-26-h-eng20-raw.json
+python -m benchmarks.hygiene results/<pop run>.json --jamendo-root jamendolyrics-pop
+```
+
+(Truth ends come from the dump when present, else from the dataset on disk.)
+
 ### Cross-model word disagreement (Faz 8.1)
 
 The debt behind the arbiter's planned third signal. MMS and Qwen3-FA correlate

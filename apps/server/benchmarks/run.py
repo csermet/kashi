@@ -247,6 +247,12 @@ def _score_jamendo_song(args, song, tolerances_ms: tuple[int, ...], index: int, 
     entry["align_model"] = result.model_name
     entry["sync"] = result.sync
     entry["quality_score"] = round(result.quality_score, 4)
+    # Duration hygiene of the hypothesis itself (no truth needed): the field
+    # finding of 2026-10-31 that onset PCO could not see.
+    hyp_words = [w for chunk in result.words_per_line for w in chunk]
+    entry["hygiene"] = metrics.duration_hygiene(
+        [w.start_ms for w in hyp_words], [w.end_ms for w in hyp_words]
+    )
     onset_ms = None
     if args.signals:
         # Candidate confidence signals, written NEXT TO the ground-truth
@@ -333,6 +339,7 @@ def _word_metrics(args, song, result: AlignResult, onset_ms, tolerances_ms, entr
                 "truth_ms": truth_ms,
                 "hyp_ms": round(truth_ms + deviations[i]),
                 "hyp_end_ms": ends[i],
+                "truth_end_ms": song.word_ends_ms[i],
                 "line": line_of[i],
                 # Which pass placed the word (windowed path: edges / segment /
                 # whole), so per-source accuracy reads straight off a dump.
@@ -393,6 +400,7 @@ def _end_metrics(song, result: AlignResult, tolerances_ms, entry: dict) -> None:
             entry["over_extension"] = round(
                 metrics.over_extension_rate(verified_ends), 4
             )
+            entry["end_collapse"] = round(metrics.end_collapse_rate(verified_ends), 4)
 
 
 def _log_jamendo_song(index, total, song, entry, align_s, separate_s) -> None:
@@ -456,6 +464,18 @@ def _jamendo_aggregate(rows: list[dict]) -> dict:
                 "over_extension_mean": round(
                     mean(r["over_extension"] for r in with_ends), 4
                 ),
+                "end_collapse_mean": round(mean(r["end_collapse"] for r in with_ends), 4),
+            }
+        with_hygiene = [r for r in scored if "hygiene" in r]
+        if with_hygiene:
+            aggregate |= {
+                "zero_len_frac_mean": round(
+                    mean(r["hygiene"]["zero_len_frac"] for r in with_hygiene), 4
+                ),
+                "short_frac_mean": round(
+                    mean(r["hygiene"]["short_frac"] for r in with_hygiene), 4
+                ),
+                "bunched_runs_total": sum(r["hygiene"]["bunched_runs"] for r in with_hygiene),
             }
         separated = [r for r in scored if r.get("separate_s")]
         if separated:  # cache hits excluded — only measured runs count

@@ -111,3 +111,35 @@ def test_over_extension_rate_counts_only_late_ends():
     assert over_extension_rate([300.0, -400.0, 100.0, 900.0]) == 0.5
     assert over_extension_rate([250.0]) == 0.0  # threshold is exclusive
     assert over_extension_rate([]) == 0.0
+
+
+def test_end_collapse_rate_counts_only_early_ends():
+    from benchmarks.metrics import end_collapse_rate
+
+    assert end_collapse_rate([-300.0, 400.0, -100.0, -900.0]) == 0.5
+    assert end_collapse_rate([-250.0]) == 0.0  # threshold is exclusive
+    assert end_collapse_rate([-251.0]) == 1.0
+    assert end_collapse_rate([]) == 0.0
+
+
+def test_duration_hygiene_zero_short_and_bunched_runs():
+    from benchmarks.metrics import duration_hygiene
+
+    starts = [0, 0, 30, 60, 500, 1000, 1059, 1061]
+    ends = [0, 30, 60, 160, 559, 1060, 1100, 1200]
+    h = duration_hygiene(starts, ends)
+    assert h["words"] == 8
+    assert h["zero_len_frac"] == round(1 / 8, 4)            # only the first word
+    # durations 0, 30, 30, 100, 59, 60, 41, 139 -> five under 60 ms (60 is not)
+    assert h["short_frac"] == 0.625
+    # 0/0/30/60 all start within 60 ms of the first: one run of 4; the
+    # 1000/1059 pair is only two words (1061 is 61 ms after 1000)
+    assert h["bunched_runs"] == 1
+    assert duration_hygiene([], [])["words"] == 0
+
+
+def test_bunched_run_needs_three_words_within_60_ms_inclusive():
+    from benchmarks.metrics import duration_hygiene
+
+    assert duration_hygiene([0, 30, 60], [100, 130, 160])["bunched_runs"] == 1
+    assert duration_hygiene([0, 30, 61], [100, 130, 161])["bunched_runs"] == 0
