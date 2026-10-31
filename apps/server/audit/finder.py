@@ -14,6 +14,7 @@ Event tags:
   boxed_silent   a long word box where the model hears nothing and it is quiet
   qa             line QA marked the line (uncertain, derived words, no words)
   moved          a word moved between two document versions
+  line_offset    the ear hears the line's own letters > LINE_OFFSET_MS away
 """
 
 from __future__ import annotations
@@ -56,9 +57,12 @@ CONTROL_MIN_GAP_MS = 5000
 CONTROLS_PER_SONG = 2
 
 # pile: per extra word in the pile (a 4-word pile weighs 3 x 0.6), see Event.size
+LINE_OFFSET_MS = 1000
+
 WEIGHTS = {
     "pile": 0.6, "short_run": 1.0, "zero": 0.3, "orphan_voice": 1.0, "line_vs_voice": 1.0,
     "sung_unboxed": 1.0, "boxed_silent": 0.7, "qa": 0.6, "moved": 0.5,
+    "line_offset": 1.5,
 }
 
 
@@ -197,6 +201,23 @@ def ear_events(doc: dict, version: str, ear: dict,
     return out
 
 
+def text_events(doc: dict, version: str, ear: dict) -> list[Event]:
+    """Lines whose own letters the ear hears more than LINE_OFFSET_MS away."""
+    from audit.textmatch import ear_stream, locate, sung_span
+
+    stream, times = ear_stream(ear["tokens"])
+    out: list[Event] = []
+    for ln in doc.get("lines", []):
+        start = (ln.get("words") or [ln])[0]["start_ms"]
+        match = locate(ln.get("text", ""), start, stream, times,
+                       line_ms=sung_span(ln))
+        if match is not None and abs(match.heard_ms - start) > LINE_OFFSET_MS:
+            off = match.heard_ms - start
+            out.append(Event(start, "line_offset", version,
+                             f"heard {off:+d} ms (r {match.ratio}): {ln['text']}"))
+    return out
+
+
 def qa_events(doc: dict, version: str) -> list[Event]:
     out: list[Event] = []
     word_doc = doc.get("sync") == "word"
@@ -281,7 +302,7 @@ def find(versions: Sequence[tuple[str, dict]], voice_onsets: Sequence[int] | Non
         if voice_onsets:
             events += voice_events(doc, label, voice_onsets, peak_after)
         if ear:
-            events += ear_events(doc, label, ear, level_at)
+            events += ear_events(doc, label, ear, level_at) + text_events(doc, label, ear)
     for (_, old), (label, new) in zip(versions, versions[1:], strict=False):
         events += moved_events(old, new, label)
     return events

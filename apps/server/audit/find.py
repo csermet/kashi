@@ -22,6 +22,28 @@ from audit.finder import cluster, controls, find
 from audit.paths import RUNS_DIR, stem_path
 
 
+def text_summary(doc: dict, ear: dict) -> dict:
+    """Song-level view of the ear-text match: where the model hears each line."""
+    import statistics
+
+    from audit.textmatch import ear_stream, locate, sung_span
+
+    stream, times = ear_stream(ear["tokens"])
+    offsets = []
+    for ln in doc.get("lines", []):
+        start = (ln.get("words") or [ln])[0]["start_ms"]
+        m = locate(ln.get("text", ""), start, stream, times,
+                   line_ms=sung_span(ln))
+        if m is not None:
+            offsets.append(m.heard_ms - start)
+    return {
+        "lines": len(doc.get("lines", [])),
+        "matched": len(offsets),
+        "median_ms": round(statistics.median(offsets)) if offsets else None,
+        "off_1s": sum(1 for o in offsets if abs(o) > 1000),
+    }
+
+
 def mmss(t_ms: int) -> str:
     return f"{t_ms // 60000}:{(t_ms // 1000) % 60:02d}.{(t_ms % 1000) // 100}"
 
@@ -56,9 +78,15 @@ def main(argv: list[str] | None = None) -> int:
         "moments": [asdict(m) for m in moments],
         "controls": [m.t_ms for m in ctrl],
     }
-    (out_dir / "moments.json").write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n")
     print(f"{args.id}: {len(events)} events, {len(moments)} moments "
           f"(stem {'yes' if voice is not None else 'no'}, ear {'yes' if ear else 'no'})")
+    if ear:
+        summary = text_summary(versions[-1][1], ear)
+        payload["text_match"] = summary
+        print(f"  ear-text match ({versions[-1][0]}): {summary['matched']} of "
+              f"{summary['lines']} lines, median offset {summary['median_ms']} ms, "
+              f"{summary['off_1s']} off by > 1 s")
+    (out_dir / "moments.json").write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n")
     for rank, m in enumerate(moments[: args.top], 1):
         tags = " ".join(f"{k}×{v}" if v > 1 else k for k, v in sorted(m.tags.items()))
         print(f"{rank:>3}. {mmss(m.t_ms):>8}  {m.t_ms:>7}  {m.score:5.1f}  {tags}")
