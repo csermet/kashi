@@ -92,6 +92,10 @@ because lrclib's own stamps for its verses are 3–4 s late.
 
 ### Reading a picture
 
+Default theme `kontrast` (grey spectrogram; chosen 2026-10-31 because the agent,
+who reads these, separates the role colours from it best). `--theme mor` is the
+owner-facing look (purple night, magma spectrogram).
+
 One song-clock axis (= player position) for every panel. White dashed: the
 moment. Teal verticals: voice onsets. Purple hairlines + numbers: strip frames.
 

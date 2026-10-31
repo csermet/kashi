@@ -58,7 +58,11 @@ THEMES = {
         "cmap": "gray",
     },
 }
-THEME = dict(THEMES["mor"])
+# Default = the theme the agent reads best (owner's call, 2026-10-31: the
+# picture is for the agent). Grey spectrogram, so no role colour (voice
+# onsets, loudness, flags, beats) ever shares a hue with the background;
+# "sade" loses its green voice lines in the viridis spectrogram.
+THEME = dict(THEMES["kontrast"])
 
 
 # Label layout: ~36 ms of axis per character at 13 pt on a 5 s, 1450 px axis.
@@ -357,7 +361,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--real-dir", help="directory with frame-<t>.png from --mode real")
     parser.add_argument("--offset", type=int, default=200)
     parser.add_argument("--out-dir", help="default: scratch/audit/runs/<id>")
-    parser.add_argument("--theme", choices=sorted(THEMES), default="mor")
+    parser.add_argument("--theme", choices=sorted(THEMES), default="kontrast")
     parser.add_argument("--suffix", default="", help="appended to the output file names")
     args = parser.parse_args(argv)
     THEME.clear()
