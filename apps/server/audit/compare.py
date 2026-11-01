@@ -18,9 +18,16 @@ stem and the whole-song ear exist under ``KASHI_AUDIT_ROOT``; that is evidence
 for the candidate, still not a listen.
 
 Verdicts describe the version they were read on (``--verdicts-describe``,
-default 2.29, the version the pilot set was reviewed against). When the BEFORE
+default 2.29: the pilot set's claims read "2.29 puts..."). When the BEFORE
 document is another version, only verdicts whose versions agreed at the moment
 (``better_version`` none / either) apply; the rest are counted as ``n/a``.
+
+The owner's listen enters through ``agreement`` only (``caner`` is free text
+and is never parsed): agree and partial keep the verdict (partial is
+labelled), disagree takes it out of every set (``n/a:owner-disputed``, listed
+apart), "screen-right, not-perceived" keeps a flaw that is on screen but was
+not heard. Verdicts taken from the numbers alone ("picture not read" in the
+note) are counted separately.
 """
 
 from __future__ import annotations
@@ -45,11 +52,22 @@ from benchmarks.seam_piles import seam_piles
 # or less did not move: CPU/GPU emissions and re-runs differ by a frame.
 UNCHANGED_MS = 20
 WINDOW_MS = HALF_WINDOW_MS  # the picture the verdict was read on
-VERDICTS = ("ok", "pile", "late", "early", "missing", "wrong_text", "unsure", "render_bug")
 BAD = frozenset({"pile", "late", "early", "missing", "wrong_text"})
 GOOD = frozenset({"ok"})
-# better_version values that say both reviewed versions looked the same there.
+# better_version values that say both reviewed versions looked the same there:
+# either = equivalent (both fine, or the same flaw in both), none = both bad and
+# neither better (mostly a lyrics-source flaw). mixed and a version name do not.
 AGREEING = frozenset({"none", "either"})
+# `agreement`: how the agent's blind verdict compared with the owner's listen.
+# `caner` itself is the owner's free-text answer and is never parsed.
+OWNER_STATES = {
+    "agree": "agree",
+    "partial": "owner-partial",               # verdict used, labelled
+    "disagree": "owner-disputed",             # verdict NOT used, listed apart
+    "screen-right, not-perceived": "not-perceived",  # flaw on screen, not heard: stays bad
+}
+# A verdict taken from the numbers alone says so in its note.
+NUMBERS_ONLY_NOTE = "picture not read"
 VERDICTS_DESCRIBE = "2.29"
 QA_KEYS = ("flagged", "density_dropped", "nudged", "uncertain")
 
@@ -58,7 +76,7 @@ CLASSES = (
     "bad:fixed?", "bad:worse?", "bad:changed", "bad:unchanged",
     "good:broken?", "good:moved", "good:kept",
     "unsure:changed", "unsure:unchanged", "other",
-    "n/a:version", "n/a:no_doc",
+    "n/a:owner-disputed", "n/a:version", "n/a:no_doc",
 )
 
 
@@ -357,17 +375,29 @@ def load_verdicts(path: Path) -> list[dict]:
         rec = json.loads(raw)
         if "id" not in rec or "t_ms" not in rec or "verdict" not in rec:
             raise ValueError(f"{path}:{n}: a verdict needs id, t_ms and verdict")
+        try:
+            owner_state(rec)
+        except ValueError as exc:
+            raise ValueError(f"{path}:{n}: {exc}") from None
         out.append(rec)
     return out
 
 
-def effective_verdict(rec: dict) -> tuple[str, str]:
-    """(verdict, who): the owner's listening verdict wins over the agent's
-    picture reading when it is one of the verdict words."""
-    owner = rec.get("caner")
-    if isinstance(owner, str) and owner in VERDICTS and owner != rec["verdict"]:
-        return owner, "owner"
-    return str(rec["verdict"]), "agent"
+def owner_state(rec: dict) -> str | None:
+    """What the owner's listen says about the verdict: None when nobody listened,
+    else one of OWNER_STATES' values. An unknown `agreement` is refused: a typo
+    must not quietly turn a disputed verdict into a counted one."""
+    raw = rec.get("agreement")
+    if raw is None or not str(raw).strip():
+        return None
+    key = " ".join(str(raw).lower().split())
+    if key not in OWNER_STATES:
+        raise ValueError(f"unknown agreement {raw!r} (known: {', '.join(OWNER_STATES)})")
+    return OWNER_STATES[key]
+
+
+def numbers_only(rec: dict) -> bool:
+    return NUMBERS_ONLY_NOTE in str(rec.get("note") or "").lower()
 
 
 def _minor(version: str | None) -> str:
@@ -453,29 +483,34 @@ def compare(before: dict[str, dict], after: dict[str, dict], verdicts: list[dict
     moments = []
     for rec in verdicts:
         vid, t_ms = str(rec["id"]), int(rec["t_ms"])
-        verdict, who = effective_verdict(rec)
-        out: dict = {"id": vid, "t_ms": t_ms, "verdict": verdict, "verdict_by": who,
-                     "tags": rec.get("tags", []), "better_version": rec.get("better_version")}
+        verdict, owner = str(rec["verdict"]), owner_state(rec)
+        out: dict = {"id": vid, "t_ms": t_ms, "verdict": verdict, "owner": owner,
+                     "numbers_only": numbers_only(rec), "tags": rec.get("tags", []),
+                     "better_version": rec.get("better_version")}
+        moments.append(out)
         if vid not in pairs:
             out["class"] = "n/a:no_doc"
-        elif not applies(rec, before[vid], describes):
+            continue
+        if owner != "owner-disputed" and not applies(rec, before[vid], describes):
             out["class"] = "n/a:version"
-        else:
-            diff = moment_diff(before[vid], after[vid], t_ms, half_ms, pairs[vid])
-            out["class"] = classify(verdict, diff)
-            out["diff"] = {
-                "moved": len(diff.moved), "paired": len(diff.start_shifts),
-                "median_moved_ms": diff.median_moved_ms,
-                "max_shift_ms": max(diff.start_shifts, key=abs, default=0),
-                "lost_words": diff.lost_words, "gained_words": diff.gained_words,
-                "text_changed": diff.text_changed, "unpaired_lines": diff.unpaired_lines,
-                "lines": diff.lines,
-                "before": asdict(diff.before), "after": asdict(diff.after),
-            }
-            if audio and vid in timings:
-                out["ear"] = ear_reading(before[vid], after[vid], *timings[vid],
-                                         t_ms - half_ms, t_ms + half_ms)
-        moments.append(out)
+            continue
+        diff = moment_diff(before[vid], after[vid], t_ms, half_ms, pairs[vid])
+        # The owner heard a disputed moment otherwise: it joins no set; its
+        # diff is still listed.
+        out["class"] = ("n/a:owner-disputed" if owner == "owner-disputed"
+                        else classify(verdict, diff))
+        out["diff"] = {
+            "moved": len(diff.moved), "paired": len(diff.start_shifts),
+            "median_moved_ms": diff.median_moved_ms,
+            "max_shift_ms": max(diff.start_shifts, key=abs, default=0),
+            "lost_words": diff.lost_words, "gained_words": diff.gained_words,
+            "text_changed": diff.text_changed, "unpaired_lines": diff.unpaired_lines,
+            "lines": diff.lines,
+            "before": asdict(diff.before), "after": asdict(diff.after),
+        }
+        if audio and vid in timings:
+            out["ear"] = ear_reading(before[vid], after[vid], *timings[vid],
+                                     t_ms - half_ms, t_ms + half_ms)
     return {"songs": songs, "moments": moments, "totals": totals(songs, moments),
             "only_before": sorted(set(before) - set(after)),
             "only_after": sorted(set(after) - set(before))}
@@ -496,7 +531,8 @@ def totals(songs: list[dict], moments: list[dict]) -> dict:
         }
     out["moved_words"] = sum(s["identity"]["moved_words"] for s in songs)
     out["classes"] = dict(Counter(m["class"] for m in moments))
-    out["owner_verdicts"] = sum(1 for m in moments if m["verdict_by"] == "owner")
+    out["owner"] = dict(Counter(m["owner"] or "no listen" for m in moments))
+    out["numbers_only"] = sum(1 for m in moments if m["numbers_only"])
     return out
 
 
@@ -538,11 +574,16 @@ def print_report(result: dict, describes: str) -> None:
     if not result["moments"]:
         return
     print(f"\nmoments (verdicts read on {describes}; window ±{WINDOW_MS / 1000:g} s; "
-          f"'?' = candidate, no audio judged it; owner verdicts used: {t['owner_verdicts']})")
+          f"'?' = candidate, no audio judged it)")
+    owner = t["owner"]
+    print("owner listens: " + ", ".join(
+        f"{state} {owner.get(state, 0)}"
+        for state in (*OWNER_STATES.values(), "no listen"))
+        + f"; verdicts from numbers only (picture not read): {t['numbers_only']}")
     order = {c: i for i, c in enumerate(CLASSES)}
     for m in sorted(result["moments"], key=lambda m: (order.get(m["class"], 99), m["id"],
                                                        m["t_ms"])):
-        line = f"  {m['class']:16} {m['id'][:14]:14} {mmss(m['t_ms']):>8} {m['verdict']:10}"
+        line = f"  {m['class']:18} {m['id'][:14]:14} {mmss(m['t_ms']):>8} {m['verdict']:10}"
         d = m.get("diff")
         if d is not None:
             line += (f" moved {d['moved']}/{d['paired']}"
@@ -554,6 +595,10 @@ def print_report(result: dict, describes: str) -> None:
                 line += f", words -{d['lost_words']}/+{d['gained_words']}"
         if "ear" in m:
             line += f" [ear: {m['ear']['reading']}]"
+        if m["owner"] not in (None, "agree"):
+            line += f" [{m['owner']}]"
+        if m["numbers_only"]:
+            line += " [numbers-only]"
         print(line)
     classes = t["classes"]
     bad = sum(v for k, v in classes.items() if k.startswith("bad:"))
@@ -563,6 +608,12 @@ def print_report(result: dict, describes: str) -> None:
           f"unchanged {classes.get('bad:unchanged', 0)}")
     print(f"known-good {good}: broken? {classes.get('good:broken?', 0)}, "
           f"moved {classes.get('good:moved', 0)}, kept {classes.get('good:kept', 0)}")
+    if t["numbers_only"]:
+        counted = [m for m in result["moments"] if m["numbers_only"]
+                   and m["class"].startswith(("bad:", "good:"))]
+        split = ", ".join(f"{k} {v}" for k, v in sorted(Counter(
+            m["class"] for m in counted).items()))
+        print(f"  of these, from numbers only: {len(counted)}" + (f" ({split})" if split else ""))
     rest = {k: v for k, v in classes.items() if not k.startswith(("bad:", "good:"))}
     if rest:
         print("other:", ", ".join(f"{k} {v}" for k, v in sorted(rest.items())))

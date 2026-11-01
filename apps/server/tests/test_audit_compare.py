@@ -69,6 +69,10 @@ def test_thresholds_are_pinned_numbers():
     assert compare.GOOD == {"ok"}
     assert compare.AGREEING == {"none", "either"}
     assert compare.REWORDED_SIMILARITY == 0.6
+    assert compare.NUMBERS_ONLY_NOTE == "picture not read"
+    assert compare.OWNER_STATES == {
+        "agree": "agree", "partial": "owner-partial", "disagree": "owner-disputed",
+        "screen-right, not-perceived": "not-perceived"}
 
 
 def test_unequal_replaced_runs_pair_alike_items_in_order():
@@ -255,12 +259,64 @@ def test_verdicts_apply_to_their_own_version_or_where_versions_agreed():
     assert compare.applies(rec, on_228, describes="2.28")
 
 
-def test_the_owners_listening_verdict_wins():
+def test_owner_states_come_from_agreement_never_from_the_free_text():
     rec = {"id": VID, "t_ms": 1, "verdict": "pile", "caner": "ok"}
-    assert compare.effective_verdict(rec) == ("ok", "owner")
-    assert compare.effective_verdict({**rec, "caner": "agree"}) == ("pile", "agent")
-    assert compare.effective_verdict({**rec, "caner": None}) == ("pile", "agent")
-    assert compare.effective_verdict({**rec, "caner": "pile"}) == ("pile", "agent")
+    assert compare.owner_state(rec) is None                    # caner is never parsed
+    assert compare.owner_state({**rec, "agreement": "agree"}) == "agree"
+    assert compare.owner_state({**rec, "agreement": "partial"}) == "owner-partial"
+    assert compare.owner_state({**rec, "agreement": "disagree"}) == "owner-disputed"
+    assert compare.owner_state({**rec, "agreement": "Screen-right,  not-perceived"}) == \
+        "not-perceived"
+    assert compare.owner_state({**rec, "agreement": " "}) is None
+    with pytest.raises(ValueError, match="unknown agreement"):
+        compare.owner_state({**rec, "agreement": "disagre"})
+
+
+def test_owner_rules_decide_which_set_a_moment_joins():
+    before = _doc("2.29.0")
+    after = _moved(before, 1, -400)
+    base = {"id": VID, "t_ms": 6000, "verdict": "late", "caner": "evet geç geliyor"}
+    verdicts = [
+        {**base, "agreement": "agree"},
+        {**base, "agreement": "partial"},
+        {**base, "agreement": "disagree"},
+        {**base, "agreement": "screen-right, not-perceived"},
+        dict(base),
+    ]
+    result = compare.compare({VID: before}, {VID: after}, verdicts)
+    got = [(m["class"], m["owner"]) for m in result["moments"]]
+    assert got == [("bad:fixed?", "agree"), ("bad:fixed?", "owner-partial"),
+                   ("n/a:owner-disputed", "owner-disputed"), ("bad:fixed?", "not-perceived"),
+                   ("bad:fixed?", None)]
+    assert result["moments"][2]["diff"]["moved"] == 3          # listed, with its diff
+    assert result["totals"]["owner"] == {"agree": 1, "owner-partial": 1, "owner-disputed": 1,
+                                         "not-perceived": 1, "no listen": 1}
+    # a disputed 'ok' (the owner heard it ~1 s early) is no known-good either,
+    # whatever version the BEFORE document is
+    disputed_ok = {**base, "verdict": "ok", "agreement": "disagree", "better_version": "2.28"}
+    for pv in ("2.29.0", "2.28.0"):
+        moment = compare.compare({VID: _doc(pv)}, {VID: after}, [disputed_ok])["moments"][0]
+        assert moment["class"] == "n/a:owner-disputed"
+
+
+def test_numbers_only_verdicts_are_counted():
+    rec = {"id": VID, "t_ms": 6000, "verdict": "ok"}
+    assert compare.numbers_only({**rec, "note": "12 letters agree; Picture not read"})
+    assert not compare.numbers_only({**rec, "note": "picture read"})
+    assert not compare.numbers_only(rec)
+    result = compare.compare({VID: _doc()}, {VID: _doc()},
+                             [{**rec, "note": "picture not read"}, rec])
+    assert result["totals"]["numbers_only"] == 1
+    assert [m["numbers_only"] for m in result["moments"]] == [True, False]
+
+
+def test_an_unknown_agreement_stops_the_load(tmp_path):
+    path = tmp_path / "review.jsonl"
+    path.write_text(json.dumps({"id": VID, "t_ms": 1, "verdict": "ok", "agreement": "agree"})
+                    + "\n" + json.dumps({"id": VID, "t_ms": 2, "verdict": "ok",
+                                          "agreement": "maybe"}) + "\n")
+    with pytest.raises(ValueError, match="review.jsonl:2: unknown agreement"):
+        compare.load_verdicts(path)
 
 
 def test_compare_classifies_each_verdict_and_counts_them():
