@@ -373,3 +373,169 @@ def test_a_document_the_schema_refuses_is_not_written(stem, heard, record_file, 
     out = tmp_path / "doc.json"
     assert run_local.main([VID, "--lyrics", str(record_file), "--out", str(out)]) == 1
     assert "schema" in capsys.readouterr().err and not out.exists()
+
+
+# --- lrclib is never asked ------------------------------------------------------
+
+MIRROR = "http://mirror.invalid:8080"
+
+
+def _probe_during_run(monkeypatch, probe):
+    """Run `probe()` in the middle of the local run (after alignment)."""
+    from kashi_server.worker import process
+
+    real = process._assemble_document
+
+    def assemble(*a, **k):
+        probe()
+        return real(*a, **k)
+
+    monkeypatch.setattr(process, "_assemble_document", assemble)
+
+
+def _offline_client(reached, cls=None):
+    """An httpx client whose transport never touches the network: reaching it
+    means the guard let the request through."""
+    import httpx
+
+    def handler(request):
+        reached.append(str(request.url))
+        return httpx.Response(200, json={})
+
+    if cls is httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def _routes(reached):
+    import asyncio
+
+    import httpx
+
+    from kashi_server.pipeline import publish
+    from kashi_server.worker import process
+
+    async def async_get(url):
+        async with _offline_client(reached, httpx.AsyncClient) as client:
+            await client.get(url)
+
+    def swallowed():
+        try:
+            _offline_client(reached).get("https://lrclib.net/api/search?q=x")
+        except Exception:  # noqa: BLE001 - a caller that eats the error
+            pass
+
+    return {
+        "gateway": lambda: process.LRCLIB.fetch_lyrics({"title": "t", "artist": "a"}),
+        "gateway search": lambda: process.LRCLIB.search_candidates("q"),
+        "lookup": lambda: process.fetch_lyrics({}, "https://lrclib.net"),
+        "search": lambda: process.search_candidates("q", "https://lrclib.net"),
+        "publish": lambda: publish.publish_document({}, base_url="https://lrclib.net"),
+        "lrclib.net": lambda: _offline_client(reached).get("https://lrclib.net/api/get/1"),
+        "subdomain": lambda: _offline_client(reached).get("https://api.lrclib.net/x"),
+        "primary": lambda: _offline_client(reached).get("http://127.0.0.1:9/api/get/1"),
+        "mirror": lambda: _offline_client(reached).get(f"{MIRROR}/api/search?q=x"),
+        "async": lambda: asyncio.run(async_get("https://lrclib.net/api/get/1")),
+        "swallowed": swallowed,
+    }
+
+
+# route -> the layer that must refuse it (each layer names itself, so one that
+# stopped working cannot hide behind the httpx layer underneath)
+ROUTES = {
+    "gateway": "(gateway fetch_lyrics)",
+    "gateway search": "(gateway search_candidates)",
+    "lookup": "(fetch_lyrics)",
+    "search": "(search_candidates)",
+    "publish": "(publish_document)",
+    "lrclib.net": "(https://lrclib.net/api/get/1)",
+    "subdomain": "(https://api.lrclib.net/x)",
+    "primary": "(http://127.0.0.1:9/api/get/1)",
+    "mirror": f"({MIRROR}/api/search?q=x)",
+    "async": "(https://lrclib.net/api/get/1)",
+    "swallowed": "tried to reach lrclib: ['https://lrclib.net/api/search?q=x']",
+}
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_every_lrclib_route_fails_the_run(route, stem, heard, record_file, tmp_path,
+                                          monkeypatch, capsys):
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "lrclib_fallback_base_url", MIRROR)
+    reached: list[str] = []
+    _probe_during_run(monkeypatch, _routes(reached)[route])
+    out = tmp_path / "doc.json"
+    assert run_local.main([VID, "--lyrics", str(record_file), "--out", str(out)]) == 2
+    assert ROUTES[route] in capsys.readouterr().err
+    assert reached == [] and not out.exists()
+
+
+def test_publishing_is_off_for_the_run_and_everything_is_put_back(
+        stem, heard, record_file, tmp_path, monkeypatch):
+    import httpx
+
+    from kashi_server.config import settings
+    from kashi_server.pipeline import publish
+    from kashi_server.worker import process
+
+    monkeypatch.setattr(settings, "lrclib_publish_enabled", True)  # as in prod
+    monkeypatch.setattr(settings, "lrclib_publish_dry_run", False)
+    during: list[tuple] = []
+    _probe_during_run(monkeypatch, lambda: during.append(
+        (settings.lrclib_publish_enabled, settings.lrclib_publish_dry_run)))
+    before = (process.LRCLIB, process.fetch_lyrics, process.search_candidates,
+              publish.publish_document, httpx.Client.send, httpx.AsyncClient.send)
+    _local(record_file, tmp_path)
+    assert during == [(False, True)]
+    assert (settings.lrclib_publish_enabled, settings.lrclib_publish_dry_run) == (True, False)
+    assert (process.LRCLIB, process.fetch_lyrics, process.search_candidates,
+            publish.publish_document, httpx.Client.send, httpx.AsyncClient.send) == before
+
+
+def test_other_hosts_still_go_through(stem, heard, record_file, tmp_path, monkeypatch):
+    """The model hub must stay reachable (a first run downloads the checkpoint)."""
+    reached: list[str] = []
+    _probe_during_run(monkeypatch, lambda: _offline_client(reached).get(
+        "https://huggingface.co/api/models/x"))
+    _local(record_file, tmp_path)
+    assert reached == ["https://huggingface.co/api/models/x"]
+
+
+# --- the worker env example -------------------------------------------------------
+
+def _env_file() -> dict[str, str]:
+    """docker --env-file semantics: KEY=VALUE taken literally, # comments."""
+    path = Path(run_local.__file__).with_name("worker.env.example")
+    pairs = {}
+    for raw in path.read_text().splitlines():
+        if raw.strip() and not raw.lstrip().startswith("#"):
+            key, _, value = raw.partition("=")
+            pairs[key.strip()] = value
+    return pairs
+
+
+def test_the_worker_env_example_is_the_live_aligner(stem, heard, record_file, tmp_path,
+                                                    monkeypatch):
+    from kashi_server.config import Settings, settings
+
+    env = _env_file()
+    assert set(env) == {"ALIGN_MODELS", "STRUCTURE_SECTIONS", "SEPARATION_MODEL_FILENAME",
+                        "OMP_NUM_THREADS"}
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    fresh = Settings()
+    for key in env:
+        if hasattr(fresh, key.lower()):
+            monkeypatch.setattr(settings, key.lower(), getattr(fresh, key.lower()))
+    eng, tur = settings.align_models["eng"], settings.align_models["tur"]
+    assert (eng.checkpoint, eng.offset_ms) == ("jonatasgrosman/wav2vec2-xls-r-1b-english", -50)
+    assert eng.offset_by_initial == {"vowel": -80, "fricative": -50, "plosive": -30,
+                                     "sonorant": -20}
+    assert (tur.checkpoint, tur.romanize) == ("mpoyraz/wav2vec2-xls-r-300m-cv7-turkish", False)
+    assert settings.structure_sections is True
+    doc, extras = _local(record_file, tmp_path)
+    assert doc["alignment"]["method"] == \
+        "ctc-forced-aligner/wav2vec2-xls-r-1b-english+line-windowed"
+    assert extras["language"] == "eng"
+    assert extras["aligner"]["offset_by_initial"]["vowel"] == -80

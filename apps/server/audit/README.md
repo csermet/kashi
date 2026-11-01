@@ -115,10 +115,21 @@ Per verdict, inside the moment's ±2.5 s: word and line start shifts, piles (the
 | ok | `good:broken?` (a word moved past +220 / −330 ms, more piled / 0 ms words, fewer lit words, words or lines lost, text changed), `good:moved` (smaller moves), `good:kept` |
 | unsure | `unsure:changed` / `unsure:unchanged` |
 
-The owner's listening verdict (`caner`, when it is a verdict word) wins over the agent's.
-Verdicts are taken as read on 2.29 (`--verdicts-describe`); when the BEFORE document is another
-version only moments whose versions agreed (`better_version` none/either) count, the rest are
-`n/a:version`. `--audio` adds `audit.score` per song and, per moment, whether a placed line
+Verdicts are taken as read on 2.29 (`--verdicts-describe`; the claims read "2.29 puts…"). When the
+BEFORE document is another version, only moments whose versions agreed count — `better_version`
+`either` (equivalent: both fine, or the same flaw in both) or `none` (both bad, neither better,
+mostly a lyrics-source flaw); `mixed` and a version name are `n/a:version`. The owner's listen
+enters through `agreement` alone (`caner` is the owner's free-text answer and is never parsed):
+
+| `agreement` | the verdict |
+|---|---|
+| `agree` | used |
+| `partial` | used, labelled `owner-partial` |
+| `disagree` | not used: `n/a:owner-disputed`, listed apart with its diff |
+| `screen-right, not-perceived` | used (the flaw is on screen, the owner did not notice it), labelled `not-perceived` |
+
+Any other value stops the load. The report counts the four states (and "no listen") and the
+verdicts taken from the numbers alone (`picture not read` in the note), overall and per class. `--audio` adds `audit.score` per song and, per moment, whether a placed line
 crossed the noticeable threshold (`ear: better/worse/same`) — where the stem and whole-song ear
 exist. `--same-within-ms N` exits 1 unless every song has the same lines, texts and words with
 every start and end within N ms (the `audit.run_local` acceptance check).
@@ -138,16 +149,23 @@ job is an in-memory `Job`, the session a no-op. The separator call returns the c
 `stems/<id>.16k.wav` (make it with `audit.stems`; nothing is separated here); decoding it again at
 16 kHz is sample-identical, so the aligner hears exactly what prod's aligner heard.
 
-- **Settings come from the environment, as in the worker.** Pass the worker's env (`ALIGN_MODELS`
-  above all, from the gitops `deployment-worker.yaml`) with `--env-file`, or the document comes
-  from a different pipeline. `--extras` records what was in force (settings, the resolved aligner
-  and its offsets) and what prod computes but never stores: the onsets and vocal energy line QA
-  read, each word's prob / lateness shift / placing pass (`edges`, `segment`, `whole`), line QA's
-  per-line lists.
+- **Settings come from the environment, as in the worker.** Pass the live worker's env with
+  `--env-file apps/server/audit/worker.env.example` (`ALIGN_MODELS` above all), or the document
+  comes from a different pipeline. **Sync that file with gitops
+  `apps/kashi-server/deployment-worker.yaml` before an acceptance run**; docker takes its values
+  literally (no quotes around the JSON). `--extras` records what was in force (settings, the
+  resolved aligner and its offsets) and what prod computes but never stores: the onsets and vocal
+  energy line QA read, each word's prob / lateness shift / placing pass (`edges`, `segment`,
+  `whole`), line QA's per-line lists.
 - **Lyrics:** an lrclib record (`/api/get` JSON, or a search list with `--record-id`) is anchored as
   in prod; `--no-anchors` keeps its lines and drops the stamps (whole-audio alignment, line QA
   without references); a text file is plain lyrics, exactly like `options.lyrics_text` (needs
   `--title`/`--artist`: the document requires them).
+- **lrclib is never asked**, whatever the environment says (prod runs with
+  `LRCLIB_PUBLISH_ENABLED=true`): for the run publishing is off, the worker's lrclib gateway,
+  lookups and `publish_document` refuse, and httpx refuses lrclib.net, its subdomains and the
+  configured primary and mirror. Lyrics come from `--lyrics` only; an attempt fails the run (exit 2)
+  even when a caller swallows the error. Other hosts (the model hub) stay reachable.
 - **Not reproduced:** nightcore (r = 1 only); the lyricsfile fast path (a warning says when prod
   would have skipped CTC); separation modes other than the live `always` (refused); beats, energy
   and sections unless `--mix` is given (they never touch word timings; fx selection reads sections).
@@ -161,14 +179,15 @@ one word for word within one frame. The record must be the one prod aligned
 worker refused as a regression (`kept the stored ... document` in its log) is an older pipeline's.
 
 ```bash
-# repo root; <id> has a stem (audit.stems); worker.env holds the live worker's pipeline env
+# repo root; <id> has a stem (audit.stems); worker.env.example is synced with gitops
+# apps/kashi-server/deployment-worker.yaml
 mkdir -p scratch/audit/runs/<id>
 curl -s -H "Authorization: Bearer $KASHI_KEY" "$KASHI_URL/v1/lyrics/youtube/<id>" \
   > scratch/audit/runs/<id>/prod.json
 curl -s "https://lrclib.net/api/get/$(jq .alignment.lyrics_source_id scratch/audit/runs/<id>/prod.json)" \
   > scratch/audit/runs/<id>/record.json
 docker run --rm --user 1000:1000 -v "$PWD:/repo" -w /repo/apps/server \
-  -e PYTHONPATH=/repo/apps/server/src:/repo/apps/server --env-file worker.env \
+  -e PYTHONPATH=/repo/apps/server/src:/repo/apps/server --env-file apps/server/audit/worker.env.example \
   -v "$PWD/apps/server/benchmarks/data/hf:/models" \
   kashi-audit python -m audit.run_local <id> --lyrics ../../scratch/audit/runs/<id>/record.json \
     --out ../../scratch/audit/runs/<id>/local.json --extras ../../scratch/audit/runs/<id>/extras.json

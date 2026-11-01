@@ -30,6 +30,12 @@ or ``--record-id``) goes through ``lyrics_from_record``, anchored as in prod.
 alignment, line QA without references (the plain-lyrics experiment). A text
 file goes through ``lyrics_from_text``, exactly like ``options.lyrics_text``.
 
+lrclib is never asked, whatever the environment says (prod runs with
+``LRCLIB_PUBLISH_ENABLED=true``): for the run, publishing is switched off,
+the worker's lrclib gateway, lookups and ``publish_document`` refuse, and httpx
+refuses every request to lrclib.net or the configured primary / mirror. An
+attempt fails the run even when a caller swallows the error.
+
 Not reproduced: nightcore (r = 1 only); the lyricsfile fast path (prod skips
 CTC when the record carries human word timings - a warning says so); a
 separation mode other than the live ``always`` (refused); beats, energy and
@@ -63,6 +69,11 @@ logger = logging.getLogger("audit.run_local")
 NO_NIGHTCORE: tuple[float, dict | None, str | None] = (1.0, None, None)
 # The live worker separates every job first (config default, gitops value).
 LIVE_SEPARATION_MODE = "always"
+LRCLIB_DOMAIN = "lrclib.net"
+
+
+class LrclibForbidden(RuntimeError):
+    """The local run tried to reach lrclib or its mirror."""
 
 
 class _NoRows:
@@ -176,6 +187,64 @@ def worker_seams(process: Any, stem: Path, seen: dict) -> Iterator[None]:
         process._separate_vocals, process.detect_onsets, process.measure_vocal_energy = real
 
 
+@contextmanager
+def no_lrclib(process: Any, seen: dict) -> Iterator[None]:
+    """For one local run: publishing off, the worker's lrclib routes refusing,
+    httpx refusing lrclib.net and the configured primary / mirror. Every
+    attempt is recorded in ``seen``. Restored afterwards, also on failure."""
+    import httpx
+
+    from kashi_server.config import settings
+    from kashi_server.pipeline import publish
+
+    configured = {(httpx.URL(u).host, httpx.URL(u).port)
+                  for u in (settings.lrclib_base_url, settings.lrclib_fallback_base_url) if u}
+
+    def is_lrclib(url: httpx.URL) -> bool:
+        return (url.host == LRCLIB_DOMAIN or url.host.endswith("." + LRCLIB_DOMAIN)
+                or (url.host, url.port) in configured)
+
+    def refuse(what: str) -> Any:
+        seen.setdefault("lrclib_attempts", []).append(what)
+        raise LrclibForbidden(f"the local run never asks lrclib ({what}); "
+                              "lyrics come from --lyrics only")
+
+    real_send, real_async_send = httpx.Client.send, httpx.AsyncClient.send
+
+    def send(client: httpx.Client, request: httpx.Request, *a: Any, **k: Any) -> httpx.Response:
+        if is_lrclib(request.url):
+            refuse(str(request.url))
+        return real_send(client, request, *a, **k)
+
+    async def async_send(client: httpx.AsyncClient, request: httpx.Request, *a: Any,
+                         **k: Any) -> httpx.Response:
+        if is_lrclib(request.url):
+            refuse(str(request.url))
+        return await real_async_send(client, request, *a, **k)
+
+    class RefusingGateway:
+        def fetch_lyrics(self, hints: dict) -> Any:
+            return refuse("gateway fetch_lyrics")
+
+        def search_candidates(self, query: str) -> Any:
+            return refuse("gateway search_candidates")
+
+    saved = (settings.lrclib_publish_enabled, settings.lrclib_publish_dry_run, process.LRCLIB,
+             process.fetch_lyrics, process.search_candidates, publish.publish_document)
+    settings.lrclib_publish_enabled, settings.lrclib_publish_dry_run = False, True
+    process.LRCLIB = RefusingGateway()
+    process.fetch_lyrics = lambda hints, base_url: refuse("fetch_lyrics")
+    process.search_candidates = lambda query, base_url: refuse("search_candidates")
+    publish.publish_document = lambda *a, **k: refuse("publish_document")
+    httpx.Client.send, httpx.AsyncClient.send = send, async_send  # pyright: ignore
+    try:
+        yield
+    finally:
+        httpx.Client.send, httpx.AsyncClient.send = real_send, real_async_send
+        (settings.lrclib_publish_enabled, settings.lrclib_publish_dry_run, process.LRCLIB,
+         process.fetch_lyrics, process.search_candidates, publish.publish_document) = saved
+
+
 def run(video_id: str, lyrics: LyricsText, hints: dict, *,
         mix: Path | None = None) -> tuple[dict, dict]:
     """(the validated document, extras)."""
@@ -204,7 +273,8 @@ def run(video_id: str, lyrics: LyricsText, hints: dict, *,
                               info={})
     seen: dict = {}
     session: Any = NullSession()
-    with tempfile.TemporaryDirectory(prefix=f"kashi-local-{video_id}-") as tmp, \
+    with no_lrclib(process, seen), \
+            tempfile.TemporaryDirectory(prefix=f"kashi-local-{video_id}-") as tmp, \
             worker_seams(process, stem, seen):
         lyrics, result, qa, separated, speed = process._align_with_ctc(
             session, job, Path(tmp), download, NO_NIGHTCORE, lyrics)
@@ -213,6 +283,8 @@ def run(video_id: str, lyrics: LyricsText, hints: dict, *,
         doc = process._assemble_document(
             job, download, lyrics, result, qa, vocals_separated=separated, speed_factor=speed,
             beats=beats, energy=energy, sections=sections)
+    if seen.get("lrclib_attempts"):  # raised inside, but somebody swallowed it
+        raise LrclibForbidden(f"the local run tried to reach lrclib: {seen['lrclib_attempts']}")
     validate_document(doc)
     return doc, _extras(video_id, stem, lyrics, result, qa, seen)
 
@@ -283,7 +355,7 @@ def main(argv: list[str] | None = None) -> int:
                                     anchors=not args.no_anchors)
         hints |= {k: v for k, v in (("title", args.title), ("artist", args.artist)) if v}
         doc, extras = run(args.id, lyrics, hints, mix=args.mix)
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, LrclibForbidden) as exc:
         print(f"run_local: {exc}", file=sys.stderr)
         return 2
     except PipelineError as exc:  # what the worker would have filed as the job's error
