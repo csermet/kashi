@@ -122,10 +122,10 @@ def flat_words(doc: dict) -> list[tuple[int, int, dict]]:
             for wi, w in enumerate(ln.get("words") or [])]
 
 
-def word_events(doc: dict, version: str) -> list[Event]:
-    """Piles, runs of short words and lone zero-length words."""
-    out: list[Event] = []
-    words = flat_words(doc)
+def pile_runs(words: Sequence[tuple[int, int, dict]]) -> list[tuple[int, int]]:
+    """(first, last) indices into ``words`` (``flat_words`` order) of every
+    pile: >= 2 consecutive words starting within PILE_SPAN_MS of the first."""
+    out: list[tuple[int, int]] = []
     i = 0
     while i < len(words):
         j = i
@@ -133,10 +133,19 @@ def word_events(doc: dict, version: str) -> list[Event]:
                 <= PILE_SPAN_MS:
             j += 1
         if j > i:
-            texts = " ".join(w["text"] for _, _, w in words[i : j + 1])
-            out.append(Event(words[i][2]["start_ms"], "pile", version, f"{j - i + 1}: {texts}",
-                             size=min(j - i, PILE_SIZE_CAP)))
+            out.append((i, j))
         i = j + 1
+    return out
+
+
+def word_events(doc: dict, version: str) -> list[Event]:
+    """Piles, runs of short words and lone zero-length words."""
+    out: list[Event] = []
+    words = flat_words(doc)
+    for i, j in pile_runs(words):
+        texts = " ".join(w["text"] for _, _, w in words[i : j + 1])
+        out.append(Event(words[i][2]["start_ms"], "pile", version, f"{j - i + 1}: {texts}",
+                         size=min(j - i, PILE_SIZE_CAP)))
     run: list[dict] = []
     for _, _, w in words + [(0, 0, {"start_ms": 0, "end_ms": 10**9, "text": ""})]:
         if w["end_ms"] - w["start_ms"] < SHORT_WORD_MS:

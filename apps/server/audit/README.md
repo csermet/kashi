@@ -58,6 +58,7 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `apps/overlay/scripts/audit-strip.mjs` | host Node / Playwright image | what the overlay shows at those times: `sim` runs the renderer's own pure functions, `real` the built renderer in Chromium (PNG per frame) and asserts both agree |
 | `audit.render <id> <t> --doc L=D,...` | host | the picture (`moment-<t>.png`, ≤1568 px wide) and its numbers (`moment-<t>.json`) |
 | `audit/moment.sh <id> <t> L=D,... [--real]` | host | all of the above for one moment |
+| `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 
 `audit.analysis` caches per song: vocal loudness and onsets (the production
 functions, on the 16 kHz stem) and **voice onsets** — where the voice returns
@@ -89,6 +90,37 @@ prints the song summary (lines placed, median offset, how many > 1 s off):
 healthy songs read a median of +20..+90 ms (the model's raw clock against the
 documents' offset table); Got 2 Luv U reads −3.8 s for 26 of 27 placed lines,
 because lrclib's own stamps for its verses are 3–4 s late.
+
+### Before / after a timing change
+
+```bash
+python -m audit.compare before.json after.json --verdicts scratch/audit/review.jsonl \
+  [--audio] [--json out.json] [--same-within-ms 20]
+```
+
+Both inputs are `[{id, doc}]` dumps or single documents (keyed by `track.source.id`, which is
+what `audit.run_local` writes). Per song, before → after: pipeline version, quality score,
+worded lines, seam piles (`benchmarks.seam_piles`), line-QA counters
+(flagged/density_dropped/nudged/uncertain), 0 ms and < 60 ms word shares and bunched starts
+(`benchmarks.metrics.duration_hygiene`), and how many words moved by more than one frame (20 ms);
+totals at the end.
+
+Per verdict, inside the moment's ±2.5 s: word and line start shifts, piles (the finder's rule),
+0 ms words, wordless lines. Classes — every `?` is a **candidate**, decided without audio:
+
+| verdict | class |
+|---|---|
+| pile / late / early / missing / wrong_text | `bad:fixed?` (piled or 0 ms words fewer; the moved words' median went earlier for `late`, later for `early`; more lit words; the text changed), `bad:worse?` (the other way), `bad:changed` (no clear direction), `bad:unchanged` |
+| ok | `good:broken?` (a word moved past +220 / −330 ms, more piled / 0 ms words, fewer lit words, words or lines lost, text changed), `good:moved` (smaller moves), `good:kept` |
+| unsure | `unsure:changed` / `unsure:unchanged` |
+
+The owner's listening verdict (`caner`, when it is a verdict word) wins over the agent's.
+Verdicts are taken as read on 2.29 (`--verdicts-describe`); when the BEFORE document is another
+version only moments whose versions agreed (`better_version` none/either) count, the rest are
+`n/a:version`. `--audio` adds `audit.score` per song and, per moment, whether a placed line
+crossed the noticeable threshold (`ear: better/worse/same`) — where the stem and whole-song ear
+exist. `--same-within-ms N` exits 1 unless every song has the same lines, texts and words with
+every start and end within N ms (the `audit.run_local` acceptance check).
 
 ### Reading a picture
 
