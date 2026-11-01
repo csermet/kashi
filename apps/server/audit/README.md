@@ -58,6 +58,7 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `apps/overlay/scripts/audit-strip.mjs` | host Node / Playwright image | what the overlay shows at those times: `sim` runs the renderer's own pure functions, `real` the built renderer in Chromium (PNG per frame) and asserts both agree |
 | `audit.render <id> <t> --doc L=D,...` | host | the picture (`moment-<t>.png`, ≤1568 px wide) and its numbers (`moment-<t>.json`) |
 | `audit/moment.sh <id> <t> L=D,... [--real]` | host | all of the above for one moment |
+| `audit.run_local <id> --lyrics R --out D` | audit image, worker env | one song through the worker's alignment and document builder on the cached stem: no database, no download, no separation (below) |
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 
 `audit.analysis` caches per song: vocal loudness and onsets (the production
@@ -121,6 +122,64 @@ version only moments whose versions agreed (`better_version` none/either) count,
 crossed the noticeable threshold (`ear: better/worse/same`) — where the stem and whole-song ear
 exist. `--same-within-ms N` exits 1 unless every song has the same lines, texts and words with
 every start and end within N ms (the `audit.run_local` acceptance check).
+
+### One song through the worker, locally
+
+```bash
+python -m audit.run_local <id> --lyrics record.json --out local.json \
+  [--no-anchors] [--record-id N] [--mix <full mix>] [--title T --artist A] [--extras x.json]
+```
+
+For timing experiments (v3, 2.29.1, plain lyrics) without the production worker, a GPU or the
+database. It runs the worker's own `_align_with_ctc` (nightcore plan, aligner stage, line QA on the
+stem's onsets and vocal energy) and `_assemble_document` (fx, palette, `build_document`), then the
+schema gate `persist_processed_track` applies, and writes the document instead of storing it. The
+job is an in-memory `Job`, the session a no-op. The separator call returns the cached
+`stems/<id>.16k.wav` (make it with `audit.stems`; nothing is separated here); decoding it again at
+16 kHz is sample-identical, so the aligner hears exactly what prod's aligner heard.
+
+- **Settings come from the environment, as in the worker.** Pass the worker's env (`ALIGN_MODELS`
+  above all, from the gitops `deployment-worker.yaml`) with `--env-file`, or the document comes
+  from a different pipeline. `--extras` records what was in force (settings, the resolved aligner
+  and its offsets) and what prod computes but never stores: the onsets and vocal energy line QA
+  read, each word's prob / lateness shift / placing pass (`edges`, `segment`, `whole`), line QA's
+  per-line lists.
+- **Lyrics:** an lrclib record (`/api/get` JSON, or a search list with `--record-id`) is anchored as
+  in prod; `--no-anchors` keeps its lines and drops the stamps (whole-audio alignment, line QA
+  without references); a text file is plain lyrics, exactly like `options.lyrics_text` (needs
+  `--title`/`--artist`: the document requires them).
+- **Not reproduced:** nightcore (r = 1 only); the lyricsfile fast path (a warning says when prod
+  would have skipped CTC); separation modes other than the live `always` (refused); beats, energy
+  and sections unless `--mix` is given (they never touch word timings; fx selection reads sections).
+- Tests (`tests/test_audit_run_local.py`) replace `ctc_forced_aligner` with a deterministic
+  stand-in and prove the local document equal to the one `process_job` persists for the same
+  inputs, with and without the database.
+
+**Acceptance on a real song (owner's host, not CI):** the local document must equal the prod 2.29
+one word for word within one frame. The record must be the one prod aligned
+(`alignment.lyrics_source_id`), and the stored document must be a fresh 2.29 run — a document the
+worker refused as a regression (`kept the stored ... document` in its log) is an older pipeline's.
+
+```bash
+# repo root; <id> has a stem (audit.stems); worker.env holds the live worker's pipeline env
+mkdir -p scratch/audit/runs/<id>
+curl -s -H "Authorization: Bearer $KASHI_KEY" "$KASHI_URL/v1/lyrics/youtube/<id>" \
+  > scratch/audit/runs/<id>/prod.json
+curl -s "https://lrclib.net/api/get/$(jq .alignment.lyrics_source_id scratch/audit/runs/<id>/prod.json)" \
+  > scratch/audit/runs/<id>/record.json
+docker run --rm --user 1000:1000 -v "$PWD:/repo" -w /repo/apps/server \
+  -e PYTHONPATH=/repo/apps/server/src:/repo/apps/server --env-file worker.env \
+  -v "$PWD/apps/server/benchmarks/data/hf:/models" \
+  kashi-audit python -m audit.run_local <id> --lyrics ../../scratch/audit/runs/<id>/record.json \
+    --out ../../scratch/audit/runs/<id>/local.json --extras ../../scratch/audit/runs/<id>/extras.json
+cd apps/server && uv run python -m audit.compare ../../scratch/audit/runs/<id>/prod.json \
+  ../../scratch/audit/runs/<id>/local.json --same-within-ms 20
+```
+
+`--same-within-ms 20` exits 0 only when lines, texts and words are the same and every start and
+end is within 20 ms. A miss names the song; `--json` lists every moved word. Check
+`pipeline_version` and `alignment.method` on both sides first (a different checkpoint means a
+different env).
 
 ### Reading a picture
 

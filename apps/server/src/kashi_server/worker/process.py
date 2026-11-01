@@ -40,10 +40,10 @@ from kashi_server.pipeline.asr import (
     slice_window,
 )
 from kashi_server.pipeline.audio_source import fetch_audio
-from kashi_server.pipeline.beats import extract_beats
+from kashi_server.pipeline.beats import Beats, extract_beats
 from kashi_server.pipeline.document import build_document, persist_processed_track
 from kashi_server.pipeline.download import DownloadResult, download_audio
-from kashi_server.pipeline.energy import extract_energy
+from kashi_server.pipeline.energy import Energy, Section, extract_energy
 from kashi_server.pipeline.langid import detect_language
 from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa
 from kashi_server.pipeline.lrclib import (
@@ -1094,6 +1094,59 @@ def _record_line_qa(job: Job, qa: LineQAOutcome) -> None:
     WORD_END_TRIMS.inc(qa.trimmed_ends)
 
 
+def _mix_features(mix: Path) -> tuple[Beats | None, Energy | None, list[Section] | None]:
+    """Beats, energy and sections, all read off the full mix — the PLAYED
+    audio, never the stem and never rescaled. Best-effort: None on failure."""
+    beats = extract_beats(mix)
+    energy_and_sections = extract_energy(mix)  # same clock as beats
+    sections = energy_and_sections[1] if energy_and_sections else None
+    if settings.structure_sections:
+        # Structure v2 (Faz 6.5 P6): repetition-derived chorus spans join
+        # the energy "high" blocks additively — best-effort like the rest.
+        chorus = extract_structure(mix, energy_and_sections[0] if energy_and_sections else None)
+        if chorus:
+            # Keep the combined array start-sorted: nothing requires it
+            # today, but an unsorted mixed-type list is a trap for the
+            # next consumer (reviewer nit).
+            sections = sorted((sections or []) + chorus, key=lambda s: (s.start_ms, s.end_ms))
+    return beats, energy_and_sections[0] if energy_and_sections else None, sections
+
+
+def _assemble_document(
+    job: Job,
+    download: DownloadResult,
+    lyrics: LyricsText,
+    result: AlignResult,
+    qa: LineQAOutcome | None,
+    *,
+    vocals_separated: bool,
+    speed_factor: float,
+    beats: Beats | None,
+    energy: Energy | None,
+    sections: list[Section] | None,
+) -> dict:
+    """fx and palette, then the document. No database: the local audit run
+    (`audit.run_local`) builds its document through this same function."""
+    # AFTER QA/rescale (indices must match the doc) and AFTER sections
+    # (selection ranks lines by the section holding them — same clock).
+    fx = _tag_fx(result, lyrics, sections)
+    palette = extract_palette((job.hints or {}).get("artwork_url"))
+    return build_document(
+        job,
+        lyrics,
+        result,
+        beats,
+        palette,
+        vocals_separated=vocals_separated,
+        speed_factor=speed_factor,
+        fallback_duration_ms=round(download.duration_s * 1000),
+        qa=qa,
+        fx=fx,
+        energy=energy,
+        sections=sections,
+    )
+
+
 def _postprocess(
     s: Session,
     job: Job,
@@ -1109,36 +1162,17 @@ def _postprocess(
     # --- postprocessing ---
     queue.set_status(s, job, "postprocessing")
     s.commit()
-    beats = extract_beats(download.path)  # full mix — the PLAYED audio, never rescaled
-    energy_and_sections = extract_energy(download.path)  # same clock as beats
-    sections = energy_and_sections[1] if energy_and_sections else None
-    if settings.structure_sections:
-        # Structure v2 (Faz 6.5 P6): repetition-derived chorus spans join
-        # the energy "high" blocks additively — best-effort like the rest.
-        chorus = extract_structure(
-            download.path, energy_and_sections[0] if energy_and_sections else None
-        )
-        if chorus:
-            # Keep the combined array start-sorted: nothing requires it
-            # today, but an unsorted mixed-type list is a trap for the
-            # next consumer (reviewer nit).
-            sections = sorted((sections or []) + chorus, key=lambda s: (s.start_ms, s.end_ms))
-    # AFTER QA/rescale (indices must match the doc) and AFTER sections
-    # (selection ranks lines by the section holding them — same clock).
-    fx = _tag_fx(result, lyrics, sections)
-    palette = extract_palette((job.hints or {}).get("artwork_url"))
-    doc = build_document(
+    beats, energy, sections = _mix_features(download.path)
+    doc = _assemble_document(
         job,
+        download,
         lyrics,
         result,
-        beats,
-        palette,
+        qa,
         vocals_separated=vocals_separated,
         speed_factor=speed_factor,
-        fallback_duration_ms=round(download.duration_s * 1000),
-        qa=qa,
-        fx=fx,
-        energy=energy_and_sections[0] if energy_and_sections else None,
+        beats=beats,
+        energy=energy,
         sections=sections,
     )
     # Postprocessing can run long; a worker that slept through it must not
