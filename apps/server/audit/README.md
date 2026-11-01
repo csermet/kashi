@@ -132,3 +132,16 @@ go to `caner-dinle.md` (song, mm:ss, one question).
 | whole-song ear, CPU | cnr-intel | ~2.5 min (1 min of it loading the 1B model) |
 | one moment (`moment.sh`, sim strip, whole ear cached) | cnr-intel | ~10 s |
 | one moment with `--real` frames | cnr-intel | ~40 s |
+
+## Known limits (pilot-set review, 2026-11)
+
+- For Turkish and the MMS languages the ear is the aligner's own checkpoint: its letter times equal
+  the boxes by construction. Trust the letters (what is heard, in which order), not that agreement.
+- The ear-text match only looks ±8 s around a line; a song-level shift beyond that (one lrclib
+  record was 17-19 s late) shows up in `audit.score` and in a control, not in the ranking.
+- Japanese lyrics never match: the MMS ear is romanised, the lyrics are in script. CJK glyphs draw
+  as boxes in the pictures.
+- Most finder false positives are a voice "return" with no ear letters at all: wordless outros,
+  instrument figures leaking into the stem, breaths.
+
+Findings and numbers: `docs/research/perceptual-audit-2026-11.md`.
