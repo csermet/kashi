@@ -51,6 +51,17 @@ def checkpoint_for(method: str) -> str:
     raise ValueError(f"unknown checkpoint in alignment.method {method!r}")
 
 
+def blank_id_of(vocab: Mapping[str, int]) -> int:
+    """The CTC blank's id. MMS names it ``<blank>`` (id 0) and also has a
+    ``<pad>`` (id 1) that never wins; wav2vec2 English has ``<pad>`` = 0 and
+    the Turkish checkpoint ``[PAD]`` = 0. Taking ``<pad>`` for MMS turned every
+    blank frame into a ``<blank>`` letter and the ear-text match into 0 lines
+    (Gasolina, BxMxC; 2026-11-01)."""
+    if "<blank>" in vocab:
+        return vocab["<blank>"]
+    return vocab.get("<pad>", 0)
+
+
 def timed_tokens(
     ids: Sequence[int],
     id_to_token: Mapping[int, str],
@@ -120,7 +131,7 @@ def _hear_span(video_id: str, model_name: str, start_ms: int, length_ms: int | N
     if logp.dim() == 3:
         logp = logp.squeeze(0)
     probs = torch.exp(logp)
-    blank_id = vocab.get("<pad>", 0)
+    blank_id = blank_id_of(vocab)
     delim_id = vocab.get(WORD_DELIMITER)
     silent = probs[:, blank_id] + (probs[:, delim_id] if delim_id is not None else 0)
     letter = (1 - silent).clamp(0, 1).tolist()

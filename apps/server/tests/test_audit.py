@@ -6,7 +6,7 @@ Faz 2.
 """
 
 from audit.analysis import voice_onsets
-from audit.ear import checkpoint_for, letters_text, timed_tokens
+from audit.ear import blank_id_of, checkpoint_for, letters_text, timed_tokens
 from audit.moment import (
     EVENT_LAG_MS,
     LEAD_IN_PROBE_MS,
@@ -46,6 +46,14 @@ def test_checkpoint_for_reads_alignment_method():
     assert checkpoint_for(m) == "jonatasgrosman/wav2vec2-xls-r-1b-english"
     mms = "MahmoudAshraf/mms-300m-1130-forced-aligner"
     assert checkpoint_for("ctc-forced-aligner/mms-300m+line-windowed") == mms
+
+
+def test_blank_id_is_mms_blank_before_pad():
+    # the three vocab shapes in use: MMS, wav2vec2 English, the Turkish checkpoint
+    assert blank_id_of({"<blank>": 0, "<pad>": 1, "a": 4}) == 0
+    assert blank_id_of({"<pad>": 0, "<s>": 1, "|": 4}) == 0
+    assert blank_id_of({"[PAD]": 0, "<s>": 1, "|": 4}) == 0
+    assert blank_id_of({"<pad>": 3, "a": 0}) == 3
 
 
 def _contour(levels, hop=10):
