@@ -1,6 +1,6 @@
 # Local models in the perceptual audit — research and decision (2026-11)
 
-**Status: decision input — research only, no implementation, nothing measured here.** Sources were read on
+**Status: decided (option 1, 2026-11-03) — research only, no implementation, nothing measured here.** Sources were read on
 2026-11-01; every number carries a source label (list at the end), and estimates are marked as such. The
 question: can local models on the owner's GPU desktop work through the whole archive (~300 songs) without
 spending tokens, summarise each song and point at what deserves a look — so that the agent reads only those
@@ -225,6 +225,9 @@ them (lrclib accepts ±2 s [lrclib]).
   flag what we find is the owner's call.
 
 ## Decision
+
+**Owner's choice (2026-11-03): option 1, and the Faz 3.5 trial below is approved.** Step 0's listening set is
+planned for 2026-11-08 (it may be split over two days).
 
 1. **Recommended — now: the deterministic anchor check (A1-A3) plus Qwen3-ASR as an independent transcript
    witness; a summarizer only after the Faz 3.5 Step 3 gates.** Opus 5.5 Batches is the default summarizer
