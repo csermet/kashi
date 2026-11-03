@@ -644,10 +644,13 @@ def main(argv: list[str] | None = None) -> int:
         if not result["songs"]:
             print("same-within: no song is in both inputs")
             return 1
+        # A song one side lacks (its local run failed) is a miss, not a pass.
+        unpaired = result["only_before"] + result["only_after"]
         print(f"same within {args.same_within_ms} ms: "
               f"{len(result['songs']) - len(failed)}/{len(result['songs'])} songs"
-              + (f" (differ: {', '.join(failed)})" if failed else ""))
-        return 1 if failed else 0
+              + (f" (differ: {', '.join(failed)})" if failed else "")
+              + (f"; on one side only: {', '.join(unpaired)}" if unpaired else ""))
+        return 1 if failed or unpaired else 0
     return 0
 
 

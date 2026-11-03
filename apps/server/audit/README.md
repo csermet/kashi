@@ -147,7 +147,10 @@ stem's onsets and vocal energy) and `_assemble_document` (fx, palette, `build_do
 schema gate `persist_processed_track` applies, and writes the document instead of storing it. The
 job is an in-memory `Job`, the session a no-op. The separator call returns the cached
 `stems/<id>.16k.wav` (make it with `audit.stems`; nothing is separated here); decoding it again at
-16 kHz is sample-identical, so the aligner hears exactly what prod's aligner heard.
+16 kHz is sample-identical, so the aligner hears exactly what prod's aligner heard. The stem's
+meta (`stems/<id>.json`) must name the settings' separator: a model or mixback other than
+`SEPARATION_MODEL_FILENAME` / `SEPARATION_MIXBACK` stops the run (exit 2); a stem without that
+record gets a warning.
 
 - **Settings come from the environment, as in the worker.** Pass the live worker's env with
   `--env-file apps/server/audit/worker.env.example` (`ALIGN_MODELS` above all), or the document
@@ -169,6 +172,8 @@ job is an in-memory `Job`, the session a no-op. The separator call returns the c
 - **Not reproduced:** nightcore (r = 1 only); the lyricsfile fast path (a warning says when prod
   would have skipped CTC); separation modes other than the live `always` (refused); beats, energy
   and sections unless `--mix` is given (they never touch word timings; fx selection reads sections).
+  `--mix` is the full mix as played; `stems/<id>.wav` is the vocal stem and is refused (audit.stems
+  deletes the raw download, so the mix usually has to be fetched again).
 - Tests (`tests/test_audit_run_local.py`) replace `ctc_forced_aligner` with a deterministic
   stand-in and prove the local document equal to the one `process_job` persists for the same
   inputs, with and without the database.
@@ -184,7 +189,8 @@ worker refused as a regression (`kept the stored ... document` in its log) is an
 mkdir -p scratch/audit/runs/<id>
 curl -s -H "Authorization: Bearer $KASHI_KEY" "$KASHI_URL/v1/lyrics/youtube/<id>" \
   > scratch/audit/runs/<id>/prod.json
-curl -s "https://lrclib.net/api/get/$(jq .alignment.lyrics_source_id scratch/audit/runs/<id>/prod.json)" \
+curl -sf -A "kashi-audit (https://github.com/csermet/kashi)" \
+  "https://lrclib.net/api/get/$(jq .alignment.lyrics_source_id scratch/audit/runs/<id>/prod.json)" \
   > scratch/audit/runs/<id>/record.json
 docker run --rm --user 1000:1000 -v "$PWD:/repo" -w /repo/apps/server \
   -e PYTHONPATH=/repo/apps/server/src:/repo/apps/server --env-file apps/server/audit/worker.env.example \
@@ -198,7 +204,12 @@ cd apps/server && uv run python -m audit.compare ../../scratch/audit/runs/<id>/p
 `--same-within-ms 20` exits 0 only when lines, texts and words are the same and every start and
 end is within 20 ms. A miss names the song; `--json` lists every moved word. Check
 `pipeline_version` and `alignment.method` on both sides first (a different checkpoint means a
-different env).
+different env). A song in one input only fails the check too. A pass is proof; a miss alone is not:
+the stem comes from a fresh download and the record from today's lrclib, and the document keeps no
+hash of either, so rule out the inputs before blaming the code.
+
+First run (2026-11-03, Stressed Out, the prod document of 2026-10-28, CPU): 528 of 528 words and all
+49 lines identical, max shift 0 ms.
 
 ### Reading a picture
 

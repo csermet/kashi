@@ -248,6 +248,42 @@ def test_the_stems_meta_duration_is_the_tracks(stem, heard, record_file, tmp_pat
     assert doc["track"]["duration_ms"] == 24_400
 
 
+LIVE_SEPARATOR = "vocals_mel_band_roformer.ckpt"
+
+
+@pytest.mark.parametrize(("model", "mixback", "code"), [
+    (LIVE_SEPARATOR, 0, 0),
+    ("mel_band_roformer_kim_ft_unwa.ckpt", 0, 2),
+    (LIVE_SEPARATOR, 0.1, 2),
+])
+def test_the_stem_must_come_from_the_live_separator(model, mixback, code, stem, heard,
+                                                    record_file, tmp_path, monkeypatch, capsys):
+    import audit.paths
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "separation_model_filename", LIVE_SEPARATOR)
+    monkeypatch.setattr(settings, "separation_mixback", 0.0)
+    audit.paths.stem_meta_path(VID).write_text(json.dumps({"model": model, "mixback": mixback}))
+    out = tmp_path / "doc.json"
+    assert run_local.main([VID, "--lyrics", str(record_file), "--out", str(out)]) == code
+    assert out.exists() == (code == 0)
+    if code:
+        assert "remake the stem" in capsys.readouterr().err
+
+
+def test_the_vocal_stem_is_not_a_mix(stem, heard, record_file, tmp_path, capsys):
+    import audit.paths
+
+    full_rate = audit.paths.stem_path(VID)
+    _write_stem(full_rate)
+    for mix in (full_rate, stem):
+        out = tmp_path / "doc.json"
+        assert run_local.main([VID, "--lyrics", str(record_file), "--out", str(out),
+                               "--mix", str(mix)]) == 2
+        assert "not the full mix" in capsys.readouterr().err
+        assert not out.exists()
+
+
 # --- the same document as the worker --------------------------------------------
 
 def _worker_stages(monkeypatch, tmp_path, stem):

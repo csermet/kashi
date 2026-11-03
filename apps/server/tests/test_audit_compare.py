@@ -410,6 +410,17 @@ def test_cli_reads_a_dump_and_a_single_document(tmp_path, capsys):
     assert compare.main([str(before), str(after), "--same-within-ms", "20"]) == 1
 
 
+def test_a_song_on_one_side_only_fails_same_within(tmp_path, capsys):
+    pair = tmp_path / "pair.json"
+    pair.write_text(json.dumps([{"id": VID, "doc": _doc()}]))
+    more = tmp_path / "more.json"
+    more.write_text(json.dumps([{"id": VID, "doc": _doc()}, {"id": "otherVid001", "doc": _doc()}]))
+    assert compare.main([str(pair), str(pair), "--same-within-ms", "20"]) == 0
+    assert compare.main([str(more), str(pair), "--same-within-ms", "20"]) == 1
+    assert "on one side only: otherVid001" in capsys.readouterr().out
+    assert compare.main([str(pair), str(more), "--same-within-ms", "20"]) == 1
+
+
 def test_a_verdict_without_its_fields_is_refused(tmp_path):
     bad = tmp_path / "review.jsonl"
     bad.write_text(json.dumps({"id": VID, "verdict": "ok"}) + "\n")

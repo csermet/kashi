@@ -58,7 +58,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from audit.paths import stem_16k_path, stem_meta_path
+from audit.paths import stem_16k_path, stem_meta_path, stem_path
 
 if TYPE_CHECKING:
     from kashi_server.pipeline.lrclib import LyricsText
@@ -142,6 +142,29 @@ def cached_stem(video_id: str) -> Path:
             f"no cached stem {path}: make it with `python -m audit.stems {video_id}` "
             "(this run never separates)")
     return path
+
+
+def check_stem_separator(video_id: str) -> None:
+    """The cached stem must come from the separator the settings name: the
+    worker separates with ``SEPARATION_MODEL_FILENAME`` and
+    ``SEPARATION_MIXBACK``, audit.stems with its own pinned model, and a stem
+    of another model is another pipeline's input. A stem without that record
+    (made before audit.stems wrote it) only gets a warning."""
+    from kashi_server.config import settings
+
+    meta_path = stem_meta_path(video_id)
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    if "model" not in meta or "mixback" not in meta:
+        logger.warning("%s: the stem does not record its separator; it is taken to be %s, "
+                       "mixback %g", video_id, settings.separation_model_filename,
+                       settings.separation_mixback)
+        return
+    made = (meta["model"], float(meta["mixback"]))
+    live = (settings.separation_model_filename, settings.separation_mixback)
+    if made != live:
+        raise ValueError(
+            f"the cached stem was separated with {made[0]} (mixback {made[1]:g}), the settings "
+            f"name {live[0]} (mixback {live[1]:g}): sync the worker env, or remake the stem")
 
 
 def audio_duration_s(video_id: str, stem: Path) -> float:
@@ -263,6 +286,10 @@ def run(video_id: str, lyrics: LyricsText, hints: dict, *,
         raise ValueError(f"no {' / '.join(missing)}: pass --{' --'.join(missing)} (the "
                          "document requires them; prod takes them from the player)")
     stem = cached_stem(video_id)
+    check_stem_separator(video_id)
+    if mix is not None and mix.resolve() in (stem.resolve(), stem_path(video_id).resolve()):
+        raise ValueError(f"--mix {mix} is the vocal stem, not the full mix: beats, energy "
+                         "and sections are read off the played audio")
     duration_s = audio_duration_s(video_id, stem)
     _warn_lyricsfile(lyrics, duration_s)
     job = Job(id=uuid.uuid4(), source_type="youtube", source_id=video_id, hints=hints,
@@ -316,7 +343,8 @@ def _extras(video_id: str, stem: Path, lyrics: LyricsText, result, qa, seen: dic
         "settings": {
             **{k: getattr(settings, k) for k in (
                 "separation_mode", "windowed_alignment", "align_model", "align_romanize",
-                "align_offset_ms", "separation_model_filename", "structure_sections",
+                "align_offset_ms", "separation_model_filename", "separation_mixback",
+                "structure_sections",
                 "fx_embeddings")},
             "align_models": {k: v.model_dump() for k, v in settings.align_models.items()},
         },
