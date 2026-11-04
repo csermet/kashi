@@ -31,11 +31,11 @@ import argparse
 import json
 import statistics
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 from audit.finder import LINE_OFFSET_MS, heard_on_owned_neighbour
-from audit.textmatch import SEARCH_MS, ear_stream, letters, locate, sung_span
+from audit.textmatch import SEARCH_MS, locate, matcher_for, sung_span
 
 HEALTHY_MAX_MS = 500
 SHIFTED_MIN_MS = 1000
@@ -48,11 +48,13 @@ REPORTED_ONLY = frozenset({"jpn", "tur"})
 
 
 def placements(doc: dict, ear: dict, search_ms: int = SEARCH_MS,
-               normalize: Callable[[str], str] = letters) -> tuple[dict[int, int], set[int]]:
-    """``finder.line_offsets`` with a chosen search window: (line index -> heard
-    minus document start, the indices whose placement belongs to a look-alike
-    neighbour)."""
-    stream, times = ear_stream(ear["tokens"], normalize=normalize)
+               language: str | None = None) -> tuple[dict[int, int], set[int]]:
+    """``finder.line_offsets`` with a chosen search window and the language's
+    matcher (``textmatch.matcher_for``: Japanese is script-aware): (line index
+    -> heard minus document start, the indices whose placement belongs to a
+    look-alike neighbour)."""
+    normalize, build = matcher_for(language)
+    stream, times = build(ear["tokens"])
     lines = doc.get("lines", [])
     offsets: dict[int, int] = {}
     for li, ln in enumerate(lines):
@@ -70,8 +72,8 @@ def placements(doc: dict, ear: dict, search_ms: int = SEARCH_MS,
 
 
 def ear_reading(doc: dict, ear: dict, search_ms: int = SEARCH_MS,
-                normalize: Callable[[str], str] = letters) -> dict:
-    offsets, borrowed = placements(doc, ear, search_ms, normalize)
+                language: str | None = None) -> dict:
+    offsets, borrowed = placements(doc, ear, search_ms, language)
     kept = [o for li, o in offsets.items() if li not in borrowed]
     n = len(doc.get("lines", []))
     return {"lines": n, "placed": len(kept), "placed_share": round(len(kept) / n, 3) if n else 0.0,
@@ -126,7 +128,8 @@ def report(doc: dict, current: dict, ext: dict, expect: str | None = None,
     if expect is not None and expect not in EXPECTATIONS:
         raise ValueError(f"unknown expectation {expect!r}")
     lang = language or song_language(doc)
-    cur, new = ear_reading(doc, current, search_ms), ear_reading(doc, ext, search_ms)
+    cur = ear_reading(doc, current, search_ms, lang)
+    new = ear_reading(doc, ext, search_ms, lang)
     silence = silent_segments(ext, silent_regions(current))
     gates: dict[str, bool] = {"placed_share": new["placed_share"] >= cur["placed_share"],
                               "silence": silence["share"] <= MAX_SILENT_SEGMENTS}

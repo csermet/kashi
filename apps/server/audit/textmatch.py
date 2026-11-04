@@ -110,3 +110,18 @@ def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
         return None
     return LineMatch(heard_ms=best_t, ratio=round(best_ratio, 3),
                      margin=round(best_ratio - rival, 3))
+
+
+JAPANESE = frozenset({"jpn", "ja"})
+
+
+def matcher_for(language: str | None) -> tuple[Callable[[str], str],
+                                               Callable[[Sequence[dict]], tuple[str, list[int]]]]:
+    """(line normalizer, ear stream builder) for ``locate``: a-z for every
+    language, the script-aware Japanese matcher (``audit.kana``: kanji, kana,
+    romaji and both ears in one simplified romaji) for Japanese."""
+    if language in JAPANESE:
+        from audit.kana import japanese_letters, japanese_stream
+
+        return japanese_letters, japanese_stream
+    return letters, ear_stream

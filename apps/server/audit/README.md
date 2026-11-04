@@ -430,6 +430,32 @@ PYTHONPATH=src uv run --extra audit python -m audit.summarize score \
   --probe ../../scratch/audit/summ/opus-probe --json ../../scratch/audit/summ/opus-score.json
 ```
 
+### Japanese: script-aware matching
+
+`audit.kana` puts the four Japanese writings into one form — a kanji/kana sheet, a romaji sheet
+(lrclib has both), the MMS ear (Latin letters: uroman romanises what it hears) and Qwen3-ASR (script)
+— and `audit.textmatch.matcher_for("jpn")` returns the matching pair (line normalizer, ear stream
+builder) for `locate`; every other language keeps the a-z pair. `audit.ear_gates` uses it for
+Japanese documents (reported, not gated). The finder, `audit.score` and `audit.find` are unchanged
+(a-z); `audit.anchors` is not Japanese-aware (its anchors are space-separated words).
+
+**Why romaji, not kana, is the common form.** Turning MMS's noisy greedy letters back into kana is
+ambiguous and lossy (`kng`, `tsh` are no kana); kana → romaji is a deterministic table, and romaji
+keeps textmatch's a-z thresholds (12 letters, ratio 0.55, 50-150 ms per letter) meaningful. So:
+kanji → kana with the production analyzer (`kashi_server.pipeline.japanese`: fugashi 1.5.2,
+MIT AND BSD-3-Clause, + unidic-lite 1.0.8, MIT — already base dependencies, so no new package; the
+SudachiPy candidate was not needed), kana → Hepburn by a hand-written table (digraphs, small tsu,
+the long-vowel mark, loanword small vowels), then one simplifier for every Latin writing: long
+vowels (`ō`, `ou`, `oo`, `oh` before a consonant, `ei`, doubled vowels) and doubled consonants
+(small tsu, `tch`, `cch`, `nn`) fold to one letter, `n'` and `m` before b/p/m to `n`, Hepburn and
+Kunrei to one spelling (`shi/si`, `chi/ti`, `tsu/tu`, `fu/hu`, `ji/zi`, `sh/sy`, `ch/ty`, `j/zy`,
+`dzu/du/zu`, `di/zi`, `wo/o`). Each output letter keeps its source letter's time; the ear stream is
+read as one run, as a line is, so a long vowel folds across a word boundary on both sides alike.
+Particles written by spelling (`ha`/`he` for は/へ) and dictionary misreadings (a kanji read in
+another reading than sung) are not fixed; the fuzzy match absorbs some of them. Tests:
+`tests/test_audit_kana.py` (synthetic sentences, hand-written ears). No gate until at least three
+Japanese songs have checked lines.
+
 ### Reading a picture
 
 Default theme `kontrast` (grey spectrogram; chosen 2026-10-31 because the agent,
@@ -478,9 +504,10 @@ go to `caner-dinle.md` (song, mm:ss, one question).
 - For Turkish and the MMS languages the ear is the aligner's own checkpoint: its letter times equal
   the boxes by construction. Trust the letters (what is heard, in which order), not that agreement.
 - The ear-text match only looks ±8 s around a line; a song-level shift beyond that (one lrclib
-  record was 17-19 s late) shows up in `audit.score` and in a control, not in the ranking.
-- Japanese lyrics never match: the MMS ear is romanised, the lyrics are in script. CJK glyphs draw
-  as boxes in the pictures.
+  record was 17-19 s late) shows up in `audit.score` and in a control, not in the ranking —
+  `audit.anchors` (whole-song unique anchors) is the check for it.
+- Japanese lyrics never match in the finder and `audit.score` (a-z); `textmatch.matcher_for("jpn")`
+  (`audit.kana`) matches them, `audit.ear_gates` uses it. CJK glyphs draw as boxes in the pictures.
 - Most finder false positives are a voice "return" with no ear letters at all: wordless outros,
   instrument figures leaking into the stem, breaths.
 
