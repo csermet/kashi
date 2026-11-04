@@ -8,17 +8,19 @@ locally); every case damages a copy of the record and runs ``audit.anchors``
 on it.
 
 Cases per song, run in a seeded random order: unmodified; global +2 / +5 / +10
-/ +20 s; a linear drift reaching DRIFT_RANGE_MS at the last line; one verse
-shifted VERSE_SHIFT_RANGE_MS; one verse deleted; an extra trailing paragraph
-(lines of another song in the set, after the last line). The gate
-(``docs/research/yerel-model-denetim-2026-11.md``, Faz 3.5 step 1):
+/ +20 s (the sheet late); global -2 / -5 / -10 s (the sheet early, stamps
+clamped at 0: reported only, never gated); a linear drift reaching
+DRIFT_RANGE_MS at the last line; one verse shifted VERSE_SHIFT_RANGE_MS; one
+verse deleted; an extra trailing paragraph (lines of another song in the set,
+after the last line). The gate (``docs/research/yerel-model-denetim-2026-11.md``,
+Faz 3.5 step 1; the early direction stays out of it):
 
 - shifts of >= 5 s (global and verse) detected (song flagged ``shifted``) in
   >= 90 % of cases; 2 s is reported;
 - offset error when detected (the shifted part's median against the injected
   shift) <= 0.5 s, every detected case (the 90th percentile is reported);
 - false alarms (a flag on an unmodified sheet) <= 5 %.
-Drift, deleted verses and extra paragraphs are reported, not gated.
+Early shifts, drift, deleted verses and extra paragraphs are reported, not gated.
 
     python -m audit.inject manifest --jamendo ROOT --out DIR     # records from Jamendo
     python -m audit.inject run --pairs DIR/manifest.json --seed 1 [--json out] [--noisy]
@@ -46,6 +48,7 @@ from audit.anchors import (
 )
 
 GLOBAL_SHIFTS_MS = (2000, 5000, 10_000, 20_000)
+EARLY_SHIFTS_MS = (-2000, -5000, -10_000)   # the sheet early: reported, never gated
 DRIFT_RANGE_MS = (2000, 10_000)        # the last line ends up this much later
 VERSE_SHIFT_RANGE_MS = (3000, 20_000)
 EXTRA_LINES = 4
@@ -62,8 +65,8 @@ FLAGGED = frozenset({"shifted", "wrong-version candidate"})
 @dataclass(frozen=True)
 class Case:
     song: str
-    kind: str              # none | global | drift | verse | deleted | extra
-    shift_ms: int = 0      # global / verse: the injected shift; drift: at the last line
+    kind: str              # none | global | early | drift | verse | deleted | extra
+    shift_ms: int = 0      # global / early / verse: the injected shift; drift: at the last line
     section: int | None = None
 
 
@@ -94,6 +97,9 @@ def inject(sheet: Sequence[SheetLine], case: Case,
         return lines
     if case.kind == "global":
         return [replace(ln, start_ms=ln.start_ms + case.shift_ms) for ln in lines]
+    if case.kind == "early":
+        # a record holds no negative stamp: lines pushed before 0 sit at 0
+        return [replace(ln, start_ms=max(0, ln.start_ms + case.shift_ms)) for ln in lines]
     if case.kind == "drift":
         first, last = lines[0].start_ms, lines[-1].start_ms
         span = max(1, last - first)
@@ -127,6 +133,7 @@ def cases_for(song: str, sheet: Sequence[SheetLine], rng: random.Random) -> list
     deletable = [s for s in sections if size[s] >= 2] if several else []
     out = [Case(song, "none")]
     out += [Case(song, "global", s) for s in GLOBAL_SHIFTS_MS]
+    out += [Case(song, "early", s) for s in EARLY_SHIFTS_MS]
     out.append(Case(song, "drift", rng.randint(*DRIFT_RANGE_MS)))
     if shiftable:
         out.append(Case(song, "verse", rng.randint(*VERSE_SHIFT_RANGE_MS), rng.choice(shiftable)))
@@ -138,9 +145,9 @@ def cases_for(song: str, sheet: Sequence[SheetLine], rng: random.Random) -> list
 
 def affected_median(result: dict, case: Case, sheet: Sequence[SheetLine]) -> int | None:
     """The check's reading of the damaged part: the song's median for a global
-    shift, the injected verse's lines for a verse shift."""
+    shift (late or early), the injected verse's lines for a verse shift."""
     lines = result["a1"]["lines"]
-    if case.kind == "global":
+    if case.kind in ("global", "early"):
         return result["a1"]["song"]["median_ms"]
     if case.kind == "verse":
         deltas = [ln["delta_ms"] for ln in lines if sheet[ln["line"]].section == case.section]
@@ -149,12 +156,13 @@ def affected_median(result: dict, case: Case, sheet: Sequence[SheetLine]) -> int
 
 
 def evaluate(case: Case, sheet: Sequence[SheetLine], result: dict) -> dict:
-    """One case's outcome. A shift moves the sheet LATE by shift_ms, so a
-    correct reading (heard minus sheet) is -shift_ms."""
+    """One case's outcome. A shift moves the sheet by shift_ms (late when
+    positive, early when negative), so a correct reading (heard minus sheet) is
+    -shift_ms."""
     flagged = result["flag"] in FLAGGED
     out = {"song": case.song, "kind": case.kind, "shift_ms": case.shift_ms,
            "section": case.section, "flag": result["flag"], "flagged": flagged}
-    if case.kind in ("global", "verse"):
+    if case.kind in ("global", "early", "verse"):
         if case.kind == "verse":
             # the injected verse's own block must read shifted, not any block
             block = next((b for b in result["a1"]["blocks"] if case.section in b["sections"]),
@@ -200,6 +208,14 @@ def gate(outcomes: Sequence[dict]) -> dict:
         return round(sum(o.get("detected", o["flagged"]) for o in rows) / len(rows), 3) \
             if rows else None
 
+    def share(rows: Sequence[dict]) -> float | None:
+        return round(sum(o["detected"] for o in rows) / len(rows), 3) if rows else None
+
+    early = [o for o in outcomes if o["kind"] == "early"]
+    early_big = [o for o in early if -o["shift_ms"] >= GATED_SHIFT_MS]
+    early_errors = [o["error_ms"] for o in early_big
+                    if o.get("detected") and o["error_ms"] is not None]
+
     checks = {
         "detection_ge_5s": detection is not None and detection >= MIN_DETECTION,
         "offset_error": max_err is not None and max_err <= MAX_OFFSET_ERROR_MS,
@@ -213,6 +229,12 @@ def gate(outcomes: Sequence[dict]) -> dict:
         "offset_error_p90_ms": p_err,
         "offset_error_max_ms": max_err,
         "false_alarm": None if false_alarm is None else round(false_alarm, 3),
+        "early": {  # reported only: none of it enters `checks`
+            "detection_ge_5s": share(early_big),
+            "detection_lt_5s": share([o for o in early if -o["shift_ms"] < GATED_SHIFT_MS]),
+            "offset_error_p90_ms": _percentile(early_errors, OFFSET_ERROR_PERCENTILE),
+            "offset_error_max_ms": max(early_errors) if early_errors else None,
+        },
         "drift_detection": rate("drift"),
         "deleted_flagged": rate("deleted"),
         "extra_flagged": rate("extra"),

@@ -15,6 +15,7 @@ VOCAB = vocabulary(200, seed=17)
 
 def test_gates_are_the_pre_registered_numbers():
     assert inject.GLOBAL_SHIFTS_MS == (2000, 5000, 10_000, 20_000)
+    assert inject.EARLY_SHIFTS_MS == (-2000, -5000, -10_000)
     assert inject.DRIFT_RANGE_MS == (2000, 10_000)
     assert inject.VERSE_SHIFT_RANGE_MS == (3000, 20_000)
     assert (inject.EXTRA_LINES, inject.EXTRA_GAP_MS, inject.GATED_SHIFT_MS) == (4, 4000, 5000)
@@ -43,6 +44,9 @@ def test_each_case_damages_the_sheet_as_named():
     assert [ln.start_ms for ln in inject.inject(sheet, Case("s", "none"))] == starts
     assert [ln.start_ms for ln in inject.inject(sheet, Case("s", "global", 5000))] \
         == [s + 5000 for s in starts]
+    early = inject.inject(sheet, Case("s", "early", -10_000))
+    assert [ln.start_ms for ln in early] == [max(0, s - 10_000) for s in starts]
+    assert early[0].start_ms == 0 and starts[0] < 10_000           # clamped, never negative
     drift = inject.inject(sheet, Case("s", "drift", 4000))
     assert drift[0].start_ms == starts[0] and drift[-1].start_ms == starts[-1] + 4000
     mid = len(sheet) // 2
@@ -72,9 +76,10 @@ def test_cases_cover_every_kind_with_seeded_ranges():
     import random
 
     got = cases_for("s", _sheet(), random.Random(3))
-    assert [c.kind for c in got] == ["none", "global", "global", "global", "global", "drift",
-                                     "verse", "deleted", "extra"]
-    drift, verse = got[5], got[6]
+    assert [c.kind for c in got] == ["none", "global", "global", "global", "global", "early",
+                                     "early", "early", "drift", "verse", "deleted", "extra"]
+    assert [c.shift_ms for c in got if c.kind == "early"] == [-2000, -5000, -10_000]
+    drift, verse = got[8], got[9]
     assert 2000 <= drift.shift_ms <= 10_000 and 3000 <= verse.shift_ms <= 20_000
     # a verse to shift has at least five lines; a shorter one can still be deleted
     short = sheet_from_record(record([[(t, 1000 + 4000 * i) for i, t in enumerate(
@@ -85,7 +90,7 @@ def test_cases_cover_every_kind_with_seeded_ranges():
     one = sheet_from_record(record([[(t, 1000 + 4000 * i)
                                       for i, t in enumerate(lines_of(VOCAB, 6, 5, seed=4))]]))
     assert {c.kind for c in cases_for("s", one, random.Random(3))} \
-        == {"none", "global", "drift", "extra"}
+        == {"none", "global", "early", "drift", "extra"}
 
 
 def _outcome(kind, shift=0, detected=False, error=None, flagged=False):
@@ -113,6 +118,31 @@ def test_gate_boundaries():
     assert g["detection_lt_5s"] == 0.0 and g["passed"]
 
 
+def test_early_shifts_are_reported_and_never_gated():
+    ok = [_outcome("global", 5000, True, 100)] * 10
+    clean = [_outcome("none")] * 20
+    failed_early = [_outcome("early", -5000, False), _outcome("early", -10_000, True, 3000),
+                    _outcome("early", -2000, True, 4000)]
+    g = gate(ok + clean + failed_early)
+    assert g["passed"] and g["checks"] == gate(ok + clean)["checks"]
+    assert set(g["checks"]) == {"detection_ge_5s", "offset_error", "false_alarm"}
+    # early left out of every late number, the 2 s report included
+    assert g["detection_ge_5s"] == 1.0 and g["offset_error_max_ms"] == 100
+    assert g["detection_lt_5s"] is None
+    # the early report: >= 5 s split by size, errors from those cases only
+    assert g["early"] == {"detection_ge_5s": 0.5, "detection_lt_5s": 1.0,
+                          "offset_error_p90_ms": 3000, "offset_error_max_ms": 3000}
+
+
+def test_an_early_shift_reads_positive():
+    sheet = _sheet()
+    case = Case("s", "early", -5000)
+    result = {"flag": "shifted", "flags": ["shifted"], "a3": {},
+              "a1": {"blocks": [], "lines": [], "song": {"median_ms": 5040}}}
+    out = inject.evaluate(case, sheet, result)
+    assert out["detected"] and out["read_ms"] == 5040 and out["error_ms"] == 40
+
+
 def test_the_reported_90th_percentile_is_the_nearest_rank():
     errors = [100] * 9 + [900]
     rows = [_outcome("global", 10_000, True, e) for e in errors]
@@ -131,12 +161,15 @@ def test_the_harness_passes_on_synthetic_songs_and_is_seeded():
     b = inject.run(pairs, seed=5)
     assert a["outcomes"] == b["outcomes"]
     g = a["gate"]
-    assert g["cases"] == 4 * 9
+    assert g["cases"] == 4 * 12
     assert g["detection_ge_5s"] == 1.0 and g["false_alarm"] == 0.0
     assert g["offset_error_max_ms"] is not None and g["offset_error_max_ms"] <= 100
     assert g["passed"]
     # the order is random: not song by song
     assert [o["song"] for o in a["outcomes"]] != sorted(o["song"] for o in a["outcomes"])
+    assert g["early"]["detection_ge_5s"] == 1.0 and g["early"]["offset_error_max_ms"] <= 100
+    early = [o for o in a["outcomes"] if o["kind"] == "early"]
+    assert all(o["detected"] and abs(o["read_ms"] + o["shift_ms"]) <= 100 for o in early)
     verse = [o for o in a["outcomes"] if o["kind"] == "verse"]
     assert all(o["detected"] and abs(o["read_ms"] + o["shift_ms"]) <= 100 for o in verse)
 

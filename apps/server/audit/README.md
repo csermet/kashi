@@ -271,13 +271,16 @@ Every threshold above is a named constant in `audit/anchors.py`, pinned by
 global +2/+5/+10/+20 s, a linear drift reaching 2-10 s at the last line, one verse shifted 3-20 s
 (a section of ≥ 5 lines: the check never moves a shorter block by more than 5 s, so a shorter verse
 would measure the case mix, not the check), one verse of ≥ 2 lines deleted, four lines of another
-song appended after the last one — in one seeded random order, and runs the check on each. As the
-note lists them, every shift makes the sheet late; the sheet-early direction is not injected. A
-global shift is detected when the song is flagged `shifted`, a verse shift only when the injected
-verse's own block reads `shifted`. Gate: shifts ≥ 5 s detected in ≥ 90 % of cases (2 s reported);
-the shifted part's median within 0.5 s of the injected shift in **every** detected case (the 90th
-percentile, nearest rank, is reported); ≤ 5 % of unmodified sheets flagged. Drift, deleted verses
-and extra paragraphs are reported (`unmatched_*_share`). Exit 0 only when the gate passes.
+song appended after the last one — in one seeded random order, and runs the check on each. The
+gated shifts are the note's, all sheet-late; the sheet-early direction (global −2/−5/−10 s, stamps
+clamped at 0 as no record has a negative stamp) is injected too and **reported only** (`early`:
+detection ≥ 5 s and < 5 s, offset error p90 and max), outside every check. A global shift is
+detected when the song is flagged `shifted`, a verse shift only when the injected verse's own
+block reads `shifted`. Gate (late shifts only): shifts ≥ 5 s detected in ≥ 90 % of cases (2 s
+reported); the shifted part's median within 0.5 s of the injected shift in **every** detected case
+(the 90th percentile, nearest rank, is reported); ≤ 5 % of unmodified sheets flagged. Drift,
+deleted verses and extra paragraphs are reported (`unmatched_*_share`). Exit 0 only when the gate
+passes.
 
 ```bash
 # local (owner's host). Jamendo audio is CC NC/ND: stems and ears stay under scratch/.
