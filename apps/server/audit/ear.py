@@ -163,15 +163,18 @@ def ear_path(video_id: str, t_ms: int) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="What the aligner's model hears.")
     parser.add_argument("id")
-    parser.add_argument("--doc", required=True, help="document JSON or a [{id, doc}] dump")
+    parser.add_argument("--doc", help="document JSON or a [{id, doc}] dump (its alignment.method "
+                                      "names the checkpoint; not needed with --model)")
     parser.add_argument("--times", help="comma-separated ms (document clock)")
     parser.add_argument("--whole", action="store_true", help="whole song -> ear/<id>/whole.json")
     parser.add_argument("--model", help="override the checkpoint taken from alignment.method")
     parser.add_argument("--half-window-ms", type=int, default=HALF_WINDOW_MS)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    doc = load_document(Path(args.doc), args.id)
-    model_name = args.model or checkpoint_for(doc["alignment"]["method"])
+    if not args.doc and not args.model:
+        parser.error("--doc or --model is required")
+    model_name = args.model or checkpoint_for(
+        load_document(Path(args.doc), args.id)["alignment"]["method"])
     if args.whole:
         dest = whole_path(args.id)
         dest.parent.mkdir(parents=True, exist_ok=True)

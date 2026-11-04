@@ -156,3 +156,22 @@ def test_line_numbers_report_whether_bumps_can_be_mapped_in_order():
     assert line_numbers(line, 200, None, None, None, [1000, 1300])["bump_mapping"] == "fewer bumps"
     assert line_numbers(line, 200, None, None, None, [1] * 5)["bump_mapping"] == "more bumps"
     assert "bump_mapping" not in line_numbers(line, 200, None, None, None)
+
+
+def test_ear_main_takes_the_checkpoint_from_model_without_a_document(tmp_path, monkeypatch):
+    """Jamendo songs have no document: --model names the checkpoint."""
+    import json
+
+    import pytest
+
+    from audit import ear
+
+    seen = {}
+    monkeypatch.setattr(ear, "hear_whole", lambda vid, model: seen.setdefault(
+        "call", (vid, model)) and {"frames": 0, "tokens": []})
+    monkeypatch.setattr(ear, "whole_path", lambda vid: tmp_path / vid / "whole.json")
+    assert ear.main(["jam-x", "--whole", "--model", "some/checkpoint"]) == 0
+    assert seen["call"] == ("jam-x", "some/checkpoint")
+    assert json.loads((tmp_path / "jam-x" / "whole.json").read_text())["frames"] == 0
+    with pytest.raises(SystemExit):
+        ear.main(["jam-x", "--whole"])

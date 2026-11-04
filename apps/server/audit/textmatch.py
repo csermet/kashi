@@ -13,7 +13,7 @@ document versions, line by line, where the onset-based checks only saw piles.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -65,23 +65,27 @@ def sung_span(line: dict) -> int:
     return line["end_ms"] - line["start_ms"]
 
 
-def ear_stream(tokens: Sequence[dict]) -> tuple[str, list[int]]:
-    """The ear's letters as one string, with each letter's time."""
+def ear_stream(tokens: Sequence[dict],
+               normalize: Callable[[str], str] = letters) -> tuple[str, list[int]]:
+    """The ear's letters as one string, with each letter's time. ``normalize``
+    reduces a token's text (default: a-z only)."""
     chars: list[str] = []
     times: list[int] = []
     for tok in tokens:
-        for ch in letters(tok["text"]):
+        for ch in normalize(tok["text"]):
             chars.append(ch)
             times.append(tok["start_ms"])
     return "".join(chars), times
 
 
 def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
-           search_ms: int = SEARCH_MS, line_ms: int | None = None) -> LineMatch | None:
+           search_ms: int = SEARCH_MS, line_ms: int | None = None,
+           normalize: Callable[[str], str] = letters) -> LineMatch | None:
     """Best unambiguous placement of the line's letters near ``doc_start_ms``.
     ``line_ms`` (the document's line duration) sets the letter rate used to step
-    back from the first matching run to the line's start."""
-    target = letters(line_text)
+    back from the first matching run to the line's start. ``normalize`` must be
+    the one the stream was built with."""
+    target = normalize(line_text)
     if len(target) < MIN_LETTERS or not stream:
         return None
     per_letter = (min(MAX_MS_PER_LETTER, max(MIN_MS_PER_LETTER, line_ms / len(target)))

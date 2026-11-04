@@ -60,6 +60,8 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit/moment.sh <id> <t> L=D,... [--real]` | host | all of the above for one moment |
 | `audit.run_local <id> --lyrics R --out D` | audit image, worker env | one song through the worker's alignment and document builder on the cached stem: no database, no download, no separation (below) |
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
+| `audit.anchors <id> --doc D [--lyrics R]` | host | is the lyrics sheet where the singing is? Whole-song anchors (A1), activity correlation (A2), coverage (A3) → one flag per song (below) |
+| `audit.inject manifest\|run ...` | host | seeded errors injected into correct records: the anchor check's bench gate (below) |
 
 `audit.analysis` caches per song: vocal loudness and onsets (the production
 functions, on the 16 kHz stem) and **voice onsets** — where the voice returns
@@ -210,6 +212,92 @@ hash of either, so rule out the inputs before blaming the code.
 
 First run (2026-11-03, Stressed Out, the prod document of 2026-10-28, CPU): 528 of 528 words and all
 49 lines identical, max shift 0 ms.
+
+### Lyrics-sheet anchor check (A1-A3)
+
+```bash
+cd apps/server
+PYTHONPATH=src uv run python -m audit.anchors <id> --doc <prod.json> [--lyrics <record.json>] \
+  [--ear <whole.json>] [--json out.json] [--noisy]
+```
+
+Reads a sheet against the whole-song ear (`ear/<id>/whole.json` by default, or an `audit.ext_ear`
+file). With `--lyrics` the sheet is the lrclib record (`/api/get` JSON; a warning when its id is
+not the document's `alignment.lyrics_source_id`), its paragraphs are the sections; without it the
+document's own line starts are the sheet. Deltas are **heard minus sheet** (the finder's
+`line_offset` sign; a sheet stamped late reads negative), on the model's raw clock (healthy songs
+read +20..+90 ms). Why and the sources: `docs/research/yerel-model-denetim-2026-11.md` §8.
+
+- **A1** — anchors are runs of ≥ 2 consecutive heard words (`--noisy`: ≥ 5) and ≥ 8 letters that
+  fit exactly one place of the sheet (an exact repeat or a near-spelling the run also fits makes
+  it ambiguous) and one place of the ear. Searched over the whole song, longest run first, each
+  anchor splitting the search on its two sides (DSAlign), so anchors stay in order; within an
+  anchor no gaps (Smith-Waterman with indels forbidden). Words of ≥ 4 letters match at a
+  SequenceMatcher ratio ≥ 0.75, shorter ones exactly. A mid-line anchor steps back to the line's
+  start at the singer's own rate (two or more of the line's words in the anchor), else at the
+  line's. Lines no anchor reaches — repeated refrains above all — are placed afterwards, in order,
+  by the letter match of `audit.textmatch.locate`, searched only in the span between the line placed
+  before them and the next anchored line (never the whole song).
+- **Sections and blocks** — per section the median delta; consecutive sections whose medians lie
+  within 1 s of the running block median are one block. A block is decided when ≥ 2 and ≥ 60 % of
+  its lines lie within 1 s of its median; `shifted` when |median| > 1 s; a median beyond 5 s also
+  needs ≥ 5 confirmed lines, else `undecidable`.
+- **A2** — the sheet's implied activity (each line from its stamp for its letters at the line's
+  rate, capped at the next stamp) against the ear's letter mass (100 ms bins, 500 ms box) over
+  offset ±30 s × stretch 0.95-1.05; accepted at NCC ≥ 0.8; `mid_offset_ms` is the shift at the
+  sheet's median line, `confirms_a1` within 1 s of A1's song median. A rival peak ≥ 4 s away within
+  0.05 of the best is `ambiguous` (the refrain period). A piecewise shift does not fit one offset:
+  A2 is a confirmation, never the flag.
+- **A3** — per line of ≥ 8 letters, the capped character error of its letters anywhere inside its
+  corrected window (block median if the block's lines agree, else the song median; ±2 s) — heard at
+  CER ≤ 0.5; a 3-gram TF-IDF cosine of sheet and ear (IDF over the sheet's lines; reported); sung
+  activity = every heard letter ±200 ms, covered by a heard line's span ±500 ms. Unmatched sung
+  pieces closer than 1 s are one block, blocks ≥ 3 s are kept; a block **reads** when it has ≥ 4
+  letters per second and ≥ 60 % of its heard words have two letters and a vowel.
+- **Flags** (pre-registered): `shifted` — any block shifted; `wrong-version candidate` — unmatched
+  sung ≥ 25 % of sung **and** ≥ 25 % of the counted lines unmatched (the Enemy rule) **and** readable
+  blocks ≥ half the block time; else `ok` when a block is decided ok and the coverage rule does not
+  hold; else `undecidable` (the hardstyle negative: lines unmatched, nothing readable). `ok` and
+  `undecidable` are not flags.
+
+Every threshold above is a named constant in `audit/anchors.py`, pinned by
+`tests/test_audit_anchors.py` and committed (2026-11-04) before any real run.
+
+**Injected errors (bench gate).** `audit.inject` damages a correct record per case — unmodified,
+global +2/+5/+10/+20 s, a linear drift reaching 2-10 s at the last line, one verse (a section of ≥ 2
+lines) shifted 3-20 s, one verse deleted, four lines of another song appended after the last one —
+in one seeded random order, and runs the check on each. Gate: shifts ≥ 5 s (global and verse)
+flagged `shifted` in ≥ 90 % of cases (2 s reported); the shifted part's median within 0.5 s of the
+injected shift at the 90th percentile of detected cases; ≤ 5 % of unmodified sheets flagged. Drift,
+deleted verses and extra paragraphs are reported (`unmatched_*_share`). Exit 0 only when the gate
+passes.
+
+```bash
+# local (owner's host). Jamendo audio is CC NC/ND: stems and ears stay under scratch/.
+cd apps/server
+# 1. ears: each song through the stem + whole-ear path (English: the 1B checkpoint, else MMS)
+for f in benchmarks/data/jamendolyrics/mp3/*.mp3; do s=$(basename "$f" .mp3);
+  cp "$f" "../../scratch/audit/raw/jam-$s.mp3"; done   # audit.stems takes raw/<id>.<ext>
+# (audit image) python -m audit.stems jam-<stem> ... ; then per song
+# python -m audit.ear jam-<stem> --whole --model jonatasgrosman/wav2vec2-xls-r-1b-english
+#   (fr/de/es: --model MahmoudAshraf/mms-300m-1130-forced-aligner)
+# 2. correct records + manifest, then the gate
+PYTHONPATH=src uv run python -m audit.inject manifest --jamendo benchmarks/data/jamendolyrics \
+  --out ../../scratch/audit/inject
+PYTHONPATH=src uv run python -m audit.inject run --pairs ../../scratch/audit/inject/manifest.json \
+  --seed 1 --json ../../scratch/audit/inject/gate-seed1.json
+```
+
+**Pilot-set acceptance (local):** GOSSIP and Got 2 Luv U flagged `shifted` with sign and size
+within 1 s of the Faz 3 reading (−18.9 s, −4.0 s), none of the other 17 flagged, the hardstyle
+track not `wrong-version candidate`; Enemy `wrong-version candidate` only if the owner's listen
+confirms another mix. Run it on the record the document was aligned on (`run_local`'s curl above
+fetches it):
+
+```bash
+PYTHONPATH=src uv run python -m audit.anchors <id> --doc ../../scratch/audit/runs/<id>/prod.json \
+  --lyrics ../../scratch/audit/runs/<id>/record.json --json ../../scratch/audit/runs/<id>/anchors.json
+```
 
 ### Reading a picture
 
