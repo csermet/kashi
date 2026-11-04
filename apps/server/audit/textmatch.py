@@ -13,7 +13,7 @@ document versions, line by line, where the onset-based checks only saw piles.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -76,17 +76,34 @@ def ear_stream(tokens: Sequence[dict]) -> tuple[str, list[int]]:
     return "".join(chars), times
 
 
+@dataclass(frozen=True)
+class Script:
+    """What a matching unit is: how a text and the ear's tokens become units,
+    the shortest line worth placing, and the rates (ms per unit) used to step
+    back from a matching run to the line's start."""
+
+    norm: Callable[[str], str]
+    stream: Callable[[Sequence[dict]], tuple[str, list[int]]]
+    min_units: int
+    ms_per_unit: int
+    min_ms_per_unit: int
+    max_ms_per_unit: int
+
+
 def scan(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
-         search_ms: int = SEARCH_MS, line_ms: int | None = None) -> list[tuple[float, int]]:
+         search_ms: int = SEARCH_MS, line_ms: int | None = None,
+         script: Script | None = None) -> list[tuple[float, int]]:
     """Every placement of the line's letters within ``search_ms`` of
     ``doc_start_ms``: (similarity, heard ms). Empty for lines too short to place.
     ``line_ms`` (the document's line duration) sets the letter rate used to step
-    back from the first matching run to the line's start."""
-    target = letters(line_text)
-    if len(target) < MIN_LETTERS or not stream:
+    back from the first matching run to the line's start. ``script``: the unit
+    (LATIN letters unless given; ``audit.kana.JAPANESE``)."""
+    sc = script or LATIN
+    target = sc.norm(line_text)
+    if len(target) < sc.min_units or not stream:
         return []
-    per_letter = (min(MAX_MS_PER_LETTER, max(MIN_MS_PER_LETTER, line_ms / len(target)))
-                  if line_ms and line_ms > 0 else DEFAULT_MS_PER_LETTER)
+    per_letter = (min(sc.max_ms_per_unit, max(sc.min_ms_per_unit, line_ms / len(target)))
+                  if line_ms and line_ms > 0 else sc.ms_per_unit)
     lo = next((i for i, t in enumerate(times) if t >= doc_start_ms - search_ms), len(times))
     hi = next((i for i, t in enumerate(times) if t > doc_start_ms + search_ms), len(times))
     span = len(target)
@@ -103,11 +120,12 @@ def scan(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
 
 
 def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
-           search_ms: int = SEARCH_MS, line_ms: int | None = None) -> LineMatch | None:
+           search_ms: int = SEARCH_MS, line_ms: int | None = None,
+           script: Script | None = None) -> LineMatch | None:
     """Best unambiguous placement of the line's letters near ``doc_start_ms``
     (``scan``): similar enough, and clearly better than any placement more
     than AMBIGUITY_MS away."""
-    scored = scan(line_text, doc_start_ms, stream, times, search_ms, line_ms)
+    scored = scan(line_text, doc_start_ms, stream, times, search_ms, line_ms, script)
     if not scored:
         return None
     best_ratio, best_t = max(scored)
@@ -116,3 +134,8 @@ def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
         return None
     return LineMatch(heard_ms=best_t, ratio=round(best_ratio, 3),
                      margin=round(best_ratio - rival, 3))
+
+
+LATIN = Script(norm=letters, stream=ear_stream, min_units=MIN_LETTERS,
+               ms_per_unit=DEFAULT_MS_PER_LETTER, min_ms_per_unit=MIN_MS_PER_LETTER,
+               max_ms_per_unit=MAX_MS_PER_LETTER)

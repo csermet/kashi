@@ -67,18 +67,20 @@ NEIGHBOUR_SLACK_MS = 1000  # around the other line's span (Crazy L2 ends 8.60, h
 
 
 def heard_on_owned_neighbour(lines: Sequence[dict], offsets: dict[int, int], index: int,
-                             heard_ms: int) -> bool:
-    """``offsets``: line index -> heard minus document start, for placed lines."""
+                             heard_ms: int, norm=None) -> bool:
+    """``offsets``: line index -> heard minus document start, for placed lines.
+    ``norm``: the matching unit (letters unless given)."""
     from audit.textmatch import letters, partial_similarity
 
-    mine = letters(lines[index].get("text", ""))
+    norm = norm or letters
+    mine = norm(lines[index].get("text", ""))
     for oi, other in enumerate(lines):
         if oi == index or oi not in offsets or abs(offsets[oi]) > LINE_OFFSET_MS:
             continue
         if not (other["start_ms"] - NEIGHBOUR_SLACK_MS <= heard_ms
                 <= other["end_ms"] + NEIGHBOUR_SLACK_MS):
             continue
-        if partial_similarity(mine, letters(other.get("text", ""))) >= NEIGHBOUR_SIMILARITY:
+        if partial_similarity(mine, norm(other.get("text", ""))) >= NEIGHBOUR_SIMILARITY:
             return True
     return False
 
@@ -236,21 +238,26 @@ def ear_events(doc: dict, version: str, ear: dict,
 
 def line_offsets(doc: dict, ear: dict) -> tuple[dict[int, int], set[int]]:
     """Ear-text placement of every line: (line index -> heard minus document
-    start, the indices whose placement belongs to an alike neighbour)."""
-    from audit.textmatch import ear_stream, locate, sung_span
+    start, the indices whose placement belongs to an alike neighbour). A sheet
+    or an ear in Japanese script is matched in kana (``audit.kana``)."""
+    from audit.kana import script_for
+    from audit.textmatch import locate, sung_span
 
-    stream, times = ear_stream(ear["tokens"])
+    script = script_for(doc, ear)
+    stream, times = script.stream(ear["tokens"])
     lines = doc.get("lines", [])
     offsets: dict[int, int] = {}
     for li, ln in enumerate(lines):
         start = (ln.get("words") or [ln])[0]["start_ms"]
-        match = locate(ln.get("text", ""), start, stream, times, line_ms=sung_span(ln))
+        match = locate(ln.get("text", ""), start, stream, times, line_ms=sung_span(ln),
+                       script=script)
         if match is not None:
             offsets[li] = match.heard_ms - start
     borrowed = {
         li for li, off in offsets.items()
         if abs(off) > LINE_OFFSET_MS and heard_on_owned_neighbour(
-            lines, offsets, li, (lines[li].get("words") or [lines[li]])[0]["start_ms"] + off)
+            lines, offsets, li, (lines[li].get("words") or [lines[li]])[0]["start_ms"] + off,
+            script.norm)
     }
     return offsets, borrowed
 

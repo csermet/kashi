@@ -279,7 +279,8 @@ between 15 and 30 s; pieces under 300 ms are breaths), transcribes each piece, s
 characters evenly over it and writes `ear/<id>/<name>.json` **in the whole-song ear's shape**
 (`timing: "segment"`, a letter curve of 1 inside pieces with text). The ear-text match, the finder,
 `audit.score` and `audit.anchors` read it unchanged. Segment-level times: for the ≥ 1 s class, never
-for word timing. Characters of any script are kept (Japanese needs the script-aware matcher).
+for word timing. Characters of any script are kept; a Japanese script ear meets any sheet in
+kana (below).
 
 ```bash
 python -m audit.external_ear pieces <id>                       # where the stem is cut
@@ -301,6 +302,21 @@ shift beyond 1 s with its sign; at most 5 % of the pieces with text centred in a
 letter curve calls silent (P < 0.2) for > 2 s. Healthy = not named in the expectations file, or
 named with `expect: none` and without `"healthy": false`. The 20 mixes kept for the Whisper arm are
 deleted when the test ends; record the listing.
+
+### Japanese: both sides to kana
+
+The ear-text match reduced every text to a-z, so a Japanese sheet in script placed no line, and a
+script ear could not meet a romaji sheet. `audit.kana` turns any text into folded hiragana by one
+function used on both sides: Japanese script through the production module's UniDic readings
+(`pipeline.japanese`), Latin letters through romaji (Hepburn, Kunrei and Nihon-shiki spellings, l
+read as r, doubled consonants as っ, m before b/p/m as ん), then long vowels fold (ー dropped; a
+vowel repeating the previous kana's vowel, う after an o and い after an e dropped), so ありがとう,
+アリガトー and "arigato" are one string. `finder.line_offsets` (and with it `audit.find`,
+`audit.score` and the Step 2 gates) switches to kana when ≥ 20 % of the sheet's or the ear's
+characters are Japanese script; the unit is the kana (≥ 6 per line, 180 ms a unit, 100-300 ms
+clamped). Latin songs never reach that path (proven identical to the old matcher on seeded
+documents). Until three Japanese songs have checked lines their placement is reported, never gated
+(Step 2 keeps them out of every gate).
 
 ### Reading a picture
 
@@ -351,8 +367,8 @@ go to `caner-dinle.md` (song, mm:ss, one question).
   the boxes by construction. Trust the letters (what is heard, in which order), not that agreement.
 - The ear-text match only looks ±8 s around a line; a song-level shift beyond that (one lrclib
   record was 17-19 s late) shows up in `audit.score` and in a control, not in the ranking.
-- Japanese lyrics never match: the MMS ear is romanised, the lyrics are in script. CJK glyphs draw
-  as boxes in the pictures.
+- Japanese lyrics matched nothing until `audit.kana` (2026-11): the MMS ear is romanised, the lyrics
+  are in script. CJK glyphs still draw as boxes in the pictures.
 - Most finder false positives are a voice "return" with no ear letters at all: wordless outros,
   instrument figures leaking into the stem, breaths.
 

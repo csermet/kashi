@@ -229,3 +229,21 @@ def test_a_median_needs_three_placed_lines(three):
         few = [(three[0][0], three[0][1], ctc, _ext_ear(texts[:n], true[:n], total))]
         row = step2(few + three[1:], EXPECT)["songs"][0]
         assert (row["placed_external"], row["median_ms"] is not None) == (n, has)
+
+
+def test_a_japanese_sheet_is_reported_and_kept_out_of_the_gates(three):
+    jp_doc = {"sync": "word", "lines": [
+        {"text": "今日は天気がいいですね", "start_ms": 5000, "end_ms": 7000,
+         "words": [{"text": "今日は天気がいいですね", "start_ms": 5000, "end_ms": 7000}]}]}
+    # the CTC ear (romaji) places the line, the second ear hears nothing: pooled
+    # into the gate, the placed share would fail
+    romaji = "kyou wa tenki ga ii desu ne"
+    ctc = {"tokens": [{"text": "|" if c == " " else c, "start_ms": 5050 + 90 * n}
+                      for n, c in enumerate(romaji)],
+           "letter_prob": [0.9] * 500, "stride_ms": 20.0, "start_ms": 0}
+    nothing = segment_ear([], 10_000, "fake")
+    result = step2(three + [("synthJp01", jp_doc, ctc, nothing)], EXPECT)
+    assert result["songs"][-1]["kind"] == "japanese"
+    assert result["japanese"] == [{"id": "synthJp01", "lines": 1, "placed_ctc": 1,
+                                   "placed_external": 0, "median_ms": None}]
+    assert result["passed"]

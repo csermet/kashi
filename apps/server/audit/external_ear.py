@@ -238,7 +238,10 @@ def step2(songs: Sequence[tuple[str, dict, dict, dict]], expect: dict) -> dict:
     """``songs``: (id, document, CTC whole ear, external ear). ``expect``: the
     Step 1 expectations file; an expected shift is a shifted song (its sign
     from ``offset_ms``), ``"healthy": false`` keeps a song out of the healthy
-    gate, every other song is healthy."""
+    gate, every other song is healthy. A sheet in Japanese script is reported
+    and kept out of every gate (n = 1 until three songs have checked lines)."""
+    from audit.kana import JAPANESE, script_for
+
     rows = []
     for vid, doc, ctc, ext in songs:
         n, ctc_off = placed_offsets(doc, ctc)
@@ -247,6 +250,8 @@ def step2(songs: Sequence[tuple[str, dict, dict, dict]], expect: dict) -> dict:
         e = expect.get(vid) or {}
         kind = "shifted" if e.get("expect") == "shift" else (
             "healthy" if e.get("healthy", True) and e.get("expect", "none") == "none" else "other")
+        if script_for(doc) is JAPANESE:
+            kind = "japanese"
         rows.append({
             "id": vid, "kind": kind, "lines": n, "placed_ctc": len(ctc_off),
             "placed_external": len(ext_off),
@@ -256,14 +261,15 @@ def step2(songs: Sequence[tuple[str, dict, dict, dict]], expect: dict) -> dict:
             "pieces_with_text": with_text, "pieces_in_silence": inside,
             "silent_share": round(inside / with_text, 3) if with_text else None,
         })
-    lines = sum(r["lines"] for r in rows)
-    share_ctc = sum(r["placed_ctc"] for r in rows) / lines if lines else 0.0
-    share_ext = sum(r["placed_external"] for r in rows) / lines if lines else 0.0
-    healthy = [r for r in rows if r["kind"] == "healthy" and r["median_ms"] is not None]
-    shifted = [r for r in rows if r["kind"] == "shifted"]
-    shares = [r["silent_share"] for r in rows if r["silent_share"] is not None]
-    with_text = sum(r["pieces_with_text"] for r in rows)
-    silent_pooled = sum(r["pieces_in_silence"] for r in rows) / with_text if with_text else None
+    gated = [r for r in rows if r["kind"] != "japanese"]
+    lines = sum(r["lines"] for r in gated)
+    share_ctc = sum(r["placed_ctc"] for r in gated) / lines if lines else 0.0
+    share_ext = sum(r["placed_external"] for r in gated) / lines if lines else 0.0
+    healthy = [r for r in gated if r["kind"] == "healthy" and r["median_ms"] is not None]
+    shifted = [r for r in gated if r["kind"] == "shifted"]
+    shares = [r["silent_share"] for r in gated if r["silent_share"] is not None]
+    with_text = sum(r["pieces_with_text"] for r in gated)
+    silent_pooled = sum(r["pieces_in_silence"] for r in gated) / with_text if with_text else None
     out = {
         "songs": rows,
         "placed_share_ctc": round(share_ctc, 3),
@@ -271,6 +277,8 @@ def step2(songs: Sequence[tuple[str, dict, dict, dict]], expect: dict) -> dict:
         "healthy_songs_with_a_median": len(healthy),
         "silent_share_pooled": None if silent_pooled is None else round(silent_pooled, 3),
         "silent_share_worst": max(shares, default=None),
+        "japanese": [{k: r[k] for k in ("id", "lines", "placed_ctc", "placed_external",
+                                        "median_ms")} for r in rows if r["kind"] == "japanese"],
     }
     out["gates"] = {
         "placed_share": share_ext >= share_ctc,
