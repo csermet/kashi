@@ -8,7 +8,6 @@ import json
 import re
 
 import httpx
-import httpx2
 import pytest
 
 from audit import summarize as S
@@ -176,6 +175,7 @@ def test_probe_pack(tmp_path):
 
 
 # --- the fake Batches server -------------------------------------------------------
+# CI installs no extras: the SDK tests skip there, the rest of this file runs.
 
 def _message(text, stop="end_turn", usage=None):
     return {"id": "msg_x", "type": "message", "role": "assistant", "model": S.MODEL,
@@ -194,6 +194,7 @@ class FakeBatches:
         self.batches: dict[str, list] = {}
         self.polls: dict[str, int] = {}
         self.headers: list[dict] = []
+        self.created = 0
 
     def _batch(self, bid, status):
         return {"id": bid, "type": "message_batch", "processing_status": status,
@@ -204,10 +205,13 @@ class FakeBatches:
                 "results_url": f"https://api.anthropic.com/v1/messages/batches/{bid}/results"}
 
     def handler(self, request):
+        import httpx2
+
         self.headers.append(dict(request.headers))
         path = request.url.path
         if request.method == "POST" and path == "/v1/messages/batches":
-            bid = f"msgbatch_{len(self.batches) + 1}"
+            self.created += 1
+            bid = f"msgbatch_{self.created}"
             self.batches[bid] = json.loads(request.content)["requests"]
             return httpx2.Response(200, json=self._batch(bid, "in_progress"))
         if request.method == "POST" and path == "/v1/messages/count_tokens":
@@ -228,7 +232,8 @@ class FakeBatches:
 
 
 def _client(fake):
-    import anthropic
+    anthropic = pytest.importorskip("anthropic")
+    httpx2 = pytest.importorskip("httpx2")
 
     return anthropic.Anthropic(api_key="sk-test-SECRETKEY",
                                http_client=httpx2.Client(transport=httpx2.MockTransport(
@@ -251,6 +256,12 @@ def _answer(params, cls="late"):
                                    for t in t_list]})
 
 
+def _ok(custom_id, params):
+    stage, vid = custom_id.split("-", 1)
+    text = "prose for " + vid if stage == "r1" else _answer(params)
+    return {"type": "succeeded", "message": _message(text)}
+
+
 def _behave(custom_id, params):
     stage, vid = custom_id.split("-", 1)
     k = int(vid[-1])
@@ -261,9 +272,13 @@ def _behave(custom_id, params):
                 2: {"type": "expired"},
                 3: {"type": "succeeded", "message": _message("", stop="refusal")},
                 4: {"type": "succeeded", "message": _message("prose for " + vid)},
-                5: {"type": "canceled"}}[k]
+                5: {"type": "canceled"},
+                6: {"type": "succeeded", "message": _message("cut prose", stop="max_tokens")},
+                7: {"type": "succeeded", "message": _message("prose for " + vid)}}[k]
     if k == 4:
         return {"type": "succeeded", "message": _message(_answer(params, cls="bogus"))}
+    if k == 7:
+        return {"type": "expired"}
     return {"type": "succeeded", "message": _message(_answer(params))}
 
 
@@ -271,21 +286,21 @@ def test_batch_backend_end_to_end(tmp_path):
     fake = FakeBatches(_behave)
     sleeps = []
     backend = S.BatchBackend(_client(fake), sleep=sleeps.append, poll_s=5)
-    packs = _packs(tmp_path)
+    packs = _packs(tmp_path, n=8)
     out = tmp_path / "out"
     first, second = S.todo(packs, out, backend.settings())
-    assert len(first) == 6 and not second
+    assert len(first) == 8 and not second and all(old is None for _, old in first)
     summary = backend.run(first, second, out, log=lambda s: None)
-    assert summary["r1"] == {"succeeded": 3, "errored": 1, "expired": 1, "canceled": 1,
-                             "refusal": 1}
-    assert summary["r2"] == {"succeeded": 2}
+    assert summary["r1"] == {"succeeded": 5, "errored": 1, "expired": 1, "canceled": 1,
+                             "refusal": 1, "truncated": 1}
+    assert summary["r2"] == {"succeeded": 2, "expired": 1}
     assert summary["status"] == {"ok": 1, "errored": 1, "expired": 1, "refusal": 1,
-                                 "schema_invalid": 1, "canceled": 1}
+                                 "schema_invalid": 1, "canceled": 1, "truncated": 1, "prose": 1}
     assert sleeps == [5, 5]                                     # one in_progress poll per batch
     # request shapes: thinking adaptive, effort explicit, no sampling, no fallbacks
     r1, r2 = fake.batches["msgbatch_1"], fake.batches["msgbatch_2"]
-    assert [r["custom_id"] for r in r1] == [f"r1-synthVid00{k}" for k in range(6)]
-    assert [r["custom_id"] for r in r2] == ["r2-synthVid000", "r2-synthVid004"]
+    assert [r["custom_id"] for r in r1] == [f"r1-synthVid00{k}" for k in range(8)]
+    assert [r["custom_id"] for r in r2] == ["r2-synthVid000", "r2-synthVid004", "r2-synthVid007"]
     for req in r1 + r2:
         p = req["params"]
         assert p["model"] == "claude-opus-5-5" and p["thinking"] == {"type": "adaptive"}
@@ -301,6 +316,7 @@ def test_batch_backend_end_to_end(tmp_path):
     rec = json.loads((out / "synthVid000.json").read_text())
     assert rec["status"] == "ok" and rec["schema_valid"] and rec["batches"] == {
         "r1": "msgbatch_1", "r2": "msgbatch_2"}
+    assert rec["first_answer"] == "ok"
     assert rec["model"] == S.MODEL and rec["prompt_hash"] == packs[0]["prompt_hash"]
     assert rec["settings"] == {"model": S.MODEL, "effort": "medium", "max_tokens": 16_000,
                                "thinking": "adaptive"}
@@ -308,25 +324,54 @@ def test_batch_backend_end_to_end(tmp_path):
     assert rec["usage"]["r1"]["input_tokens"] == 1000
     assert rec["cost_usd"] == pytest.approx(2 * (1000 * 2.0 + 500 * 10.0) / 1e6)
     bad = json.loads((out / "synthVid004.json").read_text())
-    assert bad["status"] == "schema_invalid" and bad["schema_valid"] is False
+    assert bad["status"] == bad["first_answer"] == "schema_invalid" and not bad["schema_valid"]
     refused = json.loads((out / "synthVid003.json").read_text())
-    assert refused["status"] == "refusal" and "cyber" in refused["problem"]
+    assert refused["status"] == refused["first_answer"] == "refusal"
+    assert "cyber" in refused["problem"]
+    cut = json.loads((out / "synthVid006.json").read_text())
+    assert cut["status"] == "truncated" and cut["prose"] == "cut prose"   # never sent on
     errored = json.loads((out / "synthVid001.json").read_text())
     assert errored["status"] == "errored" and "invalid_request_error" in errored["problem"]
+    assert errored["first_answer"] is None                    # never reached the model
+    # a request 2 that expired keeps its prose and resumes at request 2
+    kept = json.loads((out / "synthVid007.json").read_text())
+    assert kept["status"] == "prose" and kept["r2_failures"] == 1 and kept["prose"]
     # the key went out as a header only, never into a file
     assert all("SECRETKEY" not in p.read_text() for p in out.rglob("*"))
     assert not list(out.glob(".batch-*"))
-    # a rerun only retries the transient failures (errored, expired, canceled)
+    # a rerun: infrastructure failures from request 1, the kept prose at request 2
     first, second = S.todo(packs, out, backend.settings())
-    assert sorted(p["id"] for p in first) == ["synthVid001", "synthVid002", "synthVid005"]
+    assert sorted(p["id"] for p, _ in first) == ["synthVid001", "synthVid002", "synthVid005"]
+    assert [p["id"] for p, _ in second] == ["synthVid007"]
     first, _ = S.todo(packs, out, backend.settings(), retry_failed=True)
-    assert len(first) == 5
+    assert len(first) == 6
     # other settings mean another run: everything again
-    assert len(S.todo(packs, out, {"effort": "high"})[0]) == 6
+    assert len(S.todo(packs, out, {"effort": "high"})[0]) == 8
+
+
+def test_a_retry_keeps_the_first_answer(tmp_path):
+    fake = FakeBatches(lambda cid, params: (
+        _ok(cid, params) if cid.startswith("r1") else
+        {"type": "succeeded", "message": _message("not json")}), polls_until_ended=1)
+    backend = S.BatchBackend(_client(fake), sleep=lambda s: None)
+    packs = _packs(tmp_path, n=1)
+    out = tmp_path / "out"
+    backend.run(*S.todo(packs, out, backend.settings()), out, log=lambda s: None)
+    fake.behave = _ok
+    backend.run(*S.todo(packs, out, backend.settings(), retry_failed=True), out,
+                log=lambda s: None)
+    rec = json.loads((out / "synthVid000.json").read_text())
+    assert rec["status"] == "ok" and rec["first_answer"] == "invalid_json"
+
+
+def _state(out, stage, batch_id, requests):
+    S.write_atomic(out / f".batch-{stage}.json", {"batches": [
+        {"batch_id": batch_id, "requests": {r["custom_id"]: S.fingerprint(r["params"])
+                                            for r in requests}}]})
 
 
 def test_batch_resumes_a_submitted_batch_and_request_2(tmp_path):
-    fake = FakeBatches(_behave, polls_until_ended=1)
+    fake = FakeBatches(_ok, polls_until_ended=1)
     backend = S.BatchBackend(_client(fake), sleep=lambda s: None)
     packs = _packs(tmp_path, n=1)
     out = tmp_path / "out"
@@ -337,31 +382,100 @@ def test_batch_resumes_a_submitted_batch_and_request_2(tmp_path):
     first, second = S.todo(packs, out, backend.settings())
     assert not first and [p["id"] for p, _ in second] == ["synthVid000"]
     # ... and its batch was already submitted before a crash: polled, not resubmitted
-    fake.batches["msgbatch_7"] = [{"custom_id": "r2-synthVid000",
-                                   "params": backend.params(packs[0], "earlier prose")}]
-    S.write_atomic(out / ".batch-r2.json", {"batch_id": "msgbatch_7",
-                                           "custom_ids": ["r2-synthVid000"]})
+    sent = [{"custom_id": "r2-synthVid000", "params": backend.params(packs[0], "earlier prose")}]
+    fake.batches["msgbatch_7"] = sent
+    _state(out, "r2", "msgbatch_7", sent)
     backend.run(first, second, out, log=lambda s: None)
     assert list(fake.batches) == ["msgbatch_7"]
     done = json.loads((out / "synthVid000.json").read_text())
     assert done["status"] == "ok" and done["batches"] == {"r2": "msgbatch_7"}
+    assert not (out / ".batch-r2.json").exists()
+
+
+def test_a_submitted_batch_is_reused_only_for_identical_params(tmp_path):
+    """Killed while polling at effort medium, rerun at effort high: the medium
+    answers must not come back under the high settings."""
+    fake = FakeBatches(_ok, polls_until_ended=1)
+    medium = S.BatchBackend(_client(fake), effort="medium", sleep=lambda s: None)
+    high = S.BatchBackend(_client(fake), effort="high", sleep=lambda s: None)
+    packs = _packs(tmp_path, n=2)
+    out = tmp_path / "out"
+    sent = [{"custom_id": f"r1-{p['id']}", "params": medium.params(p)} for p in packs]
+    fake.batches["msgbatch_7"] = sent
+    _state(out, "r1", "msgbatch_7", sent)
+    high.run(*S.todo(packs, out, high.settings()), out, log=lambda s: None)
+    assert list(fake.batches) == ["msgbatch_7", "msgbatch_1", "msgbatch_2"]
+    assert all(r["params"]["output_config"]["effort"] == "high"
+               for r in fake.batches["msgbatch_1"])
+    rec = json.loads((out / f"{packs[0]['id']}.json").read_text())
+    assert rec["batches"]["r1"] == "msgbatch_1" and rec["settings"]["effort"] == "high"
+
+
+def test_a_grown_request_set_reuses_the_submitted_part_and_sends_only_the_rest(tmp_path):
+    """r2 for two songs was submitted before a crash; the rerun has a third song
+    ready for r2: the two are taken from the old batch, only the third is sent."""
+    fake = FakeBatches(_ok, polls_until_ended=1)
+    backend = S.BatchBackend(_client(fake), sleep=lambda s: None)
+    packs = _packs(tmp_path, n=3)
+    out = tmp_path / "out"
+    for p in packs:
+        rec = S._record(p, "batch", S.MODEL, backend.settings()) | {"status": "prose",
+                                                                    "prose": "p " + p["id"]}
+        S.write_atomic(out / f"{p['id']}.json", rec)
+    sent = [{"custom_id": f"r2-{p['id']}", "params": backend.params(p, "p " + p["id"])}
+            for p in packs[:2]]
+    fake.batches["msgbatch_7"] = sent
+    _state(out, "r2", "msgbatch_7", sent)
+    backend.run(*S.todo(packs, out, backend.settings()), out, log=lambda s: None)
+    assert [r["custom_id"] for r in fake.batches["msgbatch_1"]] == [f"r2-{packs[2]['id']}"]
+    got = {p["id"]: json.loads((out / f"{p['id']}.json").read_text())["batches"]["r2"]
+           for p in packs}
+    assert got == {packs[0]["id"]: "msgbatch_7", packs[1]["id"]: "msgbatch_7",
+                   packs[2]["id"]: "msgbatch_1"}
 
 
 def test_the_key_comes_from_the_environment_only(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         S.make_anthropic_client()
+    pytest.importorskip("anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-x")
     assert S.make_anthropic_client().api_key == "sk-test-x"
 
 
 def test_count_tokens_per_pack(tmp_path):
-    fake = FakeBatches(_behave)
+    fake = FakeBatches(_ok)
     packs = _packs(tmp_path, n=2)
-    got = S.count_tokens(_client(fake), packs)
-    assert got["songs"] == {p["id"]: len(p["user"]) for p in packs}
+    got = S.count_tokens(_client(fake), packs, max_tokens=100)
+    convert = len(S.CONVERT["review"])
+    assert got["songs"] == {p["id"]: {"r1": len(p["user"]),
+                                      "r2_worst": len(p["user"]) + 100 + convert} for p in packs}
     assert got["total"] == sum(len(p["user"]) for p in packs)
-    assert got["over_target"] == []
+    assert got["over_target"] == [] and got["tokenizer"] == "claude"
+
+
+def test_count_local_uses_the_servers_template_and_tokenizer(tmp_path):
+    seen = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        seen.append(request.url.path)
+        if request.url.path == "/apply-template":
+            return httpx.Response(200, json={"prompt": "<t>" + body["messages"][1]["content"]})
+        return httpx.Response(200, json={"tokens": list(range(len(body["content"]) // 4))})
+
+    packs = _packs(tmp_path, n=1)
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    r1 = (len(packs[0]["user"]) + 3) // 4
+    convert = len(S.CONVERT["review"]) // 4
+    fits = S.count_local(http, "http://llama:8080/", packs, max_tokens=4096,
+                         context=r1 + convert + 2 * 4096)
+    row = fits["songs"][packs[0]["id"]]
+    assert row == {"r1": r1, "worst": r1 + convert + 8192, "fits": True}
+    tight = S.count_local(http, "http://llama:8080", packs, max_tokens=4096,
+                          context=r1 + convert + 2 * 4096 - 1)
+    assert tight["not_fitting"] == [packs[0]["id"]]
+    assert seen[:2] == ["/apply-template", "/tokenize"]
 
 
 def test_cost_counts_cache_writes_and_reads():
@@ -373,6 +487,11 @@ def test_cost_counts_cache_writes_and_reads():
 
 
 # --- the local backend -----------------------------------------------------------
+
+def _local(handler):
+    return S.LocalBackend("http://llama:8080/", "gemma",
+                          client=httpx.Client(transport=httpx.MockTransport(handler)))
+
 
 def test_local_backend_two_requests(tmp_path):
     bodies = []
@@ -386,11 +505,10 @@ def test_local_backend_two_requests(tmp_path):
         params = {"messages": [{"content": body["messages"][1]["content"]}]}
         return httpx.Response(200, json={"choices": [{"message": {"content": _answer(params)}}]})
 
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    backend = S.LocalBackend("http://llama:8080/", "gemma", client=client)
+    backend = _local(handler)
     packs = _packs(tmp_path, n=1)
     out = tmp_path / "out"
-    counts = backend.run(packs, [], out, log=lambda s: None)
+    counts = backend.run(*S.todo(packs, out, backend.settings()), out, log=lambda s: None)
     assert counts == {"ok": 1}
     one, two = bodies
     assert one["temperature"] == 0 and one["chat_template_kwargs"] == {"enable_thinking": False}
@@ -402,22 +520,43 @@ def test_local_backend_two_requests(tmp_path):
     assert rec["settings"]["url"] == "http://llama:8080" and rec["cost_usd"] is None
 
 
-def test_local_backend_records_an_http_error_and_resumes_from_prose(tmp_path):
+def test_local_request_2_errors_keep_the_prose_and_resume_there(tmp_path):
     calls = []
 
     def handler(request):
-        calls.append(1)
+        calls.append(json.loads(request.content))
         if len(calls) == 2:
             return httpx.Response(500, json={"error": "boom"})
+        if "response_format" in calls[-1]:
+            params = {"messages": [{"content": calls[-1]["messages"][1]["content"]}]}
+            return httpx.Response(200, json={"choices": [{"message": {
+                "content": _answer(params)}}]})
         return httpx.Response(200, json={"choices": [{"message": {"content": "prose"}}]})
 
-    backend = S.LocalBackend("http://llama:8080", "gemma",
-                             client=httpx.Client(transport=httpx.MockTransport(handler)))
+    backend = _local(handler)
     packs = _packs(tmp_path, n=1)
     out = tmp_path / "out"
-    backend.run(packs, [], out, log=lambda s: None)
+    backend.run(*S.todo(packs, out, backend.settings()), out, log=lambda s: None)
     rec = json.loads((out / "synthVid000.json").read_text())
-    assert rec["status"] == "errored" and rec["prose"] == "prose"
+    assert rec["status"] == "prose" and rec["prose"] == "prose" and rec["r2_failures"] == 1
+    first, second = S.todo(packs, out, backend.settings())
+    assert not first and len(second) == 1
+    backend.run(first, second, out, log=lambda s: None)
+    assert len(calls) == 3                                    # request 1 was not paid again
+    assert json.loads((out / "synthVid000.json").read_text())["status"] == "ok"
+
+
+def test_local_truncation_is_caught(tmp_path):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "half a"},
+                                                      "finish_reason": "length"}]})
+
+    backend = _local(handler)
+    packs = _packs(tmp_path, n=1)
+    out = tmp_path / "out"
+    backend.run(*S.todo(packs, out, backend.settings()), out, log=lambda s: None)
+    rec = json.loads((out / "synthVid000.json").read_text())
+    assert rec["status"] == rec["first_answer"] == "truncated"
 
 
 def test_answers_are_validated_and_must_cover_every_moment(tmp_path):
@@ -443,9 +582,10 @@ def _labels_file(path, rows):
     return path
 
 
-def _run_of(preds, kind="review"):
+def _run_of(preds, kind="review", seed=1):
     """{song: [(t, class, severity)]} -> a run (records as the backends write them)."""
-    return {song: {"kind": kind, "status": "ok", "schema_valid": True,
+    return {song: {"kind": kind, "seed": seed, "status": "ok", "first_answer": "ok",
+                   "schema_valid": True,
                    "json": {"moments": [{"t_ms": t, "class": c, "severity": s, "reason": ""}
                                         for t, c, s in rows]}}
             for song, rows in preds.items()}
@@ -561,27 +701,39 @@ def test_m4_needs_19_of_20_within_10_ms():
     assert S.probe_metrics(_probe_run(20, 20, off_by=11))["gate"] is False
     run = _probe_run(3, 3) | {"tie": {"kind": "probe", "probe_answer": None}}
     assert S.probe_metrics(run)["no_unique_answer"] == 1
+    # n is pinned: 19 of 19 scorable songs is not 19 of 20
+    assert S.probe_metrics(_probe_run(19, 19))["gate"] is False
 
 
-def test_m5_validity_and_agreement():
+def test_m5_validity_counts_each_songs_first_answer():
     good = _run_of({"s": [(1, "late", 2), (2, "ok", 0)]})
-    st = S.stability([good | {f"x{k}": {"status": "ok"} for k in range(98)}
-                      | {"bad": {"status": "schema_invalid"}}])
+    ok = {f"x{k}": {"first_answer": "ok"} for k in range(98)}
+    st = S.stability([good | ok | {"bad": {"first_answer": "schema_invalid"}}])
     assert st["first_try_valid"] == 0.99 and st["gates"]["valid"] is True
-    st = S.stability([good | {"bad": {"status": "schema_invalid"}}
-                      | {f"x{k}": {"status": "ok"} for k in range(97)}])
+    st = S.stability([good | dict(list(ok.items())[:97]) | {"bad": {"first_answer": "refusal"}}])
     assert st["first_try_valid"] == pytest.approx(98 / 99) and st["gates"]["valid"] is False
-    # errored or refused requests never answered: not counted
-    st = S.stability([good | {"e": {"status": "errored"}}])
+    # an ok after a retry still counts as the failed first answer
+    retried = {"r": {"status": "ok", "first_answer": "invalid_json"}}
+    assert S.stability([good | retried])["first_try_valid"] == 0.5
+    # infrastructure failures never reached the model: not counted
+    st = S.stability([good | {"e": {"status": "errored", "first_answer": None}}])
     assert st["answered"] == 1
-    other = _run_of({"s": [(1, "late", 2), (2, "pile", 1)]})
-    st = S.stability([good, good, other])
-    # pairs: (good, good) 2 same, (good, other) x2: 1 same each -> 4 of 6
-    assert st["agreement"] == pytest.approx(4 / 6, abs=1e-3) and st["gates"]["agreement"] is False
-    ten = {f"t{k}": (k, "late", 2) for k in range(10)}
-    a = _run_of({"s": list(ten.values())})
-    b = _run_of({"s": [(k, "late" if k else "ok", 2) for k in range(10)]})
-    assert S.stability([a, b])["agreement"] == 0.9 and S.stability([a, b])["gates"]["agreement"]
+
+
+def test_m5_agreement_needs_three_runs_with_distinct_seeds():
+    a = _run_of({"s": [(k, "late", 2) for k in range(10)]}, seed=1)
+    b = _run_of({"s": [(k, "late" if k else "ok", 2) for k in range(10)]}, seed=2)
+    c = _run_of({"s": [(k, "late", 2) for k in range(10)]}, seed=3)
+    st = S.stability([a, b, c])
+    # pairs: (a, b) 9 of 10, (a, c) 10, (b, c) 9 -> 28 of 30
+    assert st["agreement"] == pytest.approx(28 / 30) and st["gates"]["agreement"] is True
+    assert S.stability([a, b])["gates"]["agreement"] is False            # two runs
+    same_seed = _run_of({"s": [(k, "late", 2) for k in range(10)]}, seed=1)
+    assert S.stability([a, b, same_seed])["gates"]["agreement"] is False
+    assert S.stability([a])["gates"]["agreement"] is False
+    d = _run_of({"s": [(k, "late" if k > 1 else "ok", 2) for k in range(10)]}, seed=4)
+    # (a, d) 8, (a, c) 10, (d, c) 8 -> 26 of 30 < 0.9
+    assert S.stability([a, d, c])["gates"]["agreement"] is False
 
 
 def test_score_gates_on_the_first_run_and_needs_the_probe(tmp_path):
@@ -589,10 +741,19 @@ def test_score_gates_on_the_first_run_and_needs_the_probe(tmp_path):
     good = _run_of({"s": [(t, "late", 2) for t in range(10)]
                     + [(t, "ok", 0) for t in range(10, 20)]})
     weak = _run_of({"s": [(t, "late", 0) for t in range(20)]})
-    res = S.score([good, good], labels, _probe_run(20, 20))
+    runs = [good] + [{k: v | {"seed": seed} for k, v in good.items()} for seed in (2, 3)]
+    res = S.score(runs, labels, _probe_run(20, 20))
     assert res["passed"] and res["gates"]["m1"]
-    assert S.score([weak, good], labels, _probe_run(20, 20))["gates"]["m1"] is False
-    assert S.score([good, good], labels, None)["passed"] is False
+    assert S.score([weak, *runs[1:]], labels, _probe_run(20, 20))["gates"]["m1"] is False
+    assert S.score(runs, labels, None)["passed"] is False
+    assert S.score(runs[:1], labels, _probe_run(20, 20))["passed"] is False   # one run
+
+
+def test_a_labelled_song_missing_from_the_run_fails_complete():
+    labels = {("a", 1): "late", ("b", 1): "late"}
+    m = S.review_metrics(_run_of({"a": [(1, "late", 2)]}), labels)
+    assert m["missing_songs"] == ["b"] and m["gates"]["complete"] is False
+    assert m["real"] == 2 and m["m1_recall"] == 0.5          # n stays the labelled set
 
 
 # --- CLI ---------------------------------------------------------------------------

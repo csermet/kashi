@@ -67,8 +67,8 @@ CHARS_PER_TOKEN = 3.5      # an estimate for the pack's own check; `count` has t
 TEXT_CAP = 80
 EAR_CAP = 160
 POLL_S = 60
-# Batches, $ per million tokens: Opus 5.5 is $4 / $20 standard, Batches -50 %;
-# cache writes 1.25x (5 min) / 2x (1 h) of input, reads $0.20 standard
+# Batches, $ per million tokens: every standard Opus 5.5 rate halved - input $4,
+# output $20, cache writes 1.25x (5 min) / 2x (1 h) of input, cache reads $0.20
 # (yerel-model-denetim-2026-11.md section 7; confirm on the pricing page before the A/B).
 PRICES = {MODEL: {"input": 2.0, "output": 10.0, "cache_write_5m": 2.5, "cache_write_1h": 4.0,
                   "cache_read": 0.10}}
@@ -84,10 +84,12 @@ M2_MIN_SPEARMAN = 0.5
 M2_MIN_PRECISION_AT = 0.7
 PRECISION_AT = 3
 M3_MIN_RECALL = 0.7
-M4_MIN_SHARE = 0.95        # 19 of 20
+M4_MIN_SHARE = 0.95        # 19 of 20 ...
+M4_MIN_SONGS = 20          # ... on at least 20 songs with a unique answer
 PROBE_TOLERANCE_MS = 10
 M5_MIN_VALID = 0.99
 M5_MIN_AGREEMENT = 0.90
+M5_MIN_RUNS = 3            # shuffled runs, each with its own seed
 
 SYSTEM = """\
 You read measurements of a lyrics overlay for YouTube Music and judge what a viewer would notice.
@@ -319,24 +321,58 @@ def cost_usd(usage: dict | None, model: str) -> float | None:
     return round(total / 1_000_000, 6)
 
 
-def _record(pack: dict, backend: str, model: str, settings: dict) -> dict:
+# The model's own answers (the first one per song is what M5 counts); the
+# infrastructure failures run again by themselves.
+MODEL_OUTCOMES = frozenset({"ok", "schema_invalid", "invalid_json", "refusal", "empty",
+                            "truncated"})
+TRANSIENT = frozenset({"errored", "expired", "canceled", "missing"})
+
+
+def _record(pack: dict, backend: str, model: str, settings: dict,
+            old: dict | None = None) -> dict:
+    """A fresh record; a retry keeps the song's first answer (M5 counts that one)."""
     out = {"id": pack["id"], "kind": pack["kind"], "seed": pack["seed"], "backend": backend,
            "model": model, "prompt_hash": pack["prompt_hash"], "settings": settings,
            "moments": pack["moments"], "status": "pending", "prose": None, "raw_json": None,
            "json": None, "schema_valid": None, "problem": None, "usage": {}, "cost_usd": None,
-           "batches": {}}
+           "batches": {}, "first_answer": (old or {}).get("first_answer"), "r2_failures": 0}
     if pack["kind"] == "probe":
         out["probe_answer"] = pack.get("probe_answer")
     return out
 
 
-def _finish(record: dict, pack: dict, text: str | None) -> None:
+def _settle(record: dict, status: str, **fields: Any) -> None:
+    record.update(status=status, **fields)
+    if status in MODEL_OUTCOMES and record.get("first_answer") is None:
+        record["first_answer"] = status
+
+
+def _finish(record: dict, pack: dict, text: str | None, truncated: bool = False) -> None:
     record["raw_json"] = text
+    if truncated:
+        _settle(record, "truncated", problem="request 2 hit max_tokens")
+        return
     data, valid, problem = parse_answer(text or "", pack["kind"])
     problem = problem or coverage_problem(pack, data)
-    record |= {"json": data, "schema_valid": valid, "problem": problem,
-               "status": "ok" if valid and problem is None
-               else ("invalid_json" if data is None else "schema_invalid")}
+    record.update(json=data, schema_valid=valid)
+    _settle(record, "ok" if valid and problem is None
+            else ("invalid_json" if data is None else "schema_invalid"), problem=problem)
+
+
+def _prose(record: dict, text: str, truncated: bool) -> None:
+    if truncated:
+        _settle(record, "truncated", prose=text, problem="request 1 hit max_tokens")
+    elif not text:
+        _settle(record, "empty", problem="no text in request 1")
+    else:
+        record.update(prose=text, status="prose")
+
+
+def _r2_failed(record: dict, problem: str) -> None:
+    """A request 2 that never reached an answer: the prose stays, the next run
+    resumes at request 2."""
+    record.update(status="prose", problem=f"request 2: {problem}",
+                  r2_failures=record.get("r2_failures", 0) + 1)
 
 
 def _cost(record: dict) -> None:
@@ -345,26 +381,26 @@ def _cost(record: dict) -> None:
         c is not None for c in costs) else None
 
 
-def todo(packs: Sequence[dict], out_dir: Path, settings: dict,
-         retry_failed: bool = False) -> tuple[list[dict], list[tuple[dict, dict]]]:
-    """(packs for request 1, (pack, record) for request 2 only). A song whose
-    output has this prompt hash and these settings is done when ``ok``; a
-    finished prose resumes at request 2; transient failures (errored, expired,
-    canceled) run again, final ones (refusal, invalid answers) only with
-    ``retry_failed``."""
-    first, second = [], []
+def todo(packs: Sequence[dict], out_dir: Path, settings: dict, retry_failed: bool = False
+         ) -> tuple[list[tuple[dict, dict | None]], list[tuple[dict, dict]]]:
+    """((pack, old record) for request 1, (pack, record) for request 2 only). A
+    song whose output has this prompt hash and these settings is done when
+    ``ok``; a finished prose resumes at request 2 (also after a failed request
+    2); infrastructure failures (errored, expired, canceled, missing) run
+    again, the model's own failed answers only with ``retry_failed``."""
+    first: list[tuple[dict, dict | None]] = []
+    second: list[tuple[dict, dict]] = []
     for pack in packs:
         path = out_dir / f"{pack['id']}.json"
         old = json.loads(path.read_text()) if path.exists() else None
         if old is None or old["prompt_hash"] != pack["prompt_hash"] or old["settings"] != settings:
-            first.append(pack)
+            first.append((pack, None))
         elif old["status"] == "ok":
             continue
         elif old["status"] == "prose":
             second.append((pack, old))
-        elif old["status"] in ("errored", "expired", "canceled", "missing", "empty") \
-                or retry_failed:
-            first.append(pack)
+        elif old["status"] in TRANSIENT or retry_failed:
+            first.append((pack, old))
     return first, second
 
 
@@ -385,7 +421,8 @@ class LocalBackend:
         return {"url": self.url, "model": self.model, "max_tokens": self.max_tokens,
                 "temperature": 0, **self.extra}
 
-    def _ask(self, messages: list[dict], schema: dict | None) -> tuple[str, dict]:
+    def _ask(self, messages: list[dict], schema: dict | None) -> tuple[str, dict, bool]:
+        """(text, usage, truncated)."""
         body = {"model": self.model, "messages": messages, "temperature": 0,
                 "max_tokens": self.max_tokens, **self.extra}
         if schema is not None:
@@ -395,29 +432,38 @@ class LocalBackend:
         response = self.http.post(f"{self.url}/v1/chat/completions", json=body)
         response.raise_for_status()
         data = response.json()
-        return data["choices"][0]["message"]["content"] or "", data.get("usage") or {}
+        choice = data["choices"][0]
+        return (choice["message"]["content"] or "", data.get("usage") or {},
+                choice.get("finish_reason") == "length")
 
-    def run(self, first: Sequence[dict], second: Sequence[tuple[dict, dict]], out_dir: Path,
+    def run(self, first: Sequence[tuple[dict, dict | None]],
+            second: Sequence[tuple[dict, dict]], out_dir: Path,
             log: Callable[[str], None] = print) -> dict:
         import httpx
 
         counts: Counter = Counter()
-        jobs = [(p, None) for p in first] + list(second)
-        for pack, old in jobs:
-            record = old or _record(pack, self.name, self.model, self.settings())
+        settings = self.settings()
+        jobs = [(p, _record(p, self.name, self.model, settings, old)) for p, old in first]
+        jobs += list(second)
+        for pack, record in jobs:
             base = [{"role": "system", "content": pack["system"]},
                     {"role": "user", "content": pack["user"]}]
-            try:
-                if old is None:
-                    record["prose"], record["usage"]["r1"] = self._ask(base, None)
-                    record["status"] = "prose"
-                    write_atomic(out_dir / f"{pack['id']}.json", record)
-                text, record["usage"]["r2"] = self._ask(
-                    base + [{"role": "assistant", "content": record["prose"]},
-                            {"role": "user", "content": pack["convert"]}], SCHEMAS[pack["kind"]])
-                _finish(record, pack, text)
-            except httpx.HTTPError as exc:
-                record |= {"status": "errored", "problem": f"{type(exc).__name__}: {exc}"}
+            if record["status"] != "prose":
+                try:
+                    text, record["usage"]["r1"], cut = self._ask(base, None)
+                    _prose(record, text, cut)
+                except httpx.HTTPError as exc:
+                    _settle(record, "errored", problem=f"request 1: {type(exc).__name__}: {exc}")
+                write_atomic(out_dir / f"{pack['id']}.json", record)
+            if record["status"] == "prose":
+                try:
+                    text, record["usage"]["r2"], cut = self._ask(
+                        base + [{"role": "assistant", "content": record["prose"]},
+                                {"role": "user", "content": pack["convert"]}],
+                        SCHEMAS[pack["kind"]])
+                    _finish(record, pack, text, cut)
+                except httpx.HTTPError as exc:
+                    _r2_failed(record, f"{type(exc).__name__}: {exc}")
             counts[record["status"]] += 1
             record["written"] = datetime.now(UTC).isoformat(timespec="seconds")
             write_atomic(out_dir / f"{pack['id']}.json", record)
@@ -430,9 +476,13 @@ def make_anthropic_client() -> Any:
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise SystemExit("ANTHROPIC_API_KEY is not set (the key is read from the environment only)")
-    import anthropic
+    import anthropic  # pyright: ignore[reportMissingImports]
 
     return anthropic.Anthropic(api_key=key)
+
+
+def fingerprint(params: dict) -> str:
+    return hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16]
 
 
 class BatchBackend:
@@ -468,26 +518,45 @@ class BatchBackend:
                 "output_config": output_config}
 
     def _batch(self, stage: str, requests: list[dict], out_dir: Path,
-               log: Callable[[str], None]) -> tuple[str, dict[str, Any]]:
-        """Submit (or resume) one batch, wait for it, return its results by custom_id."""
+               log: Callable[[str], None]) -> dict[str, tuple[str, Any]]:
+        """custom_id -> (batch id, result). A batch this stage already submitted
+        (``.batch-<stage>.json``, one entry per batch) answers every request
+        whose params are byte-identical to what it was sent; only the rest is
+        submitted, so a resumed run never pays twice and never takes an answer
+        to other params (another effort, another pack). ``run`` removes the
+        state file once the records are written."""
         state_path = out_dir / f".batch-{stage}.json"
-        ids = sorted(r["custom_id"] for r in requests)
-        state = json.loads(state_path.read_text()) if state_path.exists() else None
-        if state and state.get("custom_ids") == ids:
-            batch_id = state["batch_id"]
-            log(f"resuming batch {batch_id} ({stage}, {len(ids)} requests)")
-        else:
-            batch_id = self.client.messages.batches.create(requests=requests).id
-            write_atomic(state_path, {"batch_id": batch_id, "custom_ids": ids})
-            log(f"submitted batch {batch_id} ({stage}, {len(ids)} requests)")
-        while True:
-            batch = self.client.messages.batches.retrieve(batch_id)
-            if batch.processing_status == "ended":
-                break
-            self.sleep(self.poll_s)
-        results = {r.custom_id: r.result for r in self.client.messages.batches.results(batch_id)}
-        state_path.unlink(missing_ok=True)
-        return batch_id, results
+        state = json.loads(state_path.read_text()) if state_path.exists() else {"batches": []}
+        want = {r["custom_id"]: fingerprint(r["params"]) for r in requests}
+        plan: dict[str, list[str]] = {}
+        covered: set[str] = set()
+        for entry in state["batches"]:
+            take = [cid for cid, fp in entry["requests"].items()
+                    if want.get(cid) == fp and cid not in covered]
+            if take:
+                plan[entry["batch_id"]] = take
+                covered |= set(take)
+                log(f"resuming batch {entry['batch_id']} ({stage}, {len(take)} requests)")
+            if len(take) < len(entry["requests"]):
+                log(f"batch {entry['batch_id']}: {len(entry['requests']) - len(take)} requests "
+                    f"no longer match and are not reused")
+        rest = [r for r in requests if r["custom_id"] not in covered]
+        if rest:
+            batch_id = self.client.messages.batches.create(requests=rest).id
+            state["batches"].append({"batch_id": batch_id,
+                                     "requests": {r["custom_id"]: want[r["custom_id"]]
+                                                  for r in rest}})
+            write_atomic(state_path, state)
+            plan[batch_id] = [r["custom_id"] for r in rest]
+            log(f"submitted batch {batch_id} ({stage}, {len(rest)} requests)")
+        out: dict[str, tuple[str, Any]] = {}
+        for batch_id, take in plan.items():
+            while self.client.messages.batches.retrieve(batch_id).processing_status != "ended":
+                self.sleep(self.poll_s)
+            results = {r.custom_id: r.result
+                       for r in self.client.messages.batches.results(batch_id)}
+            out |= {cid: (batch_id, results.get(cid)) for cid in take}
+        return out
 
     @staticmethod
     def _usage(message: Any) -> dict:
@@ -503,74 +572,108 @@ class BatchBackend:
 
     def _apply(self, record: dict, result: Any, stage: str, pack: dict) -> None:
         """One result into the song's record; ``stage`` r1 (prose) or r2 (JSON)."""
-        if result is None:
-            record |= {"status": "missing", "problem": f"no result for {stage}"}
-            return
-        if result.type != "succeeded":
+        if result is None or result.type != "succeeded":
+            kind = "missing" if result is None else result.type
             problem = None
-            if result.type == "errored":
+            if result is not None and result.type == "errored":
                 err = getattr(result.error, "error", None)
                 problem = f"{getattr(err, 'type', '?')}: {getattr(err, 'message', '')}"
-            record |= {"status": result.type, "problem": problem}
+            if stage == "r2":
+                _r2_failed(record, f"{kind} {problem or ''}".strip())
+            else:
+                _settle(record, kind, problem=problem)
             return
         message = result.message
         record["usage"][stage] = self._usage(message)
         if message.stop_reason == "refusal":
             details = getattr(message, "stop_details", None)
-            record |= {"status": "refusal",
-                       "problem": f"refusal ({getattr(details, 'category', None)})"}
+            _settle(record, "refusal", problem=f"refusal ({getattr(details, 'category', None)})")
             return
-        text = self._text(message)
+        cut = message.stop_reason == "max_tokens"
         if stage == "r1":
-            record |= ({"prose": text, "status": "prose"} if text
-                       else {"status": "empty", "problem": "no text in request 1"})
+            _prose(record, self._text(message), cut)
         else:
-            _finish(record, pack, text)
+            _finish(record, pack, self._text(message), cut)
 
-    def run(self, first: Sequence[dict], second: Sequence[tuple[dict, dict]], out_dir: Path,
+    def run(self, first: Sequence[tuple[dict, dict | None]],
+            second: Sequence[tuple[dict, dict]], out_dir: Path,
             log: Callable[[str], None] = print) -> dict:
         settings = self.settings()
         counts: dict[str, Counter] = {"r1": Counter(), "r2": Counter()}
-        packs = {p["id"]: p for p in first} | {p["id"]: p for p, _ in second}
-        records = {p["id"]: _record(p, self.name, self.model, settings) for p in first}
+        packs = {p["id"]: p for p, _ in first} | {p["id"]: p for p, _ in second}
+        records = {p["id"]: _record(p, self.name, self.model, settings, old) for p, old in first}
         records |= {p["id"]: old for p, old in second}
         for stage in ("r1", "r2"):
-            todo_ids = [i for i in packs if records[i]["status"] in
-                        (("pending",) if stage == "r1" else ("prose",))]
+            todo_ids = [i for i in packs if records[i]["status"] ==
+                        ("pending" if stage == "r1" else "prose")]
             if not todo_ids:
                 continue
             requests = [{"custom_id": f"{stage}-{i}",
                          "params": self.params(packs[i], records[i]["prose"] if stage == "r2"
                                                else None)} for i in todo_ids]
-            batch_id, results = self._batch(stage, requests, out_dir, log)
+            results = self._batch(stage, requests, out_dir, log)
             for i in todo_ids:
-                result = results.get(f"{stage}-{i}")
+                batch_id, result = results[f"{stage}-{i}"]
                 counts[stage][result.type if result is not None else "missing"] += 1
                 record = records[i]
                 record["batches"][stage] = batch_id
                 self._apply(record, result, stage, packs[i])
-                if record["status"] == "refusal":
-                    counts[stage]["refusal"] += 1
+                if record["status"] in ("refusal", "truncated"):
+                    counts[stage][record["status"]] += 1
                 _cost(record)
                 record["written"] = datetime.now(UTC).isoformat(timespec="seconds")
                 write_atomic(out_dir / f"{i}.json", record)
+            (out_dir / f".batch-{stage}.json").unlink(missing_ok=True)
         summary: dict[str, Any] = {stage: dict(c) for stage, c in counts.items()}
         summary["cost_usd"] = round(sum(r["cost_usd"] or 0 for r in records.values()), 6)
         summary["status"] = dict(Counter(r["status"] for r in records.values()))
         return summary
 
 
-def count_tokens(client: Any, packs: Sequence[dict], model: str = MODEL) -> dict:
-    """Request 1's input tokens per pack (count_tokens is free)."""
+def count_tokens(client: Any, packs: Sequence[dict], model: str = MODEL,
+                 max_tokens: int = MAX_TOKENS) -> dict:
+    """Claude's tokenizer (count_tokens is free): request 1's input per pack and
+    request 2's worst case (request 1 + a prose of max_tokens + the conversion
+    line). For the local 16k question use ``count_local`` (Gemma's tokenizer)."""
     rows = {}
+    convert = None
     for pack in packs:
         got = client.messages.count_tokens(model=model, system=pack["system"],
                                            messages=[{"role": "user", "content": pack["user"]}])
-        rows[pack["id"]] = got.input_tokens
-    values = list(rows.values())
-    return {"model": model, "songs": rows, "max": max(values, default=0),
-            "total": sum(values), "over_target": sorted(k for k, v in rows.items()
-                                                        if v > TOKEN_TARGET)}
+        if convert is None:
+            convert = client.messages.count_tokens(
+                model=model, messages=[{"role": "user", "content": pack["convert"]}]).input_tokens
+        rows[pack["id"]] = {"r1": got.input_tokens,
+                            "r2_worst": got.input_tokens + max_tokens + (convert or 0)}
+    values = [r["r1"] for r in rows.values()]
+    return {"model": model, "tokenizer": "claude", "songs": rows, "max": max(values, default=0),
+            "total": sum(values),
+            "over_target": sorted(k for k, r in rows.items() if r["r1"] > TOKEN_TARGET)}
+
+
+def count_local(http: Any, url: str, packs: Sequence[dict], max_tokens: int = 4096,
+                context: int = LOCAL_CONTEXT) -> dict:
+    """The local server's own tokenizer: llama-server's ``/apply-template`` (the
+    chat template) and ``/tokenize``. A song fits when request 2 in the worst
+    case does: request 1 + a prose of max_tokens + the conversion line, plus
+    max_tokens of answer, within the context."""
+    def tokens(text: str) -> int:
+        r = http.post(f"{url.rstrip('/')}/tokenize", json={"content": text})
+        r.raise_for_status()
+        return len(r.json()["tokens"])
+
+    rows = {}
+    for pack in packs:
+        r = http.post(f"{url.rstrip('/')}/apply-template",
+                      json={"messages": [{"role": "system", "content": pack["system"]},
+                                         {"role": "user", "content": pack["user"]}]})
+        r.raise_for_status()
+        r1 = tokens(r.json()["prompt"])
+        worst = r1 + tokens(pack["convert"]) + 2 * max_tokens
+        rows[pack["id"]] = {"r1": r1, "worst": worst, "fits": worst <= context}
+    return {"tokenizer": "local", "context": context, "max_tokens": max_tokens, "songs": rows,
+            "max": max((r["r1"] for r in rows.values()), default=0),
+            "not_fitting": sorted(k for k, r in rows.items() if not r["fits"])}
 
 
 # --- score -----------------------------------------------------------------------
@@ -657,9 +760,10 @@ def _share(n: int, d: int) -> float | None:
 def review_metrics(run: dict[str, dict], labels: dict[tuple[str, int], str]) -> dict:
     preds = predictions(run)
     rows = []
+    # every labelled moment counts, so n stays fixed: a song missing from the
+    # run counts as not flagged, and the run fails the ``complete`` gate
+    missing = sorted({song for song, _ in labels} - set(run))
     for key, verdict in sorted(labels.items()):
-        if key[0] not in run:
-            continue
         p = preds.get(key)
         sev = int(p["severity"]) if p else 0
         rows.append({"key": key, "verdict": verdict, "severity": sev, "predicted": p is not None,
@@ -676,7 +780,7 @@ def review_metrics(run: dict[str, dict], labels: dict[tuple[str, int], str]) -> 
     at_k = [precision_at(items) for items in per_song.values()
             if sum(real_ for _, real_ in items) >= PRECISION_AT]
     m = {
-        "moments": len(rows), "real": len(real),
+        "moments": len(rows), "real": len(real), "missing_songs": missing,
         "no_prediction": sum(not r["predicted"] for r in rows),
         "m1_recall": _share(tp, len(real)), "m1_precision": _share(tp, len(flagged)),
         "m2_spearman": rho,
@@ -687,6 +791,7 @@ def review_metrics(run: dict[str, dict], labels: dict[tuple[str, int], str]) -> 
         "pile_recall": _share(sum(r["positive"] for r in piles), len(piles)),
     }
     m["gates"] = {
+        "complete": not missing,
         "m1": (m["m1_recall"] or 0) >= M1_MIN_RECALL
         and (m["m1_precision"] or 0) >= M1_MIN_PRECISION,
         "m2": (m["m2_spearman"] or 0) >= M2_MIN_SPEARMAN
@@ -707,15 +812,20 @@ def probe_metrics(run: dict[str, dict]) -> dict:
             correct += 1
     share = _share(correct, len(asked))
     return {"songs": len(asked), "no_unique_answer": len(rows) - len(asked), "correct": correct,
-            "share": share, "gate": share is not None and share >= M4_MIN_SHARE}
+            "share": share, "gate": len(asked) >= M4_MIN_SONGS and share is not None
+            and share >= M4_MIN_SHARE}
 
 
 def stability(runs: Sequence[dict[str, dict]]) -> dict:
-    """M5: schema-valid first answers over every request 2 that returned an
-    answer; class agreement over every pair of runs, per moment."""
-    answered = [r for run in runs for r in run.values()
-                if r.get("status") in ("ok", "schema_invalid", "invalid_json")]
-    valid = _share(sum(r["status"] == "ok" for r in answered), len(answered))
+    """M5: each song's FIRST answer from the model (a refusal, an empty or
+    truncated reply and an invalid JSON count against it; infrastructure
+    failures never reached the model) schema-valid; class agreement over every
+    pair of runs, per moment, with at least M5_MIN_RUNS runs of distinct seeds."""
+    answered = [r for run in runs for r in run.values() if r.get("first_answer")]
+    valid = _share(sum(r["first_answer"] == "ok" for r in answered), len(answered))
+    seeds = [{r.get("seed") for r in run.values() if r.get("kind") == "review"} for run in runs]
+    distinct = all(len(x) == 1 and None not in x for x in seeds) \
+        and len({next(iter(x)) for x in seeds}) == len(runs)
     preds = [predictions(run) for run in runs]
     same, pairs = 0, 0
     for a in range(len(preds)):
@@ -725,10 +835,10 @@ def stability(runs: Sequence[dict[str, dict]]) -> dict:
                 same += preds[a][key]["class"] == preds[b][key]["class"]
     agreement = _share(same, pairs)
     return {"answered": len(answered), "first_try_valid": valid, "pairs": pairs,
-            "agreement": agreement,
+            "agreement": agreement, "runs": len(runs), "distinct_seeds": distinct,
             "gates": {"valid": valid is not None and valid >= M5_MIN_VALID,
-                      "agreement": len(runs) < 2 or (agreement is not None
-                                                     and agreement >= M5_MIN_AGREEMENT)}}
+                      "agreement": len(runs) >= M5_MIN_RUNS and distinct
+                      and agreement is not None and agreement >= M5_MIN_AGREEMENT}}
 
 
 def score(runs: Sequence[dict[str, dict]], labels: dict[tuple[str, int], str],
@@ -786,7 +896,11 @@ def main(argv: list[str] | None = None) -> int:
     rn.add_argument("--retry-failed", action="store_true")
     ct = sub.add_parser("count")
     ct.add_argument("--packs", type=Path, required=True)
+    ct.add_argument("--backend", choices=("batch", "local"), default="batch",
+                    help="batch: Claude's count_tokens; local: llama-server's own tokenizer")
     ct.add_argument("--model", default=MODEL)
+    ct.add_argument("--url", default="http://127.0.0.1:8080")
+    ct.add_argument("--max-tokens", type=int)
     sc = sub.add_parser("score")
     sc.add_argument("--runs", type=Path, nargs="+", required=True)
     sc.add_argument("--labels", type=Path, action="append", required=True)
@@ -820,7 +934,15 @@ def main(argv: list[str] | None = None) -> int:
                                                       "settings": backend.settings()})
         return 0
     if args.cmd == "count":
-        result = count_tokens(make_anthropic_client(), load_packs(args.packs), args.model)
+        packs = load_packs(args.packs)
+        if args.backend == "local":
+            import httpx
+
+            result = count_local(httpx.Client(timeout=60), args.url, packs,
+                                 args.max_tokens or 4096)
+        else:
+            result = count_tokens(make_anthropic_client(), packs, args.model,
+                                  args.max_tokens or MAX_TOKENS)
         print(json.dumps(result, indent=1))
         return 0
     runs = [load_run(d) for d in args.runs]

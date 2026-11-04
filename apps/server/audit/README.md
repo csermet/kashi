@@ -233,7 +233,8 @@ read +20..+90 ms). Why and the sources: `docs/research/yerel-model-denetim-2026-
 
 - **A1** — anchors are runs of ≥ 2 consecutive heard words (`--noisy`: ≥ 5) and ≥ 8 letters that
   fit exactly one place of the sheet (an exact repeat or a near-spelling the run also fits makes
-  it ambiguous) and one place of the ear. Searched over the whole song, longest run first, each
+  it ambiguous) and one place of the ear within the span earlier anchors leave open (the whole
+  song for the first). Searched over the whole song, longest run first, each
   anchor splitting the search on its two sides (DSAlign), so anchors stay in order; within an
   anchor no gaps (Smith-Waterman with indels forbidden). Words of ≥ 4 letters match at a
   SequenceMatcher ratio ≥ 0.75, shorter ones exactly. A mid-line anchor steps back to the line's
@@ -249,13 +250,13 @@ read +20..+90 ms). Why and the sources: `docs/research/yerel-model-denetim-2026-
   rate, capped at the next stamp) against the ear's letter mass (100 ms bins, 500 ms box) over
   offset ±30 s × stretch 0.95-1.05; accepted at NCC ≥ 0.8; `mid_offset_ms` is the shift at the
   sheet's median line, `confirms_a1` within 1 s of A1's song median. A rival peak ≥ 4 s away within
-  0.05 of the best is `ambiguous` (the refrain period). A piecewise shift does not fit one offset:
-  A2 is a confirmation, never the flag.
+  0.05 of the best is `ambiguous` (the refrain period); on a tie the stretch nearest 1.0 wins. A
+  piecewise shift does not fit one offset: A2 is a confirmation, never the flag.
 - **A3** — per line of ≥ 8 letters, the capped character error of its letters anywhere inside its
   corrected window (block median if the block's lines agree, else the song median; ±2 s) — heard at
   CER ≤ 0.5; a 3-gram TF-IDF cosine of sheet and ear (IDF over the sheet's lines; reported); sung
   activity = every heard letter ±200 ms, covered by a heard line's span ±500 ms. Unmatched sung
-  pieces closer than 1 s are one block, blocks ≥ 3 s are kept; a block **reads** when it has ≥ 4
+  pieces at most 1 s apart are one block, blocks ≥ 3 s are kept; a block **reads** when it has ≥ 4
   letters per second and ≥ 60 % of its heard words have two letters and a vowel.
 - **Flags** (pre-registered): `shifted` — any block shifted; `wrong-version candidate` — unmatched
   sung ≥ 25 % of sung **and** ≥ 25 % of the counted lines unmatched (the Enemy rule) **and** readable
@@ -267,13 +268,16 @@ Every threshold above is a named constant in `audit/anchors.py`, pinned by
 `tests/test_audit_anchors.py` and committed (2026-11-04) before any real run.
 
 **Injected errors (bench gate).** `audit.inject` damages a correct record per case — unmodified,
-global +2/+5/+10/+20 s, a linear drift reaching 2-10 s at the last line, one verse (a section of ≥ 2
-lines) shifted 3-20 s, one verse deleted, four lines of another song appended after the last one —
-in one seeded random order, and runs the check on each. Gate: shifts ≥ 5 s (global and verse)
-flagged `shifted` in ≥ 90 % of cases (2 s reported); the shifted part's median within 0.5 s of the
-injected shift at the 90th percentile of detected cases; ≤ 5 % of unmodified sheets flagged. Drift,
-deleted verses and extra paragraphs are reported (`unmatched_*_share`). Exit 0 only when the gate
-passes.
+global +2/+5/+10/+20 s, a linear drift reaching 2-10 s at the last line, one verse shifted 3-20 s
+(a section of ≥ 5 lines: the check never moves a shorter block by more than 5 s, so a shorter verse
+would measure the case mix, not the check), one verse of ≥ 2 lines deleted, four lines of another
+song appended after the last one — in one seeded random order, and runs the check on each. As the
+note lists them, every shift makes the sheet late; the sheet-early direction is not injected. A
+global shift is detected when the song is flagged `shifted`, a verse shift only when the injected
+verse's own block reads `shifted`. Gate: shifts ≥ 5 s detected in ≥ 90 % of cases (2 s reported);
+the shifted part's median within 0.5 s of the injected shift in **every** detected case (the 90th
+percentile, nearest rank, is reported); ≤ 5 % of unmodified sheets flagged. Drift, deleted verses
+and extra paragraphs are reported (`unmatched_*_share`). Exit 0 only when the gate passes.
 
 ```bash
 # local (owner's host). Jamendo audio is CC NC/ND: stems and ears stay under scratch/.
@@ -311,9 +315,12 @@ half until none is, transcribes each piece on its own and spreads its letters ev
 letter rate is the piece's length); pieces never merge into one word. `--mix` transcribes the
 played mix instead (Whisper reads separated vocals worse: Jam-ALT, `yerel-model-denetim-2026-11.md` §1) with the stem's cut points.
 `--word-times` (Qwen only, en/ja/es/de/fr) spreads letters over Qwen3-ForcedAligner's word spans;
-the file says so (`word_times`). The output is the whole-song ear's shape plus `source` (backend,
-model, package version, settings), `timing: "segment"`, `input` and `segments`; `audit.textmatch`,
-`audit.finder` and `audit.anchors --ear` read it unchanged. Japanese stays in script.
+Whisper's own segments inside a piece are used the same way (`word_times: "whisper-segments"`);
+the file says which (`word_times`). The output is the whole-song ear's shape plus `source`
+(backend, model, package version, settings), `timing: "segment"`, `input`, `segments` (the pieces)
+and `lines` (the finest timed spans: Whisper's segments or the aligner's words, else the piece);
+`audit.textmatch`, `audit.finder` and `audit.anchors --ear` read it unchanged. Japanese stays in
+script.
 
 The backends are imported lazily and are **not** in `uv.lock`; install them where they run:
 
@@ -342,11 +349,15 @@ listing (`ls -la`) before and after.
 against the same document — placed lines (the finder's ear-text match, look-alike borrowings left
 out; `--search-ms` widens the ±8 s window); the external ear's placed share ≥ the current ear's;
 `--expect healthy` → |median line offset| ≤ 0.5 s; `--expect sheet-late` (GOSSIP, Got 2 Luv U) →
-median < −1 s, `sheet-early` → > +1 s; external segments with text lying ≥ 50 % inside a region
-where the CTC letter curve stays below 0.2 for more than 2 s ≤ 5 % (hallucination on instrumentals).
-Japanese and Turkish songs are reported, never gated. `--manifest` (`[{id, doc, ear, ext, expect}]`)
-adds the arm's verdict: pooled placed lines ≥ the current ear's, every expectation met, pooled
-silent-segment share ≤ 5 %.
+median < −1 s, `sheet-early` → > +1 s; external transcript lines (`lines`, else the pieces) with
+text lying ≥ 50 % inside a region where the CTC letter curve stays below 0.2 for more than 2 s
+≤ 5 % (hallucination on instrumentals; the share is exact). Japanese and Turkish songs are
+reported, never gated (the language comes from the document, or `--language` / the entry's
+`language` — a Japanese sheet in romaji needs it). `--manifest`
+(`[{id, doc, ear, ext, expect[, search_ms, language]}]`) adds the arm's verdict: pooled placed
+lines ≥ the current ear's, every expectation met, pooled silent-line share ≤ 5 %. Give GOSSIP's
+entry `"search_ms": 30000` (its verses sit 17-19 s off; ±8 s placed 11 lines at −3.5 s), and keep
+the healthy songs at the default window.
 
 ```bash
 PYTHONPATH=src uv run python -m audit.ear_gates --manifest ../../scratch/audit/ext/qwen.json \
@@ -365,16 +376,25 @@ pack is built from a whitelist of number fields, so no verdict, claim, note or o
 enter it. `--seed` shuffles the moment order (the three stability runs); `--kind probe` asks the
 M4 question instead ("which line of the last version has the second-largest |screen−voice|, and
 how large?") and stores the answer (none when not unique). `est_tokens` is a chars/3.5 estimate
-against the 12k target; `count` gives the real number.
+against the 12k target; `count` gives the real number — with Claude's tokenizer (request 1, and
+request 2's worst case: request 1 + a prose of `max_tokens` + the conversion line), or with
+`--backend local` the server's own (llama-server `/apply-template` + `/tokenize`; a song fits when
+request 1 + the conversion line + twice `--max-tokens`, prose in and answer out, stays within
+16,384; check that the server version has both endpoints).
 
 `run` sends two requests per song: prose, then the same prefix + the prose + "now as JSON"
 (`audit/summarize_schema.json`: per moment `t_ms`, `class`, `severity` 0-3, `reason`; the answer
 must judge every moment of the pack exactly once). One output per song in `--out`
 (`<id>.json`: model, prompt hash, settings, prose, JSON, usage, cost; temp file + atomic rename).
-A rerun skips songs done with the same prompt hash and settings, resumes a finished prose at
-request 2, resumes polling a submitted batch (`.batch-r1.json` / `.batch-r2.json`), retries
-transient failures (errored, expired, canceled) and leaves final ones (refusal, invalid answers)
-alone unless `--retry-failed`.
+A rerun skips songs done with the same prompt hash and settings and resumes a finished prose at
+request 2 (also after request 2 failed: the prose is never paid twice). A submitted batch is
+reused (`.batch-r1.json` / `.batch-r2.json`, one entry per batch, removed once the records are
+written) only for requests whose params are byte-identical to what it was sent — another effort,
+seed or pack sends a new batch, and a grown request set sends only the new requests.
+Infrastructure failures (errored, expired, canceled, missing) run again; the model's own failed
+answers (refusal, empty, truncated, invalid JSON) only with `--retry-failed`, and the record keeps
+the song's **first** answer (`first_answer`) for M5. A reply cut at `max_tokens` (`finish_reason:
+length` locally) is `truncated` and never sent on as a complete prose.
 
 - `--backend local`: llama-server's OpenAI-compatible `/v1/chat/completions` (httpx),
   temperature 0, `chat_template_kwargs.enable_thinking=false` (override or extend with
@@ -398,14 +418,17 @@ alone unless `--retry-failed`.
 `--labels` for the owner's listening set; a later file wins per moment), unsure and
 owner-disputed verdicts left out. A moment is flagged at severity ≥ 1; a labelled moment without
 a valid prediction counts as not flagged. Gated on the first `--runs` directory, the others
-reported: **M1** recall of real errors (pile, late, early, missing, wrong_text) ≥ 0.90 and
-precision ≥ 0.60; **M2** Spearman of model severity against label severity (ok 0, pile 1,
+reported. Every labelled moment counts (n is the labelled set): a labelled song missing from the
+run counts as not flagged and fails the `complete` gate. **M1** recall of real errors (pile, late,
+early, missing, wrong_text) ≥ 0.90 and precision ≥ 0.60; **M2** Spearman of model severity against label severity (ok 0, pile 1,
 late/early 2, missing/wrong_text 3) pooled ≥ 0.5 and precision@3 (expected under ties) ≥ 0.7 on
 songs with ≥ 3 real errors; **M3** recall of late + early + missing + wrong_text ≥ 0.7 (piles
 reported); **M4** probe answers right (line, value within 10 ms) on ≥ 95 % of the songs with a
-unique answer (19 of 20); **M5** first answers schema-valid (and covering every moment) ≥ 99 % of the
-answered requests, class agreement over every pair of runs ≥ 90 %. Shares are exact, never
-rounded before a gate. `passed` needs the probe run.
+unique answer, and at least 20 such songs (19 of 20); **M5** each song's first answer from the
+model schema-valid and covering every moment ≥ 99 % (a refusal, an empty or truncated reply counts
+against it; infrastructure failures do not count), class agreement over every pair of runs ≥ 90 %
+with at least three runs of distinct seeds. Shares are exact, never rounded before a gate.
+`passed` needs the probe run.
 
 ```bash
 cd apps/server
@@ -415,7 +438,9 @@ for s in 1 2 3; do PYTHONPATH=src uv run --extra audit python -m audit.summarize
 PYTHONPATH=src uv run --extra audit python -m audit.summarize pack --all --kind probe --seed 1 \
   --out ../../scratch/audit/summ/probe
 ANTHROPIC_API_KEY=... PYTHONPATH=src uv run --extra audit python -m audit.summarize count \
-  --packs ../../scratch/audit/summ/packs-s1
+  --packs ../../scratch/audit/summ/packs-s1                # Claude's tokenizer: the Opus cost
+PYTHONPATH=src uv run --extra audit python -m audit.summarize count --backend local \
+  --url http://<desktop>:8080 --packs ../../scratch/audit/summ/packs-s1   # Gemma: the 16k fit
 # Opus through Batches (the key and the workspace are the owner's call), then Gemma on the desktop
 ANTHROPIC_API_KEY=... PYTHONPATH=src uv run --extra audit python -m audit.summarize run \
   --packs ../../scratch/audit/summ/packs-s1 --backend batch --effort medium \

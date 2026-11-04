@@ -179,9 +179,9 @@ def has_script(text: str) -> bool:
 
 def reading_items[T](items: Sequence[tuple[str, T]]) -> list[tuple[str, T]]:
     """Kanji and kana to their kana reading (production analyzer: UniDic's
-    spoken form, so long vowels arrive as ー), each reading character with the
-    payload of the first character of its morpheme; Latin text passes through;
-    a morpheme without a reading is dropped."""
+    spoken form, so long vowels arrive as ー), the reading's characters spread
+    in order over the payloads of the morpheme's own characters; Latin text
+    passes through; a morpheme without a reading is dropped."""
     from kashi_server.pipeline.japanese import _reading, _tagger_instance
 
     text = "".join(ch for ch, _ in items)
@@ -200,7 +200,9 @@ def reading_items[T](items: Sequence[tuple[str, T]]) -> list[tuple[str, T]]:
                 continue
         else:
             sound = surface
-        out += [(ch, payloads[at]) for ch in sound]
+        # the reading spread over the surface's characters, in order
+        out += [(ch, payloads[at + (k * len(surface)) // len(sound)])
+                for k, ch in enumerate(sound)]
     return out
 
 

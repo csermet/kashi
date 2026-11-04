@@ -10,10 +10,11 @@ and an external one (``audit.ext_ear``) against the same document:
   |median| <= HEALTHY_MAX_MS (segment-timed); on GOSSIP and Got 2 Luv U,
   |median| > SHIFTED_MIN_MS with the Faz 3 sign (``--expect sheet-late``: the
   sheet is late, the median negative);
-- hallucination: the external transcript's segments lying mostly
-  (>= INSIDE_SHARE of their length) inside a region where the CTC letter curve
-  stays below SILENT_PROB for more than SILENT_MIN_MS; at most
-  MAX_SILENT_SEGMENTS of the segments with text.
+- hallucination: the external transcript's lines - its finest timed spans:
+  Whisper's own segments, the forced aligner's words, else the piece - lying
+  mostly (>= INSIDE_SHARE of their length) inside a region where the CTC
+  letter curve stays below SILENT_PROB for more than SILENT_MIN_MS; at most
+  MAX_SILENT_SEGMENTS of the lines with text.
 
 Japanese and Turkish songs are reported, never gated (n = 1 Japanese song;
 Turkish is segment-level only). ``arm`` pools the per-song reports into the
@@ -102,15 +103,18 @@ def silent_regions(ear: dict, prob: float = SILENT_PROB,
 
 
 def silent_segments(ext: dict, regions: Sequence[tuple[int, int]]) -> dict:
-    """External segments with text that lie mostly inside the CTC's silences."""
-    with_text = [s for s in ext.get("segments", []) if s.get("text", "").strip()]
+    """External transcript lines with text that lie mostly inside the CTC's
+    silences. Lines are the file's ``lines`` (timed sub-spans) when it has
+    them, else its ``segments`` (the pieces). The share is exact."""
+    unit = "lines" if ext.get("lines") is not None else "segments"
+    with_text = [x for x in ext.get(unit) or [] if x.get("text", "").strip()]
     inside = 0
     for seg in with_text:
         length = max(1, seg["end_ms"] - seg["start_ms"])
         overlap = sum(max(0, min(seg["end_ms"], e) - max(seg["start_ms"], s)) for s, e in regions)
         inside += overlap / length >= INSIDE_SHARE
-    return {"segments": len(with_text), "inside_silence": inside,
-            "share": round(inside / len(with_text), 3) if with_text else 0.0}
+    return {"unit": unit, "segments": len(with_text), "inside_silence": inside,
+            "share": inside / len(with_text) if with_text else 0.0}
 
 
 def song_language(doc: dict) -> str:
@@ -185,9 +189,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ear", help="the current CTC ear (whole.json)")
     parser.add_argument("--ext", help="the external ear (audit.ext_ear)")
     parser.add_argument("--expect", choices=EXPECTATIONS)
-    parser.add_argument("--search-ms", type=int, default=SEARCH_MS)
-    parser.add_argument("--manifest", type=Path, help="[{id, doc, ear, ext, expect}] (paths "
-                                                      "relative to the manifest)")
+    parser.add_argument("--search-ms", type=int, default=SEARCH_MS,
+                        help="the ear-text window; a manifest entry may set its own")
+    parser.add_argument("--language", help="jpn / tur: reported, not gated (default: from the "
+                                           "document); a manifest entry may set its own")
+    parser.add_argument("--manifest", type=Path,
+                        help="[{id, doc, ear, ext, expect[, search_ms, language]}] (paths "
+                             "relative to the manifest)")
     parser.add_argument("--json", type=Path)
     args = parser.parse_args(argv)
     if args.manifest:
@@ -196,14 +204,15 @@ def main(argv: list[str] | None = None) -> int:
     elif args.id and args.doc and args.ear and args.ext:
         base = Path(".")
         entries = [{"id": args.id, "doc": args.doc, "ear": args.ear, "ext": args.ext,
-                    "expect": args.expect}]
+                    "expect": args.expect, "language": args.language}]
     else:
         parser.error("give <id> --doc --ear --ext, or --manifest")
     reports = {}
     for e in entries:
         doc = load_document(base / e["doc"], e["id"])
         r = report(doc, json.loads((base / e["ear"]).read_text()),
-                   json.loads((base / e["ext"]).read_text()), e.get("expect"), args.search_ms)
+                   json.loads((base / e["ext"]).read_text()), e.get("expect"),
+                   e.get("search_ms") or args.search_ms, e.get("language") or args.language)
         reports[e["id"]] = r
         print(summary_line(e["id"], r))
     out: dict = {"songs": reports}

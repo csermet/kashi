@@ -317,6 +317,12 @@ def test_activity_correlation_reports_the_refrain_period():
     assert abs(abs(a2["rival_offset_ms"] - a2["offset_ms"]) - 6000) <= 200
 
 
+def test_activity_correlation_keeps_stretch_1_on_a_tie():
+    sheet = sheet_from_record(record([_irregular()]))
+    silent = {"stride_ms": 20.0, "start_ms": 0, "letter_prob": [0.0] * 5000, "tokens": []}
+    assert anchors.activity_correlation(sheet, silent)["stretch"] == 1.0
+
+
 def test_a2_accepts_from_ncc_08():
     assert anchors.a2_accepts(0.8) and not anchors.a2_accepts(0.7999)
 

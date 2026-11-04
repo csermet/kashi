@@ -508,7 +508,8 @@ def activity_correlation(sheet: Sequence[SheetLine], ear: dict,
     best: tuple[float, float, int] | None = None   # (ncc, stretch, offset bins)
     best_row: np.ndarray | None = None
     offsets = np.arange(-pad, pad + 1)
-    for stretch in A2_STRETCHES:
+    # 1.0 first, then outward: on a tie the unstretched reading wins
+    for stretch in sorted(A2_STRETCHES, key=lambda x: (abs(x - 1), x)):
         expected = np.zeros(n + 2 * pad)
         for s, e in spans:
             a, b = round(s * stretch / res) + pad, round(e * stretch / res) + pad

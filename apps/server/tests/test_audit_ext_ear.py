@@ -304,3 +304,51 @@ def test_pieces_never_merge_into_one_word():
     assert [(w.text, w.start_ms) for w in heard_words(out["tokens"])] == [("kala", 0),
                                                                            ("mito", 900)]
     assert out["text"] == "kala mito"
+
+
+def test_a_timed_sub_span_of_several_words_keeps_its_words():
+    toks = piece_tokens(Transcript("ab cd", words=[("Ab cd", 0, 400)]), 1000, 3000)
+    assert [(t["text"], t["start_ms"]) for t in toks] == [
+        ("a", 1000), ("b", 1100), ("|", 1200), ("c", 1200), ("d", 1300)]
+
+
+def test_lines_are_the_finest_timed_spans():
+    out = ext_ear.build(VID, [(0, 4000), (5000, 9000)],
+                        [Transcript("one two", words=[("one", 100, 900), ("two", 2000, 3000)]),
+                         Transcript("three")], 10_000, {"model": "fake"}, "stem",
+                        "whisper-segments")
+    assert out["lines"] == [{"start_ms": 100, "end_ms": 900, "text": "one"},
+                            {"start_ms": 2000, "end_ms": 3000, "text": "two"},
+                            {"start_ms": 5000, "end_ms": 9000, "text": "three"}]
+    # a line inside a CTC silence is caught although its piece is mostly sung
+    got = ear_gates.silent_segments(out, [(1900, 3100)])
+    assert got["unit"] == "lines" and (got["segments"], got["inside_silence"]) == (3, 1)
+    pieces_only = ear_gates.silent_segments(out | {"lines": None}, [(1900, 3100)])
+    assert pieces_only["unit"] == "segments" and pieces_only["inside_silence"] == 0
+
+
+def test_the_silence_share_is_exact():
+    lines = [{"start_ms": 0, "end_ms": 10, "text": "x"}] * 1250
+    regions = [(0, 10)]
+    ext = {"lines": lines[:63] + [{"start_ms": 100, "end_ms": 110, "text": "x"}] * 1187}
+    got = ear_gates.silent_segments(ext, regions)
+    assert got["share"] == 63 / 1250 and got["share"] > ear_gates.MAX_SILENT_SEGMENTS
+
+
+def test_a_manifest_entry_sets_its_own_window_and_language(tmp_path, capsys):
+    lines = _lines()
+    doc = document(lines)
+    (tmp_path / "doc.json").write_text(json.dumps(doc))
+    (tmp_path / "cur.json").write_text(json.dumps(ear([(t, s - 12_000) for t, s in lines])))
+    (tmp_path / "ext.json").write_text(json.dumps(ear([(t, s - 12_000) for t, s in lines])
+                                                  | {"segments": []}))
+    entry = {"id": VID, "doc": "doc.json", "ear": "cur.json", "ext": "ext.json",
+             "expect": "sheet-late"}
+    (tmp_path / "m.json").write_text(json.dumps([entry, entry | {"id": "wide",
+                                                                  "search_ms": 30_000},
+                                                 entry | {"id": "jp", "language": "jpn"}]))
+    ear_gates.main(["--manifest", str(tmp_path / "m.json"), "--json", str(tmp_path / "o.json")])
+    songs = json.loads((tmp_path / "o.json").read_text())["songs"]
+    assert songs[VID]["external"]["placed"] == 0              # 12 s off: outside +-8 s
+    assert songs["wide"]["search_ms"] == 30_000 and songs["wide"]["gates"]["offset"] is True
+    assert songs["jp"]["gated"] is False

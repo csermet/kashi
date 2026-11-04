@@ -16,7 +16,7 @@ shifted VERSE_SHIFT_RANGE_MS; one verse deleted; an extra trailing paragraph
 - shifts of >= 5 s (global and verse) detected (song flagged ``shifted``) in
   >= 90 % of cases; 2 s is reported;
 - offset error when detected (the shifted part's median against the injected
-  shift) <= 0.5 s at the 90th percentile;
+  shift) <= 0.5 s, every detected case (the 90th percentile is reported);
 - false alarms (a flag on an unmodified sheet) <= 5 %.
 Drift, deleted verses and extra paragraphs are reported, not gated.
 
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import statistics
 import sys
@@ -36,6 +37,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from audit.anchors import (
+    LONG_MOVE_MIN_LINES,
     MIN_ANCHOR_WORDS,
     NOISY_MIN_ANCHOR_WORDS,
     SheetLine,
@@ -51,8 +53,8 @@ EXTRA_GAP_MS = 4000
 GATED_SHIFT_MS = 5000
 # Pre-registered gates
 MIN_DETECTION = 0.90
-MAX_OFFSET_ERROR_MS = 500
-OFFSET_ERROR_PERCENTILE = 0.90
+MAX_OFFSET_ERROR_MS = 500     # every detected case
+OFFSET_ERROR_PERCENTILE = 0.90  # reported
 MAX_FALSE_ALARM = 0.05
 FLAGGED = frozenset({"shifted", "wrong-version candidate"})
 
@@ -114,16 +116,22 @@ def inject(sheet: Sequence[SheetLine], case: Case,
 
 
 def cases_for(song: str, sheet: Sequence[SheetLine], rng: random.Random) -> list[Case]:
+    """A shifted verse is a section of at least LONG_MOVE_MIN_LINES lines: the
+    check never moves a shorter block by more than 5 s (so a gated shift of a
+    shorter verse would measure the case mix, not the check); a deleted verse
+    is any section of two or more lines. A one-section song has neither."""
     sections = sorted({ln.section for ln in sheet})
-    # a verse is a section of its own with at least two lines, not the whole song
-    verses = [s for s in sections if sum(1 for ln in sheet if ln.section == s) >= 2] \
-        if len(sections) > 1 else []
+    size = {s: sum(1 for ln in sheet if ln.section == s) for s in sections}
+    several = len(sections) > 1
+    shiftable = [s for s in sections if size[s] >= LONG_MOVE_MIN_LINES] if several else []
+    deletable = [s for s in sections if size[s] >= 2] if several else []
     out = [Case(song, "none")]
     out += [Case(song, "global", s) for s in GLOBAL_SHIFTS_MS]
     out.append(Case(song, "drift", rng.randint(*DRIFT_RANGE_MS)))
-    if verses:
-        out.append(Case(song, "verse", rng.randint(*VERSE_SHIFT_RANGE_MS), rng.choice(verses)))
-        out.append(Case(song, "deleted", section=rng.choice(verses)))
+    if shiftable:
+        out.append(Case(song, "verse", rng.randint(*VERSE_SHIFT_RANGE_MS), rng.choice(shiftable)))
+    if deletable:
+        out.append(Case(song, "deleted", section=rng.choice(deletable)))
     out.append(Case(song, "extra"))
     return out
 
@@ -147,7 +155,13 @@ def evaluate(case: Case, sheet: Sequence[SheetLine], result: dict) -> dict:
     out = {"song": case.song, "kind": case.kind, "shift_ms": case.shift_ms,
            "section": case.section, "flag": result["flag"], "flagged": flagged}
     if case.kind in ("global", "verse"):
-        detected = "shifted" in result["flags"]
+        if case.kind == "verse":
+            # the injected verse's own block must read shifted, not any block
+            block = next((b for b in result["a1"]["blocks"] if case.section in b["sections"]),
+                         None)
+            detected = block is not None and block["verdict"] == "shifted"
+        else:
+            detected = "shifted" in result["flags"]
         median = affected_median(result, case, sheet)
         out |= {"detected": detected, "read_ms": median,
                 "error_ms": None if median is None or not detected
@@ -162,11 +176,11 @@ def evaluate(case: Case, sheet: Sequence[SheetLine], result: dict) -> dict:
 
 
 def _percentile(values: Sequence[float], q: float) -> float | None:
+    """Nearest rank: the smallest value with at least q of the values at or below it."""
     if not values:
         return None
     ordered = sorted(values)
-    k = min(len(ordered) - 1, max(0, round(q * (len(ordered) - 1))))
-    return ordered[k]
+    return ordered[max(0, math.ceil(q * len(ordered)) - 1)]
 
 
 def gate(outcomes: Sequence[dict]) -> dict:
@@ -178,6 +192,7 @@ def gate(outcomes: Sequence[dict]) -> dict:
     none = [o for o in outcomes if o["kind"] == "none"]
     detection = sum(o["detected"] for o in gated) / len(gated) if gated else None
     p_err = _percentile(errors, OFFSET_ERROR_PERCENTILE)
+    max_err = max(errors) if errors else None
     false_alarm = sum(o["flagged"] for o in none) / len(none) if none else None
 
     def rate(kind: str) -> float | None:
@@ -187,7 +202,7 @@ def gate(outcomes: Sequence[dict]) -> dict:
 
     checks = {
         "detection_ge_5s": detection is not None and detection >= MIN_DETECTION,
-        "offset_error": p_err is not None and p_err <= MAX_OFFSET_ERROR_MS,
+        "offset_error": max_err is not None and max_err <= MAX_OFFSET_ERROR_MS,
         "false_alarm": false_alarm is not None and false_alarm <= MAX_FALSE_ALARM,
     }
     return {
@@ -196,7 +211,7 @@ def gate(outcomes: Sequence[dict]) -> dict:
         "detection_lt_5s": round(sum(o["detected"] for o in small) / len(small), 3)
         if small else None,
         "offset_error_p90_ms": p_err,
-        "offset_error_max_ms": max(errors) if errors else None,
+        "offset_error_max_ms": max_err,
         "false_alarm": None if false_alarm is None else round(false_alarm, 3),
         "drift_detection": rate("drift"),
         "deleted_flagged": rate("deleted"),

@@ -20,7 +20,9 @@ ja, es, de, fr) ``--word-times`` adds word times inside the piece; marked.
 The output has the whole-song ear's shape (``ear/<id>/whole.json``), so
 ``audit.textmatch``, ``audit.finder`` and ``audit.anchors`` read it unchanged,
 plus ``source`` (backend, model, version, settings), ``timing: "segment"``,
-``word_times`` and the ``segments`` themselves. Japanese is kept as written
+``word_times``, the ``segments`` (pieces) and the ``lines`` (the finest timed
+spans: Whisper's own segments or the aligner's words inside a piece, else the
+piece; the hallucination gate counts these). Japanese is kept as written
 (script), never romanised here.
 
     python -m audit.ext_ear <id> --backend qwen3-asr|faster-whisper [--mix M]
@@ -125,7 +127,8 @@ def pieces(frames: Sequence[tuple[int, float]], hop_ms: float,
 class Transcript:
     text: str
     language: str | None = None
-    # (text, start_ms, end_ms) relative to the piece; only from a forced aligner
+    # timed sub-spans (text, start_ms, end_ms) relative to the piece: the forced
+    # aligner's words, or Whisper's own segments
     words: list[tuple[str, int, int]] | None = None
 
 
@@ -204,7 +207,7 @@ class FasterWhisper:
 
         self.settings = {"model": model, "device": device, "compute_type": compute_type,
                          "beam_size": beam_size, "temperature": 0.0, "vad_filter": False,
-                         "condition_on_previous_text": False}
+                         "condition_on_previous_text": False, "sub_spans": "whisper-segments"}
         self.model = WhisperModel(model, device=device, compute_type=compute_type)
 
     def describe(self) -> dict:
@@ -219,8 +222,10 @@ class FasterWhisper:
             segments, info = self.model.transcribe(
                 a, language=code, beam_size=self.settings["beam_size"], temperature=0.0,
                 vad_filter=False, condition_on_previous_text=False, word_timestamps=False)
-            text = " ".join(s.text.strip() for s in segments)
-            out.append(Transcript(text, getattr(info, "language", None)))
+            spans = [(seg.text.strip(), round(seg.start * 1000), round(seg.end * 1000))
+                     for seg in segments]
+            out.append(Transcript(" ".join(t for t, _, _ in spans), getattr(info, "language", None),
+                                  [x for x in spans if x[0]] or None))
         return out
 
 
@@ -260,26 +265,30 @@ def _spread(words: Sequence[str], s: int, e: int) -> list[dict]:
 
 def piece_tokens(transcript: Transcript, s: int, e: int) -> list[dict]:
     """A piece's tokens on the song clock: letters spread over the piece, or
-    over each word's own span when the transcript has word times."""
+    over each timed sub-span (a word, a Whisper segment) when the transcript
+    has them."""
+    def words_of(text: str) -> list[str]:
+        out = ["".join(ch for ch in w.lower() if _keep(ch)) for w in text.split()]
+        return [w for w in out if w]
+
     if transcript.words:
         out: list[dict] = []
-        for i, (text, ws, we) in enumerate(transcript.words):
-            letters = "".join(ch for ch in text.lower() if _keep(ch))
-            if not letters:
+        for text, ws, we in transcript.words:
+            words = words_of(text)
+            if not words:
                 continue
-            if i and out:
+            if out:
                 out.append({"text": WORD_DELIMITER, "start_ms": s + ws, "end_ms": s + ws})
-            out += _spread([letters], s + ws, s + max(ws + 1, we))
+            out += _spread(words, s + ws, s + max(ws + 1, we))
         return out
-    words = ["".join(ch for ch in w.lower() if _keep(ch)) for w in transcript.text.split()]
-    return _spread([w for w in words if w], s, e)
+    return _spread(words_of(transcript.text), s, e)
 
 
 def build(video_id: str, spans: Sequence[tuple[int, int]], transcripts: Sequence[Transcript],
           duration_ms: int, source: dict, audio: str, word_times: str | None = None) -> dict:
     """The whole-song ear file of the external ear."""
     tokens: list[dict] = []
-    segments = []
+    segments, lines = [], []
     frames = int(duration_ms / STRIDE_MS)
     prob = [0.0] * frames
     for (s, e), tr in zip(spans, transcripts, strict=True):
@@ -289,6 +298,9 @@ def build(video_id: str, spans: Sequence[tuple[int, int]], transcripts: Sequence
         tokens += toks
         segments.append({"start_ms": s, "end_ms": e, "text": tr.text.strip(),
                          "language": tr.language, "word_times": bool(tr.words)})
+        lines += ([{"start_ms": s + ws, "end_ms": s + we, "text": text}
+                   for text, ws, we in tr.words] if tr.words
+                  else [{"start_ms": s, "end_ms": e, "text": tr.text.strip()}])
         if toks:
             for i in range(max(0, int(s / STRIDE_MS)), min(frames, int(e / STRIDE_MS))):
                 prob[i] = 1.0
@@ -310,6 +322,7 @@ def build(video_id: str, spans: Sequence[tuple[int, int]], transcripts: Sequence
         "input": {"audio": audio, "silence_db": SILENCE_DB, "min_silence_ms": MIN_SILENCE_MS,
                   "max_piece_ms": MAX_PIECE_MS},
         "segments": segments,
+        "lines": lines,
     }
 
 
@@ -326,7 +339,8 @@ def transcribe_song(video_id: str, frames: Sequence[tuple[int, float]], hop_ms: 
     source = transcriber.describe()
     word_times = None
     if any(t.words for t in transcripts):
-        word_times = (source.get("settings") or {}).get("aligner") or "forced-aligner"
+        settings = source.get("settings") or {}
+        word_times = settings.get("aligner") or settings.get("sub_spans") or "forced-aligner"
     return build(video_id, spans, transcripts, duration, source, audio, word_times)
 
 

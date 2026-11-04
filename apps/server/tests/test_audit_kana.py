@@ -82,6 +82,9 @@ def test_script_mms_and_romaji_meet(script, mms, romaji):
 def test_script_readings_carry_their_morphemes_time():
     got = japanese_items([(ch, 100 * i) for i, ch in enumerate("雨が")])
     assert got == [("a", 0), ("m", 0), ("e", 0), ("g", 100), ("a", 100)]
+    # a reading longer than its surface is spread over the surface's characters
+    got = japanese_items([("光", 0), ("る", 400)])
+    assert got == [("h", 0), ("i", 0), ("k", 0), ("a", 0), ("r", 400), ("u", 400)]
 
 
 def _tokens(text, t0, step=90):

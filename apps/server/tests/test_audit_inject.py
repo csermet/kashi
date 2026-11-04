@@ -76,6 +76,11 @@ def test_cases_cover_every_kind_with_seeded_ranges():
                                      "verse", "deleted", "extra"]
     drift, verse = got[5], got[6]
     assert 2000 <= drift.shift_ms <= 10_000 and 3000 <= verse.shift_ms <= 20_000
+    # a verse to shift has at least five lines; a shorter one can still be deleted
+    short = sheet_from_record(record([[(t, 1000 + 4000 * i) for i, t in enumerate(
+        lines_of(VOCAB, 4, 5, seed=k))] for k in (8, 9)]))
+    kinds = [c.kind for c in cases_for("s", short, random.Random(3))]
+    assert "verse" not in kinds and "deleted" in kinds
     # a one-section song has no verse to shift or delete
     one = sheet_from_record(record([[(t, 1000 + 4000 * i)
                                       for i, t in enumerate(lines_of(VOCAB, 6, 5, seed=4))]]))
@@ -97,6 +102,9 @@ def test_gate_boundaries():
     assert not gate(worse + clean)["checks"]["detection_ge_5s"]
     late = [_outcome("global", 5000, True, 501)] * 10
     assert not gate(late + clean)["checks"]["offset_error"]
+    # every detected case counts: one 501 ms among nine good ones fails
+    one = [_outcome("global", 5000, True, 100)] * 9 + [_outcome("global", 5000, True, 501)]
+    assert not gate(one + clean)["checks"]["offset_error"]
     noisy = [_outcome("none")] * 18 + [_outcome("none", flagged=True)] * 2
     assert not gate(ok + noisy)["checks"]["false_alarm"]
     # 2 s shifts are reported, not gated
@@ -105,12 +113,15 @@ def test_gate_boundaries():
     assert g["detection_lt_5s"] == 0.0 and g["passed"]
 
 
-def test_offset_error_is_the_90th_percentile():
+def test_the_reported_90th_percentile_is_the_nearest_rank():
     errors = [100] * 9 + [900]
     rows = [_outcome("global", 10_000, True, e) for e in errors]
     assert gate(rows + [_outcome("none")])["offset_error_p90_ms"] == 100
     errors = [100] * 8 + [900, 900]
     rows = [_outcome("global", 10_000, True, e) for e in errors]
+    assert gate(rows + [_outcome("none")])["offset_error_p90_ms"] == 900
+    # six values: the 90th percentile is the largest (ceil(5.4) = 6th)
+    rows = [_outcome("global", 10_000, True, e) for e in [0, 0, 0, 0, 400, 900]]
     assert gate(rows + [_outcome("none")])["offset_error_p90_ms"] == 900
 
 
@@ -128,6 +139,18 @@ def test_the_harness_passes_on_synthetic_songs_and_is_seeded():
     assert [o["song"] for o in a["outcomes"]] != sorted(o["song"] for o in a["outcomes"])
     verse = [o for o in a["outcomes"] if o["kind"] == "verse"]
     assert all(o["detected"] and abs(o["read_ms"] + o["shift_ms"]) <= 100 for o in verse)
+
+
+def test_a_verse_counts_as_detected_only_by_its_own_block():
+    sheet = _sheet()
+    case = Case("s", "verse", 7000, section=2)
+    def result(verdicts):
+        blocks = [{"sections": [s], "verdict": v, "median_ms": 0, "placed": 5, "confirmed": 5}
+                  for s, v in enumerate(verdicts)]
+        return {"flag": "shifted", "flags": ["shifted"], "a3": {},
+                "a1": {"blocks": blocks, "lines": [], "song": {"median_ms": 0}}}
+    assert inject.evaluate(case, sheet, result(["ok", "ok", "shifted", "ok"]))["detected"]
+    assert not inject.evaluate(case, sheet, result(["shifted", "ok", "ok", "ok"]))["detected"]
 
 
 def test_cli_run_reads_a_manifest(tmp_path, capsys):
