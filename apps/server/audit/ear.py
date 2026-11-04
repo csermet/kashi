@@ -110,6 +110,12 @@ def hear_whole(video_id: str, model_name: str) -> dict:
 
 
 def _hear_span(video_id: str, model_name: str, start_ms: int, length_ms: int | None) -> dict:
+    return hear_audio(stem_path(video_id), model_name, start_ms, length_ms, label=video_id)
+
+
+def hear_audio(path: Path, model_name: str, start_ms: int = 0, length_ms: int | None = None,
+               label: str | None = None) -> dict:
+    """The ear over any audio file (a bench stem, say); ``label`` is its ``id``."""
     import torch  # pyright: ignore[reportMissingImports]
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
@@ -119,7 +125,7 @@ def _hear_span(video_id: str, model_name: str, start_ms: int, length_ms: int | N
 
     model, tokenizer = _load_model(model_name)
     with tempfile.TemporaryDirectory(prefix="kashi-ear-") as tmp:
-        clip = _decode(stem_path(video_id), Path(tmp) / "clip.wav", rate=16000,
+        clip = _decode(path, Path(tmp) / "clip.wav", rate=16000,
                        start_s=start_ms / 1000 if start_ms else None,
                        length_s=length_ms / 1000 if length_ms else None)
         audio = load_audio(str(clip), model.dtype, model.device)
@@ -139,7 +145,7 @@ def _hear_span(video_id: str, model_name: str, start_ms: int, length_ms: int | N
     id_to_token = {i: tok for tok, i in vocab.items()}
     tokens = timed_tokens(ids, id_to_token, blank_id, float(stride), start_ms)
     return {
-        "id": video_id,
+        "id": label,
         "model": model_name,
         "start_ms": start_ms,
         "stride_ms": round(float(stride), 4),

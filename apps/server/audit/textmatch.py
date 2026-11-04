@@ -76,14 +76,15 @@ def ear_stream(tokens: Sequence[dict]) -> tuple[str, list[int]]:
     return "".join(chars), times
 
 
-def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
-           search_ms: int = SEARCH_MS, line_ms: int | None = None) -> LineMatch | None:
-    """Best unambiguous placement of the line's letters near ``doc_start_ms``.
+def scan(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
+         search_ms: int = SEARCH_MS, line_ms: int | None = None) -> list[tuple[float, int]]:
+    """Every placement of the line's letters within ``search_ms`` of
+    ``doc_start_ms``: (similarity, heard ms). Empty for lines too short to place.
     ``line_ms`` (the document's line duration) sets the letter rate used to step
     back from the first matching run to the line's start."""
     target = letters(line_text)
     if len(target) < MIN_LETTERS or not stream:
-        return None
+        return []
     per_letter = (min(MAX_MS_PER_LETTER, max(MIN_MS_PER_LETTER, line_ms / len(target)))
                   if line_ms and line_ms > 0 else DEFAULT_MS_PER_LETTER)
     lo = next((i for i, t in enumerate(times) if t >= doc_start_ms - search_ms), len(times))
@@ -98,6 +99,15 @@ def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
         first = next((b for b in matcher.get_matching_blocks() if b.size >= ANCHOR_BLOCK), None)
         if first is not None:
             scored.append((matcher.ratio(), times[i + first.b] - round(first.a * per_letter)))
+    return scored
+
+
+def locate(line_text: str, doc_start_ms: int, stream: str, times: Sequence[int],
+           search_ms: int = SEARCH_MS, line_ms: int | None = None) -> LineMatch | None:
+    """Best unambiguous placement of the line's letters near ``doc_start_ms``
+    (``scan``): similar enough, and clearly better than any placement more
+    than AMBIGUITY_MS away."""
+    scored = scan(line_text, doc_start_ms, stream, times, search_ms, line_ms)
     if not scored:
         return None
     best_ratio, best_t = max(scored)

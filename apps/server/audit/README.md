@@ -59,6 +59,8 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit.render <id> <t> --doc L=D,...` | host | the picture (`moment-<t>.png`, ≤1568 px wide) and its numbers (`moment-<t>.json`) |
 | `audit/moment.sh <id> <t> L=D,... [--real]` | host | all of the above for one moment |
 | `audit.run_local <id> --lyrics R --out D` | audit image, worker env | one song through the worker's alignment and document builder on the cached stem: no database, no download, no separation (below) |
+| `audit.anchor_check <id> --doc D [--record R]` / `--pilot --expect E` | host | Faz 3.5 A1-A3: is the lyrics sheet where the singing is (below) |
+| `audit.inject ears` / `audit.inject run` | audit image / host | Faz 3.5 Step 1 on injected errors: JamendoLyrics sheets damaged on purpose |
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 
 `audit.analysis` caches per song: vocal loudness and onsets (the production
@@ -210,6 +212,62 @@ hash of either, so rule out the inputs before blaming the code.
 
 First run (2026-11-03, Stressed Out, the prod document of 2026-10-28, CPU): 528 of 528 words and all
 49 lines identical, max shift 0 ms.
+
+### Faz 3.5: the anchor check (Step 1)
+
+The plan, its gates and their reasons: `docs/research/yerel-model-denetim-2026-11.md`, "Faz 3.5".
+**Every gate is committed in `audit/gates.py` before any run** (pinned by `tests/test_audit_gates.py`);
+where the note needed an operational reading the module says so (`READING`). A gate changed after its
+step has run is a new pre-registration: report the old verdict next to the new one.
+
+`audit.anchors` reads a sheet (line texts with stamps: a document's lines, or an lrclib record's
+own stamps with `--record`) against the whole-song ear, with no new model:
+
+- **A1 unique anchors.** A line with ≥ 12 letters that shares < 0.6 with every other line is placed
+  over the whole song by the same matcher the finder uses (`textmatch.locate`, unambiguous only).
+  Consecutive anchors whose offsets agree within 1 s (against the median of the last three) form a
+  section; a lone disagreeing anchor is dropped, two that agree open the next section. A section
+  whose median offset is beyond ±1 s flags `shift` (`global` when every section is shifted, else
+  `section`). Offsets are heard minus sheet on the document clock: −18.9 s = the sheet is 18.9 s late.
+- **A2 activity.** The sheet's expected activity (each line for its letters at 90 ms a letter, cut at
+  the next stamp) against the ear's P(some letter) on a 100 ms grid, offsets ±30 s × stretches
+  0.95-1.05; normalised cross-correlation ≥ 0.8 is a confident fit. It flags a shift only when A1
+  found no section (a sheet of refrains).
+- **A3 coverage.** A line is heard when its letters match (≥ 0.55) within ±8 s of its corrected start
+  (no margin test: a refrain sung twice is heard twice). Singing (P ≥ 0.5) that no heard line
+  explains forms blocks (gaps ≤ 1 s merge, ≥ 3 s kept), readable at ≥ 4 letters a second.
+  `wrong_sheet` = a readable block **and** ≥ 25 % of the singing unexplained **and** ≥ 25 % of the
+  lines unheard — processed vocals the model cannot spell (the hardstyle negative) stay out.
+  `unsheeted_singing` (a readable block) and `unsung_lines` (≥ 3 consecutive lines unheard) are
+  reported, never alarms.
+
+```bash
+python -m audit.anchor_check <id> --doc <dump> [--record record.json]   # -> runs/<id>/anchors.json
+python -m audit.anchor_check --pilot --doc <2.29 dump> --expect ../../scratch/audit/step1-expect.json
+```
+
+`step1-expect.json` (outside the repository; it names songs) maps an id to what Faz 3 read:
+`{"<id>": {"expect": "shift", "offset_ms": -18900, "label": "..."}}`, `{"expect": "none"}` for the
+named negative, `{"expect": "wrong_sheet"}` for Enemy only after the owner's listen confirms another
+mix. Ids it does not name are expected clean. The pilot passes when every expected shift is flagged
+within 1 s of its reading, every expected wrong sheet raises `wrong_sheet`, every other song raises
+no alarm, and every named song has a document and a whole-song ear.
+
+Injected errors, on the bench's JamendoLyrics copy (human-timed lines = a healthy sheet):
+
+```bash
+# once, audit image with the worker env (ALIGN_MODELS picks each language's checkpoint):
+python -m audit.inject ears --jamendo-root benchmarks/data/jamendolyrics \
+  --stems benchmarks/data/stems/kim-base --out ../../scratch/audit/jamendo-ears
+python -m audit.inject run --jamendo-root benchmarks/data/jamendolyrics \
+  --ears ../../scratch/audit/jamendo-ears --json ../../scratch/audit/step1-inject.json
+```
+
+Per song: unmodified; every stamp +2/+5/+10/+20 s; linear drift with the last line +5/+10 s; two
+4-line verses moved 3-20 s (random sign); a deleted verse; another song's 4 lines appended — in a
+seeded random order. Gates: detection ≥ 90 % for shifts ≥ 5 s, median offset error ≤ 0.5 s over
+detected global and verse shifts, false alarms (`shift` or `wrong_sheet` on an unmodified song)
+≤ 5 %. Reported: 2 s shifts, verses under 5 s, deleted verse, extra paragraph.
 
 ### Reading a picture
 
