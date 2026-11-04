@@ -121,6 +121,13 @@ QUESTION = {
               "second-largest absolute screen-voice difference, and how large is that absolute "
               "value in ms? Name the line as L<number>. Answer in prose."),
 }
+# The numbers-plus-picture arm (Opus only): the moment pictures follow the table.
+PICTURE_NOTE = ("Each moment also comes with its picture, in the table's order: the separated "
+                "vocal's spectrogram with loudness and the -25 dB silence line on top, then the "
+                "speech model's letters, one lane per document version (word boxes, red for 0 ms "
+                "and amber for under 60 ms, and under them when the screen lights each word), the "
+                "overlay strip at the bottom; the white dashed line is the moment. The table holds "
+                "the measurements; use a picture for what the numbers cannot say.")
 CONVERT = {
     "review": ("Now give exactly the judgements you wrote above as JSON: one entry per moment "
                "with its t_ms, class, severity and reason. Do not change any judgement."),
@@ -243,8 +250,14 @@ def probe_answer(files: dict[int, dict]) -> dict | None:
     return {"line": ranked[1][0], "value_ms": ranked[1][1]}
 
 
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
 def build_pack(video_id: str, moments: dict, files: dict[int, dict], kind: str = "review",
-               seed: int | None = None) -> dict:
+               seed: int | None = None, images: dict[int, Path] | None = None) -> dict:
+    """``images`` (the numbers-plus-picture arm): ``moment-<t>.png`` per moment;
+    the pictures go after the table, in its order, the question stays last."""
     if kind not in KINDS:
         raise ValueError(f"unknown pack kind {kind!r}")
     order = sorted(files)
@@ -252,14 +265,19 @@ def build_pack(video_id: str, moments: dict, files: dict[int, dict], kind: str =
         random.Random(seed).shuffle(order)
     blocks = [moment_block(t, files[t], finder_info(moments, t)) for t in order]
     versions = list((files[order[0]].get("versions") or {}) if order else [])
+    pictures = [{"t_ms": t, "path": str(images[t]), "sha256": _sha(images[t])}
+                for t in order if images and t in images]
     user = "\n\n".join([
         f"Song {video_id}: {len(order)} moments; document versions {', '.join(versions) or '-'}.",
         *blocks,
+        *([PICTURE_NOTE] if pictures else []),
         QUESTION[kind],
     ])
     pack = {"id": video_id, "kind": kind, "seed": seed, "moments": order, "system": SYSTEM,
             "user": user, "convert": CONVERT[kind],
             "est_tokens": math.ceil((len(SYSTEM) + len(user)) / CHARS_PER_TOKEN)}
+    if pictures:
+        pack["images"] = pictures
     if kind == "probe":
         pack["probe_answer"] = probe_answer(files)
     pack["prompt_hash"] = prompt_hash(pack)
@@ -268,8 +286,32 @@ def build_pack(video_id: str, moments: dict, files: dict[int, dict], kind: str =
 
 def prompt_hash(pack: dict) -> str:
     payload = json.dumps({k: pack[k] for k in ("system", "user", "convert")}
-                         | {"schema": SCHEMAS[pack["kind"]]}, sort_keys=True)
+                         | {"schema": SCHEMAS[pack["kind"]],
+                            "images": [im["sha256"] for im in pack.get("images") or []]},
+                         sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def user_content(pack: dict) -> str | list[dict]:
+    """Request 1's user turn: the text, or with pictures the table, each moment's
+    picture (base64 PNG) after a one-line label, then the question. A picture
+    that changed since the pack was built is refused."""
+    if not pack.get("images"):
+        return pack["user"]
+    import base64
+
+    head, question = pack["user"].rsplit("\n\n", 1)
+    blocks: list[dict] = [{"type": "text", "text": head}]
+    for im in pack["images"]:
+        path = Path(im["path"])
+        if _sha(path) != im["sha256"]:
+            raise ValueError(f"{path} changed since the pack was built")
+        blocks += [{"type": "text", "text": f"Picture for t={im['t_ms']} ms:"},
+                   {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                "data": base64.b64encode(
+                                                    path.read_bytes()).decode()}}]
+    blocks.append({"type": "text", "text": question})
+    return blocks
 
 
 # --- run -------------------------------------------------------------------------
@@ -441,6 +483,9 @@ class LocalBackend:
             log: Callable[[str], None] = print) -> dict:
         import httpx
 
+        if any(p.get("images") for p, _ in [*first, *second]):
+            raise ValueError("pictures are for the Opus arm (--backend batch); pack without "
+                             "--images for the local server")
         counts: Counter = Counter()
         settings = self.settings()
         jobs = [(p, _record(p, self.name, self.model, settings, old)) for p, old in first]
@@ -507,7 +552,7 @@ class BatchBackend:
     def params(self, pack: dict, prose: str | None = None) -> dict:
         """Thinking always on (adaptive), effort explicit; no sampling
         parameters, no prefill, no fallbacks (Batches rejects them)."""
-        messages: list[dict] = [{"role": "user", "content": pack["user"]}]
+        messages: list[dict] = [{"role": "user", "content": user_content(pack)}]
         output_config: dict = {"effort": self.effort}
         if prose is not None:
             messages += [{"role": "assistant", "content": prose},
@@ -638,8 +683,9 @@ def count_tokens(client: Any, packs: Sequence[dict], model: str = MODEL,
     rows = {}
     convert = None
     for pack in packs:
-        got = client.messages.count_tokens(model=model, system=pack["system"],
-                                           messages=[{"role": "user", "content": pack["user"]}])
+        got = client.messages.count_tokens(
+            model=model, system=pack["system"],
+            messages=[{"role": "user", "content": user_content(pack)}])
         if convert is None:
             convert = client.messages.count_tokens(
                 model=model, messages=[{"role": "user", "content": pack["convert"]}]).input_tokens
@@ -881,6 +927,8 @@ def main(argv: list[str] | None = None) -> int:
     pk.add_argument("--seed", type=int)
     pk.add_argument("--kind", choices=KINDS, default="review")
     pk.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    pk.add_argument("--images", action="store_true",
+                    help="the numbers-plus-picture arm: attach each moment-<t>.png (Opus only)")
     pk.add_argument("--out", type=Path, required=True)
     rn = sub.add_parser("run")
     rn.add_argument("--packs", type=Path, required=True)
@@ -912,7 +960,14 @@ def main(argv: list[str] | None = None) -> int:
         ids = _song_ids(args, args.runs_dir)
         for vid in ids:
             moments, files = load_song(args.runs_dir / vid)
-            pack = build_pack(vid, moments, files, args.kind, args.seed)
+            images = None
+            if args.images:
+                images = {t: args.runs_dir / vid / f"moment-{t}.png" for t in files
+                          if (args.runs_dir / vid / f"moment-{t}.png").exists()}
+                if len(images) < len(files):
+                    print(f"{vid}: {len(files) - len(images)} moments without a picture",
+                          file=sys.stderr)
+            pack = build_pack(vid, moments, files, args.kind, args.seed, images)
             write_atomic(args.out / f"{vid}.json", pack)
             warn = " (over the target)" if pack["est_tokens"] > TOKEN_TARGET else ""
             print(f"{vid}: {len(pack['moments'])} moments, ~{pack['est_tokens']} tokens{warn}")

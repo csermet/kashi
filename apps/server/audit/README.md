@@ -382,6 +382,13 @@ request 2's worst case: request 1 + a prose of `max_tokens` + the conversion lin
 request 1 + the conversion line + twice `--max-tokens`, prose in and answer out, stays within
 16,384; check that the server version has both endpoints).
 
+**Numbers-plus-picture arm (Opus only).** `pack --images` attaches each moment's
+`moment-<t>.png` (from `audit.render`; a moment without one is named on stderr): the table, a
+short note on how to read the picture, then per moment a one-line label and the picture (base64
+PNG) in the table's order, the question last. The pictures' hashes enter the prompt hash, and a
+picture rendered again after packing is refused at send time. The local backend refuses picture
+packs; score both arms with the same `score` call.
+
 `run` sends two requests per song: prose, then the same prefix + the prose + "now as JSON"
 (`audit/summarize_schema.json`: per moment `t_ms`, `class`, `severity` 0-3, `reason`; the answer
 must judge every moment of the pack exactly once). One output per song in `--out`
@@ -448,7 +455,10 @@ ANTHROPIC_API_KEY=... PYTHONPATH=src uv run --extra audit python -m audit.summar
 PYTHONPATH=src uv run --extra audit python -m audit.summarize run \
   --packs ../../scratch/audit/summ/packs-s1 --backend local --url http://<desktop>:8080 \
   --model gemma-4-26b-a4b --out ../../scratch/audit/summ/gemma-s1
-# (s2, s3 and the probe likewise), then per arm
+# (s2, s3 and the probe likewise); the Opus picture arm from its own packs
+PYTHONPATH=src uv run --extra audit python -m audit.summarize pack --all --images --seed 1 \
+  --out ../../scratch/audit/summ/packs-img-s1
+# then per arm
 PYTHONPATH=src uv run --extra audit python -m audit.summarize score \
   --runs ../../scratch/audit/summ/opus-s1 ../../scratch/audit/summ/opus-s2 \
   ../../scratch/audit/summ/opus-s3 --labels ../../scratch/audit/review.jsonl \

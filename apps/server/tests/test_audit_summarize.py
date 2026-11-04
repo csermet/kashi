@@ -778,3 +778,64 @@ def test_cli_pack_and_score(tmp_path, capsys):
                    "--json", str(out)]) == 0
     result = json.loads(out.read_text())
     assert result["runs"][0]["m1_recall"] == 1.0 and result["passed"] is False   # no probe
+
+
+# --- the numbers-plus-picture arm --------------------------------------------------
+
+def _pictures(tmp_path, moments=MOMENTS):
+    d = tmp_path / "runs" / VID
+    for t in moments:
+        (d / f"moment-{t}.png").write_bytes(b"\x89PNG fake " + str(t).encode())
+    return {t: d / f"moment-{t}.png" for t in moments}
+
+
+def test_a_picture_pack_puts_the_pictures_between_table_and_question(tmp_path):
+    d = _song_dir(tmp_path)
+    moments, files = S.load_song(d)
+    plain = S.build_pack(VID, moments, files, seed=2)
+    pack = S.build_pack(VID, moments, files, seed=2, images=_pictures(tmp_path))
+    assert [im["t_ms"] for im in pack["images"]] == pack["moments"]       # the table's order
+    assert pack["prompt_hash"] != plain["prompt_hash"] and "images" not in plain
+    assert pack["user"].endswith(S.PICTURE_NOTE + "\n\n" + S.QUESTION["review"])
+    content = S.user_content(pack)
+    assert content[0]["type"] == "text" and content[0]["text"].endswith(S.PICTURE_NOTE)
+    assert content[-1] == {"type": "text", "text": S.QUESTION["review"]}
+    images = [b for b in content if b["type"] == "image"]
+    assert len(images) == 4 and images[0]["source"]["media_type"] == "image/png"
+    assert content[1]["text"] == f"Picture for t={pack['moments'][0]} ms:"
+    assert S.user_content(plain) == plain["user"]
+    params = S.BatchBackend(client=None).params(pack)
+    assert params["messages"][0]["content"] == content
+    # a picture rendered again after packing is refused
+    (d / f"moment-{pack['moments'][0]}.png").write_bytes(b"other")
+    with pytest.raises(ValueError, match="changed"):
+        S.user_content(pack)
+
+
+def test_the_local_server_gets_no_pictures(tmp_path):
+    d = _song_dir(tmp_path)
+    moments, files = S.load_song(d)
+    pack = S.build_pack(VID, moments, files, images=_pictures(tmp_path))
+    backend = _local(lambda request: httpx.Response(500))
+    with pytest.raises(ValueError, match="Opus arm"):
+        backend.run([(pack, None)], [], tmp_path / "out", log=lambda s: None)
+
+
+def test_cli_pack_images(tmp_path, capsys):
+    _song_dir(tmp_path)
+    _pictures(tmp_path, MOMENTS[:3])
+    out = tmp_path / "packs"
+    assert S.main(["pack", VID, "--images", "--runs-dir", str(tmp_path / "runs"),
+                   "--out", str(out)]) == 0
+    assert "1 moments without a picture" in capsys.readouterr().err
+    pack = json.loads((out / f"{VID}.json").read_text())
+    assert [im["t_ms"] for im in pack["images"]] == MOMENTS[:3]
+
+
+def test_other_pictures_are_another_prompt(tmp_path):
+    d = _song_dir(tmp_path)
+    moments, files = S.load_song(d)
+    first = S.build_pack(VID, moments, files, images=_pictures(tmp_path))
+    (d / f"moment-{MOMENTS[0]}.png").write_bytes(b"re-rendered")
+    again = S.build_pack(VID, moments, files, images={t: d / f"moment-{t}.png" for t in MOMENTS})
+    assert first["user"] == again["user"] and first["prompt_hash"] != again["prompt_hash"]
