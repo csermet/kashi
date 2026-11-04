@@ -356,8 +356,11 @@ on the Batches API. Message Batches keep requests 29 days and are not zero-reten
 pack carries lyric lines and numbers, never audio.
 
 `audit.step3` scores against the Faz 3 verdicts under the owner rules (disputed and `unsure` out):
-reproducibility. The listening set (same JSONL shape: `id, t_ms, verdict`) is the accuracy
-reference, reported. The note's gates need operational readings, written in the module and
+reproducibility. The listening set is the accuracy reference, reported:
+`scratch/audit/listening.jsonl`, the same JSONL shape (`id, t_ms, verdict`, no `agreement`), a
+subset of the 96 moments written from the owner's answers; `review.jsonl` stays frozen. A listening
+moment without a prediction (outside the pack, or its output invalid) is skipped and counted
+(`no_prediction`), never scored as the model's "ok". The note's gates need operational readings, written in the module and
 pre-registered with this commit: a real error is a BAD label, flagged by any BAD verdict (`unsure`
 flags nothing, nor does a missing or invalid output); label severity ok 0 / pile 1 / visible 2;
 every gate must hold in every one of the three shuffled runs; precision@3 pooled over songs with ≥ 3

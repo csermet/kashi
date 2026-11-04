@@ -177,17 +177,21 @@ def agreement(labels: dict[Key, str], runs: Sequence[Sequence[dict]]) -> float |
 
 
 def listening_accuracy(listening: dict[Key, str], outputs: Sequence[dict]) -> dict:
-    """Against the owner's listening set: error or not, and the exact class."""
+    """Against the owner's listening set: error or not, and the exact class,
+    over the moments the run answered. A listening moment without a prediction
+    (outside the pack, or its song's output invalid) is skipped and counted,
+    never scored as the model's "ok"."""
     pred: dict[Key, tuple[str, int]] = {}
     for out in outputs:
         pred |= predictions(out)
-    keys = sorted(listening)
+    keys = sorted(k for k in listening if k in pred)
+    skipped = len(listening) - len(keys)
     if not keys:
-        return {"moments": 0}
-    error_agree = sum(1 for k in keys if (pred.get(k, ("ok", 0))[0] in BAD)
-                      == (listening[k] in BAD))
-    exact = sum(1 for k in keys if pred.get(k, ("ok", 0))[0] == listening[k])
-    return {"moments": len(keys), "error_or_not": round(error_agree / len(keys), 4),
+        return {"moments": 0, "no_prediction": skipped}
+    error_agree = sum(1 for k in keys if (pred[k][0] in BAD) == (listening[k] in BAD))
+    exact = sum(1 for k in keys if pred[k][0] == listening[k])
+    return {"moments": len(keys), "no_prediction": skipped,
+            "error_or_not": round(error_agree / len(keys), 4),
             "exact_class": round(exact / len(keys), 4)}
 
 

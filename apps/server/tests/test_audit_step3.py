@@ -417,9 +417,20 @@ def test_the_listening_set_is_reported():
     out = [_output(VID, [("late", 2), ("ok", 0), ("pile", 1)])]
     listening = _labels(VID, ["early", "ok", "ok"])
     acc = evaluate({}, [out], listening)["listening"][0]
-    assert acc == {"moments": 3, "error_or_not": round(2 / 3, 4), "exact_class": round(1 / 3, 4)}
+    assert acc == {"moments": 3, "no_prediction": 0, "error_or_not": round(2 / 3, 4),
+                   "exact_class": round(1 / 3, 4)}
     unsure = [_output(VID, [("unsure", 1)])]
     assert evaluate({}, [unsure], _labels(VID, ["ok"]))["listening"][0]["error_or_not"] == 1.0
+
+
+def test_a_listening_moment_without_a_prediction_is_skipped_not_scored_ok():
+    out = [_output(VID, [("late", 2)])]                    # answers (VID, 1000) only
+    listening = {(VID, 1000): "late", (VID, 2000): "ok", ("otherVid01", 1000): "ok"}
+    acc = evaluate({}, [out], listening)["listening"][0]
+    assert acc == {"moments": 1, "no_prediction": 2, "error_or_not": 1.0, "exact_class": 1.0}
+    invalid = [_output(VID, [("late", 2)], valid=False)]
+    assert evaluate({}, [invalid], listening)["listening"][0] == {"moments": 0,
+                                                                  "no_prediction": 3}
 
 
 def test_the_gate_numbers_are_the_registered_ones():
