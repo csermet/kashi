@@ -161,3 +161,38 @@ def test_deleted_and_extra_are_reported_with_their_coverage(kind):
         assert out["unmatched_sung_share"] > 0.15 and out["unmatched_line_share"] == 0
     else:
         assert out["unmatched_line_share"] == pytest.approx(4 / 24, abs=0.01)
+
+
+def _mini_jamendo(tmp_path):
+    """The bench's synthetic mini checkout shape (tests/test_benchmark_datasets.py)."""
+    root = tmp_path / "jamendolyrics"
+    (root / "lyrics").mkdir(parents=True)
+    (root / "annotations" / "words").mkdir(parents=True)
+    (root / "JamendoLyrics.csv").write_text(
+        "URL,Filepath,Artist,Title,Genre,LicenseType,Language,LyricOverlap,Polyphonic,NonLexical\n"
+        "u,Artist_-_Song.mp3,Artist,Song,Pop,BY-ND,English,false,false,false\n")
+    (root / "lyrics" / "Artist_-_Song.words.txt").write_text("hello world bye now again")
+    (root / "annotations" / "words" / "Artist_-_Song.csv").write_text(
+        "word_start,word_end,line_end\n1.0,1.5,nan\n1.5,2.0,2.0\n"
+        "4.9,5.5,5.5\n10.0,10.5,nan\n10.5,11.0,11.0\n")
+    return root
+
+
+def test_jamendo_records_use_the_human_line_starts_and_gap_sections(tmp_path):
+    (song, rec), = inject.jamendo_records(_mini_jamendo(tmp_path))
+    assert song == "jam-Artist_-_Song"
+    sheet = sheet_from_record(rec)
+    assert [(ln.text, ln.start_ms) for ln in sheet] == [
+        ("hello world", 1000), ("bye", 4900), ("now again", 10_000)]
+    # 4900 - 2000 = 2900 < 3000: same section; 10000 - 5500 >= 3000: a new one
+    assert [ln.section for ln in sheet] == [0, 0, 1]
+
+
+def test_cli_manifest_writes_records_and_ear_paths(tmp_path, capsys):
+    out = tmp_path / "inject"
+    assert inject.main(["manifest", "--jamendo", str(_mini_jamendo(tmp_path)), "--out", str(out),
+                        "--ears", str(tmp_path / "ears")]) == 0
+    (entry,) = json.loads((out / "manifest.json").read_text())
+    assert entry["id"] == "jam-Artist_-_Song" and entry["record"] == "jam-Artist_-_Song.record.json"
+    assert entry["ear"] == str((tmp_path / "ears" / "jam-Artist_-_Song" / "whole.json").resolve())
+    assert "1 records" in capsys.readouterr().out
