@@ -60,6 +60,7 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit/moment.sh <id> <t> L=D,... [--real]` | host | all of the above for one moment |
 | `audit.run_local <id> --lyrics R --out D` | audit image, worker env | one song through the worker's alignment and document builder on the cached stem: no database, no download, no separation (below) |
 | `audit.anchor_check <id> --doc D [--record R]` / `--pilot --expect E` | host | Faz 3.5 A1-A3: is the lyrics sheet where the singing is (below) |
+| `audit.external_ear pieces / transcribe / import / step2` | GPU host / host | Faz 3.5 Step 2: a lyrics-free ASR ear in the whole-song ear's shape, and its gates |
 | `audit.inject ears` / `audit.inject run` | audit image / host | Faz 3.5 Step 1 on injected errors: JamendoLyrics sheets damaged on purpose |
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 
@@ -268,6 +269,38 @@ Per song: unmodified; every stamp +2/+5/+10/+20 s; linear drift with the last li
 seeded random order. Gates: detection ≥ 90 % for shifts ≥ 5 s, median offset error ≤ 0.5 s over
 detected global and verse shifts, false alarms (`shift` or `wrong_sheet` on an unmodified song)
 ≤ 5 %. Reported: 2 s shifts, verses under 5 s, deleted verse, extra paragraph.
+
+### Faz 3.5: a second ear (Step 2)
+
+Qwen3-ASR (and Whisper large-v3-turbo as the second arm) never see the lyrics, so they can hear a
+sheet that is wrong. They return text without times: `audit.external_ear` cuts the stem at the
+finder's silences (≥ 500 ms below −25 dB; a stretch longer than 30 s is cut at its quietest frame
+between 15 and 30 s; pieces under 300 ms are breaths), transcribes each piece, spreads its
+characters evenly over it and writes `ear/<id>/<name>.json` **in the whole-song ear's shape**
+(`timing: "segment"`, a letter curve of 1 inside pieces with text). The ear-text match, the finder,
+`audit.score` and `audit.anchors` read it unchanged. Segment-level times: for the ≥ 1 s class, never
+for word timing. Characters of any script are kept (Japanese needs the script-aware matcher).
+
+```bash
+python -m audit.external_ear pieces <id>                       # where the stem is cut
+# bench GPU image with `pip install qwen-asr` (the day-one gate: it runs on the 5070 Ti)
+python -m audit.external_ear transcribe <id> --backend qwen3-asr
+# cnr-intel CPU, faster-whisper; the MIX cut at the stem's pieces (separated vocals hurt Whisper)
+python -m audit.external_ear transcribe <id> --backend whisper --audio <mix>
+# pieces transcribed anywhere else: [{"start_ms", "end_ms", "text"}]
+python -m audit.external_ear import <id> --transcript pieces.json --model qwen3-asr
+python -m audit.external_ear step2 --doc <2.29 dump> --ear qwen3-asr \
+  --expect ../../scratch/audit/step1-expect.json
+```
+
+The backends' calls (`qwen_asr.Qwen3ASRModel.transcribe`, `faster_whisper.WhisperModel`) are
+written from their documentation and were never run here; `import` works whatever runs them. Step 2
+gates per arm (`audit.gates`): placed-line share (the finder's ear-text match, pooled over songs)
+at or above the CTC ear's; every healthy song with ≥ 3 placed lines within ±0.5 s; every expected
+shift beyond 1 s with its sign; at most 5 % of the pieces with text centred in a stretch the CTC
+letter curve calls silent (P < 0.2) for > 2 s. Healthy = not named in the expectations file, or
+named with `expect: none` and without `"healthy": false`. The 20 mixes kept for the Whisper arm are
+deleted when the test ends; record the listing.
 
 ### Reading a picture
 
