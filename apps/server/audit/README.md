@@ -64,6 +64,7 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit.inject manifest\|run ...` | host | seeded errors injected into correct records: the anchor check's bench gate (below) |
 | `audit.ext_ear <id> --backend qwen3-asr\|faster-whisper [--mix M]` | desktop GPU (Qwen) / host CPU (Whisper) | a second ear that never sees the lyrics: the stem cut at the finder's silences, each piece transcribed and stamped → `ear/<id>/whole-<backend>.json` (below) |
 | `audit.ear_gates <id> --doc D --ear E --ext X` / `--manifest M` | host | the second ear's step-2 gates against the current ear (below) |
+| `audit.summarize pack\|run\|count\|score ...` | host (+ desktop llama-server / Message Batches) | the summarizer trial: one text pack per song, two requests per song, M1-M5 against the verdicts (below) |
 
 `audit.analysis` caches per song: vocal loudness and onsets (the production
 functions, on the 16 kHz stem) and **voice onsets** — where the voice returns
@@ -350,6 +351,83 @@ silent-segment share ≤ 5 %.
 ```bash
 PYTHONPATH=src uv run python -m audit.ear_gates --manifest ../../scratch/audit/ext/qwen.json \
   --json ../../scratch/audit/ext/qwen-gates.json
+```
+
+### Summarizer trial (step 3)
+
+`audit.summarize` builds one **text** pack per song from `runs/<id>/moments.json` and every
+rendered `moment-<t>.json` (suffixed variants such as `-real` are skipped): per moment its source
+(finder rank and score, or control), the finder's events, the voice returns in the window, the
+ear's text, and per document version one row per line with every difference already computed
+(doc−voice, screen−voice, the start delta against the previous version, word flag counts,
+syllables against loudness bumps, the ear's letters). The question comes last; no picture; the
+pack is built from a whitelist of number fields, so no verdict, claim, note or owner answer can
+enter it. `--seed` shuffles the moment order (the three stability runs); `--kind probe` asks the
+M4 question instead ("which line of the last version has the second-largest |screen−voice|, and
+how large?") and stores the answer (none when not unique). `est_tokens` is a chars/3.5 estimate
+against the 12k target; `count` gives the real number.
+
+`run` sends two requests per song: prose, then the same prefix + the prose + "now as JSON"
+(`audit/summarize_schema.json`: per moment `t_ms`, `class`, `severity` 0-3, `reason`; the answer
+must judge every moment of the pack exactly once). One output per song in `--out`
+(`<id>.json`: model, prompt hash, settings, prose, JSON, usage, cost; temp file + atomic rename).
+A rerun skips songs done with the same prompt hash and settings, resumes a finished prose at
+request 2, resumes polling a submitted batch (`.batch-r1.json` / `.batch-r2.json`), retries
+transient failures (errored, expired, canceled) and leaves final ones (refusal, invalid answers)
+alone unless `--retry-failed`.
+
+- `--backend local`: llama-server's OpenAI-compatible `/v1/chat/completions` (httpx),
+  temperature 0, `chat_template_kwargs.enable_thinking=false` (override or extend with
+  `--extra-body '{...}'`; check which switch the server's Gemma 4 template reads), request 2 with
+  `response_format` json_schema (grammar-constrained).
+- `--backend batch`: Message Batches through the `anthropic` SDK (2.3.0, `audit` extra; it sends
+  API version 2026-10-21). `claude-opus-5-5`, `thinking: {type: adaptive}` (Opus 5.5 cannot
+  disable it), `output_config.effort` always sent (`--effort`, default `medium`, the model's own
+  default), request 2 adds `output_config.format` (json_schema); no `temperature`/`top_p`/`top_k`
+  (400), no prefill, no `fallbacks` (Batches rejects it — a `stop_reason: refusal` is counted and
+  recorded instead). Request 2 needs request 1's text, so two batches run back to back; results come
+  in any order and are matched by `custom_id` (`r1-<id>`, `r2-<id>`); succeeded / errored /
+  canceled / expired / refusal are counted per batch. Cost from `usage` at Batches prices
+  (`PRICES`: input, output, cache writes 5 min / 1 h, cache reads; thinking is billed as output).
+  No prompt caching: request 2 comes after the first batch has ended, past a 5-minute cache, and
+  a 1-hour write (2×) would not pay for one read. The key is read from `ANTHROPIC_API_KEY` only and
+  never written to a file or a log. Packs carry lyric lines and song ids: on the Batches path they
+  are retained for 29 days (`yerel-model-denetim-2026-11.md` §7).
+
+`score` (pre-registered, `tests/test_audit_summarize.py`): labels from `review.jsonl` (repeat
+`--labels` for the owner's listening set; a later file wins per moment), unsure and
+owner-disputed verdicts left out. A moment is flagged at severity ≥ 1; a labelled moment without
+a valid prediction counts as not flagged. Gated on the first `--runs` directory, the others
+reported: **M1** recall of real errors (pile, late, early, missing, wrong_text) ≥ 0.90 and
+precision ≥ 0.60; **M2** Spearman of model severity against label severity (ok 0, pile 1,
+late/early 2, missing/wrong_text 3) pooled ≥ 0.5 and precision@3 (expected under ties) ≥ 0.7 on
+songs with ≥ 3 real errors; **M3** recall of late + early + missing + wrong_text ≥ 0.7 (piles
+reported); **M4** probe answers right (line, value within 10 ms) on ≥ 95 % of the songs with a
+unique answer (19 of 20); **M5** first answers schema-valid (and covering every moment) ≥ 99 % of the
+answered requests, class agreement over every pair of runs ≥ 90 %. Shares are exact, never
+rounded before a gate. `passed` needs the probe run.
+
+```bash
+cd apps/server
+# packs (three shuffled orders + the probe), counted once
+for s in 1 2 3; do PYTHONPATH=src uv run --extra audit python -m audit.summarize pack --all \
+  --seed $s --out ../../scratch/audit/summ/packs-s$s; done
+PYTHONPATH=src uv run --extra audit python -m audit.summarize pack --all --kind probe --seed 1 \
+  --out ../../scratch/audit/summ/probe
+ANTHROPIC_API_KEY=... PYTHONPATH=src uv run --extra audit python -m audit.summarize count \
+  --packs ../../scratch/audit/summ/packs-s1
+# Opus through Batches (the key and the workspace are the owner's call), then Gemma on the desktop
+ANTHROPIC_API_KEY=... PYTHONPATH=src uv run --extra audit python -m audit.summarize run \
+  --packs ../../scratch/audit/summ/packs-s1 --backend batch --effort medium \
+  --out ../../scratch/audit/summ/opus-s1
+PYTHONPATH=src uv run --extra audit python -m audit.summarize run \
+  --packs ../../scratch/audit/summ/packs-s1 --backend local --url http://<desktop>:8080 \
+  --model gemma-4-26b-a4b --out ../../scratch/audit/summ/gemma-s1
+# (s2, s3 and the probe likewise), then per arm
+PYTHONPATH=src uv run --extra audit python -m audit.summarize score \
+  --runs ../../scratch/audit/summ/opus-s1 ../../scratch/audit/summ/opus-s2 \
+  ../../scratch/audit/summ/opus-s3 --labels ../../scratch/audit/review.jsonl \
+  --probe ../../scratch/audit/summ/opus-probe --json ../../scratch/audit/summ/opus-score.json
 ```
 
 ### Reading a picture

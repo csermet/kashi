@@ -57,9 +57,10 @@ semantics = [
 # Benchmark harness only (benchmarks/ never ships in the image; the bench
 # container build opts in with --build-arg SERVER_EXTRAS).
 bench = []
-# Perceptual audit (apps/server/audit): plots for the agent to read. Never in
+# Perceptual audit (apps/server/audit): plots for the agent to read, and the
+# summarizer's Message Batches client (audit.summarize; Apache-2.0). Never in
 # the shipped image; the audit image (audit/Dockerfile) adds it on top.
-audit = ["matplotlib==3.11.2"]
+audit = ["matplotlib==3.11.2", "anthropic==2.3.0"]
 
 [dependency-groups]
 dev = [

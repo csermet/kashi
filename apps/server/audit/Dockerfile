@@ -1,5 +1,5 @@
 # Perceptual audit image: a released server image plus the `audit` extra
-# (matplotlib). The pipeline code is NOT taken from the image: the repo is
+# (matplotlib, anthropic). The pipeline code is NOT taken from the image: the repo is
 # mounted and PYTHONPATH points at its src/, so the audit always runs the
 # checked-out code. Build from the repo root:
 #

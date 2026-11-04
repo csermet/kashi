@@ -1,0 +1,33 @@
+{
+  "review": {
+    "type": "object",
+    "properties": {
+      "moments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "t_ms": {"type": "integer"},
+            "class": {"type": "string",
+                      "enum": ["ok", "pile", "late", "early", "missing", "wrong_text", "unsure"]},
+            "severity": {"type": "integer", "enum": [0, 1, 2, 3]},
+            "reason": {"type": "string"}
+          },
+          "required": ["t_ms", "class", "severity", "reason"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["moments"],
+    "additionalProperties": false
+  },
+  "probe": {
+    "type": "object",
+    "properties": {
+      "line": {"type": "integer"},
+      "value_ms": {"type": "integer"}
+    },
+    "required": ["line", "value_ms"],
+    "additionalProperties": false
+  }
+}
