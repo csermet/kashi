@@ -61,6 +61,7 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit.run_local <id> --lyrics R --out D` | audit image, worker env | one song through the worker's alignment and document builder on the cached stem: no database, no download, no separation (below) |
 | `audit.anchor_check <id> --doc D [--record R]` / `--pilot --expect E` | host | Faz 3.5 A1-A3: is the lyrics sheet where the singing is (below) |
 | `audit.external_ear pieces / transcribe / import / step2` | GPU host / host | Faz 3.5 Step 2: a lyrics-free ASR ear in the whole-song ear's shape, and its gates |
+| `audit.summarizer count / submit / collect / local / evaluate` | host (+ API key / desktop LLM) | Faz 3.5 Steps 0 and 3: the summarizer A/B on identical packs, and M1-M5 |
 | `audit.inject ears` / `audit.inject run` | audit image / host | Faz 3.5 Step 1 on injected errors: JamendoLyrics sheets damaged on purpose |
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 
@@ -317,6 +318,51 @@ characters are Japanese script; the unit is the kana (≥ 6 per line, 180 ms a u
 clamped). Latin songs never reach that path (proven identical to the old matcher on seeded
 documents). Until three Japanese songs have checked lines their placement is reported, never gated
 (Step 2 keeps them out of every gate).
+
+### Faz 3.5: the summarizer A/B (Steps 0 and 3)
+
+`audit.pack` builds one text per song and run, the same for every arm: the song's numbers
+(`audit.score`, the ear-text match), an unsorted LINE TABLE (`lit_minus_voice_ms` = when the screen
+lights the line minus where it is sung) and the labelled moments in a seeded shuffled order, each
+with the finder's events and its moment file's ready-made differences. The model never subtracts;
+the numeric probe (M4: the second-largest |lit_minus_voice_ms|) exists to measure exactly that. The
+prompts and the JSON schema are constants; their hash (`PROMPT_SHA`, pinned by a test) goes into
+every output. Two requests per song: prose, then JSON with the prose appended (strict JSON costs
+reasoning); the pack sits in the cached system prefix of both.
+
+| arm | how |
+|---|---|
+| `opus` | Claude Opus 5.5 through Message Batches, effort `high` set explicitly, no thinking or sampling parameters (it takes none), cost read from `usage` at batch prices |
+| `opus-pictures` | the same with `--pictures`: each moment's `moment-<t>.png`, named by its moment id |
+| `gemma` | the desktop's llama.cpp server (`/v1/chat/completions`, temperature 0, `cache_prompt`, the schema as `response_format`) |
+
+```bash
+# the SDK is no project dependency: uv run --with anthropic ...; credentials from
+# ANTHROPIC_API_KEY or `ant auth login`
+uv run --with anthropic python -m audit.summarizer count --doc <2.29 dump> \
+  --verdicts ../../scratch/audit/review.jsonl --claude --local http://<desktop>:8080   # Step 0
+uv run --with anthropic python -m audit.summarizer submit --doc D --verdicts R --arm opus --phase prose
+uv run --with anthropic python -m audit.summarizer collect --doc D --verdicts R --arm opus  # until ended
+uv run --with anthropic python -m audit.summarizer submit --doc D --verdicts R --arm opus --phase json
+uv run --with anthropic python -m audit.summarizer collect --doc D --verdicts R --arm opus
+python -m audit.summarizer local --doc D --verdicts R --arm gemma --url http://<desktop>:8080
+python -m audit.summarizer evaluate --verdicts R --arm opus --listening ../../scratch/audit/listening.jsonl
+```
+
+Outputs: `runs/step3/<arm>/run<k>/<id>.json` (model, effort, prompt hash, moment ids, prose,
+answer, first-try validity, usage, cost), written atomically; every command resumes. A refusal
+(`stop_reason: refusal`) is recorded as no answer: the server-side `fallbacks` parameter is rejected
+on the Batches API. Message Batches keep requests 29 days and are not zero-retention eligible; the
+pack carries lyric lines and numbers, never audio.
+
+`audit.step3` scores against the Faz 3 verdicts under the owner rules (disputed and `unsure` out):
+reproducibility. The listening set (same JSONL shape: `id, t_ms, verdict`) is the accuracy
+reference, reported. The note's gates need operational readings, written in the module and
+pre-registered with this commit: a real error is a BAD label, flagged by any BAD verdict (`unsure`
+flags nothing, nor does a missing or invalid output); label severity ok 0 / pile 1 / visible 2;
+every gate must hold in every one of the three shuffled runs; precision@3 pooled over songs with ≥ 3
+real errors; M3 recalls a visible moment with any visible-class verdict; M4 is a share (≥ 19/20);
+M5 agreement is the share of labelled moments with one verdict in every run.
 
 ### Reading a picture
 
