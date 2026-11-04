@@ -62,6 +62,8 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 | `audit.anchors <id> --doc D [--lyrics R]` | host | is the lyrics sheet where the singing is? Whole-song anchors (A1), activity correlation (A2), coverage (A3) → one flag per song (below) |
 | `audit.inject manifest\|run ...` | host | seeded errors injected into correct records: the anchor check's bench gate (below) |
+| `audit.ext_ear <id> --backend qwen3-asr\|faster-whisper [--mix M]` | desktop GPU (Qwen) / host CPU (Whisper) | a second ear that never sees the lyrics: the stem cut at the finder's silences, each piece transcribed and stamped → `ear/<id>/whole-<backend>.json` (below) |
+| `audit.ear_gates <id> --doc D --ear E --ext X` / `--manifest M` | host | the second ear's step-2 gates against the current ear (below) |
 
 `audit.analysis` caches per song: vocal loudness and onsets (the production
 functions, on the 16 kHz stem) and **voice onsets** — where the voice returns
@@ -297,6 +299,57 @@ fetches it):
 ```bash
 PYTHONPATH=src uv run python -m audit.anchors <id> --doc ../../scratch/audit/runs/<id>/prod.json \
   --lyrics ../../scratch/audit/runs/<id>/record.json --json ../../scratch/audit/runs/<id>/anchors.json
+```
+
+### A second ear (Qwen3-ASR, Whisper)
+
+`audit.ext_ear` cuts the stem at the finder's silences — ≥ 500 ms below −25 dB on the vocal
+loudness contour (`audit.analysis`, the same source as line QA's threshold; −25.0 dB itself is
+voiced) — into voiced pieces, cuts any piece longer than 30 s at its quietest frame in the middle
+half until none is, transcribes each piece on its own and spreads its letters evenly over it (the
+letter rate is the piece's length); pieces never merge into one word. `--mix` transcribes the
+played mix instead (Whisper reads separated vocals worse: Jam-ALT, `yerel-model-denetim-2026-11.md` §1) with the stem's cut points.
+`--word-times` (Qwen only, en/ja/es/de/fr) spreads letters over Qwen3-ForcedAligner's word spans;
+the file says so (`word_times`). The output is the whole-song ear's shape plus `source` (backend,
+model, package version, settings), `timing: "segment"`, `input` and `segments`; `audit.textmatch`,
+`audit.finder` and `audit.anchors --ear` read it unchanged. Japanese stays in script.
+
+The backends are imported lazily and are **not** in `uv.lock`; install them where they run:
+
+```bash
+# Qwen3-ASR on the desktop, in the bench GPU image (the path that ran Qwen3-ForcedAligner in
+# 2026-08). qwen-asr 0.0.6 is Apache-2.0 but pins soynlp 0.0.493 (GPL-3.0), which it imports only
+# for Korean: install it without its pins and add the rest (all Apache-2.0 / MIT), so no GPL
+# package enters the image. gradio/flask/sox are only for its demo CLIs.
+docker run --rm --gpus all --ipc=host -v "$PWD:/repo" -w /repo/apps/server \
+  -e PYTHONPATH=/repo/apps/server/src:/repo/apps/server -v kashi-bench-models:/models \
+  --entrypoint bash kashi-bench-gpu -lc "pip install -q --no-deps qwen-asr==0.0.6 && \
+  pip install -q transformers==4.57.6 accelerate==1.12.0 nagisa==0.2.11 qwen-omni-utils==0.0.9 && \
+  python -m audit.ext_ear <id> --backend qwen3-asr --language en"
+
+# Whisper large-v3-turbo on cnr-intel's CPU (faster-whisper 1.2.1, MIT; CTranslate2 INT8):
+cd apps/server
+PYTHONPATH=src uv run --with faster-whisper==1.2.1 python -m audit.ext_ear <id> \
+  --backend faster-whisper --mix <the played mix> --language en
+```
+
+Day-one gate for Qwen: it runs. The 20 pilot mixes for the Whisper arm are fetched again (audit.stems
+deleted the downloads), stay on cnr-intel, and are deleted when the test ends — record the
+listing (`ls -la`) before and after.
+
+**Gates** (`audit.ear_gates`, pre-registered, `tests/test_audit_ext_ear.py`): per song both ears
+against the same document — placed lines (the finder's ear-text match, look-alike borrowings left
+out; `--search-ms` widens the ±8 s window); the external ear's placed share ≥ the current ear's;
+`--expect healthy` → |median line offset| ≤ 0.5 s; `--expect sheet-late` (GOSSIP, Got 2 Luv U) →
+median < −1 s, `sheet-early` → > +1 s; external segments with text lying ≥ 50 % inside a region
+where the CTC letter curve stays below 0.2 for more than 2 s ≤ 5 % (hallucination on instrumentals).
+Japanese and Turkish songs are reported, never gated. `--manifest` (`[{id, doc, ear, ext, expect}]`)
+adds the arm's verdict: pooled placed lines ≥ the current ear's, every expectation met, pooled
+silent-segment share ≤ 5 %.
+
+```bash
+PYTHONPATH=src uv run python -m audit.ear_gates --manifest ../../scratch/audit/ext/qwen.json \
+  --json ../../scratch/audit/ext/qwen-gates.json
 ```
 
 ### Reading a picture
