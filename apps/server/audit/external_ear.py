@@ -52,6 +52,11 @@ BACKENDS = {
     "qwen3-asr": "Qwen/Qwen3-ASR-1.7B",
     "whisper": "large-v3-turbo",
 }
+# Qwen3-ASR's generation budget per piece (the package example uses 256 and says
+# to raise it for long audio; a 30 s piece of fast rap stays under 512) and the
+# pieces per forward pass (smaller avoids running out of memory).
+QWEN_MAX_NEW_TOKENS = 512
+QWEN_BATCH = 8
 
 
 @dataclass(frozen=True)
@@ -153,12 +158,26 @@ def segment_ear(transcripts: Sequence[dict], total_ms: int, model: str,
 Transcriber = Callable[[list[tuple["object", int]], str | None], list[str]]
 
 
+def qwen3_load_kwargs(cuda: bool) -> dict:
+    """The package's own example: bf16 on the first card (``dtype`` named here,
+    resolved to the torch dtype by the loader). Without a device map the model
+    loads on the CPU, which is the wrong host's speed."""
+    kwargs: dict = {"max_inference_batch_size": QWEN_BATCH, "max_new_tokens": QWEN_MAX_NEW_TOKENS}
+    if cuda:
+        kwargs |= {"dtype": "bfloat16", "device_map": "cuda:0"}
+    return kwargs
+
+
 def qwen3_asr(model_id: str = BACKENDS["qwen3-asr"]) -> Transcriber:
     """Qwen3-ASR via the ``qwen-asr`` package (the bench GPU image). The day-one
     gate of Step 2 is that this runs at all on the desktop's card."""
+    import torch
     from qwen_asr import Qwen3ASRModel  # pyright: ignore[reportMissingImports]
 
-    model = Qwen3ASRModel.from_pretrained(model_id)
+    kwargs = qwen3_load_kwargs(torch.cuda.is_available())
+    if "dtype" in kwargs:
+        kwargs["dtype"] = getattr(torch, kwargs["dtype"])
+    model = Qwen3ASRModel.from_pretrained(model_id, **kwargs)
 
     def run(audio: list[tuple[object, int]], language: str | None) -> list[str]:
         results = model.transcribe(audio=audio, language=language)

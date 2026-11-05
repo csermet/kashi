@@ -290,6 +290,16 @@ def test_token_counts_for_step0():
     assert summarizer.count_local(http, p) == 77
 
 
+def test_the_local_token_comes_from_a_file_and_an_empty_file_stops(tmp_path):
+    token = tmp_path / "token"
+    token.write_text("abc123\n")
+    assert summarizer.local_headers(token) == {"Authorization": "Bearer abc123"}
+    assert summarizer.local_headers(None) == {}
+    token.write_text("\n")
+    with pytest.raises(SystemExit):
+        summarizer.local_headers(token)
+
+
 # --- metrics ----------------------------------------------------------------------
 
 def _output(vid, verdicts, *, valid=True, probe_ok=True):

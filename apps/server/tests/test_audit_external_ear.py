@@ -35,6 +35,15 @@ def test_parameters_are_pinned():
             external_ear.MIN_PLACED_FOR_MEDIAN) == (20.0, 0.2, 3)
     assert external_ear.BACKENDS == {"qwen3-asr": "Qwen/Qwen3-ASR-1.7B",
                                      "whisper": "large-v3-turbo"}
+    assert (external_ear.QWEN_MAX_NEW_TOKENS, external_ear.QWEN_BATCH) == (512, 8)
+
+
+def test_qwen_loads_on_the_card_in_bf16_when_there_is_one():
+    on_card = external_ear.qwen3_load_kwargs(cuda=True)
+    assert (on_card["device_map"], on_card["dtype"]) == ("cuda:0", "bfloat16")
+    assert "device_map" not in external_ear.qwen3_load_kwargs(cuda=False)
+    for kwargs in (on_card, external_ear.qwen3_load_kwargs(cuda=False)):
+        assert (kwargs["max_new_tokens"], kwargs["max_inference_batch_size"]) == (512, 8)
 
 
 def test_half_a_second_of_silence_cuts_a_shorter_dip_does_not():

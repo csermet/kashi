@@ -284,10 +284,25 @@ def collect(client: Any, arm: str, songs) -> dict:
     return counts
 
 
-def anthropic_client() -> Any:
+def read_secret(path: Path) -> str:
+    """A key kept in a file (never on the command line, never printed)."""
+    secret = path.read_text().strip()
+    if not secret:
+        raise SystemExit(f"{path}: empty")
+    return secret
+
+
+def anthropic_client(key_file: Path | None = None) -> Any:
+    """Credentials from ``key_file`` when given, else the SDK's own lookup
+    (ANTHROPIC_API_KEY)."""
     import anthropic  # pyright: ignore[reportMissingImports]
 
-    return anthropic.Anthropic()
+    return anthropic.Anthropic(api_key=read_secret(key_file)) if key_file else anthropic.Anthropic()
+
+
+def local_headers(token_file: Path | None) -> dict[str, str]:
+    """The desktop's llama.cpp server takes a Bearer token."""
+    return {"Authorization": f"Bearer {read_secret(token_file)}"} if token_file else {}
 
 
 # --- the local server ------------------------------------------------------------
@@ -385,6 +400,10 @@ def main(argv: list[str] | None = None) -> int:
     common.add_argument("--label", default=None,
                         help="the version label of the finder/moment files (default: last)")
     common.add_argument("--runs", type=int, default=gates.SHUFFLED_RUNS)
+    common.add_argument("--key-file", type=Path,
+                        help="Anthropic API key in a file (default: ANTHROPIC_API_KEY)")
+    common.add_argument("--token-file", type=Path,
+                        help="the local server's Bearer token in a file")
     p_count = sub.add_parser("count", parents=[common], help="Step 0: tokens per pack")
     p_count.add_argument("--claude", action="store_true")
     p_count.add_argument("--local", help="llama.cpp server URL")
@@ -424,8 +443,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "count":
         import httpx
 
-        claude = anthropic_client() if args.claude else None
-        local = httpx.Client(base_url=args.local, timeout=60) if args.local else None
+        claude = anthropic_client(args.key_file) if args.claude else None
+        local = httpx.Client(base_url=args.local, timeout=60,
+                             headers=local_headers(args.token_file)) if args.local else None
         over = 0
         for song in songs:
             pack = pack_for(song, 1)
@@ -444,10 +464,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "local":
         import httpx
 
-        with httpx.Client(base_url=args.url, timeout=600) as http:
+        with httpx.Client(base_url=args.url, timeout=600,
+                          headers=local_headers(args.token_file)) as http:
             print(f"{run_local(http, args.arm, songs, args.runs)} songs answered")
         return 0
-    client = anthropic_client()
+    client = anthropic_client(args.key_file)
     if args.cmd == "submit":
         batch = submit(client, args.arm, args.phase, songs, args.runs, pictures=args.pictures,
                        effort=args.effort)
