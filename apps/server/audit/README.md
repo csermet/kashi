@@ -285,19 +285,23 @@ kana (below).
 
 ```bash
 python -m audit.external_ear pieces <id>                       # where the stem is cut
-# bench GPU image with `pip install qwen-asr` (the day-one gate: it runs on the 5070 Ti)
+# bench GPU image; its venv has no pip, so the base image's pip installs into it. qwen-asr 0.0.6 pins
+# transformers 4.57.6 (the lock has 5.13.0): keep it in a throwaway container. Verified 2026-11-05 with
+# qwen-asr 0.0.6, transformers 4.57.6, torch 2.9.1+cu130 on the 5070 Ti (bf16, cuda:0)
+/usr/local/bin/python -m pip --python /app/.venv/bin/python install qwen-asr
 python -m audit.external_ear transcribe <id> --backend qwen3-asr
 # cnr-intel CPU, faster-whisper (1.2.1 verified, MIT); the MIX cut at the stem's pieces (separated
 # vocals hurt Whisper)
 uv run --with faster-whisper==1.2.1 python -m audit.external_ear transcribe <id> --backend whisper --audio <mix>
 # pieces transcribed anywhere else: [{"start_ms", "end_ms", "text"}]
 python -m audit.external_ear import <id> --transcript pieces.json --model qwen3-asr
-python -m audit.external_ear step2 --doc <2.29 dump> --ear qwen3-asr \
+# host; src on the path because a Japanese sheet loads the server's reading module
+PYTHONPATH=src uv run python -m audit.external_ear step2 --doc <2.29 dump> --ear qwen3-asr \
   --expect ../../scratch/audit/step1-expect.json
 ```
 
-The backends' calls (`qwen_asr.Qwen3ASRModel.transcribe`, `faster_whisper.WhisperModel`) are
-written from their documentation and were never run here; `import` works whatever runs them. Step 2
+Both backends ran on 2026-11-05 (results and their reading in `yerel-model-denetim-2026-11.md`,
+"Faz 3.5 results"); `import` works whatever runs them. Step 2
 gates per arm (`audit.gates`): placed-line share (the finder's ear-text match, pooled over songs)
 at or above the CTC ear's; every healthy song with ≥ 3 placed lines within ±0.5 s; every expected
 shift beyond 1 s with its sign; at most 5 % of the pieces with text centred in a stretch the CTC

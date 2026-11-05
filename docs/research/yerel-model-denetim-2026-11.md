@@ -309,7 +309,7 @@ ends with a "measured / passed / failed" line in this note; what fails goes to `
 
 Code: branch `claude/friendly-mayer-7v5syf` (gates as pre-registered in `audit/gates.py`; no gate changed).
 Document: the 2.29 dump of the pilot set (20 songs). Hosts: cnr-intel (anchor check, Whisper, summarizer
-clients), the desktop's RTX 5070 Ti (Jamendo ears, Gemma). Raw outputs stay in `scratch/audit/`.
+clients), the desktop's RTX 5070 Ti (Jamendo ears, Gemma, Qwen3-ASR). Raw outputs stay in `scratch/audit/`.
 
 **Step 0 — measured, passed (token fit).** Pack sizes for the 20 songs: 2,413-9,028 tokens on Gemma's
 tokenizer, 2,969-10,126 on Claude's `count_tokens`; none above 12k, so every pack plus the 4k answer fits the
@@ -331,7 +331,7 @@ reproducibility only.
 - Reading: the whole-sheet offset (A1/A2) does what GOSSIP needed; the per-verse shift and the
   `wrong_sheet` rule (A3) do not meet their gates.
 
-**Step 2 — Whisper arm measured, failed; Qwen3-ASR arm not run yet.**
+**Step 2 — measured, failed for both arms.**
 - Whisper large-v3-turbo (faster-whisper 1.2.1, CPU int8, the 20 mixes cut at the stem's pieces):
   placed-line share 0.645 against the CTC ear's 0.500 (passed); both shifted songs read beyond 1 s with
   the Faz 3 sign (passed; GOSSIP reads −3.7 s, the ±8 s window sees only its second chorus); healthy
@@ -339,8 +339,20 @@ reproducibility only.
   with text inside CTC silence 0.198 (gate 0.05, failed). Japanese, reported: BxMxC 24 of 42 lines placed
   (CTC ear 6), median −18 ms.
 - The 20 mixes were deleted on 2026-11-05 19:28 UTC; both listings are in `scratch/audit/`.
-- Qwen3-ASR: the first desktop run did not install the package (the bench image's venv has no pip); the
-  desktop script is fixed and the run waits for the next desktop window.
+- Qwen3-ASR-1.7B (qwen-asr 0.0.6, bf16 on the 5070 Ti, the 20 stems, language detection on; 2026-11-05):
+  it runs (day-one gate), 20 songs in about 7 minutes with the model reloaded per song. Placed-line share
+  **0.678** against the CTC ear's 0.500 (passed); GOSSIP −3,850 ms and Got 2 Luv U −4,366 ms (passed);
+  healthy |median| ≤ 0.5 s failed on two songs of 16 (Deli Oğlan +620 ms, as with Whisper; the hardstyle
+  negative +1,183 ms); pieces with text inside CTC silence **0.150** (gate 0.05, failed; worst song 0.444).
+  Japanese, reported: BxMxC 12 of 42 lines placed (CTC ear 6, Whisper 24), median +124 ms; it wrote Latin
+  letters, not Japanese script.
+- Reading, not a gate change: the silence gate counts the CTC ear's gaps more than hallucination at segment
+  level. All 32 Qwen pieces it counts are pieces where Whisper wrote text too (Whisper's 14 others, 11 on one
+  song, are its own), their median length is 12 s (a piece is judged by its middle), and most carry the
+  sheet's own lines (Sorry For Party Rocking, Enemy, Hey Mama, a Turkish verse). On the hardstyle negative
+  both ears hear a verse the sheet does not have ("Coffee goes cold…" where the sheet sings "Lying in the
+  light on…"), so its +1.18 s may be a version mismatch rather than an ear error. A finer cut or a
+  per-character silence rule would be a new pre-registration.
 
 **Step 3 — measured, failed for every arm** (against the Faz 3 verdicts: reproducibility, not accuracy).
 
