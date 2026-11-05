@@ -287,8 +287,9 @@ kana (below).
 python -m audit.external_ear pieces <id>                       # where the stem is cut
 # bench GPU image with `pip install qwen-asr` (the day-one gate: it runs on the 5070 Ti)
 python -m audit.external_ear transcribe <id> --backend qwen3-asr
-# cnr-intel CPU, faster-whisper; the MIX cut at the stem's pieces (separated vocals hurt Whisper)
-python -m audit.external_ear transcribe <id> --backend whisper --audio <mix>
+# cnr-intel CPU, faster-whisper (1.2.1 verified, MIT); the MIX cut at the stem's pieces (separated
+# vocals hurt Whisper)
+uv run --with faster-whisper==1.2.1 python -m audit.external_ear transcribe <id> --backend whisper --audio <mix>
 # pieces transcribed anywhere else: [{"start_ms", "end_ms", "text"}]
 python -m audit.external_ear import <id> --transcript pieces.json --model qwen3-asr
 python -m audit.external_ear step2 --doc <2.29 dump> --ear qwen3-asr \
@@ -337,8 +338,9 @@ reasoning); the pack sits in the cached system prefix of both.
 | `gemma` | the desktop's llama.cpp server (`/v1/chat/completions`, temperature 0, `cache_prompt`, the schema as `response_format`) |
 
 ```bash
-# the SDK is no project dependency: uv run --with anthropic ...; credentials from
-# ANTHROPIC_API_KEY or `ant auth login`
+# the SDK is no project dependency: uv run --with anthropic ... (2.5.0 verified); credentials from
+# --key-file <file>, ANTHROPIC_API_KEY or `ant auth login`; the desktop server's Bearer token from
+# --token-file <file> (both files mode 600, never on a command line)
 uv run --with anthropic python -m audit.summarizer count --doc <2.29 dump> \
   --verdicts ../../scratch/audit/review.jsonl --claude --local http://<desktop>:8080   # Step 0
 uv run --with anthropic python -m audit.summarizer submit --doc D --verdicts R --arm opus --phase prose
@@ -409,6 +411,10 @@ go to `caner-dinle.md` (song, mm:ss, one question).
 | whole-song ear, CPU | cnr-intel | ~2.5 min (1 min of it loading the 1B model) |
 | one moment (`moment.sh`, sim strip, whole ear cached) | cnr-intel | ~10 s |
 | one moment with `--real` frames | cnr-intel | ~40 s |
+| whole-song ear, GPU (`inject ears`, 79 Jamendo stems) | desktop 5070 Ti | ~2 s (79 in 2.5 min) |
+| Whisper large-v3-turbo over the mix's pieces, CPU int8 | cnr-intel | ~4-5 min |
+| summarizer, Gemma 4 26B-A4B, prose + JSON | desktop | ~25 s (60 song-runs in 25 min) |
+| summarizer, Opus 5.5 Batches, one phase of 60 requests | API | 5-10 min |
 
 ## Known limits (pilot-set review, 2026-11)
 

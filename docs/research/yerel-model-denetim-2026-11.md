@@ -305,6 +305,58 @@ ends it.
 **Time:** about two calendar weeks, bound by the desktop's night windows and the audit code above. Each step
 ends with a "measured / passed / failed" line in this note; what fails goes to `olu-fikirler.md`.
 
+## Faz 3.5 results (local runs, 2026-11-05)
+
+Code: branch `claude/friendly-mayer-7v5syf` (gates as pre-registered in `audit/gates.py`; no gate changed).
+Document: the 2.29 dump of the pilot set (20 songs). Hosts: cnr-intel (anchor check, Whisper, summarizer
+clients), the desktop's RTX 5070 Ti (Jamendo ears, Gemma). Raw outputs stay in `scratch/audit/`.
+
+**Step 0 — measured, passed (token fit).** Pack sizes for the 20 songs: 2,413-9,028 tokens on Gemma's
+tokenizer, 2,969-10,126 on Claude's `count_tokens`; none above 12k, so every pack plus the 4k answer fits the
+installed 16k context. Measured Opus cost for both arms, 3 runs × 20 songs: **$8.02** ($3.28 text,
+$4.74 with pictures). The owner listening set is planned for 2026-11-08; until then Step 3 reports
+reproducibility only.
+
+**Step 1 — measured, failed.**
+- Pilot: both lyrics-source shifts flagged within the gate: GOSSIP −19,310 ms (reading −18,900, off by
+  410 ms), Got 2 Luv U −3,975 ms (reading −4,000, off by 25 ms). It fails on `wrong_sheet`: raised on three
+  healthy songs (Crazy In Love, New Rules, SexyBack), on BxMxC (the coverage check matched 0 of 13
+  Japanese lines: A3 does not take the kana path), on the hardstyle negative and on Enemy (counts as a miss
+  until the owner's listen confirms another mix). Got 2 Luv U raises `wrong_sheet` next to its shift.
+- Injected errors (79 Jamendo songs, 869 trials, seed 35): detection of shifts ≥ 5 s **0.798** (gate 0.90):
+  global 222/237 (0.94), drift 144/158 (0.91), one verse 61/140 (0.44). Offset error median **64 ms**, p90
+  115 ms (gate 500, passed). False alarms **15/79 = 0.19** (gate 0.05), every one `wrong_sheet`; no `shift`
+  alarm on an unmodified song. Reported: 2 s shifts 0.937, verses under 5 s 0.389, deleted verse 0.911,
+  extra paragraph 1.0.
+- Reading: the whole-sheet offset (A1/A2) does what GOSSIP needed; the per-verse shift and the
+  `wrong_sheet` rule (A3) do not meet their gates.
+
+**Step 2 — Whisper arm measured, failed; Qwen3-ASR arm not run yet.**
+- Whisper large-v3-turbo (faster-whisper 1.2.1, CPU int8, the 20 mixes cut at the stem's pieces):
+  placed-line share 0.645 against the CTC ear's 0.500 (passed); both shifted songs read beyond 1 s with
+  the Faz 3 sign (passed; GOSSIP reads −3.7 s, the ±8 s window sees only its second chorus); healthy
+  |median| ≤ 0.5 s failed on one song of 16 (Deli Oğlan +569 ms; four more sit at −324 to −433 ms); pieces
+  with text inside CTC silence 0.198 (gate 0.05, failed). Japanese, reported: BxMxC 24 of 42 lines placed
+  (CTC ear 6), median −18 ms.
+- The 20 mixes were deleted on 2026-11-05 19:28 UTC; both listings are in `scratch/audit/`.
+- Qwen3-ASR: the first desktop run did not install the package (the bench image's venv has no pip); the
+  desktop script is fixed and the run waits for the next desktop window.
+
+**Step 3 — measured, failed for every arm** (against the Faz 3 verdicts: reproducibility, not accuracy).
+
+| arm | M1 recall / precision | M2 Spearman / p@3 | M3 visible | M4 probe | M5 valid / agreement | cost |
+|---|---|---|---|---|---|---|
+| Gemma 4 26B-A4B (local, 16k) | 0.85-0.91 / 0.64-0.66 | 0.28-0.40 / 0.83-0.88 | 0.68-0.82 | 4-6 of 20 | 0.983 / **0.556** | $0 |
+| Opus 5.5, numbers | 0.96-0.98 / 0.69-0.71 | 0.61-0.63 / 0.88-0.92 | 0.93 | 19-20 of 20 | 1.0 / **0.767** | $3.28 |
+| Opus 5.5, numbers + pictures | 0.96 / 0.75-0.79 | 0.66-0.72 / 0.92-0.96 | 0.86-0.93 | **18**-20 of 20 | 1.0 / **0.778** | $4.74 |
+
+Ranges are over the three shuffled runs; a gate must hold in every run. Gemma fails M1-M5 almost
+everywhere, and its M4 failure takes every comparison out of its job. Opus fails only M5's run-to-run
+agreement (and, with pictures, M4 in one run); the pictures raise precision and Spearman. As registered,
+"a model that fails the gates gets no role": the agent keeps reading flagged songs in session. A lower
+agreement gate, or a majority vote over runs, would be a new pre-registration (the owner's call, with the
+listening-set accuracy next to it).
+
 ## Sources
 
 Read on 2026-11-01. Labels in brackets above.

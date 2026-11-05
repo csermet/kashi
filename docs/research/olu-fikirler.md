@@ -36,6 +36,16 @@ new evidence (a new data set, a new model class, a changed constraint) — and s
 | Tuning a threshold on easy examples only | A 0.30 by-ear threshold would have rejected the cover the rung exists for (Heathens 0.296). Calibrate on the hard case. | this file (by-ear rung) |
 | Title-only lrclib rung (drop the artist, keep a ±3 s duration) | 3 000 random mirror tracks: a genuinely different artist has the same title within ±3 s for **46.4 %** of them, and exactly one such stranger (the case a "unique match" rule would silently accept) for **14.5 %**; with no duration, 65.8 %. The server's r=1 path has no wrong-song gate (the CTC score is saturated at 1.00 for 51 % of the archive), so alignment would not catch the wrong text either. The two "gaps" it was meant for resolve today; they had failed on lrclib's 503 day. | lyricfix-lrclib-availability-2026-10.md §5 |
 
+## Perceptual audit (Faz 3.5, pre-registered gates)
+
+| Idea | Result | Record |
+|---|---|---|
+| Wrong-sheet alarm from coverage (A3: a readable unexplained block **and** ≥ 25 % of the singing unexplained **and** ≥ 25 % of the lines unheard) | False alarms on 15 of 79 unmodified Jamendo songs (gate 5 %) and on 3 healthy pilot songs plus the hardstyle negative. The whole-sheet shift check beside it passed its error gate (median 64 ms) and never false-alarmed. | yerel-model-denetim-2026-11.md, "Faz 3.5 results" |
+| One-verse shift detection by unique-line sections (A1) | 61 of 140 verse shifts ≥ 5 s found (0.44), against 0.94 for whole-sheet shifts. | same |
+| Whisper large-v3-turbo as a lyrics-free second ear (mix, CPU, segment-timed) | Places more lines than the CTC ear (0.645 vs 0.500), but 19.8 % of its text pieces sit where the CTC ear hears no letters (gate 5 %), and one healthy song reads +569 ms. | same |
+| Gemma 4 26B-A4B (local, 16k) as the per-song summarizer | Numeric probe 4-6 of 20 (gate 19), severity Spearman 0.28-0.40 (gate 0.5), run-to-run agreement 0.56 (gate 0.90). | same |
+| Opus 5.5 Batches as the per-song summarizer, as gated | Passes recall, precision, severity and the probe in every run, fails only run-to-run agreement (0.77 numbers, 0.78 with pictures; gate 0.90). New evidence that would reopen it: the owner listening-set accuracy, under a new pre-registration of the agreement rule. | same |
+
 ## Measurement traps (they produce fake wins)
 
 - The annotation tool exports `verified=1` on **every** line, but only the lines the annotator was
