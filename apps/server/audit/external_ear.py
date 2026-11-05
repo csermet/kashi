@@ -171,7 +171,7 @@ def qwen3_load_kwargs(cuda: bool) -> dict:
 def qwen3_asr(model_id: str = BACKENDS["qwen3-asr"]) -> Transcriber:
     """Qwen3-ASR via the ``qwen-asr`` package (the bench GPU image). The day-one
     gate of Step 2 is that this runs at all on the desktop's card."""
-    import torch
+    import torch  # pyright: ignore[reportMissingImports]
     from qwen_asr import Qwen3ASRModel  # pyright: ignore[reportMissingImports]
 
     kwargs = qwen3_load_kwargs(torch.cuda.is_available())
