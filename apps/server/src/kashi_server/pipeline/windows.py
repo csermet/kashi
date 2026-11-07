@@ -274,6 +274,18 @@ def _is_word(row: dict) -> bool:
     return text != "<star>" and bool(text.strip())
 
 
+def _kept_end(row: dict, voted_end_s: float) -> float:
+    """A voted word's end: the later of the row's own end and the vote's (2.29.1).
+
+    `segment` stars (and the whole track, starred the same way) put a star
+    before every word, and the star swallows the silence between words: a word
+    they place keeps little more than its CTC peak (2.29 shipped 7.6 % of the
+    pilot set's words at 0 ms). The row's own end is the `edges` one, or an
+    earlier vote's that already kept it; the next word's start clips the
+    result downstream (`regroup_words_into_lines`)."""
+    return max(float(row["end"]), voted_end_s)
+
+
 def hybrid_star_words(
     edges: list[dict], segment: list[dict], t_ms: int, edges_lead_ms: int = 0
 ) -> tuple[list[dict], bool]:
@@ -289,10 +301,11 @@ def hybrid_star_words(
 
     Every row comes back on the EDGES clock — a chosen `segment` row moved back
     by the lead — so seams and regrouping downstream compare like with like and
-    the caller's path-wide lead nets the move out. Timings come from the
-    winning pass; the score stays the `edges` one, because word probs feed line
-    QA and the quality gate, and those were calibrated on `edges`. Rows are
-    tagged `"star"`: "segment" or "edges".
+    the caller's path-wide lead nets the move out. The start comes from the
+    winning pass, the end is the later of the two ends (2.29.1, `_kept_end`);
+    the score stays the `edges` one, because word probs feed line QA and the
+    quality gate, and those were calibrated on `edges`. Rows are tagged
+    `"star"`: "segment" or "edges".
 
     When the two passes disagree on the word sequence (they cannot, given one
     text: this is the guard for a library change) the whole window keeps
@@ -310,7 +323,7 @@ def hybrid_star_words(
             out.append({
                 **tagged,
                 "start": float(seg["start"]) - back_s,
-                "end": float(seg["end"]) - back_s,
+                "end": _kept_end(edge, float(seg["end"]) - back_s),
                 "star": "segment",
             })
         else:
@@ -351,7 +364,7 @@ def whole_track_vote(
             out[i] = {
                 **row,
                 "start": float(w["start"]) - back_s,
-                "end": float(w["end"]) - back_s,
+                "end": _kept_end(row, float(w["end"]) - back_s),
                 "star": "whole",
             }
             taken += 1
