@@ -369,6 +369,33 @@ agreement (and, with pictures, M4 in one run); the pictures raise precision and 
 agreement gate, or a majority vote over runs, would be a new pre-registration (the owner's call, with the
 listening-set accuracy next to it).
 
+**Listening set — measured 2026-11-07.** The owner listened to 30 of the 96 moments on 2.29 (overlay
++200 ms, hype), each answered in free text and classified by the agent; nine answers were clarified by
+one follow-up question, the rest read as written. 29 labelled, 1 `unsure` (gate ≥ 20, passed): 5 `ok`,
+11 `late`, 4 `early`, 3 `wrong_text`, 3 `missing`, 3 `pile`. Most moments are finder-ranked, so 24 of 29
+errors is not a rate. The four moments waiting for a listen are answered; the other-mix verse is
+confirmed as wrong text.
+
+| arm | error or not, per run | exact class, per run |
+|---|---|---|
+| Opus 5.5, numbers | 0.72 / 0.72 / 0.72 | 0.24 / 0.28 / 0.28 |
+| Opus 5.5, numbers + pictures | 0.72 / 0.72 / 0.69 | 0.28 / 0.24 / 0.21 |
+| Gemma 4 26B-A4B | 0.69 / 0.69 / 0.69 (run 1: 3 moments without a prediction) | 0.35 / 0.38 / 0.45 |
+| "every moment is an error" | 0.83 | — |
+| the agent's Faz 3 verdicts (frozen, its 5 `unsure` out) | 18 of 24 = 0.75 | 13 of 24 |
+
+No arm beats calling every moment an error: Opus flags all five moments the owner heard as fine. The
+"no role" reading of Step 3 stands, and a relaxed agreement gate would not change it.
+
+What the owner heard 2.29 do at the 24 errors (moment-level classes, both versions compared on the
+frozen reading): 8 come from the lyrics source (whole-sheet shifts of ~5 s and ~17 s on two songs, the
+other-mix sheet on a third; the same in both versions); 10 are line starts 0.5-1 s off (6 late, 4 early,
+8 songs; 2.28 better at 2, 2.29 at 1, the rest the same); 5 are the duration-collapse class (3 piles the
+owner did see, 2 words that never light after a pile; 2.28 better at 1); 1 is a wordless line. A
+duration-only fix reaches the last group at most, a quarter of what was heard; the whole-sheet offset
+(Step 1: global shifts 0.94, median error 64 ms, no `shift` alarm on an unmodified song) reaches the
+largest third.
+
 ## Sources
 
 Read on 2026-11-01. Labels in brackets above.
