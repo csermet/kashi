@@ -309,3 +309,19 @@ per suspicious spot, a picture of the separated vocal (spectrogram) with the
 word boxes and frames of the rendered overlay, reviewed by the agent, the
 owner only listening where it is unsure. Timing work after phase 9 is
 re-planned around that tool. The full archive refresh to 2.29 is on hold.
+
+**The cheap repair, measured 2026-11-07 — not shippable as written.** Branch
+`worktree-dinleme-4-olcum` (38ed6b9): a word the hybrid or the vote places keeps
+the later of its own end and the voted one. On the 20 pilot songs through
+`audit.run_local` (same stems and lrclib records for both arms; the 2.29 arm
+reproduces the field numbers exactly): 0 ms words 7.6 % → 2.8 %, under 60 ms
+22.3 % → 6.0 %, runs of 3+ starts unchanged (47, the repair touches no start).
+But line QA reads word ends as bounds (`_nudge_fits`, `_response_delta`, the end
+trim's median), so starts moved in 9 songs: nudges 17 → 4, one response shift
+lost, and of the 6 moved lines with a witness (`audit.score` ear or voice) 5 got
+worse (noticeable 2 → 5). A line's last word also keeps the `edges` end, which
+reaches the next line: 60 → 365 of 1 110 line-final words held through the gap.
+Next shape: line QA sees the 2.29 ends unchanged and the length comes back after
+it (the voted words carry what the vote cut off), with line-final words held no
+further than the end trim allows. Note that the owner's heard piles (Faz 3.5
+listening set) are piled STARTS: no end repair reaches them.
