@@ -18,6 +18,8 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 
 - Commits use the repo's git identity (the owner). No co-author trailers. Repo language is
   English (code, commits, new docs); some older research notes are Turkish.
+- Docs-only changes go straight to `main`: no PR, no tag, no gitops MR. A gitops MR (the owner
+  merges it) is opened only when what runs in the cluster changes: image tag or config.
 - Server gate is four commands, all of them (in `apps/server`, plus the root script): `uv run pytest`, `uv run ruff check .` (read the
   exit code, not the last line), `uv run pyright`, `node scripts/check-versions.mjs`. CI's TS
   path runs locally in the same order: validate → codegen drift → check-versions → typecheck →
