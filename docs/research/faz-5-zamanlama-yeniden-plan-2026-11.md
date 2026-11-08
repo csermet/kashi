@@ -195,6 +195,28 @@ move as read), `bad:fixed?` on the 5 lyrics-source moments and some of the 5
 duration moments, `bad:unchanged` on the 10 line starts. If `good:broken?` is not ≈ 0
 the tag waits for a reading of each such moment.
 
+**Measured 2026-11-08 (timing v3 session, `--audio`, both verdict files): the
+condition holds.** 2.29.1 = the 20 `new3` documents.
+
+| before → 2.29.1 | verdicts | known-good: broken? / moved / kept | known-bad: fixed? / worse? / changed / unchanged | other |
+|---|---|---|---|---|
+| 2.29.0 | review (96) | **0** / 41 / 3 | 23 / 1 / 21 / 1 | unsure 5, disputed 1 |
+| 2.29.0 | listening (30) | **0** / 5 / 0 | 9 / 1 / 13 / 1 | unsure 1 |
+| 2.28 | review (70 apply) | 4 / 30 / 3 | 15 / 8 / 10 / 0 | n/a:version 21, unsure 4, disputed 1 |
+| 2.28 → 2.29.0 (reference) | review (70 apply) | 10 / 24 / 3 | 12 / 10 / 11 / 0 | same |
+
+The listening records carry no `better_version`, so against 2.28 all 30 are
+`n/a:version`. Against the live 2.29.0 nothing heard-fine or reviewed-fine breaks;
+the "changed" rows are the ends coming back (words moved 0 of n). Against 2.28 the
+four `broken?` are all 2.29.0's and stay from it (2.29.1 moves no start there): two
+in Gasolina (0:29.9, 2:23.8, piled 0 → 4 and 2 → 6), New Rules 1:10.2 (one word
+350 ms earlier, the line's ear error 143 → 113 ms) and BxMxC 0:46.5 (two 0 ms
+words); three of four are numbers-only, and the piles are class C, V3's target.
+2.29.1 cuts 2.29.0's ten `broken?` against 2.28 to these four. The one `worse?` in
+each verdict file is GOSSIP's second chorus (2:10.1, 2:34.2): it is unanchored and
+stays 3-5 s late after the sheet shift (ear error 5 360 → 4 850 ms; reading "same"),
+as the sheet-shift paragraph of the Faz 9 note says. No reading blocks the tag.
+
 ## Proposed roadmap rows (applied after the owner's answer)
 
 Phase order changes only by the owner's decision; this table is the proposal that the
