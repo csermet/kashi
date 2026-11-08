@@ -668,5 +668,17 @@
 # simulation within 0.002 everywhere. Refitted tables move by <= 10 ms, so the
 # English table and the MMS zero offsets stay. One extra emission pass per
 # song (the vote): about a minute on the CPU worker.
-PIPELINE_VERSION = "2.29.0"
+# 2.29.1: word lengths come back. A `segment` star (and the whole track,
+# starred the same way) swallows the silence after its word, so 2.29's voted
+# words kept little more than their CTC peak: 7.6 % of the pilot set's words
+# at 0 ms (2.28: 2.0 %). The vote now records what it cut off the windowed
+# end (`held`), line QA still judges the cut ends — it reads ends as bounds,
+# and giving the length back before it cost 13 of its 17 nudges on the pilot
+# set — and `line_qa.restore_held_ends` gives it back afterwards, never past
+# the next word's start or the end trim's cap. Measured on the 20 pilot songs
+# through audit.run_local (same stems and records): 0 ms words 7.6 % -> 2.5 %,
+# under 60 ms 22.3 % -> 5.7 %; every word start, nudge (17) and response
+# shift (3) identical. Piled STARTS (runs of 3+ within 60 ms: 47) are not this
+# fix's to move.
+PIPELINE_VERSION = "2.29.1"
 PIPELINE_MAJOR = 2

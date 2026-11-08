@@ -45,7 +45,7 @@ from kashi_server.pipeline.document import build_document, persist_processed_tra
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.energy import Energy, Section, extract_energy
 from kashi_server.pipeline.langid import detect_language
-from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa
+from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa, restore_held_ends
 from kashi_server.pipeline.lrclib import (
     LyricsText,
     fetch_lyrics,
@@ -1022,7 +1022,8 @@ def _align_with_ctc(
         detect_onsets(aligned_wav),
         energy=measure_vocal_energy(aligned_wav) if vocals_separated else None,
     )
-    result = qa.result
+    # 2.29.1: QA judged the cut ends; the words get their length back now.
+    result, _restored = restore_held_ends(qa.result)
     if not is_original_speed(speed_factor):
         result = _nightcore_gate(result, lyrics, speed_factor)
     _record_line_qa(job, qa)

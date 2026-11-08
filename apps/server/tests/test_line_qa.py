@@ -4,6 +4,8 @@ The synthetic fixtures model the real TiK ToK failure (2026-07-11): a chorus
 block dumped ~15 s ahead of the audio while the surrounding lines were fine.
 """
 
+import pytest
+
 from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
 from kashi_server.pipeline.line_qa import (
     DRIFT_THRESHOLD_MS,
@@ -12,6 +14,7 @@ from kashi_server.pipeline.line_qa import (
     apply_line_qa,
     is_adlib,
     rederive_adlib_words,
+    restore_held_ends,
     shift_call_response,
     trim_word_ends,
 )
@@ -1371,3 +1374,65 @@ def test_a_hold_under_the_breath_is_not_counted_as_a_change():
     out, changed = rederive_adlib_words(result)
     assert changed == []
     assert out.lines[0].end_ms == 71_000
+
+
+# --- 2.29.1: held ends come back after line QA ---------------------------------
+
+
+def _held_fixture(held: dict[tuple[int, int], int], adlib_last: bool = False) -> AlignResult:
+    """Three lines of three 3-letter words, 300 ms each every 400 ms, lines
+    2 s apart: the median is 100 ms/char, so the trim cap is 900 ms. With
+    `adlib_last` a fourth, ad-lib line follows (ad-libs leave the median's
+    sample, which must keep its 8 words)."""
+    lines, words = [], []
+    for i in range(4 if adlib_last else 3):
+        start = i * 2000
+        texts = ["ooh", "ooh", "ooh"] if i == 3 else ["abc", "def", "ghi"]
+        chunk = [
+            AlignedWord(start + 400 * k, start + 400 * k + 300, text, 0.5,
+                        held_ms=held.get((i, k), 0))
+            for k, text in enumerate(texts)
+        ]
+        lines.append(LineTiming(start, start + 1100, " ".join(texts), 0.5))
+        words.append(chunk)
+    return AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.8)
+
+
+@pytest.mark.parametrize(("held", "end"), [(0, 300), (50, 350), (100, 400), (101, 400)])
+def test_held_ends_grow_up_to_the_next_word(held, end):
+    out, restored = restore_held_ends(_held_fixture({(0, 0): held}))
+    assert out.words_per_line[0][0].end_ms == end
+    assert restored == (end > 300)
+
+
+@pytest.mark.parametrize(("held", "end"), [(800, 1900), (900, 2000), (901, 2000)])
+def test_a_line_s_last_word_grows_up_to_the_next_line_and_its_line_with_it(held, end):
+    # Line 0's last word runs 800-1100; the next line's first word starts at
+    # 2000. A 10-letter text lifts the trim cap (800 + 3000) out of the way.
+    result = _held_fixture({})
+    long_word = AlignedWord(800, 1100, "abcdefghij", 0.5, held_ms=held)
+    result.words_per_line[0][2] = long_word
+    out, _ = restore_held_ends(result)
+    assert out.words_per_line[0][2].end_ms == end
+    assert out.lines[0].end_ms == max(1100, end)
+
+
+@pytest.mark.parametrize(("held", "end"), [(899, 5699), (900, 5700), (5000, 5700)])
+def test_the_last_word_stops_at_the_trim_cap(held, end):
+    # The song's last word, collapsed to 0 ms at 4800 (it does not count into
+    # the median, still 100 ms/char): cap 4800 + 900, nothing after it.
+    result = _held_fixture({})
+    word = result.words_per_line[2][2]
+    result.words_per_line[2][2] = AlignedWord(4800, 4800, word.text, 0.5, held_ms=held)
+    out, _ = restore_held_ends(result)
+    assert out.words_per_line[2][2].end_ms == end
+
+
+def test_held_ends_skip_adlib_lines_and_line_sync():
+    out, restored = restore_held_ends(_held_fixture({(0, 0): 100, (3, 0): 100}, adlib_last=True))
+    assert restored == 1
+    assert out.words_per_line[0][0].end_ms == 400
+    assert out.words_per_line[3][0].end_ms == 6300
+    line_sync = AlignResult(sync="line", lines=_held_fixture({}).lines, words_per_line=[],
+                            quality_score=0.8)
+    assert restore_held_ends(line_sync) == (line_sync, 0)
