@@ -7,6 +7,11 @@ flipped, why a feature was built one way and not another. Code and plans move
 on; these records stay so a later session (or a later Caner) does not have to
 re-derive an answer that was already paid for once.
 
+**Current state (until the Faz 5 hand-off note):** newest first, the 2026-11-07
+cheap-repair paragraph at the end of `faz-9-pencere-saati-2026-10.md`, then
+`yerel-model-denetim-2026-11.md`, then `perceptual-audit-2026-11.md`; the
+2026-08 hand-off note `faz-9-devir-askerlik-2026-08.md` is history.
+
 | Report | Question it answers | Verdict / status | Date |
 |---|---|---|---|
 | [allin1-viability-2026-07.md](allin1-viability-2026-07.md) | Can the `allin1` music-structure stack be installed and used for section detection? | **NO-GO** — dead on arrival (NATTEN ≥0.20 removed the API it needs, upstreams frozen); P6 pivoted to dependency-free librosa Laplacian segmentation. Includes a supply-chain warning about the `openmirlab` `-infer` forks. | 2026-07-20 |
