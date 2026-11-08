@@ -351,7 +351,8 @@ def _extras(video_id: str, stem: Path, lyrics: LyricsText, result, qa, seen: dic
         "qa": None if qa is None else {
             k: getattr(qa, k) for k in (
                 "flagged", "offset_ms", "degraded_to_line", "density_dropped", "adlib_shifted",
-                "adlib_rederived", "trimmed_ends", "uncertain", "response_shifted", "nudged")},
+                "adlib_rederived", "trimmed_ends", "uncertain", "response_shifted", "nudged",
+                "voice_returned")},
         "words": [[{"text": w.text, "start_ms": w.start_ms, "end_ms": w.end_ms,
                     "prob": round(w.prob, 4), "shift_ms": w.shift_ms, "source": w.source}
                    for w in chunk] for chunk in result.words_per_line],
