@@ -311,6 +311,23 @@ def test_a_segment_word_keeps_the_edges_score():
 
 
 @pytest.mark.parametrize(
+    ("edges_end", "segment_end", "held"),
+    [(1.6, 1.21, 0.39), (1.21, 1.21, 0.0), (1.3, 1.31, 0.0)],
+    ids=["edges-later", "tie", "segment-later"],
+)
+def test_a_segment_word_carries_what_it_cut_off_the_edges_end(edges_end, segment_end, held):
+    # 2.29.1: a segment star swallows the silence after its word, so the word
+    # it places collapses onto its CTC peak. The end stays the voted one (line
+    # QA reads it); the cut travels as "held" and comes back after QA.
+    edge = {**_row("a", 1.0), "end": edges_end}
+    seg = {**_row("a", 1.2), "end": segment_end}
+    out, _ = hybrid_star_words([edge], [seg], 400)
+    assert out[0]["star"] == "segment"
+    assert (out[0]["start"], out[0]["end"]) == (1.2, segment_end)
+    assert out[0]["held"] == pytest.approx(held)
+
+
+@pytest.mark.parametrize(
     "segment",
     [[_row("a", 1.0)], [_row("a", 1.0), _row("x", 2.0)]],
     ids=["count", "text"],
@@ -332,6 +349,18 @@ def test_whole_vote_takes_the_whole_time_within_t_after_the_lead():
     # Moved back onto the edges clock; the windowed score stays.
     assert [round(r["start"], 3) for r in out] == [1.4, 3.0, 4.6]
     assert out[0]["score"] == -0.1
+
+
+def test_whole_vote_carries_the_cut_on_top_of_an_earlier_one():
+    # 2.29.1: the whole track stars every word like `segment`. Word a's windowed
+    # end 1.6 already carries 0.4 s held, so its full end is 2.0; the vote's
+    # 1.48 - 0.07 = 1.41 cuts 0.59 s. Word b's vote ends later: nothing held.
+    results = [{**_row("a", 1.0), "end": 1.6, "held": 0.4}, {**_row("b", 3.0), "end": 3.05}]
+    whole = [{**_row("a", 1.47), "end": 1.48}, {**_row("b", 3.07), "end": 3.5}]
+    out, taken, _ = whole_track_vote(results, whole, 400, edges_lead_ms=70)
+    assert taken == 2
+    assert [round(r["end"], 3) for r in out] == [1.41, 3.43]
+    assert [round(r["held"], 3) for r in out] == [0.59, 0.0]
 
 
 @pytest.mark.parametrize(

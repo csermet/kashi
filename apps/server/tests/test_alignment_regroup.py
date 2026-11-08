@@ -40,6 +40,13 @@ def test_star_tokens_are_dropped_not_counted():
     assert timings[0].start_ms == 100
 
 
+def test_a_held_end_rides_on_the_word_in_whole_ms():
+    # 2.29.1: what the vote cut off travels to line QA's far side untouched.
+    results = [{**_seg("a", 0.0, 0.1), "held": 0.3996}, _seg("b", 0.5, 0.9)]
+    _, words = regroup_words_into_lines(["a b"], results)
+    assert [(w.end_ms, w.held_ms) for w in words[0]] == [(100, 400), (900, 0)]
+
+
 def test_overlapping_words_are_clipped_monotone():
     lines = ["a b"]
     results = [_seg("a", 0.0, 0.60), _seg("b", 0.50, 1.0)]

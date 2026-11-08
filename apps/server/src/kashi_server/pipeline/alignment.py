@@ -63,6 +63,10 @@ class AlignedWord:
     # Which pass placed it: "edges" | "segment" | "whole" on the windowed path,
     # "" elsewhere. Provenance for the benchmark and the per-song log line.
     source: str = ""
+    # What the hybrid stars or the whole-track vote cut off this word's end
+    # (2.29.1, windows._held). Line QA sees the cut end; the length comes back
+    # after it (line_qa.restore_held_ends).
+    held_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -271,6 +275,7 @@ def _fold_units_onto_surfaces(chunk: list[AlignedWord], plan: PreparedLine) -> l
                 text=surface,
                 prob=min(w.prob for w in owned),
                 source=owned[0].source,
+                held_ms=owned[-1].held_ms,
             )
         )
     return folded
@@ -327,6 +332,7 @@ def regroup_words_into_lines(
                 text=str(word["text"]),
                 prob=_word_prob(float(word.get("score", 0.0))),
                 source=str(word.get("star", "")),
+                held_ms=round(float(word.get("held", 0.0)) * 1000),
             )
         )
 

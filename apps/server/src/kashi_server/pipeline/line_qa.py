@@ -269,6 +269,49 @@ def trim_word_ends(result: AlignResult) -> tuple[AlignResult, int]:
     return replace(result, words_per_line=words_out), trimmed
 
 
+def restore_held_ends(result: AlignResult) -> tuple[AlignResult, int]:
+    """Give back what the hybrid stars and the vote cut off word ends (2.29.1).
+
+    Runs AFTER line QA: QA reads ends as bounds (nudge and response fits, the
+    end trim's median) and was tuned on the cut ends — giving the length back
+    before it cost 13 of 17 nudges on the pilot set (2026-11-07). A word grows
+    by at most its `held_ms`, never past the next word's start (the next
+    line's first word for a line's last word) nor past the end trim's cap at
+    the median the trim itself read. Only ever LENGTHENS an end; ad-lib lines
+    are exempt, as from the trim. Returns (result, words lengthened)."""
+    if result.sync != "word":
+        return result, 0
+    med_char_ms = _median_char_ms(result)
+    if med_char_ms is None:
+        return result, 0
+    words_out = [list(chunk) for chunk in result.words_per_line]
+    lines_out = list(result.lines)
+    restored = 0
+    for i, line in enumerate(result.lines):
+        if is_adlib(line.text) or i >= len(words_out) or not words_out[i]:
+            continue
+        later = next((chunk[0].start_ms for chunk in words_out[i + 1 :] if chunk), None)
+        chunk = words_out[i]
+        for k, w in enumerate(chunk):
+            if w.held_ms <= 0:
+                continue
+            allowed = round(len(w.text) * med_char_ms * TRIM_SUSTAIN_FACTOR)
+            end = min(w.end_ms + w.held_ms,
+                      w.start_ms + min(TRIM_MAX_HOLD_MS, max(TRIM_MIN_HOLD_MS, allowed)))
+            bound = chunk[k + 1].start_ms if k + 1 < len(chunk) else later
+            if bound is not None:
+                end = min(end, bound)
+            if end > w.end_ms:
+                chunk[k] = replace(w, end_ms=end)
+                restored += 1
+        if chunk[-1].end_ms > line.end_ms:
+            lines_out[i] = replace(line, end_ms=chunk[-1].end_ms)
+    if restored:
+        logger.info("held ends restored: %d word(s) lengthened (med %.0fms/char)",
+                    restored, med_char_ms)
+    return replace(result, lines=lines_out, words_per_line=words_out), restored
+
+
 def _median_char_ms(result: AlignResult) -> float | None:
     """Document-wide median per-character word duration (ad-libs excluded), or
     None when too few words carry a span to trust it."""
