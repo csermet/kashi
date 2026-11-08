@@ -7,13 +7,13 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 ## Start here
 
 1. `docs/research/INDEX.md` — why each decision was made.
-2. Current state. The last hand-off note, `faz-9-devir-askerlik-2026-08.md`, is from 2026-08 and
-   no longer describes the project (Faz 3, Faz 3.5 and the 2.29 duration work came after it); the
-   next hand-off note is written when Faz 5, the timing re-plan, opens. Until then read the
-   November notes in `docs/research/`, newest first: the closing "The cheap repair, measured
-   2026-11-07" paragraph of `faz-9-pencere-saati-2026-10.md`, then `yerel-model-denetim-2026-11.md`
-   (Faz 3.5 local runs and the listening set), then `perceptual-audit-2026-11.md` (Faz 3). The
-   deployed pipeline is whatever `/v1/health` reports as `pipeline_version`, not a note.
+2. Current state. `docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md` is the timing re-plan
+   (2026-11-08; one owner decision pending, see its "Decision" section) and the entry point until
+   its successor hand-off note exists. Behind it, newest first: the 2.29 / 2.29.1 paragraphs that
+   close `faz-9-pencere-saati-2026-10.md`, then `yerel-model-denetim-2026-11.md` (Faz 3.5 local
+   runs and the listening set), then `perceptual-audit-2026-11.md` (Faz 3). The 2026-08 hand-off
+   note `faz-9-devir-askerlik-2026-08.md` is history. The deployed pipeline is whatever
+   `/v1/health` reports as `pipeline_version`, not a note.
 3. `docs/roadmap.md` (targets, language order, constraints) and
    `docs/research/olu-fikirler.md` (ideas already measured and rejected — do not retry them
    without new evidence).
