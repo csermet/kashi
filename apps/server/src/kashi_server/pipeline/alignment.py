@@ -714,6 +714,42 @@ def transcribe(wav_path: Path, model_name: str) -> str:
     return greedy_ctc_decode(ids, id_to_token, vocab.get("<pad>", 0))
 
 
+def heard_tokens(wav_path: Path, language: str) -> list[dict]:
+    """What the language's aligner checkpoint hears over the whole track: one
+    {text, start_ms} per greedy token run on the exact 20 ms clock, as the
+    audit's ear reads it (`audit.ear.hear_audio`). Feeds the sheet shift
+    check (2.29.1, `sheet_shift`); never shown, never lyrics.
+
+    The blank is `<blank>` when the vocabulary has one (MMS keeps `<pad>`
+    separate): taking `<pad>` turned every MMS blank frame into a letter in
+    the audit (2026-11)."""
+    import torch  # pyright: ignore[reportMissingImports]
+    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
+
+    model, tokenizer = _load_model(resolve_aligner(language).model_name)
+    audio = load_audio(str(wav_path), model.dtype, model.device)
+    with torch.inference_mode():
+        emissions, stride = _emit(model, audio, exact_stride=True)
+    vocab = tokenizer.get_vocab()
+    keep = usable_columns(int(emissions.shape[-1]), len(vocab))
+    logp = emissions[:, :keep]
+    if logp.dim() == 3:
+        logp = logp.squeeze(0)
+    ids = logp.argmax(dim=-1).tolist()
+    blank_id = vocab["<blank>"] if "<blank>" in vocab else vocab.get("<pad>", 0)
+    id_to_token = {i: tok for tok, i in vocab.items()}
+    out: list[dict] = []
+    previous: int | None = None
+    for frame, token_id in enumerate(ids):
+        if token_id == previous:
+            continue
+        previous = token_id
+        if token_id != blank_id:
+            out.append({"text": id_to_token.get(token_id, ""),
+                        "start_ms": round(frame * float(stride))})
+    return out
+
+
 def _alignment_texts(
     line_texts: list[str], language: str
 ) -> tuple[list[PreparedLine | None], list[str]]:
