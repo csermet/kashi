@@ -172,7 +172,8 @@ def shift_sheet(texts: Sequence[str], starts: Sequence[int | None], tokens: Sequ
         if abs(sec.median_ms) <= SHIFT_MS:
             continue
         for i in range(sec.first_line, sec.last_line + 1):
-            if out[i] is not None:
-                out[i] = max(0, int(out[i]) + sec.median_ms)
+            stamp = out[i]
+            if stamp is not None:
+                out[i] = max(0, stamp + sec.median_ms)
         applied.append(sec)
     return out, applied

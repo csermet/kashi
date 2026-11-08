@@ -723,13 +723,11 @@ def heard_tokens(wav_path: Path, language: str) -> list[dict]:
     The blank is `<blank>` when the vocabulary has one (MMS keeps `<pad>`
     separate): taking `<pad>` turned every MMS blank frame into a letter in
     the audit (2026-11)."""
-    import torch  # pyright: ignore[reportMissingImports]
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
     model, tokenizer = _load_model(resolve_aligner(language).model_name)
     audio = load_audio(str(wav_path), model.dtype, model.device)
-    with torch.inference_mode():
-        emissions, stride = _emit(model, audio, exact_stride=True)
+    emissions, stride = _emit(model, audio, exact_stride=True)
     vocab = tokenizer.get_vocab()
     keep = usable_columns(int(emissions.shape[-1]), len(vocab))
     logp = emissions[:, :keep]

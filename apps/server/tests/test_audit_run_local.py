@@ -129,6 +129,10 @@ def heard(monkeypatch):
     model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model",
                         lambda name: (model, types.SimpleNamespace(get_vocab=dict)))
+    # The stand-in has no letters to hear: the sheet shift check (2.29.1)
+    # reads nothing and moves nothing, on both sides of every comparison.
+    from kashi_server.worker import process
+    monkeypatch.setattr(process, "heard_tokens", lambda wav, language: [])
     return seen
 
 
