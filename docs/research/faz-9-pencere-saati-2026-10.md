@@ -321,7 +321,15 @@ trim's median), so starts moved in 9 songs: nudges 17 → 4, one response shift
 lost, and of the 6 moved lines with a witness (`audit.score` ear or voice) 5 got
 worse (noticeable 2 → 5). A line's last word also keeps the `edges` end, which
 reaches the next line: 60 → 365 of 1 110 line-final words held through the gap.
-Next shape: line QA sees the 2.29 ends unchanged and the length comes back after
-it (the voted words carry what the vote cut off), with line-final words held no
-further than the end trim allows. Note that the owner's heard piles (Faz 3.5
-listening set) are piled STARTS: no end repair reaches them.
+Note that the owner's heard piles (Faz 3.5 listening set) are piled STARTS: no
+end repair reaches them.
+
+**Pipeline 2.29.1 (2026-11-08, same branch, 234f455; not yet merged or
+deployed).** The vote records what it cut off (`held`), line QA judges the cut
+ends as in 2.29, and `line_qa.restore_held_ends` gives the length back after it,
+never past the next word's start or the end trim's cap. Same 20 songs, same
+inputs: 0 ms words 7.6 % → 2.5 %, under 60 ms 22.3 % → 5.7 %; every word start
+identical on 20 of 20 songs, nudges 17 = 17, response shifts 3 = 3. Line-final
+words touching the next line 60 → 301 of 1 110, but they stay short (median
+320 ms, p90 900 ms; the first try's were 480 / 1 280 ms): the next line starts
+soon, they do not hang in silence. The bench's end MAE (eng20) is not rerun yet.
