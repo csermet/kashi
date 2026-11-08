@@ -1,6 +1,7 @@
 # Faz 5 — the timing re-plan after the perceptual audit (2026-11-08)
 
-**Status: plan — one owner decision pending (the "Decision" section); no code, no
+**Status: plan — decided 2026-11-08 evening (owner, in session): option 1, timing v3
+on the current chain, run as a fast loop (see "Owner's decision"); no code yet, no
 pipeline change, no tag.** Written in plan mode from the audit side-path's records
 (`perceptual-audit-2026-11.md`, `yerel-model-denetim-2026-11.md`, the 2.29 / 2.29.1
 paragraphs of `faz-9-pencere-saati-2026-10.md`) and the branch `worktree-dinleme-4-olcum`.
@@ -215,7 +216,32 @@ Why timing first: every later phase measures against the timing (Turkish calibra
 effects keyed to words), and the owner's own complaints are all timing or lyrics.
 Effects and hardening do not wait on anything and fill the gaps.
 
-## Sequence
+## Owner's decision (2026-11-08, in session)
+
+**Option 1, timing v3 on the current chain — and faster than the sequence below.**
+The owner's words, condensed: a few weeks is too long; do not go this tested and
+cautious; take more risk for speed and for the chance of an unexpected quality gain;
+try things, grow the test count as you go instead of measuring 100 songs after every
+step; quality still matters at the end, so not a toy on a handful of songs either.
+
+What changes in the method:
+
+- **The loop is the 20-song pilot set, not the bench.** Each rule change runs
+  `audit.run_local` on the 20 (stems and records cached) and is read through
+  `audit.compare` against 2.29.1 with the verdicts plus the hygiene counts, the same
+  day. The JamendoLyrics bench (human truth) runs **once per tag**, not per rule.
+- **V3 and V2 first, shipped together as 2.30.0 within days**, after one pilot compare
+  and the owner's 15-minute listen of the moved moments. V1 (the trellis region) follows
+  as its own tag; it is the one change that needs the differential harness.
+- **One proof per rule, not a ceremony:** one test that fails when the rule is removed
+  (the house mutation rule stays, because toothless guards were the pattern here), no
+  boundary harness for V2 and V3.
+- **The test set grows with the rules:** 20 → the next favourite-set songs the owner
+  names → the bench, in that order. A rule that reads well on 20 goes to the tag; the
+  bench decides whether the archive follows (the refresh policy is unchanged).
+- The roadmap rows above are applied with this decision.
+
+## Sequence (as planned before the decision; the loop above overrides the pace)
 
 1. **Measure the 2.29.1 refresh condition (now, cnr-intel, ~1 h).** `audit.compare`
    2.28 → 2.29.1 and 2.29.0 → 2.29.1 with both verdict files, `--audio`; write the
@@ -231,7 +257,7 @@ Effects and hardening do not wait on anything and fill the gaps.
 6. **Beside 3:** the meaning-check pre-registration and its runs on the desktop GPU
    (~2 days), reported here as a Faz 3.5-style table.
 
-## Decision requested from the owner
+## Decision requested from the owner (answered above: option 1)
 
 One question, two options. Either answer also approves the roadmap rows above under
 that option.
