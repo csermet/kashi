@@ -102,7 +102,14 @@ values (0.77, 0.83, 0.44); 12 of 20 songs sit below 0.20 on 2.29.
    piles last. `audit.score` already measures the first group; hygiene counts the last.
 4. 2.29's regression is real in hygiene numbers but not visible at this set's moment level; whether to
    ship 2.29.1, a timing v3 or plain-lyrics timing from scratch is a decision for the re-plan, on
-   these numbers.
+   these numbers. *(2026-11-08: 2.29.1 is built and measured, see `faz-9-pencere-saati-2026-10.md`,
+   "Pipeline 2.29.1": word lengths back, and item 1 for whole-sheet shifts.)*
+5. **Candidate (owner, 2026-11-08): meaning questions for a local LLM, never timing.** Feed the ear's
+   text (CTC or Qwen3-ASR) and the sheet section by section to the desktop's Gemma (no API limit):
+   is it the same song or another mix's lyrics (to replace A3's `wrong_sheet` rule, 19 % false
+   alarms), sung lyric or a background shout, written but never sung. Timing stays with rules (Faz
+   3.5: summarizers were inconsistent with numbers). Pre-register before adopting: JamendoLyrics 79,
+   the injected deleted/extra paragraphs, the other-mix verse.
 
 ## Data
 

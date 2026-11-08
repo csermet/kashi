@@ -333,3 +333,20 @@ identical on 20 of 20 songs, nudges 17 = 17, response shifts 3 = 3. Line-final
 words touching the next line 60 → 301 of 1 110, but they stay short (median
 320 ms, p90 900 ms; the first try's were 480 / 1 280 ms): the next line starts
 soon, they do not hang in silence. The bench's end MAE (eng20) is not rerun yet.
+
+**2.29.1, second half: a shifted lrclib section moves before alignment (fc04715).**
+`pipeline/sheet_shift.py` copies the anchor check's A1 (Faz 3.5 Step 1): sheet lines
+no other line resembles are placed over the whole song by the checkpoint's greedy
+letters (`alignment.heard_tokens`, one extra emission pass), and a section of
+agreeing placements more than 1 s off moves by its median, its own lines only, in
+`process._shift_sheet` before windows are cut and line QA reads the stamps.
+Unanchored neighbours stay: GOSSIP's second chorus is 3-4 s late where its verses
+are 19 s late, and extending the move left it 15 s early in the dry run.
+JamendoLyrics (79 songs, the audit's ears): no move on a healthy sheet; whole-sheet
+shifts of ±5 s and ±15 s found 74 of 79 each, offset error median 66 ms (p90
+110 ms), no moved line left more than 1 s off. Pilot set through `run_local`:
+GOSSIP lines 1-24 −18.96 s, Got 2 Luv U lines 16-82 −3.72 s, the other 18
+documents identical to the duration-only arm; lines noticeably off
+(`audit.score`) 0.83 → 0.19 and 0.77 → 0.25, median line error 3.1 s / 3.7 s →
+20 ms. The overlay's own lrclib client (its twin) still shows the raw stamps for
+songs without a document.
