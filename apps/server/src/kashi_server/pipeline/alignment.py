@@ -24,6 +24,7 @@ from kashi_server.pipeline.windows import (
     hybrid_star_words,
     plan_windows,
     reconcile_seams,
+    unpile_starts,
     whole_track_vote,
     yield_pad_words,
 )
@@ -578,6 +579,11 @@ HYBRID_T_MS = 400
 WHOLE_VOTE_DEFAULT = True
 WHOLE_VOTE_T_MS = 400
 
+#: Timing v3, V3 (2.30.0): after the hybrid and the vote, a run of 3+ words
+#: starting within 60 ms that they made takes the `edges` starts back
+#: (windows.unpile_starts). Off reproduces 2.29.1.
+UNPILE_DEFAULT = True
+
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
     """The real time step between emission frames, in ms.
@@ -825,12 +831,15 @@ def _align_windows(
         for r in aligned:
             if r.get("text") == STAR_TOKEN:
                 continue  # regroup drops them anyway; keep offsets word-only
-            merged.append({
+            row = {
                 **r,
                 "start": float(r["start"]) + offset_s,
                 "end": float(r["end"]) + offset_s,
                 "window": index,
-            })
+            }
+            if "edges_start" in r:
+                row["edges_start"] = float(r["edges_start"]) + offset_s
+            merged.append(row)
     return merged
 
 
@@ -860,6 +869,7 @@ def align(
     whole_vote: bool = WHOLE_VOTE_DEFAULT,
     hybrid_t_ms: int = HYBRID_T_MS,
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
+    unpile: bool = UNPILE_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -878,7 +888,9 @@ def align(
     too: per word the `segment`-starred time where it agrees with `edges`
     (HYBRID_T_MS), then the whole-track time where it agrees with that
     (WHOLE_VOTE_T_MS). Words they place need no lead; they are moved onto the
-    edges clock so the path-wide lead nets out for them (_align_windows)."""
+    edges clock so the path-wide lead nets out for them (_align_windows).
+    `unpile` (2.30.0) then gives a piled run they made its `edges` starts
+    (windows.unpile_starts)."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -952,6 +964,11 @@ def align(
             counts["segment"], counts["edges"], counts["whole"], sum(counts.values()),
             vote_note if whole_vote else " (off)",
         )
+        if unpile:
+            results, runs, moved = unpile_starts(results)
+            if runs:
+                logger.info("piled starts: %d run(s), %d word(s) back on the edges clock",
+                            runs, moved)
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:

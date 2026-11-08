@@ -31,6 +31,7 @@ from kashi_server.pipeline.alignment import (
     HYBRID_T_MS,
     SEAM_POLICIES,
     SEAM_POLICY_DEFAULT,
+    UNPILE_DEFAULT,
     WHOLE_VOTE_DEFAULT,
     WHOLE_VOTE_T_MS,
     WINDOW_STAR_DEFAULT,
@@ -146,6 +147,7 @@ def _align_song(
     whole_vote: bool = WHOLE_VOTE_DEFAULT,
     hybrid_t_ms: int = HYBRID_T_MS,
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
+    unpile: bool = UNPILE_DEFAULT,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
@@ -156,6 +158,7 @@ def _align_song(
             wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial,
             exact_stride=exact_stride, seam_policy=seam_policy, window_star=window_star,
             whole_vote=whole_vote, hybrid_t_ms=hybrid_t_ms, whole_vote_t_ms=whole_vote_t_ms,
+            unpile=unpile,
         )
     return result, time.monotonic() - started
 
@@ -287,7 +290,7 @@ def _align_jamendo_song(args, song):
         args.align_romanize, args.align_offset_ms, _by_initial(args),
         exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
         whole_vote=args.whole_vote, hybrid_t_ms=args.hybrid_t_ms,
-        whole_vote_t_ms=args.whole_vote_t_ms,
+        whole_vote_t_ms=args.whole_vote_t_ms, unpile=args.unpile,
     )
     return audio, separate_s, anchors, result, align_s
 
@@ -604,7 +607,7 @@ def _align_case(args, case):
         args.align_romanize, args.align_offset_ms, _by_initial(args),
         exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
         whole_vote=args.whole_vote, hybrid_t_ms=args.hybrid_t_ms,
-        whole_vote_t_ms=args.whole_vote_t_ms,
+        whole_vote_t_ms=args.whole_vote_t_ms, unpile=args.unpile,
     )
     return reference, separate_s, anchors, result, align_s
 
@@ -791,6 +794,16 @@ def _parse_args() -> argparse.Namespace:
         default=WHOLE_VOTE_T_MS,
         help="whole-track vote: agreement window, ms (alignment.WHOLE_VOTE_T_MS)",
     )
+    parser.add_argument(
+        "--unpile",
+        action=argparse.BooleanOptionalAction,
+        default=UNPILE_DEFAULT,
+        help=(
+            "windowed path only: a run of 3+ starts within 60 ms that the hybrid "
+            "or the vote made takes the edges starts back (2.30.0, timing v3 V3); "
+            "--no-unpile reproduces 2.29.1."
+        ),
+    )
     parser.add_argument("--label", help="results filename label (default: config name)")
     return parser.parse_args()
 
@@ -824,6 +837,8 @@ def _config_name(args) -> str:
         config_name += "-vote" if args.whole_vote else "-novote"
     if args.windowed and args.whole_vote and args.whole_vote_t_ms != WHOLE_VOTE_T_MS:
         config_name += f"-vt{args.whole_vote_t_ms}"
+    if args.windowed and args.unpile != UNPILE_DEFAULT:
+        config_name += "-unpile" if args.unpile else "-nounpile"
     if args.line_postprocess != "none":
         config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
@@ -878,6 +893,7 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         ),
         "whole_vote": args.whole_vote if args.windowed else None,
         "whole_vote_t_ms": args.whole_vote_t_ms if args.windowed and args.whole_vote else None,
+        "unpile": args.unpile if args.windowed else None,
         "seam_policy": args.seam_policy,
         "signals": args.signals,
         "line_postprocess": args.line_postprocess,

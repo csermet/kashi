@@ -575,3 +575,39 @@ def test_the_shipped_defaults_are_hybrid_stars_and_the_whole_track_vote(monkeypa
     result = alignment.align(tmp_path / "x.wav", LINES, "eng", STAMPS)
     assert calls == {"hybrid": 4, "whole": 1}
     assert {w.source for chunk in result.words_per_line for w in chunk} == {"segment"}
+
+
+# --- 2.30.0, timing v3 V3: piled starts fall back to the edges clock -----------
+
+from kashi_server.pipeline.windows import unpile_starts  # noqa: E402
+
+
+def test_a_pile_the_segment_pass_made_takes_the_edges_starts_back(monkeypatch, tmp_path):
+    # A wide T lets segment stars pile window 1's three words (edges 6.15 /
+    # 7.15 / 8.65 s) onto 7.13-7.15 s on the edges clock: the CEO / Crazy In
+    # Love shape. "three" goes to segment at 5.98 s so it stays out of the run.
+    deltas = [[5, 5, -0.5], [1.05, 0.06, -1.43], [5, 5, 5], [5, 5, 5]]
+    piled, _ = run_hybrid(monkeypatch, tmp_path, deltas, whole_vote=False, hybrid_t_ms=2000,
+                          unpile=False)
+    assert [w.start_ms for w in piled.words_per_line[1]] == [7_200, 7_210, 7_220]
+    result, _ = run_hybrid(monkeypatch, tmp_path, deltas, whole_vote=False, hybrid_t_ms=2000)
+    four, five, six = result.words_per_line[1]
+    assert [w.start_ms for w in (four, five, six)] == [6_220, 7_220, 8_720]
+    assert {four.source, five.source, six.source} == {"edges"}
+    assert result.words_per_line[0][2].start_ms == 6_050  # "three" untouched
+
+
+def test_unpile_takes_runs_within_60_ms_inclusive_and_keeps_starts_monotone():
+    def seg(text, start, edges_start):
+        return {**_row(text, start), "star": "segment", "edges_start": edges_start}
+
+    rows = [_row("a", 1.0), seg("b", 1.10, 0.95), seg("c", 1.13, 1.40), seg("d", 1.16, 1.60),
+            _row("e", 1.50)]
+    out, runs, moved = unpile_starts(rows)
+    # b-d start within 60 ms of b: edges starts, b clamped to a, d to e.
+    assert (runs, moved) == (1, 3)
+    assert [r["start"] for r in out] == [1.0, 1.0, 1.40, 1.50, 1.50]
+    assert out[3]["end"] == 1.50 and out[3]["held"] == 0.0
+    # 61 ms is no pile; a run of edges words is edges' own.
+    assert unpile_starts([seg("x", 1.0, 0.5), seg("y", 1.03, 0.6), seg("z", 1.061, 0.7)])[1] == 0
+    assert unpile_starts([_row("x", 1.0), _row("y", 1.01), _row("z", 1.02)])[1] == 0
