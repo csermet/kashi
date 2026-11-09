@@ -520,6 +520,146 @@ whose line starts disagree with their words (GOSSIP's lines 1-7 above) scores cl
 Scoring from the line start is a one-line change in `audit.score.line_timings`. It would
 change every earlier number, so it is left for its own decision.
 
+## 2.31.0 measured — timing v3, second round (V1), 2026-11-09
+
+Branch `worktree-zamanlama-v1` (on top of 2.30.1). **Not merged: the acceptance line is
+not met as written (4 of the 10 heard line starts, see below).** Not tagged, not
+deployed, no refresh. 20 pilot songs through `audit.run_local`, same stems and records
+as the 2.30.0 arm (`v3/<id>.fin`) and, for the two shifted sheets, the 2.30.1 arm
+(`v301/<id>.s1`); together the 2.30.1 baseline `v1/<id>.b301`. Documents, logs and
+compare outputs in `scratch/audit/runs/v1/`, scripts in
+`~/Documents/krediler/kashi-v1-betikler/`. The emission passes are cached per audio slice
+(`emcache_run.py`: V1 changes Viterbi, never emissions; a cached run equals a fresh one
+byte for byte but `generated_at`), so a second arm costs ~20 s a song instead of 3-27 min.
+
+**What shipped as code.**
+
+- **The region.** In a window that owns two or more stamped lines, each stamped line's
+  first letter starts within `LINE_REGION_MS` of its own stamp, both ends inclusive, on
+  the document clock (`windows.line_regions`). The task wording was "no word before its
+  own stamp − R or after the next stamp + R". Read on the 2.30.0 documents (931 worded
+  lines in shared windows, 18 songs), that upper bound binds **1** line, so it could not
+  reach the named moments (SexyBack's "Get your sexy on" sits 1.57 s after its stamp
+  but inside "next stamp + 1.2 s"); the start bound binds 9 at 1 200 ms. The start bound
+  implies the wording's bounds: the next line's region caps every word of this one, and
+  the slice caps the window's last line.
+- **In the trellis, not after it.** `pipeline/trellis.py` is ctc_forced_aligner's
+  Viterbi (`forced_align_impl.cpp`, 0.3.0) in numpy, plus forbidden (state × frame)
+  rectangles: the line's first letter may not be emitted before its region, and no state
+  before it, blanks included, may hold after it. The library runs first; only a pass
+  whose path breaks a region runs again with the cuts (`alignment._hold_line_starts`), on
+  both window passes, each on its own clock (`edges` and `segment` differ by the 70 ms
+  lead). No path → the library's stands (logged `infeasible`: 0 on the pilot set).
+- **The padded start.** The first finished document showed the one adjustment this round
+  took: in New Rules 0:08 V1 put "One" on its stamp (0.7 s, 2.30.0 had it on "Talkin'" and
+  line QA snapped it back), and the `edges` pass then started "Talkin'" at 4.92 s for a
+  letter at 8.94 s, because the library's span takes half the blank before a word. Line QA
+  moved the whole line onto the stamp (+3.95 s) and broke every word after the first. A
+  bounded line's reported start that lies before its region is now its letter's frame.
+- **Proof.** The compiled Viterbi and the numpy one agree byte for byte on 3 000 random
+  cases, ties included (a `slow` test repeats 500). Seeded differential harness in the
+  worker image: the 2.30.0 `alignment` module next to the new one over fake emissions
+  (a linear model on real frame counts), 60 songs of short repeated lines with English
+  by-initial offsets, through hybrid, vote, unpile, seams and the shift: with V1 off and
+  with a region that never binds, **60 of 60 equal 2.30.0**; at 1 200 ms 322 passes cut,
+  0 infeasible. Boundary tests at 1 199 / 1 200 / 1 201 ms on both sides of the region,
+  through the clock conversion. 16 one-line mutations (bounds, rounding, inclusive check,
+  lead sign, offsets, cuts, the band's repeat rule, the wiring, the padded start), each
+  caught by `tests/test_line_regions.py`.
+- **The value.** 1 200 and 800 ms, the two the task allowed. Same moments fixed, same
+  known-good labels; 800 also lands BxMxC 0:13 and SexyBack's third "You ready?" on their
+  voices, and noticeable lines go 101 → 95 against 101 → 101. **800 ships.**
+  `benchmarks/run.py --line-region-ms` (0 = off, reproduces 2.30.x) is ready for the bench.
+
+**Numbers, 2.30.1 → 2.31.0 (20 songs, the final arm `v1/<id>.v1g`: a snapshot equal to 42ea397 but two comments).**
+
+| | 2.30.1 | 2.31.0 |
+|---|---|---|
+| noticeable lines (`audit.score`), of placed | 101 / 675 | **95 / 679** (at 1 200 ms: 101 / 677) |
+| lit words / worded lines | 8 505 / 1 178 | 8 730 / 1 213 |
+| line QA: flagged / dropped for density | 13 / 30 | 0 / 0 |
+| 0 ms words / under 60 ms | 1.7 % / 4.3 % | 1.5 % / 4.3 % |
+| runs of 3+ starts within 60 ms, per line / stream | 16 / 26 | 15 / 22 |
+| line QA nudges / response shifts / voice returns | 13 / 4 / 0 | 14 / 3 / 0 |
+| first words torn from their line (> 1 s and > 3× the line's later gaps) | 23 | 32 |
+
+The two shifted songs alone: noticeable lines GOSSIP 8 → 9, Got 2 Luv U 10 → 11 (10 and
+10 at 1 200). Their unshifted tails are 3-5 s late and nothing anchors them (2.30.1
+above): V1 holds those lines near wrong stamps, which is the rule's limit.
+
+`audit.compare` 2.30.1 → 2.31.0 with `--audio` (GOSSIP's 2.30.1 document is labelled
+2.30.0, so its moments read `n/a:version`):
+
+| verdicts | known-good: broken? / moved / kept | known-bad: fixed? / worse? / changed / unchanged |
+|---|---|---|
+| review (96) | 3 / 2 / 39 | 12 / 3 / 10 / 18 |
+| listening (30) | **0** / 2 / 3 | 6 / 1 / 2 / 10 |
+
+- **The three review `broken?` are moments the owner heard as wrong.** BxMxC 0:10.2
+  (review: "BxMxC 8.53 sits on a shout"; owner: "0:07 BxMxC starts here, yours is a bit
+  late"; 2.31.0 puts it at 7.11), BxMxC 0:46.5 (review "ok", numbers only; owner "wanna
+  wanna wanna be piled"; 2.31.0 unpiles it 3 → 2) and Deli Oğlan 1:00.3 (review "ok",
+  numbers only; owner "0:55 ohhh, 0:59 ohhh"; the second "oh" moves 54.50 → 58.73). The
+  listening set reads all three `fixed?`. Strictly, the "review `broken?` 0" line fails.
+- **The `worse?` labels.** Hey Mama 2:44.8 (listening): "Banging" leaves the moment's
+  window, 166.74 → 168.03; the ear measured the old one 1.19 s early, the new one is on
+  its stamp. Crazy In Love 2:47.0 (median +15 ms, ear "better"). New Rules 3:23.2: one
+  more piled word next to it (8 → 9), real. GOSSIP 2:10.1: two words pile (0 → 2), real.
+- **Lines that light again.** Line QA dropped 30 lines for density on 2.30.1 and none on
+  2.31.0: crammed lines now sit near their stamps and keep their words. Among them New
+  Rules' "(Out of my mind, out of my mind)" (13.88-14.58; the ear hears it at 13.95-14.6;
+  the owner asked for it), Crazy In Love's 0:15-0:20 "Uh oh" lines (the owner's 0:18.5
+  "no word movement"), Deli Oğlan's five lines after 1:57, nine BxMxC lines and two of
+  SexyBack's chorus repeats at 3:21-3:23.
+
+**Against the plan's named moments: 4 of the 10 heard line starts read `fixed?`.**
+
+- Fixed: SexyBack 2:30.9 (the whole chain: "Get your sexy on" 147.26 → 145.91, the three
+  "You ready?" 148.74 / 150.78 / 152.84 against the ear's 148.72 / 150.78 / 152.83), BxMxC
+  0:13.2 (14.42 → 12.98; and 0:07, 8.53 → 7.11), New Rules 3:10.8 (the first "don't"
+  191.24 against the ear's 191.25; the other three stay 0.6-0.7 s late: no letters), Deli
+  Oğlan 1:00.3.
+- Changed: Deli Oğlan 1:56.7 ("Hadi" stays 0.7 s early; the next line lights now).
+- Not V1's: Hey Mama 0:08.9 and the hooks (inside one line), Take It Off 1:52.6 (a pile
+  `edges` makes too), Stressed Out 1:36.4 and Crazy In Love 1:58.0 (structure the sheet
+  does not carry, class E), New Rules 2:54.4 (right on these inputs, as in 2.30.0).
+- Also moved: New Rules 3:20.0 (review, late): the first "don't" 200.91 → 198.75 (ear
+  199.04); the others stay late, and "Don't be his friend" is now crammed into 0.5 s.
+- Got 2 Luv U 2:15's four crammed repeats were opened by 2.30.1 (windowed again, ~1.2 s
+  apart); V1 leaves them.
+
+So the acceptance line "≥ 6 of 10" is not met: 4 from V1, none of the ten from 2.30.0's
+compare. Per the task, the branch waits; the owner decides.
+
+**What the screen will show.** lrclib's word-timed files bypass alignment on 8 pilot
+songs in production, SexyBack and New Rules among them ("Found at the 2.30.0 rollout").
+Their V1 changes reach the screen only if the fast path goes off (question 42). On the
+other 12 V1 changes BxMxC, Deli Oğlan, Crazy In Love, Hey Mama, CEO, Heavenly, Take It Off
+and Öp.
+
+**Found on the way.**
+
+- Holding only the first letter can tear the first word from the rest when the rest's
+  evidence lies later (Crazy In Love 0:22: "Uh" at 22.75, the other eight words at
+  24.33-25.07; Heavenly 0:59, CEO 0:08, New Rules 3:20, Got 2 Luv U's late tail). Torn
+  first words 23 → 32; a guard (the line's last word in a region too, or the library's
+  path when the cut tears) is unmeasured.
+- The `edges` pass starts a word after silence halfway into it everywhere, not only in
+  V1's lines; the hybrid hides it where `segment` agrees within 400 ms. Unmeasured beyond
+  V1's floor.
+- 2.31.0 holds lines to the sheet. Where the sheet is late and unanchored (the shifted
+  songs' tails) that is the wrong place, which the plain-lyrics road (9.7) would address.
+
+**Next.**
+
+1. The owner's listen of the moved moments (`scratch/audit/caner-dinle-6.md`, 8
+   moments), after a tag and the 20-song pilot refresh, both the owner's call. Two rows
+   need the fast path off to mean anything.
+2. The eng20 bench before any tag (GPU desktop): `--anchor-jitter-ms 400` with
+   `--line-region-ms 0 / 800 / 1200`. Jittered stamps are V1's main risk and this round
+   could not measure it.
+3. The tear guard above, if the listen confirms the torn first words are heard.
+
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 
 1. **Measure the 2.29.1 refresh condition (now, cnr-intel, ~1 h).** `audit.compare`
