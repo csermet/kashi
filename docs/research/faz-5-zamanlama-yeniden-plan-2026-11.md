@@ -263,6 +263,94 @@ What changes in the method:
   bench decides whether the archive follows (the refresh policy is unchanged).
 - The roadmap rows above are applied with this decision.
 
+## 2.30.0 measured — timing v3, first round (V3 + V2), 2026-11-09
+
+Branch `worktree-zamanlama-v3` (96e3e06, on top of fc04715, so it carries 2.29.1's
+sheet-shift half too). Not tagged, not deployed, no refresh. 20 pilot songs through
+`audit.run_local`, same stems and records as the 2.29.1 arm (`step2291/<id>.new3`),
+CPU, ~7 min a song; scripts in `~/Documents/krediler/kashi-v3-betikler/`.
+
+**What shipped as code.** V3 (`windows.unpile_starts`): a run of 3+ words starting
+within 60 ms (inclusive, the bench's rule) that the hybrid or the vote made takes its
+`edges` starts. The first version clamped those starts between the neighbours, and the
+first finished song showed why that was not enough. In CEO 1:03 the word after the pile
+("a") was squeezed too, the clamp piled "it like" onto it again, and the named moment did
+not move. So the block now carries along the words after it that the `edges` starts
+overtake, and it moves only when the block plus both neighbours come out with fewer piled
+words. Where `edges` piles too, or a clamp would pile the block onto a neighbour, nothing
+moves. This was the round's one allowed adjustment; the 60 ms / k = 3 threshold stayed,
+because the remaining piles are `edges`' own (see below). V2
+(`line_qa.shift_to_voice_return`): a line after >= 500 ms of silence (the end the
+previous word gets back after QA, `held` included) moves as a block onto the voice's
+return when the return is 400-1500 ms away AND the sheet shift's ear (`heard_tokens`,
+no second pass) hears a 3-letter run of the line's first six letters, starting in its
+first three, from 100 ms before to 600 ms after the return. The 400 ms floor: on the
+pilot set's healthy lines the energy return sits 115-360 ms before the aligner's
+calibrated start (consonant and breath); the heard errors were 500-1000 ms. Each rule
+has one test that fails when it is removed; V3's carry and its no-gain guard each have
+one more.
+
+**Numbers, 2.29.1 → 2.30.0.**
+
+| | 2.29 | 2.29.1 | 2.30.0 |
+|---|---|---|---|
+| runs of 3+ starts within 60 ms, per line | 47 | 30 | **13** |
+| the same, whole stream (bench rule) | 59 | 44 | 28 |
+| 0 ms words / under 60 ms | 7.6 % / 22.3 % | 2.7 % / 5.6 % | 2.3 % / 5.3 % |
+| line QA nudges / response shifts / voice returns | 17 / 3 / – | 15 / 3 / – | 14 / 3 / 0 |
+
+`audit.compare` 2.29.1 → 2.30.0 with `--audio`:
+
+| verdicts | known-good: broken? / moved / kept | known-bad: fixed? / worse? / changed / unchanged |
+|---|---|---|
+| review (96) | **0** / 1 / 43 | 6 / 1 / 2 / 37 |
+| listening (30) | **0** / 0 / 5 | 3 / 2 / 1 / 18 |
+
+The fixed piles: CEO 1:03 ("I run it like a CEO" back to 63.09 / 63.13 / 63.23 / 63.37 /
+63.48, the spread the review called right in 2.28), Hey Mama 1:41 and 2:44.8, Crazy In
+Love 0:59, Heavenly 0:56, Sorry For Party Rocking 1:58. The two `worse?` labels both
+move toward the reviewed place. Hey Mama 0:08.9: "be" 8.90 → 8.69, the loudness-backed
+spot the review gives for 2.28. SexyBack 2:18.6: "'head" 138.65 → 138.47, the ear's
+"goheby" is at 138.50, but it now starts with "(go" and "be gone with" stays piled.
+The lost nudge is in Enemy (3 → 2), a wrong-text song.
+
+**Against the plan's named moments: 1 of 10 line starts and 1 of 4 piles.**
+
+- **V3 (C).** CEO 1:03 is fixed. Take It Off 1:52.6, SexyBack 2:19 and Crazy In Love
+  0:18 are not: `edges` piles the same words, so falling back to it gains nothing. A
+  debug dump confirmed this for each; for example, all three clocks put "Got me hoping"
+  in one frame.
+- **V2 (B).** It moved nothing:
+  - New Rules 2:54 already reads right on these inputs: the local 2.29 and 2.29.1 runs
+    start the line at 174.52 s, where the live 2.29.0 document has 175.08 s (input
+    difference, not code).
+  - BxMxC 0:13 and 2:06 are Japanese lines: no Latin letters to match.
+  - BxMxC 2:06 also has no gap any more once 2.29.1 gives the ends back.
+  - The one candidate the rule found (SexyBack 3:33, −1.17 s) was taken first by the
+    response rule.
+  - Deli Oğlan 1:57 and Instruction 2:37 stay unchanged, as the guard intends.
+- **The other line starts** (A and D, e.g. SexyBack's "You ready?" chain) are V1's.
+
+So the acceptance line "≥ 6 of the 10 heard line starts fixed" is not met by this round,
+and could not be: it was written for V1 + V2 + V3 together.
+
+**Found on the way.** After the sheet shift, GOSSIP and Got 2 Luv U run whole-audio
+alignment: the shifted stamps no longer pass the window planner, so neither song
+reaches the hybrid, the vote or V3. Their piles (Got 2 Luv U's crammed repeats) belong
+to that path. This is 2.29.1 behaviour, worth a look before the tag.
+
+**Next.**
+
+1. The owner's 15-minute listen of the 9 moved moments
+   (`scratch/audit/caner-dinle-5.md`). It needs 2.30.0 documents on the server, so it
+   follows the tag and the 20-song pilot refresh (the owner's separate yes).
+2. The eng20 bench once before the tag (GPU desktop): `--no-unpile` reproduces 2.29.1
+   for the A/B.
+3. V1 (stamp regions) for the line starts.
+4. A candidate for the piles `edges` shares: none of the three clocks separates them, so
+   only a spread inside the line's own span could. That is a new idea, not in
+   `olu-fikirler.md`, and unmeasured.
+
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 
 1. **Measure the 2.29.1 refresh condition (now, cnr-intel, ~1 h).** `audit.compare`
