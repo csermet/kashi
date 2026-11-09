@@ -217,6 +217,44 @@ each verdict file is GOSSIP's second chorus (2:10.1, 2:34.2): it is unanchored a
 stays 3-5 s late after the sheet shift (ear error 5 360 → 4 850 ms; reading "same"),
 as the sheet-shift paragraph of the Faz 9 note says. No reading blocks the tag.
 
+## Found at the 2.30.0 rollout: lrclib's word-timed files bypass the pipeline (2026-11-09)
+
+Reported by the rollout session after the pilot refresh on 2.30.0. lrclib.net now serves
+its `lyricsfile` field (human word sync) on many records, and the worker's fast path
+(`process.py`, "lyricsfile fast path … CTC skipped"; `pipeline/lyricsfile.py` calls it
+"strictly better than anything CTC can derive") takes it as is: no separation, no
+alignment, no line QA, quality 1.0. On the 20 pilot songs **8 took the file** (Stressed
+Out, New Rules, SexyBack, Sorry For Party Rocking, GOSSIP, Mor, Gasolina, Instruction);
+the 12 that went through CTC match the local v3 arm word for word on 11 (Got 2 Luv U
+chose another record). In the archive **109 of 290 candidates** carry a file. The files
+are lrclib's own, not Kashi's publications (they carry `language` / `instrumental`
+fields and their times differ from our documents).
+
+Measured, `audit.compare` live 2.29.0 → live 2.30.0 with the verdicts: every one of
+the **20 `good:broken?`** labels on the review set comes from 6 of the file songs; the
+listening set shows 5 `bad:fixed?` (Stressed Out, New Rules, GOSSIP) and SexyBack
+2:18.6 piles 8 → 16. So the "strictly better" assumption in the module docstring is
+not what the pilot set shows: the crowd word times fix some heard errors and break
+more reviewed-good moments, and they are served without any check against the audio.
+
+Consequences for this plan:
+
+1. **The fast path is a fourth timing source the plan did not count.** With it on, v3
+   (and V1) never touch 40 % of the pilot set and ~38 % of the archive; every
+   acceptance number above is about the CTC path only.
+2. **Decision asked of the owner by the rollout session (its question 42):** keep the
+   file as is, or switch the fast path off and align every record ourselves. This
+   note's recommendation: **off for now** (one setting, pipeline 2.30.1 or 2.31.0,
+   then the archive refresh covers all 290), and the file kept as a **witness**, not a
+   source, until it is measured: on the 8 pilot songs, file word starts against our
+   v3 starts and against the ear (`audit.score` line timings); a later gate may take the
+   file only where it agrees (for example, 80 % of words within 150 ms of our starts)
+   and fall back to CTC elsewhere. That measurement is a half-day job and belongs
+   before any decision to trust the file again.
+3. The listening list for 2.30.0 (`scratch/audit/caner-dinle-5.md`) carries three
+   optional file moments (10-12) so the owner's ear enters this comparison too.
+4. `olu-fikirler.md` gets a row only after the measurement, not from this reading.
+
 ## Proposed roadmap rows (applied after the owner's answer)
 
 Phase order changes only by the owner's decision; this table is the proposal that the
