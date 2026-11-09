@@ -42,6 +42,34 @@ Phase order changes only by the owner's decision.
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
 of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).
 
+## Owner's long-term direction (2026-11-09)
+
+Written down so that no later plan forgets it; details come from the owner when each item
+opens, and the whole list is re-phased in the next whole-project review (Fable 5.2 as
+orchestrator and advisor, after 2.31.0 is live and measured; brief in the owner's prompt
+files). The timing core is the foundation these build on, not the product.
+
+- **Effects, far beyond today's layer:** lyric-video style (the nightcore video idiom) — per-word
+  entrances and exits, effects tied to a line's or a word's end, scenes driven by the words, themes
+  driven by the song's mood; "take on the whole text-on-screen experience". Phase 10 is its first
+  step, not its end.
+- **Who is singing:** per-singer lyrics (duets, backing vocals, responses). Semi-automatic is
+  acceptable; no clean licensed singing diarization exists today.
+- **Android app, two modes:** (a) the desktop overlay's equivalent — a fixed on-screen lyrics box
+  over YouTube Music, sizes for a phone, a settings screen for position and size, track detection
+  from the system media session; (b) a full-screen show mode (lyrics first, then per-word and
+  per-ending effects and scenes). Mode (a) is small and does **not** wait for the timing core: it
+  can run in parallel. Known needs: a server lookup by title + artist + duration (the phone has no
+  video id), the overlay's view logic shared through a WebView (the twin trap), ~100 ms position
+  accuracy from the media session. iOS cannot draw over other apps or read another app's position,
+  so iOS means our own player or Spotify. Sideloaded APK; no store.
+- **Working principle:** the core (timing), effects and Android are separate lines of work that may
+  advance in parallel; the document schema and the server API are the shared contract. Quality and
+  "no unnecessary work" set the pace, not the calendar.
+- **Standing worry to answer in the review:** "are we burying everything in rules — good on a few
+  songs, unproven on all of them?" The review starts with a measurement on 20 fresh songs the owner
+  has never listened to and the rules have never seen, plus the human-truth bench.
+
 ## Standing constraints
 
 - **No timestamp adaptation in the overlay.** Mapping one edit's timestamps onto another
