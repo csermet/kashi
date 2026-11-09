@@ -181,6 +181,15 @@ class Settings(BaseSettings):
     # markers trigger a speed-factor probe against lrclib. Explicit ingest
     # options bypass this switch.
     nightcore_detection: bool = True
+    # lrclib's `lyricsfile` (crowd word sync) used AS the document, skipping
+    # separation, CTC and line QA (2.4.0). Off since 2.31.0: lrclib began
+    # serving the field in 2026-11 and the pilot set measured it, not the
+    # "strictly better" the fast path assumed — 8 of 20 pilot songs took it
+    # and all 20 good:broken? review labels of the 2.30.0 rollout came from 6
+    # of them. Off, a record carrying a file aligns like any other and the
+    # worker only logs what it skipped (the file stays a witness). Turn it
+    # back on only behind a measured agreement gate (Faz 5 note).
+    lyricsfile_fast_path: bool = False
     # The worker's PRIMARY lyrics source, and the only one contribute-back
     # publishing ever talks to (worker/publisher.py) — a mirror is read-only.
     lrclib_base_url: str = "https://lrclib.net"

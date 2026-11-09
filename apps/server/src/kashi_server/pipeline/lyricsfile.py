@@ -1,10 +1,12 @@
 """Parse lrclib's `lyricsfile` field (HUMAN word sync) into an AlignResult.
 
 Spec vendored at docs/vendor/lrclib-LYRICSFILE_*.md (upstream 3f68e7cda086,
-2026-06-24). The field is served on every record (null when absent) and, when
-it carries word-level lines, it is strictly better than anything CTC can
-derive — human-timed word boundaries are the single biggest lever on the
-"words flow fast/slow" ear-test complaint.
+2026-06-24). The field is served on every record (null when absent). It was
+assumed strictly better than anything CTC can derive; measured once lrclib
+began serving it (2026-11, pilot set), it is not: the crowd word times fixed
+some heard errors and broke more reviewed-good moments, unchecked against
+the audio. Since pipeline 2.31.0 the worker only uses the parse when
+settings.lyricsfile_fast_path is on (default off) and otherwise logs it.
 
 Philosophy: a job must NEVER fail over a lyricsfile. The YAML is untrusted
 crowd data behind an "expect breaking changes" upstream warning — every

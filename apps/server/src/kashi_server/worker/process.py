@@ -796,13 +796,23 @@ def process_job(s: Session, job: Job) -> None:
         # CTC wrong-song gate. Resolving lyrics before separation also means
         # a doomed lyrics_not_found no longer pays for separation first
         # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
+        # Off by default since 2.31.0 (settings.lyricsfile_fast_path): the
+        # file is still parsed so the log says what alignment overrode.
         detection = _detect_nightcore(job, download)
         plain_lyrics = _resolve_plain_lyrics(job, download, tmp, detection, lookup)
-        fast_result = (
+        file_result = (
             alignresult_from_lyricsfile(plain_lyrics.lyricsfile_raw, download.duration_s)
             if plain_lyrics is not None and plain_lyrics.source == "lrclib"
             else None
         )
+        fast_result = file_result if settings.lyricsfile_fast_path else None
+        if file_result is not None and fast_result is None:
+            logger.info(
+                "job %s: lyricsfile present (%d lines, %d with words) — fast path off, aligning",
+                job.id,
+                len(file_result.lines),
+                sum(bool(chunk) for chunk in file_result.words_per_line),
+            )
         checkpoint(s, job)
         qa: LineQAOutcome | None = None
         if fast_result is not None:

@@ -902,6 +902,7 @@ def test_lyricsfile_fast_path_skips_ctc_and_separation(db_session, job, scratch,
 
     _happy_stages(monkeypatch, scratch)
     monkeypatch.setattr(settings, "separation_mode", "always")
+    monkeypatch.setattr(settings, "lyricsfile_fast_path", True)
     raw = (_P(__file__).parent / "fixtures" / "lyricsfile" / "valid.yaml").read_text()
     monkeypatch.setattr(
         wp,
@@ -939,6 +940,38 @@ def test_lyricsfile_fast_path_skips_ctc_and_separation(db_session, job, scratch,
     assert "qa" not in doc["alignment"]  # no repair ran, none is claimed
     assert doc["lines"][0]["words"][0]["text"] == "Meet"  # trailing space stripped
     assert list(scratch.glob("job-*")) == []  # deletion guarantee holds
+
+
+def test_lyricsfile_is_aligned_like_any_record_by_default(db_session, job, scratch, monkeypatch):
+    # 2.31.0: the fast path is off unless the setting turns it on. A record
+    # carrying a VALID word-level file must still go through CTC — the file
+    # is a witness in the log, never the document.
+    from pathlib import Path as _P
+
+    _happy_stages(monkeypatch, scratch)
+    raw = (_P(__file__).parent / "fixtures" / "lyricsfile" / "valid.yaml").read_text()
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: LyricsText(
+            ["Meet me at the hotel", "Second line"],
+            "Meet me at the hotel Second line",
+            5,
+            True,
+            lyricsfile_raw=raw,
+        ),
+    )
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+
+    from sqlalchemy import select
+
+    from kashi_server.db.models import ProcessedTrack
+
+    doc = db_session.scalars(select(ProcessedTrack)).one().document
+    assert doc["alignment"]["method"] == "ctc-forced-aligner/mms-300m"
+    assert doc["alignment"]["lyrics_source"] == "lrclib"
 
 
 def test_broken_lyricsfile_falls_back_to_the_normal_path(db_session, job, scratch, monkeypatch):

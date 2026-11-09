@@ -735,5 +735,14 @@
 # review set known-bad fixed? 12 / worse? 3, known-good broken? 3 (all three
 # are moments the owner heard as wrong); listening set fixed? 6 / worse? 1 /
 # broken? 0; 4 of the 10 heard line starts read fixed?.
+# Also in 2.31.0: the lyricsfile fast path (2.4.0) is OFF by default
+# (settings.lyricsfile_fast_path). lrclib began serving its crowd word sync in
+# 2026-11; 8 of the 20 pilot songs and 109 of 290 archive candidates carry it,
+# and on 2.30.0 those songs skipped separation, CTC and line QA (quality 1.0
+# without a check against the audio). audit.compare live 2.29.0 -> 2.30.0:
+# all 20 good:broken? labels of the review set came from 6 file songs, the
+# listening set read 5 bad:fixed? on 3 of them, SexyBack 2:18.6 piled 8 -> 16
+# starts. Off, such a record aligns like any other and the worker logs the
+# file it skipped; V1 and v3 now reach those songs too.
 PIPELINE_VERSION = "2.31.0"
 PIPELINE_MAJOR = 2
