@@ -120,7 +120,9 @@ def run_align(monkeypatch, tmp_path, **kwargs):
     fake_model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
 
-    def fake_align_texts(model, tokenizer, piece, texts, language, star, *, romanize, exact_stride):
+    def fake_align_texts(
+        model, tokenizer, piece, texts, language, star, *, romanize, exact_stride, **_kw
+    ):
         seen["exact"].append(exact_stride)
         seen["star"].append(star)
         words = texts[0].split()
@@ -216,7 +218,9 @@ def _whole_track_align(monkeypatch, tmp_path, stamps):
     fake_model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
 
-    def fake_align_texts(model, tokenizer, audio, texts, language, star="segment", romanize=True):
+    def fake_align_texts(
+        model, tokenizer, audio, texts, language, star="segment", romanize=True, **_kw
+    ):
         words = " ".join(texts).split()
         return [
             {"text": t, "start": 1.0 + i, "end": 1.2 + i, "score": -0.1}
@@ -409,7 +413,9 @@ def run_hybrid(monkeypatch, tmp_path, seg_deltas, whole=None, **kwargs):
             for t, r in zip(words, rel, strict=True)
         ]
 
-    def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride):
+    def fake_hybrid(
+        model, tokenizer, piece, texts, language, *, romanize, exact_stride, **_kw
+    ):
         edges = edges_rows(texts)
         deltas = seg_deltas[LINES.index(texts[0])]
         segment = [
@@ -418,7 +424,9 @@ def run_hybrid(monkeypatch, tmp_path, seg_deltas, whole=None, **kwargs):
         ]
         return edges, segment
 
-    def fake_align_texts(model, tokenizer, piece, texts, language, star, *, romanize, exact_stride):
+    def fake_align_texts(
+        model, tokenizer, piece, texts, language, star, *, romanize, exact_stride, **_kw
+    ):
         seen["lengths"].append(piece.shape[0])
         seen.setdefault("vote", []).append((star, exact_stride))
         words = " ".join(texts).split()
@@ -558,7 +566,9 @@ def test_the_shipped_defaults_are_hybrid_stars_and_the_whole_track_vote(monkeypa
     fake_model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model", lambda name: (fake_model, object()))
 
-    def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride):
+    def fake_hybrid(
+        model, tokenizer, piece, texts, language, *, romanize, exact_stride, **_kw
+    ):
         calls["hybrid"] += 1
         rows = [
             {"text": t, "start": 0.5 + i, "end": 0.7 + i, "score": -0.1}
@@ -566,7 +576,9 @@ def test_the_shipped_defaults_are_hybrid_stars_and_the_whole_track_vote(monkeypa
         ]
         return rows, rows
 
-    def fake_align_texts(model, tokenizer, piece, texts, language, star, *, romanize, exact_stride):
+    def fake_align_texts(
+        model, tokenizer, piece, texts, language, star, *, romanize, exact_stride, **_kw
+    ):
         calls["whole"] += 1
         return []  # cannot pair: the vote is skipped, the windows stand
 

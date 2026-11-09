@@ -36,6 +36,12 @@ MIN_STAMPED_FRACTION = 0.8
 # this span of the run's first. The benchmark's bunched-run rule.
 PILE_MIN_WORDS = 3
 PILE_SPAN_MS = 60
+# Timing v3, V1 (line_regions): how far a line inside a merged window may
+# start from its own stamp, either way. 1200 and 800 were measured on the 20
+# pilot songs (2026-11-09): the same moments fixed, 800 also lands BxMxC 0:13
+# and SexyBack's third "You ready?" on their voices; noticeable lines against
+# 2.30.1 101 -> 95 (1200: 101).
+LINE_REGION_MS = 800
 
 
 @dataclass(frozen=True)
@@ -176,6 +182,34 @@ def plan_windows(
     groups = _line_groups(synced_starts_ms)
     windows = _merge_groups(groups, spans, line_texts, min_window_ms, min_words)
     return _padded_windows(windows, len(line_texts), total_ms, pad_ms)
+
+
+def line_regions(
+    window: Window, synced_starts_ms: list[int | None], region_ms: int | None = LINE_REGION_MS
+) -> dict[int, tuple[int, int]]:
+    """Timing v3, V1 (2.31.0): where each line of a merged window may start.
+
+    `_merge_groups` merges lines until a window is >= 4 s and >= 3 words, so
+    two-word lines share one, and nothing inside the window held a line near
+    its own stamp: short repeats landed one slot off or crammed onto one
+    repeat (SexyBack 2:26, the first "You ready?" 1.2 s late behind a
+    stretched "Get your sexy on"). In a window that owns two or more stamped
+    lines, each stamped line's first letter must start, on the document
+    clock, within `region_ms` of its own stamp, both ends inclusive. The
+    aligner applies it as cuts in the trellis (`trellis.letter_bounds_cuts`),
+    never as a shift afterwards (the soft offset is dead: a rigid shift moved
+    words off their evidence); inside the region the words still land where
+    the audio puts them. The next stamp + `region_ms` bound on the line's other
+    words follows from the next line's own region, and the last line's from
+    the slice, which ends `PAD_MS` past the next window's first stamp.
+    Stampless lines and windows with one stamped line get none; `region_ms`
+    None switches V1 off. Returns {line index: (earliest, latest) start, ms}."""
+    if region_ms is None:
+        return {}
+    stamped = [(i, s) for i in window.line_indices if (s := synced_starts_ms[i]) is not None]
+    if len(stamped) < 2:
+        return {}
+    return {i: (stamp - region_ms, stamp + region_ms) for i, stamp in stamped}
 
 
 #: One CTC frame (wav2vec2-family hop: 320 samples at 16 kHz), in seconds — the

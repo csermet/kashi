@@ -719,5 +719,21 @@
 # JamendoLyrics (79 songs, +-5/+-15 s whole-sheet and 4-line-verse shifts):
 # detections and false alarms unchanged; moved sheets the windows accept
 # 185 -> 388 of 420; 1 355 lines carried, every one closer to its human stamp.
-PIPELINE_VERSION = "2.30.1"
+# 2.31.0: timing v3, second round (V1, Faz 5 note). Inside a window that owns
+# two or more stamped lines, each line's first letter starts within
+# LINE_REGION_MS (800) of its own stamp: cuts in the trellis of both window
+# passes (windows.line_regions, pipeline/trellis.py, the library's Viterbi in
+# numpy), never a shift afterwards; a window the regions do not bind keeps the
+# library's path byte for byte (seeded harness, 60 of 60 songs equal 2.30.0
+# with V1 off). A bounded line's reported start no longer reaches back into the
+# blank before its region (the library pads a span with half the preceding
+# blank). 20 pilot songs through audit.run_local against 2.30.1: noticeable
+# lines (audit.score) 101 -> 95 of 675-679 placed (1 200 ms: 101); lit words
+# 8 505 -> 8 730; lines line QA dropped for density 30 -> 0; 0 ms words
+# 1.7 % -> 1.5 %; runs of 3+ starts per line 16 -> 15, stream-wide 26 -> 22;
+# nudges 13 -> 14; first words torn from their line 23 -> 32. audit.compare:
+# review set known-bad fixed? 12 / worse? 3, known-good broken? 3 (all three
+# are moments the owner heard as wrong); listening set fixed? 6 / worse? 1 /
+# broken? 0; 4 of the 10 heard line starts read fixed?.
+PIPELINE_VERSION = "2.31.0"
 PIPELINE_MAJOR = 2

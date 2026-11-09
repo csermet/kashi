@@ -129,6 +129,8 @@ def heard(monkeypatch):
     model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model",
                         lambda name: (model, types.SimpleNamespace(get_vocab=dict)))
+    # Its passes are no trellis: the line regions (2.31.0) have nothing to cut.
+    monkeypatch.setattr(alignment, "_hold_line_starts", lambda *a, **k: None)
     # The stand-in has no letters to hear: the sheet shift check (2.29.1)
     # reads nothing and moves nothing, on both sides of every comparison.
     from kashi_server.worker import process

@@ -20,8 +20,11 @@ from pathlib import Path
 from kashi_server.pipeline import japanese
 from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
+from kashi_server.pipeline.trellis import forced_align_cut, letter_bounds_cuts
 from kashi_server.pipeline.windows import (
+    LINE_REGION_MS,
     hybrid_star_words,
+    line_regions,
     plan_windows,
     reconcile_seams,
     unpile_starts,
@@ -365,6 +368,17 @@ def regroup_words_into_lines(
     return lines, words_per_line
 
 
+def _offset_for(text: str, offset_ms: int, by_initial: dict[str, int] | None) -> int:
+    """The lateness correction `shift_result` gives a word: its initial
+    class's offset (P2), else the base one."""
+    if not by_initial:
+        return offset_ms
+    from kashi_server.pipeline.phonetics import initial_class
+
+    cls = initial_class(text)
+    return by_initial.get(cls, offset_ms) if cls else offset_ms
+
+
 def shift_result(
     result: AlignResult, offset_ms: int, by_initial: dict[str, int] | None = None
 ) -> AlignResult:
@@ -395,20 +409,12 @@ def shift_result(
     if not offset_ms and not by_initial:
         return result
 
-    def offset_for(text: str) -> int:
-        if not by_initial:
-            return offset_ms
-        from kashi_server.pipeline.phonetics import initial_class
-
-        cls = initial_class(text)
-        return by_initial.get(cls, offset_ms) if cls else offset_ms
-
     words_per_line: list[list[AlignedWord]] = []
     previous_start = 0
     for chunk in result.words_per_line:
         shifted = []
         for word in chunk:
-            delta = offset_for(word.text)
+            delta = _offset_for(word.text, offset_ms, by_initial)
             start = max(previous_start, max(0, word.start_ms + delta))
             shifted.append(
                 replace(
@@ -584,6 +590,12 @@ WHOLE_VOTE_T_MS = 400
 #: (windows.unpile_starts). Off reproduces 2.29.1.
 UNPILE_DEFAULT = True
 
+#: Timing v3, V1 (2.31.0): inside a window that owns two or more stamped
+#: lines, each line's first letter starts within this many ms of its own stamp
+#: on the document clock (windows.line_regions), cut into the trellis of both
+#: window passes (_hold_line_starts). None reproduces 2.30.0.
+LINE_REGION_DEFAULT: int | None = LINE_REGION_MS
+
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
     """The real time step between emission frames, in ms.
@@ -632,13 +644,21 @@ def _emit(model, audio, *, exact_stride: bool = False):
     return emissions, stride
 
 
+#: Where each text's first letter may start, per text, in ms on the clock of
+#: the emissions it is aligned over: (earliest, latest), or None for no bound.
+LineStarts = list[tuple[float, float] | None]
+
+
 def _viterbi(
     emissions, stride, tokenizer, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True,
+    starts_ms: LineStarts | None = None, tally: dict[str, int] | None = None,
 ) -> list[dict]:
     """One forced-alignment (Viterbi) pass of `texts` over ready emissions.
     Results are [{start, end, text, score}] in SECONDS relative to the audio
-    the emissions came from; star rows are already dropped by the library."""
+    the emissions came from; star rows are already dropped by the library.
+    `starts_ms` holds each text's first letter in a region (V1,
+    _hold_line_starts); `tally` counts what that did."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         get_alignments,
         get_spans,
@@ -660,30 +680,162 @@ def _viterbi(
         star_frequency=star_frequency,
     )
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
+    floors: list[tuple[int, int, int]] = []
+    if starts_ms and any(starts_ms):
+        held = _hold_line_starts(
+            emissions, stride, tokenizer, texts, language, romanize, star_frequency,
+            tokens_starred, segments, scores, blank, starts_ms, tally,
+        )
+        if held is not None:
+            segments, scores, floors = held
     spans = get_spans(tokens_starred, segments, blank)
-    return postprocess_results(text_starred, spans, stride, scores)
+    results = postprocess_results(text_starred, spans, stride, scores)
+    # A word's span starts halfway into the blank before it (get_spans), so
+    # after a long silence the reported start can precede the region its
+    # letter keeps (New Rules 0:08: "Talkin'" 4.9 s for a letter at 8.9 once
+    # "One" stood at its own stamp, and line QA then moved the whole line
+    # onto the stamp). Such a start is the letter's own frame.
+    for token, lo_frame, letter_frame in floors:
+        if spans[token][0].start < lo_frame:
+            row = (token - 1) // 2 if star_frequency == "segment" else token - 1
+            results[row] = {**results[row], "start": letter_frame * stride / 1000}
+            if tally is not None:
+                tally["pads"] = tally.get("pads", 0) + 1
+    return results
+
+
+def _line_first_items(texts: list[str], language: str, romanize: bool) -> list[int] | None:
+    """Where each text starts in preprocess_text's split of " ".join(texts):
+    its words, or its characters (the join's spaces included) for the
+    languages the library splits per character. None where that split cannot
+    be followed: a character split of a join _fit_to_vocab rewrote."""
+    per_char = language in ("jpn", "chi")  # preprocess_text's own test
+    if per_char and not romanize:
+        return None
+    firsts: list[int] = []
+    at = 0
+    for text in texts:
+        firsts.append(at)
+        at += len(text) + 1 if per_char else len(text.split())
+    return firsts
+
+
+def _hold_line_starts(
+    emissions, stride, tokenizer, texts: list[str], language: str, romanize: bool,
+    star_frequency: str, tokens_starred: list[str], segments: list, scores, blank: str,
+    starts_ms: LineStarts, tally: dict[str, int] | None = None,
+) -> tuple[list, object, list[tuple[int, int, int]]] | None:
+    """Timing v3, V1 (2.31.0): the best path whose line starts keep their regions.
+
+    The library's path stands when every bounded text's first letter already
+    starts inside its region: that path is also the best one the cuts allow,
+    so a window the regions do not bind keeps the library's output byte for
+    byte. Otherwise the same Viterbi runs again with the regions cut into the
+    trellis (`trellis.forced_align_cut`, the library's algorithm in numpy) and
+    its segments and scores replace the library's; regions no path can satisfy
+    keep the library's (logged as `infeasible`). A region is whole frames: the
+    first frame starting at or after its earliest ms through the last one
+    starting at or before its latest.
+
+    Returns (segments, scores, floors), floors being per bounded text the
+    token that owns its first letter, the region's first frame and the
+    letter's frame on the returned path (`_viterbi` keeps the word's reported
+    start out of the blank before the region). None: a split this cannot
+    follow; the library's path stands untouched."""
+    import numpy as np
+    from ctc_forced_aligner import merge_repeats  # pyright: ignore[reportMissingImports]
+
+    firsts = _line_first_items(texts, language, romanize)
+    if firsts is None:
+        return None
+    # get_alignments' own target list: one per character the vocabulary knows.
+    dictionary = {k.lower(): v for k, v in tokenizer.get_vocab().items()}
+    dictionary[STAR_TOKEN] = len(dictionary)
+    targets: list[int] = []
+    owners: list[int] = []
+    for index, token in enumerate(tokens_starred):
+        for char in token.split(" "):
+            if char in dictionary:
+                targets.append(dictionary[char])
+                owners.append(index)
+    letters = [segment for segment in segments if segment.label != blank]
+    if len(letters) != len(targets):
+        return None
+
+    def token_index(item: int) -> int:  # preprocess_text's star layout
+        return 2 * item + 1 if star_frequency == "segment" else item + 1
+
+    n_frames = int(emissions.shape[0])
+    cuts = []
+    bounded: list[tuple[int, int]] = []  # (letter position, region's first frame)
+    broken = 0
+    for k, region in enumerate(starts_ms):
+        if region is None:
+            continue
+        first = token_index(firsts[k])
+        stop = token_index(firsts[k + 1]) if k + 1 < len(firsts) else len(tokens_starred)
+        position = next(
+            (j for j, owner in enumerate(owners)
+             if first <= owner < stop and tokens_starred[owner] != STAR_TOKEN),
+            None,
+        )
+        if position is None:
+            continue  # a text the vocabulary has no letter of
+        lo_frame = math.ceil(region[0] / stride)
+        hi_frame = math.floor(region[1] / stride)
+        if not lo_frame <= letters[position].start <= hi_frame:
+            broken += 1
+        cuts += letter_bounds_cuts(position, lo_frame, hi_frame, n_frames)
+        bounded.append((position, lo_frame))
+    if broken:
+        if tally is not None:
+            tally["windows"] = tally.get("windows", 0) + 1
+        log_probs = emissions.cpu() if hasattr(emissions, "cpu") else emissions
+        log_probs = log_probs.float().numpy() if hasattr(log_probs, "numpy") else log_probs
+        blank_id = dictionary.get("<blank>", tokenizer.pad_token_id)
+        found = forced_align_cut(np.asarray(log_probs), targets, blank_id, cuts)
+        if found is None:
+            if tally is not None:
+                tally["infeasible"] = tally.get("infeasible", 0) + 1
+        else:
+            if tally is not None:
+                tally["lines"] = tally.get("lines", 0) + broken
+            path, scores = found
+            id_to_token = {v: k for k, v in dictionary.items()}
+            segments = merge_repeats(path.tolist(), id_to_token)
+            letters = [segment for segment in segments if segment.label != blank]
+    floors = [(owners[p], lo_frame, letters[p].start) for p, lo_frame in bounded]
+    return segments, scores, floors
 
 
 def _align_texts(
     model, tokenizer, audio, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True, *, exact_stride: bool = False,
+    starts_ms: LineStarts | None = None, tally: dict[str, int] | None = None,
 ) -> list[dict]:
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
     [{start, end, text, score}] in SECONDS relative to the given audio.
     `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
     emissions, stride = _emit(model, audio, exact_stride=exact_stride)
-    return _viterbi(emissions, stride, tokenizer, texts, language, star_frequency, romanize)
+    return _viterbi(
+        emissions, stride, tokenizer, texts, language, star_frequency, romanize, starts_ms, tally
+    )
 
 
 def _align_slice_hybrid(
     model, tokenizer, piece, texts: list[str], language: str, *,
     romanize: bool, exact_stride: bool,
+    edges_starts: LineStarts | None = None, segment_starts: LineStarts | None = None,
+    tally: dict[str, int] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """(edges, segment): one emission pass over the slice, two Viterbi passes."""
+    """(edges, segment): one emission pass over the slice, two Viterbi passes,
+    each with its line regions on its own clock (V1)."""
     emissions, stride = _emit(model, piece, exact_stride=exact_stride)
     return (
-        _viterbi(emissions, stride, tokenizer, texts, language, "edges", romanize),
-        _viterbi(emissions, stride, tokenizer, texts, language, "segment", romanize),
+        _viterbi(emissions, stride, tokenizer, texts, language, "edges", romanize,
+                 edges_starts, tally),
+        _viterbi(emissions, stride, tokenizer, texts, language, "segment", romanize,
+                 segment_starts, tally),
     )
 
 
@@ -778,9 +930,40 @@ def _alignment_texts(
     return plans, align_texts
 
 
+def _window_line_starts(
+    window, align_texts: list[str], synced_starts_ms: list[int | None] | None,
+    line_region_ms: int | None, doc_offset_for, edges_lead_ms: int,
+) -> tuple[LineStarts | None, LineStarts | None]:
+    """V1: the window's line regions (windows.line_regions, document clock) on
+    the clocks of its two passes, relative to the slice. An `edges` row reaches
+    the document at its slice time + slice start + the windowed offset of its
+    initial (`doc_offset_for`, the lead included); a `segment` row is moved
+    back by the lead first. (None, None) when no region applies."""
+    if synced_starts_ms is None:
+        return None, None
+    regions = line_regions(window, synced_starts_ms, line_region_ms)
+    if not regions:
+        return None, None
+    edges: LineStarts = []
+    for i in window.line_indices:
+        if i not in regions:
+            edges.append(None)
+            continue
+        words = align_texts[i].split()
+        clock = window.slice_start_ms + (doc_offset_for(words[0]) if words else 0)
+        earliest, latest = regions[i]
+        edges.append((earliest - clock, latest - clock))
+    segment: LineStarts = [
+        None if r is None else (r[0] + edges_lead_ms, r[1] + edges_lead_ms) for r in edges
+    ]
+    return edges, segment
+
+
 def _align_windows(
     model, tokenizer, audio, plan, align_texts, language, romanize, *,
     exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT, hybrid_t_ms: int = HYBRID_T_MS,
+    synced_starts_ms: list[int | None] | None = None, line_region_ms: int | None = None,
+    doc_offset_for=lambda text: 0, tally: dict[str, int] | None = None,
 ) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
     whole-track clock (star tokens dropped), each tagged with its `"window"`
@@ -790,7 +973,12 @@ def _align_windows(
     to the `edges` topology (Faz 9 round 5): a `segment` word needs none, so it
     is moved back by the lead here and the path-wide lead in align() nets it to
     zero. Seams, regrouping and the arbiter's raw clock (start - shift_ms) then
-    compare like with like, whichever pass placed each word."""
+    compare like with like, whichever pass placed each word.
+
+    With `line_region_ms` (V1, 2.31.0) each pass holds the line starts of a
+    window that owns two or more stamped lines near their stamps
+    (`_window_line_starts`, `_hold_line_starts`); `doc_offset_for` is the
+    path's lateness correction for a word, the lead included."""
     edges_lead_ms = WINDOWED_LEAD_MS if exact_stride else 0
     merged: list[dict] = []
     for index, window in enumerate(plan):
@@ -799,10 +987,14 @@ def _align_windows(
         ]
         texts = [align_texts[i] for i in window.line_indices]
         offset_s = window.slice_start_ms / 1000
+        edges_starts, segment_starts = _window_line_starts(
+            window, align_texts, synced_starts_ms, line_region_ms, doc_offset_for, edges_lead_ms
+        )
         if star == "hybrid":
             edges, segment = _align_slice_hybrid(
                 model, tokenizer, piece, texts, language,
                 romanize=romanize, exact_stride=exact_stride,
+                edges_starts=edges_starts, segment_starts=segment_starts, tally=tally,
             )
             aligned, paired = hybrid_star_words(
                 [r for r in edges if r.get("text") != STAR_TOKEN],
@@ -826,6 +1018,7 @@ def _align_windows(
                 for r in _align_texts(
                     model, tokenizer, piece, texts, language, star,
                     romanize=romanize, exact_stride=exact_stride,
+                    starts_ms=segment_starts if star == "segment" else edges_starts, tally=tally,
                 )
             ]
         for r in aligned:
@@ -870,6 +1063,7 @@ def align(
     hybrid_t_ms: int = HYBRID_T_MS,
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
     unpile: bool = UNPILE_DEFAULT,
+    line_region_ms: int | None = LINE_REGION_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -890,7 +1084,9 @@ def align(
     (WHOLE_VOTE_T_MS). Words they place need no lead; they are moved onto the
     edges clock so the path-wide lead nets out for them (_align_windows).
     `unpile` (2.30.0) then gives a piled run they made its `edges` starts
-    (windows.unpile_starts)."""
+    (windows.unpile_starts). `line_region_ms` (2.31.0) holds each line of a
+    window with two or more stamps within that many ms of its own stamp,
+    inside both window passes (windows.line_regions); None switches it off."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -938,10 +1134,21 @@ def align(
             lead_ms, window_star, f" T={hybrid_t_ms} ms" if window_star == "hybrid" else "",
             f"on T={whole_vote_t_ms} ms" if whole_vote else "off",
         )
+        tally: dict[str, int] = {}
         results = _align_windows(
             model, tokenizer, audio, plan, align_texts, language, romanize,
             exact_stride=exact_stride, star=window_star, hybrid_t_ms=hybrid_t_ms,
+            synced_starts_ms=synced_starts_ms, line_region_ms=line_region_ms,
+            doc_offset_for=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
+            tally=tally,
         )
+        if tally:
+            logger.info(
+                "line regions (%s ms): %d line start(s) held in %d pass(es), %d infeasible, "
+                "%d start(s) kept out of the blank before the region",
+                line_region_ms, tally.get("lines", 0), tally.get("windows", 0),
+                tally.get("infeasible", 0), tally.get("pads", 0),
+            )
         if seam_policy == "yield":
             results, yielded = yield_pad_words(results, plan)
             if yielded:

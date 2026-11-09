@@ -29,6 +29,7 @@ from benchmarks import datasets, metrics
 from kashi_server.pipeline.alignment import (
     EXACT_STRIDE_DEFAULT,
     HYBRID_T_MS,
+    LINE_REGION_DEFAULT,
     SEAM_POLICIES,
     SEAM_POLICY_DEFAULT,
     UNPILE_DEFAULT,
@@ -148,6 +149,7 @@ def _align_song(
     hybrid_t_ms: int = HYBRID_T_MS,
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
     unpile: bool = UNPILE_DEFAULT,
+    line_region_ms: int | None = LINE_REGION_DEFAULT,
 ) -> tuple[AlignResult, float]:
     from kashi_server.pipeline.alignment import align
 
@@ -158,7 +160,7 @@ def _align_song(
             wav, line_texts, language, anchors, model_name, romanize, offset_ms, by_initial,
             exact_stride=exact_stride, seam_policy=seam_policy, window_star=window_star,
             whole_vote=whole_vote, hybrid_t_ms=hybrid_t_ms, whole_vote_t_ms=whole_vote_t_ms,
-            unpile=unpile,
+            unpile=unpile, line_region_ms=line_region_ms,
         )
     return result, time.monotonic() - started
 
@@ -291,6 +293,7 @@ def _align_jamendo_song(args, song):
         exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
         whole_vote=args.whole_vote, hybrid_t_ms=args.hybrid_t_ms,
         whole_vote_t_ms=args.whole_vote_t_ms, unpile=args.unpile,
+        line_region_ms=args.line_region_ms or None,
     )
     return audio, separate_s, anchors, result, align_s
 
@@ -608,6 +611,7 @@ def _align_case(args, case):
         exact_stride=args.exact_stride, seam_policy=args.seam_policy, window_star=args.window_star,
         whole_vote=args.whole_vote, hybrid_t_ms=args.hybrid_t_ms,
         whole_vote_t_ms=args.whole_vote_t_ms, unpile=args.unpile,
+        line_region_ms=args.line_region_ms or None,
     )
     return reference, separate_s, anchors, result, align_s
 
@@ -804,6 +808,16 @@ def _parse_args() -> argparse.Namespace:
             "--no-unpile reproduces 2.29.1."
         ),
     )
+    parser.add_argument(
+        "--line-region-ms",
+        type=int,
+        default=LINE_REGION_DEFAULT or 0,
+        help=(
+            "windowed path only: each line of a window with 2+ stamps starts within "
+            "this many ms of its own stamp (2.31.0, timing v3 V1); 0 is off and "
+            "reproduces 2.30.0."
+        ),
+    )
     parser.add_argument("--label", help="results filename label (default: config name)")
     return parser.parse_args()
 
@@ -839,6 +853,8 @@ def _config_name(args) -> str:
         config_name += f"-vt{args.whole_vote_t_ms}"
     if args.windowed and args.unpile != UNPILE_DEFAULT:
         config_name += "-unpile" if args.unpile else "-nounpile"
+    if args.windowed and (args.line_region_ms or None) != LINE_REGION_DEFAULT:
+        config_name += f"-region{args.line_region_ms}"
     if args.line_postprocess != "none":
         config_name += f"-{args.line_postprocess}"
     if not args.trim_ends:
@@ -894,6 +910,7 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         "whole_vote": args.whole_vote if args.windowed else None,
         "whole_vote_t_ms": args.whole_vote_t_ms if args.windowed and args.whole_vote else None,
         "unpile": args.unpile if args.windowed else None,
+        "line_region_ms": (args.line_region_ms or None) if args.windowed else None,
         "seam_policy": args.seam_policy,
         "signals": args.signals,
         "line_postprocess": args.line_postprocess,
