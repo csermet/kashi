@@ -375,7 +375,8 @@ and could not be: it was written for V1 + V2 + V3 together.
 **Found on the way.** After the sheet shift, GOSSIP and Got 2 Luv U run whole-audio
 alignment: the shifted stamps no longer pass the window planner, so neither song
 reaches the hybrid, the vote or V3. Their piles (Got 2 Luv U's crammed repeats) belong
-to that path. This is 2.29.1 behaviour, worth a look before the tag.
+to that path. This is 2.29.1 behaviour, worth a look before the tag. **Fixed in 2.30.1
+(below).**
 
 **Next.**
 
@@ -404,6 +405,120 @@ q 1.0). Against the live 2.29.0 documents, no known-good moment on these 12 is `
 not V3 or V2 (two original rows plus three added ones; key `caner-dinle-5.key.json`). The
 archive refresh feeder (`scratch/toplu-2.30/`, API only) holds the 109 file songs until the
 owner answers question 42.
+
+## 2.30.1 — the sheet shift carries the neighbours it overtakes (2026-11-09)
+
+Branch `worktree-sheet-shift-pencere`, merged to `main`; not tagged, not deployed.
+On the live 2.30.0 neither pilot song runs this path today: GOSSIP takes lrclib's
+word-timed file and skips alignment, and Got 2 Luv U now finds another record (see
+"2.30.0 live"). The fix counts for every song that goes through CTC with a moved sheet.
+On JamendoLyrics that path lost the windows half the time, and GOSSIP is back on it if
+the fast path goes off (question 42). The version number 2.30.1 is used by this change, so
+the fast-path switch, if it comes, takes the next one.
+
+**Cause, measured.** `windows.plan_windows` returned None for both songs because the
+shifted stamps were out of order (`_stamps_usable`'s monotonic check). The sheet shift
+moves a section's anchored lines only, and the unanchored lines just before it kept
+stamps later than the section's new first stamp:
+
+- GOSSIP: line 0 ("Welcome to the city of lies") stays at 31.72 s, line 1 moves to
+  15.98 s. Line 0 is unique and the ear places it (−17.45 s), but its offset is 1.34 s
+  from line 1's, past the section's 1 s agreement, so it is a lone anchor and dropped.
+- Got 2 Luv U: lines 14 and 15 (two of the 16 intro "Got 2 Luv U" repeats, no
+  anchor) at 21.81 / 23.08 s, line 16 moves to 20.83 s.
+
+Whole-audio alignment then hid a bigger error. Line QA snapped GOSSIP's line 0 onto its
+stale stamp (31.61 s, 17 s late), and lines 1-7 got that line start too, with their
+words at 16-31 s. The overlay picks the displayed line by line start
+(`view-logic.lastStartedAt`), so in 2.29.1 and 2.30.0 the first verse never appears.
+`audit.score` measures from the first word and does not see it.
+
+**Where those lines are sung.** The whole ear hears GOSSIP's line 0 at 14.40 s
+(−17.45 s from its stamp, the section's offset −18.96 s). It hears Got 2 Luv U's intro
+as 16 repeats from 0.22 s to 19.86 s; the 16 stamps moved by the section's −3.72 s land
+one for one on them (line 0 clamped to 0). So the overtaken lines are late by about the
+section's offset. Blanking their stamps (the first idea) would not reach them: GOSSIP's
+line 0 would become a stampless leader in line 1's window, whose slice starts at 15.63 s,
+after the line is sung.
+
+**The rule (`sheet_shift._carry_overtaken`).** A stamped line just outside a moved
+section whose stamp the move overtakes (later than the next stamp for a section moved
+earlier, earlier than the previous one for a section moved later) moves by the
+section's median. The walk goes outward while the order stays broken. It passes over
+stampless lines and stops at any line of an anchored section, moved or not. A stamp
+equal to the moved one is in order and stays. GOSSIP's second chorus (3-5 s late,
+unanchored) stays where it is: its stamps are in order, so nothing carries it. That is
+the case the 2.29.1 note warned about (moving it would leave it 15 s early). One test, both
+directions and the equal-stamp boundary. It fails when the carry is removed, when `<=`
+becomes `<`, and when the forward branch is dropped. A second test holds the stop: two
+sections whose ears disagree leave the stamps out of order rather than move an anchored
+line against its own placement. It fails without the stop.
+
+**JamendoLyrics (79 songs, the audit's ears; human stamps as truth).** Each song was run
+unmodified, with the whole sheet shifted ±5 / ±15 s, and with one 4-line verse shifted
+±5 / ±15 s at a seeded position. The pipeline's `shift_sheet` ran old vs new:
+
+| | 2.30.0 | 2.30.1 |
+|---|---|---|
+| false alarms (unmodified) | 0 of 79 | 0 of 79 |
+| whole-sheet ±5 / ±15 s found | 74/79 each | 74/79 each |
+| verse +15 / +5 / −15 / −5 s found | 28 / 36 / 30 / 30 of 79 | same |
+| offset error median / p90 | 64 / 125 ms | same |
+| moved sheets whose stamps the windows accept | **185 of 420** | **388 of 420** |
+| lines left > 1 s from the human stamp | 5 749 | 4 394 |
+| carried lines: closer / farther | – | 1 355 / **0** |
+
+So the fallback was not a two-song accident: a moved sheet reached the windows less than
+half the time. The smallest first overtake was 23 ms, and that carry was right too. All
+32 moved sheets still refused are verse trials that were out of order before the move
+(the injected verse overlaps its neighbours; 266 of the 316 verse sheets are), which is
+not this rule's case. The stop at anchored sections never fired: the same run without it
+gives identical stamps.
+
+**Pilot songs (`audit.run_local`, same stems and records as the 2.30.0 arm
+`v3/<id>.fin`).** Both now log `windowed alignment` (GOSSIP 21 windows, 1 neighbour
+carried; Got 2 Luv U 39 windows, 16 carried), and `quality_basis` goes from the
+whole-audio `probs+anchors` to the windowed `anchors`.
+
+| noticeable lines (`audit.score` placements) | 2.29.1 = 2.30.0 | 2.30.1 |
+|---|---|---|
+| GOSSIP, from the first word (`audit.score`) | 5 of 26 (0.19) | 8 of 28 (0.29) |
+| GOSSIP, from the line start (what the overlay shows) | 13 of 26 (0.50) | 8 of 28 (0.29) |
+| GOSSIP line 0 (unplaced by the score; ear 14.40 s) | 31.61 s, 17 s late | 14.38 s |
+| Got 2 Luv U, from the first word | 8 of 26 (0.31) | 9 of 26 (0.35) |
+| Got 2 Luv U, from the line start | 9 of 26 (0.35) | 9 of 26 (0.35) |
+| Got 2 Luv U intro, 16 repeats against the ear's 16 (unplaced by the score) | 15 noticeable, 2.7-4.0 s late | 4 noticeable: line 2 0.32 s late, lines 5-7 0.5-1.5 s early (line 5 is a pile) |
+
+The task's acceptance line ("`audit.score` share not worse than 2.29.1's") is **not met
+as written**: GOSSIP gains 3 first-word misses, Got 2 Luv U 1. All of them sit where the
+sheet is late and nothing anchors it: GOSSIP's second half (lines 31-39, the same
+misses 2.29.0's windowed run had) and Got 2 Luv U's tail after line 82 (lines 84-94,
+3.4-5.3 s late; 2.29.0 had 3.6-5.3 s). The whole-audio path got a few of those right by
+accident, because it ignores the stamps. On what the overlay shows, both songs are better
+or equal, and the two largest errors are gone: GOSSIP's first verse never showed, and
+Got 2 Luv U's intro ran three repeats behind. Merged on that reading. The unanchored late
+remainder is a separate problem: no unique line there, and moving it without an anchor
+is the 15 s mistake above.
+
+On the windowed path V3 now runs on both songs: 1 and 12 piled runs are given back to
+`edges`. Runs of 3+ starts within 60 ms per line still go from 0 to 1 (GOSSIP line 37)
+and from 0 to 2 (Got 2 Luv U lines 5 and 57), because whole-audio alignment had none.
+
+**The other 18 songs.** On the cached whole ears, the new `shift_sheet` returns the
+same stamps as before on all 18, because none has a moving section. Three were run again
+end to end against the 2.30.0 arm with `audit.compare --same-within-ms 20`: SexyBack
+0 of 648 words moved, New Rules 0 of 470, Deli Oğlan 0 of 242, all three "same within
+20 ms". Snapshot 8949493 through `audit.run_local` (`kashi-audit` image, CPU, shared
+with the V1 worker: 7-23 min a song); documents in `scratch/audit/runs/v301/`, scripts
+and the Jamendo harness (with its two outputs) in `~/Documents/krediler/kashi-v301-betikler/`.
+Gate: pytest 1110 passed (DB tests against a throwaway Postgres 17; the one skip is the
+alignment smoke test, which needs the alignment extra), ruff, pyright and
+check-versions all clean.
+
+**Found on the way.** `audit.score` reads a line's time from its first word, so a document
+whose line starts disagree with their words (GOSSIP's lines 1-7 above) scores clean.
+Scoring from the line start is a one-line change in `audit.score.line_timings`. It would
+change every earlier number, so it is left for its own decision.
 
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 

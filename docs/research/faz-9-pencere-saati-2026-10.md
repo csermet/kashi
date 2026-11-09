@@ -341,7 +341,9 @@ letters (`alignment.heard_tokens`, one extra emission pass), and a section of
 agreeing placements more than 1 s off moves by its median, its own lines only, in
 `process._shift_sheet` before windows are cut and line QA reads the stamps.
 Unanchored neighbours stay: GOSSIP's second chorus is 3-4 s late where its verses
-are 19 s late, and extending the move left it 15 s early in the dry run.
+are 19 s late, and extending the move left it 15 s early in the dry run. (2.30.1 carries
+only the neighbours whose stamps the move overtakes; without that both songs lost the
+windowed path. See the Faz 5 note, "2.30.1".)
 JamendoLyrics (79 songs, the audit's ears): no move on a healthy sheet; whole-sheet
 shifts of ±5 s and ±15 s found 74 of 79 each, offset error median 66 ms (p90
 110 ms), no moved line left more than 1 s off. Pilot set through `run_local`:
