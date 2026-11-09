@@ -32,6 +32,10 @@ MIN_WORDS = 3
 # Below either bound the stamps cannot carve meaningful windows.
 MIN_STAMPED_LINES = 4
 MIN_STAMPED_FRACTION = 0.8
+# A piled run (unpile_starts): this many consecutive words starting within
+# this span of the run's first. The benchmark's bunched-run rule.
+PILE_MIN_WORDS = 3
+PILE_SPAN_MS = 60
 
 
 @dataclass(frozen=True)
@@ -306,7 +310,8 @@ def hybrid_star_words(
     by the lead — so seams and regrouping downstream compare like with like and
     the caller's path-wide lead nets the move out. Timings come from the
     winning pass, with what it cut off the `edges` end kept as `"held"`
-    (2.29.1, `_held`); the score stays the `edges` one, because word probs feed
+    (2.29.1, `_held`) and the `edges` start as `"edges_start"` (2.30,
+    `unpile_starts`); the score stays the `edges` one, because word probs feed
     line QA and the quality gate, and those were calibrated on `edges`. Rows
     are tagged `"star"`: "segment" or "edges".
 
@@ -328,6 +333,7 @@ def hybrid_star_words(
                 "start": float(seg["start"]) - back_s,
                 "end": float(seg["end"]) - back_s,
                 "held": _held(edge, float(seg["end"]) - back_s),
+                "edges_start": float(edge["start"]),
                 "star": "segment",
             })
         else:
@@ -346,7 +352,8 @@ def whole_track_vote(
     time when it lies within `t_ms` (inclusive, whole ms) of its windowed time
     plus that lead; the taken time is moved back by the lead, onto the edges
     clock like every other row, and tagged `"star": "whole"`. The score stays
-    the windowed one.
+    the windowed one; the windowed start stays as `"edges_start"` unless the
+    hybrid already kept an earlier one.
 
     Words are matched by position among WORD rows only (blank segments differ:
     the whole track joins every line, windows join only their own). A
@@ -370,7 +377,95 @@ def whole_track_vote(
                 "start": float(w["start"]) - back_s,
                 "end": float(w["end"]) - back_s,
                 "held": _held(row, float(w["end"]) - back_s),
+                "edges_start": float(row.get("edges_start", row["start"])),
                 "star": "whole",
             }
             taken += 1
     return out, taken, True
+
+
+def unpile_starts(
+    results: list[dict], min_words: int = PILE_MIN_WORDS, span_ms: int = PILE_SPAN_MS
+) -> tuple[list[dict], int, int]:
+    """Timing v3, V3 (2.30.0): a piled run of starts falls back to the `edges` clock.
+
+    `segment` stars (and the whole track, starred the same way) put a star
+    before every word; where a phrase's letters smear, the stars swallow the
+    gaps and several words land on one CTC peak. The hybrid and the vote take
+    those times because they sit within `T` of the `edges` ones, so a pile the
+    `edges` pass never made ships (2.29: 47 runs of 3+ on the pilot set, 2.28:
+    18; eng20 14 against `edges`' 3). Here, `min_words` or more consecutive
+    words starting within `span_ms` of the run's first (inclusive, whole ms:
+    `benchmarks.metrics.duration_hygiene`'s rule) take their `"edges_start"`
+    when any of them carries one; a run of `edges` words is `edges`' own and
+    stays. The words after the run that those starts overtake follow it onto
+    the `edges` clock while they carry an `"edges_start"`: the word after a
+    pile is often squeezed with it (CEO "I run it like a CEO", 2026-11-09: the
+    run's `edges` starts were clamped to a squeezed "a" and piled again).
+    Starts stay monotone: each lies between the previous word's start and the
+    start of the first word that is not overtaken. A block that would come out,
+    with its two neighbours, with as many piled words as it had stays as it
+    was: `edges` piles there too, or a clamp would pile it onto a neighbour
+    (Crazy In Love 1:14.9). Ends stay where the vote put them (line QA reads them, 2.29.1) unless
+    a start passes one: the end follows the start and `"held"` shrinks by what
+    that took. Rows moved are tagged `"star": "edges"`. Returns (rows, runs
+    moved, words moved)."""
+    words = [i for i, r in enumerate(results) if _is_word(r)]
+    out = list(results)
+    runs = moved = 0
+    j = 0
+    while j < len(words):
+        k = j
+        first_ms = _start_ms(out[words[j]])
+        while k + 1 < len(words) and _start_ms(out[words[k + 1]]) - first_ms <= span_ms:
+            k += 1
+        run = words[j : k + 1]
+        if len(run) < min_words or not any("edges_start" in out[i] for i in run):
+            j = k + 1
+            continue
+        cursor = float(out[words[j - 1]]["start"]) if j > 0 else 0.0
+        starts: list[float] = []
+        m = j
+        while m < len(words):
+            row = out[words[m]]
+            if m > k and ("edges_start" not in row or float(row["start"]) >= cursor):
+                break  # not overtaken, or `edges` placed it: the ceiling
+            cursor = max(float(row.get("edges_start", row["start"])), cursor)
+            starts.append(cursor)
+            m += 1
+        if m < len(words):
+            ceiling = float(out[words[m]]["start"])
+            starts = [min(s, ceiling) for s in starts]
+        block = words[j:m]
+        # The neighbours count too: a start clamped onto either one piles with it.
+        edge_left = [_start_ms(out[words[j - 1]])] if j > 0 else []
+        edge_right = [_start_ms(out[words[m]])] if m < len(words) else []
+        before = edge_left + [_start_ms(out[i]) for i in block] + edge_right
+        after = edge_left + [round(s * 1000) for s in starts] + edge_right
+        if _piled_words(after, min_words, span_ms) >= _piled_words(before, min_words, span_ms):
+            j = k + 1
+            continue
+        runs += 1
+        for i, start in zip(block, starts, strict=True):
+            row = out[i]
+            if start == float(row["start"]):
+                continue
+            end = max(float(row["end"]), start)
+            held = max(0.0, float(row.get("held", 0.0)) - (end - float(row["end"])))
+            out[i] = {**row, "start": start, "end": end, "held": held, "star": "edges"}
+            moved += 1
+        j = m
+    return out, runs, moved
+
+
+def _piled_words(starts_ms: list[int], min_words: int, span_ms: int) -> int:
+    """Words in runs of `min_words` or more starting within `span_ms` of the run's first."""
+    piled = j = 0
+    while j < len(starts_ms):
+        k = j
+        while k + 1 < len(starts_ms) and starts_ms[k + 1] - starts_ms[j] <= span_ms:
+            k += 1
+        if k - j + 1 >= min_words:
+            piled += k - j + 1
+        j = k + 1
+    return piled

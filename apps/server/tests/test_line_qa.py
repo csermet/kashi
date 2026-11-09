@@ -1436,3 +1436,33 @@ def test_held_ends_skip_adlib_lines_and_line_sync():
     line_sync = AlignResult(sync="line", lines=_held_fixture({}).lines, words_per_line=[],
                             quality_score=0.8)
     assert restore_held_ends(line_sync) == (line_sync, 0)
+
+
+# --- 2.30.0, timing v3 V2: a line after silence starts on the voice's return --
+
+
+def _ear(text: str, start_ms: int, step_ms: int = 60) -> list[dict]:
+    """The checkpoint's greedy letters, one token per letter (raw clock)."""
+    return [{"text": ch, "start_ms": start_ms + k * step_ms} for k, ch in enumerate(text)]
+
+
+def test_a_line_after_silence_moves_onto_the_voice_only_when_the_ear_hears_it_there():
+    # New Rules 2:54's shape: the voice is back at 7.3 s after a 3.6 s silence,
+    # the line lights at 8.0 s. The ear spells "tellthem" from the return.
+    specs = [(1000, "one a"), (3000, "two b"), (8000, "tell them to myself"), (12_000, "next line")]
+    refs = [start for start, _ in specs]
+    energy = _contour([(0, 1000, -60.0), (1000, 3700, -5.0), (3700, 7300, -60.0),
+                       (7300, 9500, -5.0), (9500, 12_000, -60.0), (12_000, 13_000, -5.0)])
+    outcome = apply_line_qa(_result(specs), [s[1] for s in specs], refs, energy=energy,
+                            heard=_ear("tellthemtomyself", 7300 + 50))
+    assert outcome.voice_returned == [2]
+    moved = [w.start_ms for w in outcome.result.words_per_line[2]]
+    assert 7300 <= moved[0] < 7300 + 12  # the first loud frame (11.6 ms hop)
+    assert [b - a for a, b in zip(moved, moved[1:], strict=False)] == [400, 400, 400]  # spacing
+    assert outcome.result.lines[2].start_ms == moved[0]
+    assert outcome.result.lines[3].start_ms == 12_000
+    # A shout in the gap ("eeey", Deli Oğlan 1:57) moves nothing.
+    shout = apply_line_qa(_result(specs), [s[1] for s in specs], refs, energy=energy,
+                          heard=_ear("eeey", 7300 + 50) + _ear("tellthem", 8050))
+    assert shout.voice_returned == []
+    assert shout.result.lines[2].start_ms == 8000

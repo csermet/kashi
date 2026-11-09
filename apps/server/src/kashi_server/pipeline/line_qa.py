@@ -23,6 +23,7 @@ import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from difflib import SequenceMatcher
 from statistics import median
 
 from kashi_server.pipeline.alignment import (
@@ -36,6 +37,7 @@ from kashi_server.pipeline.arbiter import (
     better_supported_position,
     judge_line,
 )
+from kashi_server.pipeline.sheet_shift import EAR_LAG_MS, ear_stream, letters
 from kashi_server.pipeline.vocal_energy import VocalEnergy
 
 logger = logging.getLogger(__name__)
@@ -164,6 +166,30 @@ RESPONSE_MAX_SHIFT_MS = 1500
 #: breath the ad-lib hold leaves.
 RESPONSE_BREATH_MS = ADLIB_HOLD_BREATH_MS
 
+#: Timing v3, V2 (2.30.0): a line after silence starts where the voice comes
+#: back, when the ear hears the line's first letters there. The owner heard
+#: lines after a silence 0.5-1 s off (New Rules 2:54, BxMxC 0:13 and 2:06,
+#: 2026-11-07); the audit's voice witness found them with these numbers
+#: (audit.score, audit.finder: >= 500 ms of document silence, the voice's
+#: return within 1.5 s, a return = >= 150 ms below the silence line first).
+VOICE_RETURN_GAP_MS = 500
+VOICE_RETURN_SILENCE_MS = 150
+VOICE_RETURN_MAX_MS = 1500
+#: Below this the return says nothing: on the pilot set's healthy lines the
+#: energy return sits 115-360 ms before the aligner's calibrated word start
+#: (the consonant and the breath), where the heard errors were 500-1000 ms.
+VOICE_RETURN_MIN_MS = 400
+#: The ear's letters (`heard_tokens`, the sheet shift's pass) from just before
+#: the return to this far after it must share a run of VOICE_RETURN_BLOCK
+#: letters with the line's first VOICE_RETURN_LETTERS, starting within its
+#: first three (audit.textmatch's anchor run). No letters, no move: a
+#: background shout in the gap must not pull the line (Deli Oğlan 1:57,
+#: Instruction 2:37).
+VOICE_RETURN_HEAR_BEFORE_MS = 100
+VOICE_RETURN_HEAR_AFTER_MS = 600
+VOICE_RETURN_LETTERS = 6
+VOICE_RETURN_BLOCK = 3
+
 TRIM_SUSTAIN_FACTOR = 3.0
 TRIM_MIN_HOLD_MS = 350
 TRIM_MAX_HOLD_MS = 4000
@@ -230,6 +256,9 @@ class LineQAOutcome:
     # Counted, not marked: the line was never in doubt as CONTENT, it just
     # sat in the wrong place, and it is now where the evidence says it goes.
     nudged: list[int] = field(default_factory=list)
+    # Lines after a silence moved onto the voice's return, the ear's letters
+    # agreeing (2.30.0, `shift_to_voice_return`).
+    voice_returned: list[int] = field(default_factory=list)
 
 
 def _line_words(chunks: list[list[AlignedWord]], i: int) -> list[AlignedWord]:
@@ -592,6 +621,118 @@ def _response_delta(
     return delta
 
 
+def shift_to_voice_return(
+    result: AlignResult,
+    energy: "VocalEnergy | None",
+    heard: list[dict] | None,
+    skip: set[int],
+) -> tuple[AlignResult, list[int]]:
+    """Timing v3, V2 (2.30.0): a line after silence starts on the voice's return
+    when the ear hears its first letters there. Pure.
+
+    For a line whose first word starts >= VOICE_RETURN_GAP_MS after the
+    previous line's end (the end the word gets back after QA, its `held_ms`
+    included: that is the silence a viewer sees), the voice return nearest
+    its start, past that end and within VOICE_RETURN_MAX_MS, is a candidate.
+    It moves the line only when it is VOICE_RETURN_MIN_MS or more away AND the
+    ear (`heard`, the checkpoint's greedy letters over the whole track) opens
+    the line there (`_hears_line_at`). The move is the block shift of the
+    nudge and the flagged rescue: line and words together, refused rather than
+    clamped when it would cross a neighbour (`_nudge_fits`). Lines another QA
+    rule already moved (`skip`) and ad-lib lines keep their single owner.
+
+    Needs the vocal loudness contour (separated audio only, as for the
+    response rule) and the ear; without either nothing moves."""
+    if energy is None or not heard or result.sync != "word":
+        return result, []
+    returns = _voice_returns(list(energy.frames))
+    stream, times = ear_stream(heard)
+    if not returns or not stream:
+        return result, []
+    lines_out = list(result.lines)
+    words_out = [list(chunk) for chunk in result.words_per_line]
+    moved: list[int] = []
+    prev_end: int | None = None
+    for i, line in enumerate(result.lines):
+        words = _line_words(words_out, i)
+        if not words:
+            continue
+        if prev_end is not None and i not in skip and not is_adlib(line.text):
+            delta = _voice_return_delta(words, line.text, prev_end, returns, stream, times)
+            if delta is not None and _nudge_fits(i, words, delta, lines_out, words_out):
+                lines_out[i] = replace(
+                    line, start_ms=max(0, line.start_ms + delta), end_ms=max(0, line.end_ms + delta)
+                )
+                words = [
+                    replace(w, start_ms=max(0, w.start_ms + delta), end_ms=max(0, w.end_ms + delta))
+                    for w in words
+                ]
+                words_out[i] = words
+                moved.append(i)
+                logger.info(
+                    "line QA voice return: line %d %r moved %+dms onto the voice, the ear agreeing",
+                    i, line.text[:40], delta,
+                )
+        prev_end = max(w.end_ms + w.held_ms for w in words)
+    if not moved:
+        return result, []
+    return replace(result, lines=lines_out, words_per_line=words_out), moved
+
+
+def _voice_returns(frames: list[tuple[int, float]]) -> list[int]:
+    """Where the level comes back to RESPONSE_SILENCE_DB after at least
+    VOICE_RETURN_SILENCE_MS below it (the track starts in silence)."""
+    out: list[int] = []
+    quiet_since: int | None = 0
+    for t, db in frames:
+        if _is_silent(db):
+            if quiet_since is None:
+                quiet_since = t
+        else:
+            if quiet_since is not None and t - quiet_since >= VOICE_RETURN_SILENCE_MS:
+                out.append(t)
+            quiet_since = None
+    return out
+
+
+def _voice_return_delta(
+    words: list[AlignedWord],
+    text: str,
+    prev_end: int,
+    returns: list[int],
+    stream: str,
+    times: list[int],
+) -> int | None:
+    """How far the line moves onto the voice's return, or None to leave it."""
+    start = words[0].start_ms
+    if start - prev_end < VOICE_RETURN_GAP_MS:
+        return None
+    lo = bisect_left(returns, start - VOICE_RETURN_MAX_MS)
+    hi = bisect_right(returns, start + VOICE_RETURN_MAX_MS)
+    near = [v for v in returns[lo:hi] if v > prev_end]
+    if not near:
+        return None
+    entry = min(near, key=lambda v: abs(v - start))
+    delta = entry - start
+    if abs(delta) < VOICE_RETURN_MIN_MS or not _hears_line_at(text, entry, stream, times):
+        return None
+    return delta
+
+
+def _hears_line_at(text: str, t_ms: int, stream: str, times: list[int]) -> bool:
+    """Do the ear's letters around `t_ms` (document clock) open the line?"""
+    target = letters(text)[:VOICE_RETURN_LETTERS]
+    if len(target) < VOICE_RETURN_BLOCK:
+        return False
+    lo = bisect_left(times, t_ms - VOICE_RETURN_HEAR_BEFORE_MS + EAR_LAG_MS)
+    hi = bisect_right(times, t_ms + VOICE_RETURN_HEAR_AFTER_MS + EAR_LAG_MS)
+    matcher = SequenceMatcher(None, target, stream[lo:hi], autojunk=False)
+    return any(
+        b.size >= VOICE_RETURN_BLOCK and b.a < VOICE_RETURN_BLOCK
+        for b in matcher.get_matching_blocks()
+    )
+
+
 def _match_references(
     lines: list[LineTiming],
     line_texts: list[str],
@@ -725,11 +866,12 @@ def apply_line_qa(
     synced_starts_ms: list[int | None] | None,
     onset_ms: list[int] | None = None,
     energy: VocalEnergy | None = None,
+    heard: list[dict] | None = None,
 ) -> LineQAOutcome:
     refs = _resolve_references(result, line_texts, synced_starts_ms)
 
     if refs is None or sum(ref is not None for ref in refs) < MIN_REFERENCE_LINES:
-        return _finish_unreferenced(result, energy)
+        return _finish_unreferenced(result, energy, heard)
 
     deviations = [
         line.start_ms - ref for line, ref in zip(result.lines, refs, strict=True) if ref is not None
@@ -754,7 +896,7 @@ def apply_line_qa(
         )
 
     if not flagged:
-        return _finish_clean(result, refs, offset_ms, nudged, adlib_shifted, energy)
+        return _finish_clean(result, refs, offset_ms, nudged, adlib_shifted, energy, heard)
 
     flagged_set = set(flagged)
     lines = _snap_flagged_lines(result, refs, flagged_set, offset_ms)
@@ -782,9 +924,14 @@ def apply_line_qa(
     snapped, trimmed = trim_word_ends(snapped)
     snapped, rederived = rederive_adlib_words(snapped)
     snapped, responses = shift_call_response(snapped, energy)
+    snapped, returned = shift_to_voice_return(
+        snapped, energy, heard,
+        set(flagged) | density_dropped | set(nudged) | set(adlib_shifted) | set(responses),
+    )
     return LineQAOutcome(
         result=snapped,
         response_shifted=responses,
+        voice_returned=returned,
         flagged=flagged,
         offset_ms=offset_ms,
         degraded_to_line=False,
@@ -818,16 +965,20 @@ def _resolve_references(
     return refs
 
 
-def _finish_unreferenced(result: AlignResult, energy: VocalEnergy | None) -> LineQAOutcome:
+def _finish_unreferenced(
+    result: AlignResult, energy: VocalEnergy | None, heard: list[dict] | None
+) -> LineQAOutcome:
     # No reference ≠ no ad-libs: document assembly still writes the adlib
     # flag and the overlay still sweeps, so the rederive must run here too
     # (retro finding — QA-less docs swept CTC's scattered spans).
     clamped, trimmed = trim_word_ends(replace(result, lines=_clamp_monotonic(result.lines)))
     clamped, rederived = rederive_adlib_words(clamped)
     clamped, responses = shift_call_response(clamped, energy)
+    clamped, returned = shift_to_voice_return(clamped, energy, heard, set(responses))
     return LineQAOutcome(
         result=clamped,
         response_shifted=responses,
+        voice_returned=returned,
         flagged=[],
         offset_ms=0,
         degraded_to_line=False,
@@ -926,6 +1077,7 @@ def _finish_clean(
     nudged: list[int],
     adlib_shifted: list[int],
     energy: VocalEnergy | None,
+    heard: list[dict] | None,
 ) -> LineQAOutcome:
     """No line flagged: clamp, score, trim and the post-passes."""
     clean = replace(result, lines=_clamp_monotonic(result.lines))
@@ -938,9 +1090,13 @@ def _finish_clean(
     clean, trimmed = trim_word_ends(clean)
     clean, rederived = rederive_adlib_words(clean)
     clean, responses = shift_call_response(clean, energy)
+    clean, returned = shift_to_voice_return(
+        clean, energy, heard, set(nudged) | set(adlib_shifted) | set(responses)
+    )
     return LineQAOutcome(
         result=clean,
         response_shifted=responses,
+        voice_returned=returned,
         flagged=[],
         offset_ms=offset_ms,
         degraded_to_line=False,

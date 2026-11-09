@@ -24,6 +24,7 @@ from kashi_server.pipeline.windows import (
     hybrid_star_words,
     plan_windows,
     reconcile_seams,
+    unpile_starts,
     whole_track_vote,
     yield_pad_words,
 )
@@ -578,6 +579,11 @@ HYBRID_T_MS = 400
 WHOLE_VOTE_DEFAULT = True
 WHOLE_VOTE_T_MS = 400
 
+#: Timing v3, V3 (2.30.0): after the hybrid and the vote, a run of 3+ words
+#: starting within 60 ms that they made takes the `edges` starts back
+#: (windows.unpile_starts). Off reproduces 2.29.1.
+UNPILE_DEFAULT = True
+
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
     """The real time step between emission frames, in ms.
@@ -714,6 +720,40 @@ def transcribe(wav_path: Path, model_name: str) -> str:
     return greedy_ctc_decode(ids, id_to_token, vocab.get("<pad>", 0))
 
 
+def heard_tokens(wav_path: Path, language: str) -> list[dict]:
+    """What the language's aligner checkpoint hears over the whole track: one
+    {text, start_ms} per greedy token run on the exact 20 ms clock, as the
+    audit's ear reads it (`audit.ear.hear_audio`). Feeds the sheet shift
+    check (2.29.1, `sheet_shift`); never shown, never lyrics.
+
+    The blank is `<blank>` when the vocabulary has one (MMS keeps `<pad>`
+    separate): taking `<pad>` turned every MMS blank frame into a letter in
+    the audit (2026-11)."""
+    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
+
+    model, tokenizer = _load_model(resolve_aligner(language).model_name)
+    audio = load_audio(str(wav_path), model.dtype, model.device)
+    emissions, stride = _emit(model, audio, exact_stride=True)
+    vocab = tokenizer.get_vocab()
+    keep = usable_columns(int(emissions.shape[-1]), len(vocab))
+    logp = emissions[:, :keep]
+    if logp.dim() == 3:
+        logp = logp.squeeze(0)
+    ids = logp.argmax(dim=-1).tolist()
+    blank_id = vocab["<blank>"] if "<blank>" in vocab else vocab.get("<pad>", 0)
+    id_to_token = {i: tok for tok, i in vocab.items()}
+    out: list[dict] = []
+    previous: int | None = None
+    for frame, token_id in enumerate(ids):
+        if token_id == previous:
+            continue
+        previous = token_id
+        if token_id != blank_id:
+            out.append({"text": id_to_token.get(token_id, ""),
+                        "start_ms": round(frame * float(stride))})
+    return out
+
+
 def _alignment_texts(
     line_texts: list[str], language: str
 ) -> tuple[list[PreparedLine | None], list[str]]:
@@ -791,12 +831,15 @@ def _align_windows(
         for r in aligned:
             if r.get("text") == STAR_TOKEN:
                 continue  # regroup drops them anyway; keep offsets word-only
-            merged.append({
+            row = {
                 **r,
                 "start": float(r["start"]) + offset_s,
                 "end": float(r["end"]) + offset_s,
                 "window": index,
-            })
+            }
+            if "edges_start" in r:
+                row["edges_start"] = float(r["edges_start"]) + offset_s
+            merged.append(row)
     return merged
 
 
@@ -826,6 +869,7 @@ def align(
     whole_vote: bool = WHOLE_VOTE_DEFAULT,
     hybrid_t_ms: int = HYBRID_T_MS,
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
+    unpile: bool = UNPILE_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -844,7 +888,9 @@ def align(
     too: per word the `segment`-starred time where it agrees with `edges`
     (HYBRID_T_MS), then the whole-track time where it agrees with that
     (WHOLE_VOTE_T_MS). Words they place need no lead; they are moved onto the
-    edges clock so the path-wide lead nets out for them (_align_windows)."""
+    edges clock so the path-wide lead nets out for them (_align_windows).
+    `unpile` (2.30.0) then gives a piled run they made its `edges` starts
+    (windows.unpile_starts)."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -918,6 +964,11 @@ def align(
             counts["segment"], counts["edges"], counts["whole"], sum(counts.values()),
             vote_note if whole_vote else " (off)",
         )
+        if unpile:
+            results, runs, moved = unpile_starts(results)
+            if runs:
+                logger.info("piled starts: %d run(s), %d word(s) back on the edges clock",
+                            runs, moved)
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:

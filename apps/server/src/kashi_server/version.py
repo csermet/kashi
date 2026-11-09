@@ -680,5 +680,31 @@
 # under 60 ms 22.3 % -> 5.7 %; every word start, nudge (17) and response
 # shift (3) identical. Piled STARTS (runs of 3+ within 60 ms: 47) are not this
 # fix's to move.
-PIPELINE_VERSION = "2.29.1"
+# Also 2.29.1: a shifted lrclib section moves before alignment (sheet_shift,
+# the audit's anchor check A1): sheet lines no other line resembles are placed
+# over the whole song by the checkpoint's greedy letters, and a section of
+# agreeing placements more than 1 s off moves by its median, its own lines
+# only. One extra whole-track emission pass per windowed job. JamendoLyrics
+# (79 songs): no shift on a healthy sheet; whole-sheet shifts of +-5/+-15 s
+# found 74/79, offset error median 66 ms. Pilot set: two records move
+# (GOSSIP -18.96 s, lines 1-24; Got 2 Luv U -3.72 s, lines 16-82), the other
+# 18 documents are identical; lines noticeably off (audit.score) 0.83 -> 0.19
+# and 0.77 -> 0.25, median line error 3.1 s / 3.7 s -> 20 ms.
+# 2.30.0: timing v3, first round (V3 + V2, Faz 5 note). V3: a run of 3+ words
+# starting within 60 ms that the hybrid or the vote made takes its `edges`
+# starts back (windows.unpile_starts), carrying along the squeezed words after
+# it that those starts overtake, and only where the block and its neighbours
+# come out with fewer piled words (where `edges` piles too, nothing moves).
+# V2: a line after >= 500 ms of silence moves onto the voice's return (>= 400
+# ms away, within 1.5 s) only when the sheet shift's ear hears the line's first
+# letters there (line_qa.shift_to_voice_return). Measured on the 20 pilot
+# songs through audit.run_local against 2.29.1 (same stems and records): runs
+# of 3+ starts per line 30 -> 13 (2.29: 47), stream-wide 44 -> 28; 0 ms words
+# 2.7 % -> 2.3 %; nudges 15 -> 14, response shifts 3 = 3; audit.compare with
+# the review verdicts: known-good 44 broken? 0, known-bad 46 fixed? 6 /
+# worse? 1; with the owner's listening set: known-good 5 kept 5, known-bad 24
+# fixed? 3 / worse? 2 (both read as moves toward the reviewed place). V2 moved
+# no line on the pilot set (its named moments were already right on these
+# inputs or Japanese); it stays as a guarded rule.
+PIPELINE_VERSION = "2.30.0"
 PIPELINE_MAJOR = 2

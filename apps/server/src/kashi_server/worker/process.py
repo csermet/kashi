@@ -28,6 +28,7 @@ from kashi_server.db.models import RUNNING_STATUSES, Job, UploadedAudio
 from kashi_server.pipeline.alignment import (
     AlignResult,
     align,
+    heard_tokens,
     quality_from_probs,
     resolve_aligner,
     transcribe,
@@ -67,6 +68,7 @@ from kashi_server.pipeline.nightcore import (
 )
 from kashi_server.pipeline.onsets import detect_onsets
 from kashi_server.pipeline.palette import extract_palette
+from kashi_server.pipeline.sheet_shift import shift_sheet
 from kashi_server.pipeline.structure import extract_structure
 from kashi_server.pipeline.titles import clean_title, parse_composite_title
 from kashi_server.pipeline.vocal_energy import measure_vocal_energy
@@ -977,6 +979,32 @@ def _resolve_plain_lyrics(
     return plain_lyrics
 
 
+def _shift_sheet(
+    job: Job, tmp: Path, source_audio: Path, lyrics: LyricsText, align_wav: Path | None,
+    speed_factor: float,
+) -> tuple[LyricsText, Path | None, list[dict] | None]:
+    """Move an lrclib section the ear hears seconds away (2.29.1, sheet_shift),
+    before windows are cut around the stamps and line QA trusts them. Windowed
+    alignment only (the stamps' one consumer besides QA), r = 1 only. Returns
+    the lyrics, the decoded wav, which `_align_stage` then reuses, and the
+    ear's tokens, which line QA's voice-return rule reads (2.30.0); None
+    where the check does not run."""
+    starts = lyrics.synced_starts_ms
+    if not settings.windowed_alignment or starts is None or not is_original_speed(speed_factor):
+        return lyrics, align_wav, None
+    wav = align_wav or _decode(source_audio, tmp / ALIGN_WAV, rate=16000)
+    tokens = heard_tokens(wav, detect_language(lyrics.full_text))
+    shifted, applied = shift_sheet(lyrics.line_texts, starts, tokens)
+    for sec in applied:
+        logger.info(
+            "job %s: lyrics sheet shifted %+d ms (lines %d-%d, %d anchors)",
+            job.id, sec.median_ms, sec.first_line, sec.last_line, sec.anchors,
+        )
+    if not applied:
+        return lyrics, wav, tokens
+    return replace(lyrics, synced_starts_ms=shifted), wav, tokens
+
+
 def _align_with_ctc(
     s: Session,
     job: Job,
@@ -998,13 +1026,16 @@ def _align_with_ctc(
         checkpoint(s, job)
     lyrics = plan.lyrics
     speed_factor = plan.speed_factor
+    lyrics, align_wav, heard = _shift_sheet(
+        job, tmp, source_audio, lyrics, plan.align_wav, speed_factor
+    )
     result, second_pass_separated, aligned_wav = _align_stage(
         s,
         job,
         tmp,
         source_audio,
         lyrics,
-        align_wav=plan.align_wav,
+        align_wav=align_wav,
         tempo=1.0 / speed_factor,
     )
     vocals_separated = second_pass_separated or separate_first
@@ -1021,6 +1052,7 @@ def _align_with_ctc(
         lyrics.synced_starts_ms,
         detect_onsets(aligned_wav),
         energy=measure_vocal_energy(aligned_wav) if vocals_separated else None,
+        heard=heard,
     )
     # 2.29.1: QA judged the cut ends; the words get their length back now.
     result, _restored = restore_held_ends(qa.result)

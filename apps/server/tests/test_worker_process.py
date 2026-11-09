@@ -44,6 +44,9 @@ def scratch(tmp_path, monkeypatch, lrclib_has_no_record):
 
 
 def _happy_stages(monkeypatch, scratch):
+    # The sheet shift check's ear (2.29.1) would load a model: it hears nothing.
+    monkeypatch.setattr(wp, "heard_tokens", lambda wav, language: [])
+
     def fake_download(source_id, dest_dir, **kw):
         path = Path(dest_dir) / "audio.webm"
         path.write_bytes(b"x" * 1024)
@@ -434,6 +437,46 @@ def test_windowed_flag_forwards_the_lrclib_anchors(db_session, job, scratch, mon
     db_session.refresh(job)
     assert job.status == "completed"
     assert seen["anchors"] == [12_000]
+
+
+def test_a_shifted_sheet_reaches_the_aligner_and_line_qa(db_session, job, scratch, monkeypatch):
+    """2.29.1: the moved stamps must reach BOTH consumers — windows alone would
+    align on the right audio and line QA would snap it back to the old stamps."""
+    real_align_stage = wp._align_stage
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+
+    monkeypatch.setattr(settings, "windowed_alignment", True)
+    monkeypatch.setattr(wp, "_align_stage", real_align_stage)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+    monkeypatch.setattr(
+        wp,
+        "fetch_lyrics",
+        lambda hints, base_url: LyricsText(
+            ["hello world"], "hello world", 5, True, synced_starts_ms=[12_000]
+        ),
+    )
+    from kashi_server.pipeline.sheet_shift import Section
+
+    moved = Section(first_line=0, last_line=0, anchors=2, median_ms=-4000)
+    monkeypatch.setattr(wp, "shift_sheet", lambda texts, starts, tokens: ([8_000], [moved]))
+    seen: dict = {}
+
+    def spy_align(wav, texts, lang, synced_starts_ms=None):
+        seen["anchors"] = synced_starts_ms
+        return _align_result(0.8)
+
+    real_qa = wp.apply_line_qa
+
+    def spy_qa(result, texts, synced, *args, **kw):
+        seen["qa"] = synced
+        return real_qa(result, texts, synced, *args, **kw)
+
+    monkeypatch.setattr(wp, "align", spy_align)
+    monkeypatch.setattr(wp, "apply_line_qa", spy_qa)
+    wp.process_job(db_session, job)
+    assert (seen["anchors"], seen["qa"]) == ([8_000], [8_000])
 
 
 # --- nightcore branch (Faz 4, pipeline 2.2.0) ---
