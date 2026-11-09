@@ -660,6 +660,53 @@ and Öp.
    could not measure it.
 3. The tear guard above, if the listen confirms the torn first words are heard.
 
+## 2.31.0 merged, lrclib's word files off — server 0.35.0 (2026-11-09)
+
+**The owner's two calls (2026-11-09 evening, relayed by the plan session).** V1 merges
+as measured: 4 of the 10 heard line starts is under the bar of 6, but nothing heard or
+reviewed fine broke and the 30 lines line QA used to drop for density come back. The
+lyricsfile fast path goes off (question 42, this note's recommendation). `main`
+5a5e4d3 (the switch) and f49fdd9 (server 0.35.0, pipeline 2.31.0, which also carries
+the untagged 2.30.1).
+
+**The switch.** `settings.lyricsfile_fast_path`, default `False` (`LYRICSFILE_FAST_PATH=true`
+turns it back on). The worker still parses the chosen record's file and, when it would
+have qualified, logs `lyricsfile present (N lines, M with words) — fast path off,
+aligning`; the record then goes through separation, CTC and line QA like any other. No
+document field: the raw file was never stored, so the witness is that log line plus
+lrclib itself (the record id is in `alignment.lyrics_source_id`). Guard proven by
+mutation: without the gate, `test_lyricsfile_is_aligned_like_any_record_by_default`
+fails. The `lyricsfile.py` docstring no longer calls the file "strictly better".
+
+**Found while switching it off.**
+
+- lrclib's `/api/search` now serves the field too (the 2.4.4 finding, "search never
+  carries it", is out of date) plus a `hasWordSync` flag. "New Rules" / Dua Lipa: 19 of
+  20 search records carry word sync, compilations and live-lounge editions included.
+  That breadth fits word times lrclib generates itself rather than crowd timing; not
+  verified, and it matters for any later agreement gate.
+- `choose_record` still ranks a word-file record first inside the synced class. With
+  the fast path off that tie-break buys nothing and can trade duration proximity away;
+  with 19 of 20 records carrying a file it is neutral there. Left as is (no measured
+  case); revisit with the agreement gate.
+- The overlay's own lrclib client (`apps/overlay/src/main/lrclib.ts`) reads only
+  `syncedLyrics`; it never used the file. Nothing to change there.
+
+**Bench.** Not run before the tag. The desktop GPU was serving the 2.30.0 archive wave,
+and cnr-intel is a cluster node (4 cores, load ~3): the 1B English aligner over eng20 in
+three configurations would load the control plane for hours. The tag did not wait (the
+owner: fast loop, zero broken measured). It runs when the GPU is free, from the repo
+root on the desktop: `--dataset jamendo`, eng20, `--windowed --anchor-jitter-ms 400`,
+`--line-region-ms 0 / 800 / 1200`; PCO@0.1/@0.3, gross, end MAE, hygiene, line-start
+noticeable share. Results go into this section.
+
+**Refresh plan (the owner, via the plan session).** The 2.30.0 archive wave stopped at
+~107 of 181. The whole archive refreshes on 2.31.0 in one pass once the gitops MR is
+merged and the desktop GPU worker runs the 2.31.0 image: the 20 pilot songs first (the
+first document inspected at once: `ready: pipeline 2.31.0`, the skip log line,
+selection stats), then the 109 file songs, the ~71 the wave did not reach, and the ~107
+it refreshed to 2.30.0 (for V1). Feeder `scratch/toplu-2.31/toplu.sh`, LIVE_MAX 2.
+
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 
 1. **Measure the 2.29.1 refresh condition (now, cnr-intel, ~1 h).** `audit.compare`
