@@ -398,11 +398,17 @@ def unpile_starts(
     words starting within `span_ms` of the run's first (inclusive, whole ms:
     `benchmarks.metrics.duration_hygiene`'s rule) take their `"edges_start"`
     when any of them carries one; a run of `edges` words is `edges`' own and
-    stays. Starts stay monotone: each lies between the previous word's start
-    and the start of the first word after the run. Ends stay where the vote put
-    them (line QA reads them, 2.29.1) unless a start passes one: the end follows
-    the start and `"held"` shrinks by what that took. Rows moved are tagged
-    `"star": "edges"`. Returns (rows, runs, words moved)."""
+    stays. The words after the run that those starts overtake follow it onto
+    the `edges` clock while they carry an `"edges_start"`: the word after a
+    pile is often squeezed with it (CEO "I run it like a CEO", 2026-11-09: the
+    run's `edges` starts were clamped to a squeezed "a" and piled again).
+    Starts stay monotone: each lies between the previous word's start and the
+    start of the first word that is not overtaken. A block that would come out
+    with as many piled words as it had stays as it was: `edges` piles there
+    too. Ends stay where the vote put them (line QA reads them, 2.29.1) unless
+    a start passes one: the end follows the start and `"held"` shrinks by what
+    that took. Rows moved are tagged `"star": "edges"`. Returns (rows, runs
+    moved, words moved)."""
     words = [i for i, r in enumerate(results) if _is_word(r)]
     out = list(results)
     runs = moved = 0
@@ -413,21 +419,49 @@ def unpile_starts(
         while k + 1 < len(words) and _start_ms(out[words[k + 1]]) - first_ms <= span_ms:
             k += 1
         run = words[j : k + 1]
-        if len(run) >= min_words and any("edges_start" in out[i] for i in run):
-            runs += 1
-            floor = float(out[words[j - 1]]["start"]) if j > 0 else 0.0
-            ceiling = float(out[words[k + 1]]["start"]) if k + 1 < len(words) else None
-            for i in run:
-                row = out[i]
-                start = max(float(row.get("edges_start", row["start"])), floor)
-                if ceiling is not None:
-                    start = min(start, ceiling)
-                floor = start
-                if start == float(row["start"]):
-                    continue
-                end = max(float(row["end"]), start)
-                held = max(0.0, float(row.get("held", 0.0)) - (end - float(row["end"])))
-                out[i] = {**row, "start": start, "end": end, "held": held, "star": "edges"}
-                moved += 1
-        j = k + 1
+        if len(run) < min_words or not any("edges_start" in out[i] for i in run):
+            j = k + 1
+            continue
+        cursor = float(out[words[j - 1]]["start"]) if j > 0 else 0.0
+        starts: list[float] = []
+        m = j
+        while m < len(words):
+            row = out[words[m]]
+            if m > k and ("edges_start" not in row or float(row["start"]) >= cursor):
+                break  # not overtaken, or `edges` placed it: the ceiling
+            cursor = max(float(row.get("edges_start", row["start"])), cursor)
+            starts.append(cursor)
+            m += 1
+        if m < len(words):
+            ceiling = float(out[words[m]]["start"])
+            starts = [min(s, ceiling) for s in starts]
+        block = words[j:m]
+        before = [_start_ms(out[i]) for i in block]
+        after = [round(s * 1000) for s in starts]
+        if _piled_words(after, min_words, span_ms) >= _piled_words(before, min_words, span_ms):
+            j = k + 1
+            continue
+        runs += 1
+        for i, start in zip(block, starts, strict=True):
+            row = out[i]
+            if start == float(row["start"]):
+                continue
+            end = max(float(row["end"]), start)
+            held = max(0.0, float(row.get("held", 0.0)) - (end - float(row["end"])))
+            out[i] = {**row, "start": start, "end": end, "held": held, "star": "edges"}
+            moved += 1
+        j = m
     return out, runs, moved
+
+
+def _piled_words(starts_ms: list[int], min_words: int, span_ms: int) -> int:
+    """Words in runs of `min_words` or more starting within `span_ms` of the run's first."""
+    piled = j = 0
+    while j < len(starts_ms):
+        k = j
+        while k + 1 < len(starts_ms) and starts_ms[k + 1] - starts_ms[j] <= span_ms:
+            k += 1
+        if k - j + 1 >= min_words:
+            piled += k - j + 1
+        j = k + 1
+    return piled

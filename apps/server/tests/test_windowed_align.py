@@ -611,3 +611,22 @@ def test_unpile_takes_runs_within_60_ms_inclusive_and_keeps_starts_monotone():
     # 61 ms is no pile; a run of edges words is edges' own.
     assert unpile_starts([seg("x", 1.0, 0.5), seg("y", 1.03, 0.6), seg("z", 1.061, 0.7)])[1] == 0
     assert unpile_starts([_row("x", 1.0), _row("y", 1.01), _row("z", 1.02)])[1] == 0
+
+
+def test_unpile_carries_the_squeezed_words_after_the_run_and_never_moves_a_pile_to_a_pile():
+    def seg(text, start, edges_start):
+        return {**_row(text, start), "star": "whole", "edges_start": edges_start}
+
+    # CEO 1:03 (2026-11-09 debug dump): "run it like" piled at 63.04, "a" squeezed
+    # to 63.09 just after them; edges spreads all of them. Clamping to "a" piled
+    # the run again at 63.09.
+    rows = [_row("I", 63.02), _row("run", 63.04), seg("it", 63.04, 63.14),
+            seg("like", 63.04, 63.18), seg("a", 63.09, 63.38), seg("CEO", 63.23, 63.44),
+            _row("next", 64.5)]
+    out, runs, moved = unpile_starts(rows)
+    assert [round(r["start"], 2) for r in out] == [63.02, 63.04, 63.14, 63.18, 63.38, 63.44, 64.5]
+    assert (runs, moved) == (1, 4)
+    # Where edges piles the same words, nothing moves.
+    same = [_row("a", 0.5), seg("b", 1.02, 1.30), seg("c", 1.03, 1.30), seg("d", 1.04, 1.31),
+            _row("e", 2.0)]
+    assert unpile_starts(same) == (same, 0, 0)
