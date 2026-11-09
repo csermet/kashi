@@ -406,6 +406,21 @@ not V3 or V2 (two original rows plus three added ones; key `caner-dinle-5.key.js
 archive refresh feeder (`scratch/toplu-2.30/`, API only) holds the 109 file songs until the
 owner answers question 42.
 
+**Archive wave, 18:28-20:12 UTC (the owner's one-day exception: use the idle GPU).** The 290
+candidates were the 2026-10-25 wave's ids, FIFO (a postgres read for "last listened first"
+is refused in Claude sessions). 109 carried a word file and were held, which left 181 to queue.
+115 were queued before the owner stopped the wave for 2.31.0's single refresh, and 109 of those
+are on 2.30.0. 104 went through the aligner. 5 took a word file that their record gained after
+the pre-check: lrclib is adding files live, so a check goes stale within the hour. 6 are not on
+2.30.0:
+- the regression guard kept the stored document on 2 (Safari 2.26.0, r9o1QS-itsU 2.27.1);
+- 1 video is gone from YouTube;
+- 2 fail `verify_failed`: YouTube offers only 128 kbps AAC for them, under the 200 kbps floor;
+- 1 was still on the CPU worker at the stop.
+
+`scratch/toplu-2.30/yenilenmeyen.jsonl` lists the 186 ids not on a 2.30.0 alignment, with
+reasons, for the 2.31.0 refresh.
+
 ## 2.30.1 — the sheet shift carries the neighbours it overtakes (2026-11-09)
 
 Branch `worktree-sheet-shift-pencere`, merged to `main`; not tagged, not deployed.
