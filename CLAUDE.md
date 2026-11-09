@@ -13,7 +13,7 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
    close `faz-9-pencere-saati-2026-10.md`, then `yerel-model-denetim-2026-11.md` (Faz 3.5 local
    runs and the listening set), then `perceptual-audit-2026-11.md` (Faz 3). The 2026-08 hand-off
    note `faz-9-devir-askerlik-2026-08.md` is history. The deployed pipeline is whatever
-   `/v1/health` reports as `pipeline_version`, not a note.
+   the running worker logs as `ready: pipeline <version>`, not a note.
 3. `docs/roadmap.md` (targets, language order, constraints) and
    `docs/research/olu-fikirler.md` (ideas already measured and rejected — do not retry them
    without new evidence).
@@ -33,8 +33,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   and nobody looked.
 - DB-backed tests are **skipped** unless `DATABASE_URL` points at a throwaway Postgres 17
   (`postgresql+psycopg://USER:PASS@localhost:PORT/kashi`). A green run without it proves little.
-- `/v1/health`'s version string is cosmetic; `pipeline_version` (`kashi_server/version.py`) is
-  the load-bearing field — check that after a rollout.
+- `/v1/health` returns only the server version, which is cosmetic. `pipeline_version`
+  (`kashi_server/version.py`) is the load-bearing field. After a rollout, check it in each worker's
+  `ready: pipeline …` log line and in the first refreshed document.
 - Never edit an Alembic migration that has already reached head: environments that applied it
   drift silently. Add a new migration.
 - Schema change ⇒ `pnpm --filter @kashi/schemas codegen` and commit the generated output.

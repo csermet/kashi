@@ -2,7 +2,7 @@
 
 **Status: plan — decided 2026-11-08 evening (owner, in session): option 1, timing v3
 on the current chain, run as a fast loop (see "Owner's decision"); no code yet, no
-pipeline change, no tag.** Written in plan mode from the audit side-path's records
+pipeline change, no tag.** (Later: 2.30.0 is live since 2026-11-09, see "2.30.0 live".) Written in plan mode from the audit side-path's records
 (`perceptual-audit-2026-11.md`, `yerel-model-denetim-2026-11.md`, the 2.29 / 2.29.1
 paragraphs of `faz-9-pencere-saati-2026-10.md`) and the branch `worktree-dinleme-4-olcum`.
 The next hand-off note is this one's successor once the owner has chosen a path.
@@ -388,6 +388,22 @@ to that path. This is 2.29.1 behaviour, worth a look before the tag.
 4. A candidate for the piles `edges` shares: none of the three clocks separates them, so
    only a spread inside the line's own span could. That is a new idea, not in
    `olu-fikirler.md`, and unmeasured.
+
+## 2.30.0 live — 2026-11-09
+
+Tagged `server-v0.34.0` (ac6a82e) on the owner's go, without the eng20 bench of
+"Next" 2; gitops MR !168; API and cluster worker on 0.34.0, both workers log
+`ready: pipeline 2.30.0`. The 20 pilot songs were refreshed at 17:44-18:01 UTC, mostly
+on the GPU helper (~45 s a song): 20 of 20 on 2.30.0. **12 went through the aligner, and 11
+of those equal the local `fin` arm word for word** (Take It Off and Crazy In Love at 98-99 %
+of starts within 20 ms). Got 2 Luv U now takes another lrclib record (7835188, windowed,
+q 1.0). Against the live 2.29.0 documents, no known-good moment on these 12 is `broken?`.
+
+**The other 8 skipped alignment:** lrclib's new word-timed `lyricsfile`, see "Found at the
+2.30.0 rollout" above. Because of that, rows 8-12 of `caner-dinle-5.md` judge those files,
+not V3 or V2 (two original rows plus three added ones; key `caner-dinle-5.key.json`). The
+archive refresh feeder (`scratch/toplu-2.30/`, API only) holds the 109 file songs until the
+owner answers question 42.
 
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 
