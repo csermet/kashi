@@ -706,5 +706,18 @@
 # fixed? 3 / worse? 2 (both read as moves toward the reviewed place). V2 moved
 # no line on the pilot set (its named moments were already right on these
 # inputs or Japanese); it stays as a guarded rule.
-PIPELINE_VERSION = "2.30.0"
+# 2.30.1: a neighbour the sheet shift overtakes moves with it
+# (sheet_shift._carry_overtaken). Moving only a section's anchored lines left
+# the unanchored lines just outside it with stamps behind the moved ones
+# (GOSSIP's line 0 at 31.7 s behind line 1's new 16.0 s; Got 2 Luv U's last
+# two intro repeats behind line 16's new 20.8 s). plan_windows refuses stamps
+# out of order, so both songs ran whole-audio alignment (no hybrid, vote or
+# V3), and line QA snapped GOSSIP's line 0 onto its stale stamp, 17 s late,
+# with lines 1-7 starting there too (the overlay never showed them). Such a
+# stamp now moves by the section's offset, walking outward while the order
+# stays broken; lines of any anchored section are never carried.
+# JamendoLyrics (79 songs, +-5/+-15 s whole-sheet and 4-line-verse shifts):
+# detections and false alarms unchanged; moved sheets the windows accept
+# 185 -> 388 of 420; 1 355 lines carried, every one closer to its human stamp.
+PIPELINE_VERSION = "2.30.1"
 PIPELINE_MAJOR = 2

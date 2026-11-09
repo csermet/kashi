@@ -997,8 +997,9 @@ def _shift_sheet(
     shifted, applied = shift_sheet(lyrics.line_texts, starts, tokens)
     for sec in applied:
         logger.info(
-            "job %s: lyrics sheet shifted %+d ms (lines %d-%d, %d anchors)",
-            job.id, sec.median_ms, sec.first_line, sec.last_line, sec.anchors,
+            "job %s: lyrics sheet shifted %+d ms (lines %d-%d, %d anchors, %d overtaken "
+            "neighbours carried)",
+            job.id, sec.median_ms, sec.first_line, sec.last_line, sec.anchors, sec.carried,
         )
     if not applied:
         return lyrics, wav, tokens
