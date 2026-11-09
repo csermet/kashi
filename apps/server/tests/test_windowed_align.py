@@ -630,3 +630,8 @@ def test_unpile_carries_the_squeezed_words_after_the_run_and_never_moves_a_pile_
     same = [_row("a", 0.5), seg("b", 1.02, 1.30), seg("c", 1.03, 1.30), seg("d", 1.04, 1.31),
             _row("e", 2.0)]
     assert unpile_starts(same) == (same, 0, 0)
+    # ...nor where the clamp would pile the run onto its left neighbour (Crazy In
+    # Love 1:14.9: "oh, uh" clamped onto the "uh" before them at 75.44).
+    onto = [_row("uh", 75.44), seg("oh,", 75.64, 75.40), seg("uh", 75.70, 75.42),
+            _row("oh,", 75.70), _row("oh", 76.50)]
+    assert unpile_starts(onto) == (onto, 0, 0)

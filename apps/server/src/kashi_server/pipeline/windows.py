@@ -403,9 +403,10 @@ def unpile_starts(
     pile is often squeezed with it (CEO "I run it like a CEO", 2026-11-09: the
     run's `edges` starts were clamped to a squeezed "a" and piled again).
     Starts stay monotone: each lies between the previous word's start and the
-    start of the first word that is not overtaken. A block that would come out
-    with as many piled words as it had stays as it was: `edges` piles there
-    too. Ends stay where the vote put them (line QA reads them, 2.29.1) unless
+    start of the first word that is not overtaken. A block that would come out,
+    with its two neighbours, with as many piled words as it had stays as it
+    was: `edges` piles there too, or a clamp would pile it onto a neighbour
+    (Crazy In Love 1:14.9). Ends stay where the vote put them (line QA reads them, 2.29.1) unless
     a start passes one: the end follows the start and `"held"` shrinks by what
     that took. Rows moved are tagged `"star": "edges"`. Returns (rows, runs
     moved, words moved)."""
@@ -436,8 +437,11 @@ def unpile_starts(
             ceiling = float(out[words[m]]["start"])
             starts = [min(s, ceiling) for s in starts]
         block = words[j:m]
-        before = [_start_ms(out[i]) for i in block]
-        after = [round(s * 1000) for s in starts]
+        # The neighbours count too: a start clamped onto either one piles with it.
+        edge_left = [_start_ms(out[words[j - 1]])] if j > 0 else []
+        edge_right = [_start_ms(out[words[m]])] if m < len(words) else []
+        before = edge_left + [_start_ms(out[i]) for i in block] + edge_right
+        after = edge_left + [round(s * 1000) for s in starts] + edge_right
         if _piled_words(after, min_words, span_ms) >= _piled_words(before, min_words, span_ms):
             j = k + 1
             continue
