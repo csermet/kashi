@@ -876,7 +876,11 @@ it. Winter Song has no sheet anywhere; its honest state is no document. **The ow
 choice (2026-11-10): repair the three, delete Winter Song's document.** The owner runs
 it (production writes stay with the owner): `bash ~/kashi-nightcore-onarim/onar.sh onar`
 on cnr-intel (payloads built from the lrclib records above; r 1.0662 / 1.1289 / 1.1504;
-`force_persist`, since the stored documents are known wrong).
+`force_persist`, since the stored documents are known wrong). Run 10:15 UTC: three
+jobs queued (202; ids in `~/kashi-nightcore-onarim/jobs.jsonl`). The Winter Song
+delete's output was not kept, and the three new documents are not inspected yet: this
+session's production reads were refused. Next check: the three documents' `speed_factor`
+and `lyrics_source` ("caller"), and a 404 for `8HyKY_LiVtE`.
 
 ## The overlay's 200 ms base lead (overlay 0.31.0, 2026-11-10)
 
