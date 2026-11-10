@@ -765,8 +765,8 @@ document kept):
   (CTC prob 0.000; the stored document is BØRNS "Electric Love (Oliver Remix)"), and
   "Nightcore – Winter Song" Zara Larsson's "Winter Song" (0.274 < 0.3; the stored
   document is Year of the Goat's "Song of Winter", probably the wrong song already).
-  The gate did its job; the other 7 nightcore songs refreshed. Lookup drift on
-  nightcore titles is unmeasured beyond these two.
+  The gate did its job; the other 7 nightcore songs refreshed. Both stored documents are
+  the wrong song, and so is the new pick: measured in "Nightcore record drift" below.
 - Two regression-guard keeps: "Approve Please, Genie!" (TRAP CHICK, 2.26.0) and "Queen
   of Mean" (Sarah Jeffery, 2.27.1, kept by the 2.30 wave's guard too).
 - Left out up front: More Than Ready (gone from YouTube), Yatcaz Kalkcaz Ordayım and
@@ -775,6 +775,108 @@ document kept):
 The feeder now lists `lyrics_not_found` and feeds on (it halts at three); the remaining
 nightcore songs were moved to the end of the queue after the second one. The bench
 still waits for the desktop GPU: commands in `scratch/bench-2.31/pc-komut.md`.
+
+## Nightcore record drift — measured (2026-11-10)
+
+The two refused songs and all nine nightcore documents in the archive, checked against
+what each upload says it is. The uploader's description (or YouTube Music's credits)
+names the original; Apple's public lookup API gives that recording's length, so the true
+r = original / upload. Nobody listened: Whisper large-v3-turbo (CPU, int8) transcribed
+the four doubtful uploads slowed by the true r, and the by-ear rung's `similarity` (how
+much of the transcript a sheet explains; the rung accepts at 0.26) scored each candidate.
+
+| Upload | What it is | True r | Stored record (r) | 2.31.0 pick (r) | Verdict |
+|---|---|---|---|---|---|
+| "Electric (Remix)" `fWEL0tq3L0A` | The DNC ft. Miss Amani, "Electric (Blue Stahli Remix)", 239.8 s | 1.066 | BØRNS "Electric Love (Oliver Remix)" #1017386 (1.129) | Alina Baraz "Electric (Marian Hill remix)" #10695363 (1.103), refused | wrong song, both |
+| "Winter Song" `8HyKY_LiVtE` | Starix, "Winter Song", 187.5 s | 1.136 | Year of the Goat "Song of Winter" #12280786 (1.127) | Zara Larsson "Winter Song" #4495361 (1.121), refused | wrong song, both |
+| "She Doesn't Mind (Nightcore)" `r4vJzrTjSAU` | Kanako's nightcore of Starix & R4URY, 144.2 s | 1.129 | stay:us #34990162 (1.057); 2.31.0: Kilian K/Not Kiddin #8523277 (1.182) | — | right words, another cover's stamps, r 5 % off |
+| "Nightcall" `Jm7SieqVY5c` | Emilio's cover of London Grammar's version, 154.4 s | 1.150 | Angèle #35080435 (1.334); 2.31.0: Kavinsky/Angèle/Phoenix #17581840 (1.337) | — | the song, 8 backing lines Emilio does not sing, r 16 % off |
+| Runnin', I'll Do It, Come On Now, Girl From Sweden, LUZ ROJA | as hinted (descriptions agree) | — | — | — | right |
+
+How much of each Whisper transcript a sheet explains:
+
+| Upload | Candidate sheets |
+|---|---|
+| Electric | The DNC #11553390 **0.918** · BØRNS (stored) 0.173 · Alina Baraz (2.31.0) 0.178 |
+| Winter Song | Zara Larsson (2.31.0) 0.197 · Year of the Goat (stored) 0.140 |
+| She Doesn't Mind | Kanako (the upload's own record) 0.885 · Kilian K/Not Kiddin (stored) 0.891 · stay:us 0.857 · Sean Paul 0.556 |
+| Nightcall | London Grammar 0.774 · Kavinsky/Angèle/Phoenix (stored) 0.801 · Kavinsky 0.787 |
+
+The ear agrees with the descriptions on every stranger (all four under the rung's 0.26)
+and on the one right original lrclib holds. The slap-house covers of "She Doesn't Mind"
+share one rewritten text, so the stored sheet is the right words. Nightcall's transcript
+never has "we'll go all, all, all night long", which the stored sheet repeats inside
+eight lines, and sings the verse three times where the sheet has two.
+
+**What it means.**
+
+1. **Both refusals were right, and nothing in lrclib is right for these two uploads.**
+   Starix's "Winter Song" has no lrclib record at all. For "Electric" lrclib holds only the
+   original (The DNC, Miss Amani, #11553390, 230 s, synced): its r is 1.023, below the
+   band's 1.05, and the remix is another arrangement. `lyrics_not_found` is the honest
+   answer; the stored documents are wrong and still served. The owner heard the Electric
+   one on 2026-10-16: "20-50 s off, nothing to do with the song".
+2. **Archive: 2 of 9 wrong song, 2 of 9 the right song on another version's clock, 5
+   right.** The two wrong documents passed the same CTC gate when they were made (2.26.0
+   and 2.27.0); it refuses only some strangers. Counting the three nightcore documents the
+   2026-10-22 replay saw and the archive no longer lists, 3 of 12 were the wrong song
+   (E.N.I.G.M.A. bound G.E.M.'s "A.I.N.Y.") and 3 of 12 another version (Firework bound
+   J.Fla's cover of it). She Doesn't Mind has the right words on another cover's stamps
+   and an r 5 % high. lrclib does hold the upload itself (Kanako, "She Doesn't Mind -
+   Nightcore", #33475316, 128 s, plain text, album "Nightcore Music Vol. 1"), but
+   detection never sees it: it is not in the top 20 of a "She Doesn't Mind" search.
+   Nightcall runs a 179 s version's stamps over a 154 s song (r 1.337 against 1.150).
+3. **CTC line scores cannot find these documents.** Share of worded lines scored below
+   0.3: Electric 0.50, Winter Song 0.67; the right nightcore documents 0.48-0.65; the
+   other 298 word documents p50 0.49, p90 0.76. Same lesson as "re-calibrating the CTC
+   quality ramp" in `olu-fikirler.md`.
+4. **lrclib's search change moved 2 picks, and not these.** Search records now carry
+   `lyricsfile` and `hasWordSync` (13 of the 134 records these searches returned have word
+   sync). Rerunning detection on today's candidates with the two fields stripped changes
+   the pick for Runnin' (#19547555, 226.9 s → #3529020, 229 s, the Trespassing (Deluxe)
+   record the uploader links; r 1.131 → 1.142) and Come On Now (same length, same r);
+   both the same song. Electric and Winter Song pick the same record either way. The
+   drift is the vote's: Electric's three in-band records are three songs, three clusters
+   of one, and the tie goes to the lowest r (Alina Baraz); Winter Song's "largest cluster"
+   is two songs whose lengths sit 0.006 apart, and Zara Larsson comes first. Which records
+   make a title search's top 20 decides both, as the 2026-10-22 replay found.
+5. **On the detected nightcore path the different-edit anchor gate cannot fire.** r is the
+   record's length over the upload's, so the slowed copy always lasts the record's length
+   (`slow_duration_ok` holds it within 1 s of that). A cover or remix in the band hands its
+   stamps to windowed alignment at full trust; She Doesn't Mind and Nightcall run on
+   another version's stamps today.
+
+**Code: no change.** Each rule was tried on these nine candidate lists (the anchor
+agreement on the archive):
+
+- Ordered title equality (the 2026-10-22 suggestion) keeps Zara Larsson and Alina
+  Baraz: same-title strangers pass any title rule.
+- "A cluster must agree on the artist" refuses Electric and Winter Song, which the gate
+  already refuses, and Nightcall's cluster (Kavinsky/Angèle/Phoenix + Harrison), whose
+  document would then go. Nothing measured is gained.
+- "The upload's own record first" would put She Doesn't Mind on its own clock (r = 1, no
+  foreign stamps). One song, a plain-text record outside detection's candidates, and the
+  lookup would have to be
+  duration-strict: the plain ladder's duration-less last chance binds "Come On Now" to
+  Miss Amani's original at r = 1. Not built on one song.
+- Line QA's anchor agreement (the stored `quality_score`, basis `anchors`) did separate
+  them when they were made: the three wrong songs 0.33, 0.34, 0.46, every other nightcore
+  document 0.61 or more. 2.31.0 took that signal away: V1 holds lines near their own
+  stamps, and on the 270 archive documents scored this way both times the share at 0.95
+  or more went 179 → 237, the share below 0.8 24 → 5. A wrong sheet on 2.31.0 has not
+  been measured, so an agreement gate would be unproven. Not built.
+- The lyricsfile tie-break stays (here it found the album record).
+
+The four documents are a per-song fix: reprocess with `options.lyrics_text` and an
+explicit `options.speed_factor` (the true r above); caller text aligns over the whole
+audio, so no other version's stamps bind it. Sheets: Electric The DNC's original text
+(#11553390), She Doesn't Mind Kanako's (#33475316, the upload's own), Nightcall the
+stored text without the backing lines, verse sung three times as the transcript has
+it. Winter Song has no sheet anywhere; its honest state is no document. **The owner's
+choice (2026-11-10): repair the three, delete Winter Song's document.** The owner runs
+it (production writes stay with the owner): `bash ~/kashi-nightcore-onarim/onar.sh onar`
+on cnr-intel (payloads built from the lrclib records above; r 1.0662 / 1.1289 / 1.1504;
+`force_persist`, since the stored documents are known wrong).
 
 ## The overlay's 200 ms base lead (overlay 0.31.0, 2026-11-10)
 
