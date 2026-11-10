@@ -722,6 +722,36 @@ first document inspected at once: `ready: pipeline 2.31.0`, the skip log line,
 selection stats), then the 109 file songs, the ~71 the wave did not reach, and the ~107
 it refreshed to 2.30.0 (for V1). Feeder `scratch/toplu-2.31/toplu.sh`, LIVE_MAX 2.
 
+## 2.31.0 live — 2026-11-09/10
+
+The owner merged gitops MR !169 the same night (23:53 TR); api and worker run 0.35.0,
+the worker logged `ready: pipeline 2.31.0` at 20:57 UTC. The desktop was off, so on the
+owner's word the refresh started on the cluster's CPU worker (~16 min a song; feeder at
+batch 2, slow limit 75 min, since a batch of 5 behind one CPU worker would wait ~60 min
+and trip the 45-minute halt meant for a lost GPU). 307 candidates: pilot set, the
+109 + 5 file songs, the 66 the 2.30 wave never queued, the ~104 it refreshed to 2.30.0,
+then the one live at its stop and the two its regression guard kept. Left out: the
+three `source_failed` (More Than Ready gone from YouTube; Yatcaz Kalkcaz Ordayım and
+Kırmızı offer only 128 kbps AAC, under the 200 floor, so `verify_failed` again).
+
+**First document (Stressed Out, one of the file songs).** The worker logged
+`lyricsfile present (47 lines, 47 with words) — fast path off, aligning`, separated,
+ran 32 windows over 49 lines (7 `segment`, 4 `edges`, whole-track vote 517 of 528) and
+persisted a 2.31.0 document equal to the local V1 arm word for word (528 of 528).
+
+**Pilot set (20 of 20 by 01:40 UTC, no halt, no guard hit).** Every document is on
+2.31.0 from the lrclib record (no `lyricsfile` source left), and line QA dropped no
+line for density on any of them. Against the local V1 arm (`audit/runs/v1/<id>.v1g`):
+8 307 of 8 730 words equal; 9 songs equal outright (Stressed Out, Heavenly, Enemy, New
+Rules, Instruction, Sorry For Party Rocking, Mor, Sinsirella, Deli Oğlan). Got 2 Luv U chose another record again (#7835188 against the
+arm's #24728875; 251 of 619 equal), as on 2.30.0. On the 19 same-record songs 55 words
+differ, median 50 ms; the large ones sit in BxMxC's "want some" chant at 1:35-1:39
+(21 words, ~370 ms: a run of one repeated word, where a slightly different stem tips
+the path) and one word each in GOSSIP (540 ms), Take It Off (400 ms) and CEO / Öp
+(160 ms). The arm used cached stems, the worker separates again on its own CPU; the
+2.30.0 refresh, on the GPU, matched its arm exactly. All 12 listening moments
+(`caner-dinle-7.md`, ±0.5 s) are equal to the arm word for word.
+
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 
 1. **Measure the 2.29.1 refresh condition (now, cnr-intel, ~1 h).** `audit.compare`
