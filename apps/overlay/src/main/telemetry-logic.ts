@@ -86,6 +86,7 @@ export interface SessionEnvelopeInput {
   effectLevel: string;
   themeScope: string;
   fillStyle: string;
+  /** The APPLIED lead (base + user offset) — its meaning before 0.31.0 too. */
   timingOffsetMs: number;
   serverHost: string;
 }

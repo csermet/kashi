@@ -752,6 +752,17 @@ the path) and one word each in GOSSIP (540 ms), Take It Off (400 ms) and CEO / �
 2.30.0 refresh, on the GPU, matched its arm exactly. All 12 listening moments
 (`caner-dinle-7.md`, ±0.5 s) are equal to the arm word for word.
 
+## The overlay's 200 ms base lead (overlay 0.31.0, 2026-11-10)
+
+The overlay has lit lyrics 200 ms ahead of the player position since 0.3.4 (2026-07-17), shown as
+"+200"; a user who set "0" got lyrics 200 ms late (owner, 2026-11-10). From 0.31.0 the 200 ms is a
+hidden base (`BASE_LEAD_MS`, `apps/overlay/src/shared/timing-offset.ts`), the user's number reads 0
+there, and a stored 0.30.x value migrates once (200 → 0, 250 → +50). The applied lead is unchanged:
+every "+200 ms" in the audit notes is today's 0. The 200 is the owner's ear on the 2026-07 field
+machines; whether it is display-chain latency (YouTube Music's position report + paint) or a
+perceptual preference is **not measured**. The Fable 5.2 review measures it: the extension's reported
+position against the audio.
+
 ## Sequence (as planned before the decision; the loop above overrides the pace)
 
 1. **Measure the 2.29.1 refresh condition (now, cnr-intel, ~1 h).** `audit.compare`

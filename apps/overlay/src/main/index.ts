@@ -51,7 +51,7 @@ import {
   emptyLatch,
   type LatchDecision,
 } from './source-latch-logic.js';
-import { adjustAlpha, adjustTimingOffset, clampAlpha, isPositionVisible, clampTimingOffset,
+import { adjustAlpha, adjustTimingOffset, appliedLeadMs, clampAlpha, isPositionVisible, clampTimingOffset,
   migrateWindowBounds, parseBoxScale, parseTextScale, DEFAULT_BOX_SCALE, DEFAULT_TEXT_SCALE,
 } from './settings-logic.js';
 import { SettingsStore } from './settings.js';
@@ -571,7 +571,7 @@ function broadcastSettings(): void {
   const current = settings.get();
   send('kashi:settings', {
     box_alpha: current.box_alpha,
-    timing_offset_ms: current.timing_offset_ms,
+    timing_offset_rel_ms: current.timing_offset_rel_ms,
     effect_level: current.effect_level,
     theme_scope: current.theme_scope,
     fill_style: current.fill_style,
@@ -589,8 +589,8 @@ function scheduleTrayRefresh(): void {
 
 function applyTimingOffset(offsetMs: number): void {
   const clamped = clampTimingOffset(offsetMs);
-  settings?.update({ timing_offset_ms: clamped });
-  log(`setting: timing offset -> ${clamped}ms`);
+  settings?.update({ timing_offset_rel_ms: clamped });
+  log(`setting: timing offset -> ${clamped}ms (lead ${appliedLeadMs(clamped)}ms)`);
   broadcastSettings();
   tray?.refresh();
 }
@@ -712,7 +712,7 @@ function openTimingOffsetPrompt(): void {
     if (promptWindow === win) promptWindow = null;
   });
   win.once('ready-to-show', () => win.show());
-  const value = String(settings?.get().timing_offset_ms ?? 0);
+  const value = String(settings?.get().timing_offset_rel_ms ?? 0);
   if (process.env['ELECTRON_RENDERER_URL']) {
     void win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/timing-offset.html?value=${value}`);
   } else {
@@ -850,10 +850,10 @@ ipcMain.on('kashi:adjust-opacity', (_event, deltaSteps: unknown) => {
 
 ipcMain.on('kashi:adjust-timing-offset', (_event, deltaSteps: unknown) => {
   if (!settings) return;
-  const next = adjustTimingOffset(settings.get().timing_offset_ms, deltaSteps as number);
-  if (next === settings.get().timing_offset_ms) return; // pinned at a clamp edge
-  settings.update({ timing_offset_ms: next });
-  log(`setting: timing offset -> ${next}ms (scroll)`);
+  const next = adjustTimingOffset(settings.get().timing_offset_rel_ms, deltaSteps as number);
+  if (next === settings.get().timing_offset_rel_ms) return; // pinned at a clamp edge
+  settings.update({ timing_offset_rel_ms: next });
+  log(`setting: timing offset -> ${next}ms (lead ${appliedLeadMs(next)}ms, scroll)`);
   broadcastSettings();
   scheduleTrayRefresh();
 });
@@ -1000,7 +1000,9 @@ function sendSessionEnvelope(serverUrl: string): void {
       effectLevel: current.effect_level,
       themeScope: current.theme_scope,
       fillStyle: current.fill_style,
-      timingOffsetMs: current.timing_offset_ms,
+      // The APPLIED lead, as in every earlier build: the server's numbers
+      // keep one meaning across the 0.31.0 switch to a relative offset.
+      timingOffsetMs: appliedLeadMs(current.timing_offset_rel_ms),
       serverHost: serverHostOf(serverUrl),
     },
     new Date().toISOString(),
@@ -1151,7 +1153,7 @@ app.whenReady().then(async () => {
     version: KASHI_VERSION,
     getAlpha: () => settings?.get().box_alpha ?? 0,
     onAlphaSelect: applyBoxAlpha,
-    getTimingOffset: () => settings?.get().timing_offset_ms ?? 0,
+    getTimingOffset: () => settings?.get().timing_offset_rel_ms ?? 0,
     onTimingOffsetSelect: applyTimingOffset,
     onTimingOffsetCustom: openTimingOffsetPrompt,
     getEffectLevel: () => settings?.get().effect_level ?? DEFAULT_EFFECT_LEVEL,
@@ -1229,7 +1231,8 @@ app.whenReady().then(async () => {
   const boot = settings.get();
   log(
     `settings: effects=${boot.effect_level} theme=${boot.theme_scope} ` +
-      `offset=${boot.timing_offset_ms}ms alpha=${boot.box_alpha} ` +
+      `offset=${boot.timing_offset_rel_ms}ms lead=${appliedLeadMs(boot.timing_offset_rel_ms)}ms ` +
+      `alpha=${boot.box_alpha} ` +
       `server=${boot.server_url ? 'on' : 'off'}`,
   );
 

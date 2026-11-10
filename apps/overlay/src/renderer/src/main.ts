@@ -58,6 +58,11 @@ import {
   TEXT_SCALE_FACTORS,
   type TextScale,
 } from '../../shared/text-scale.js';
+import {
+  appliedLeadMs,
+  clampTimingOffset,
+  formatTimingOffset,
+} from '../../shared/timing-offset.js';
 import { PositionClock } from './position-clock.js';
 import { SnapClassifier } from './snap-classifier.js';
 import {
@@ -968,12 +973,13 @@ window.kashi.onConnection((payload) => {
 });
 
 // Brief "+120 ms" readout in the box corner: the live scroll gesture needs
-// feedback the tray can't give (the menu is closed while scrolling).
+// feedback the tray can't give (the menu is closed while scrolling). It shows
+// the user's number, never the base under it.
 let settingsSeen = false;
 let offsetFlashTimer: ReturnType<typeof setTimeout> | null = null;
 function flashTimingOffset(offsetMs: number): void {
   if (!offsetFlashEl) return;
-  offsetFlashEl.textContent = `${offsetMs > 0 ? '+' : ''}${offsetMs} ms`;
+  offsetFlashEl.textContent = formatTimingOffset(offsetMs);
   offsetFlashEl.classList.add('show');
   if (offsetFlashTimer !== null) clearTimeout(offsetFlashTimer);
   offsetFlashTimer = setTimeout(() => offsetFlashEl.classList.remove('show'), 900);
@@ -1001,13 +1007,14 @@ function applyBoxAlpha(box_alpha: unknown): void {
   }
 }
 
-function applyTimingOffset(timing_offset_ms: unknown): void {
-  if (typeof timing_offset_ms === 'number' && Number.isFinite(timing_offset_ms)) {
+function applyTimingOffset(timing_offset_rel_ms: unknown): void {
+  if (typeof timing_offset_rel_ms === 'number' && Number.isFinite(timing_offset_rel_ms)) {
     // positive = lyrics fire earlier (clamped main-side; belt here)
-    const next = Math.max(-500, Math.min(500, Math.round(timing_offset_ms)));
+    const next = clampTimingOffset(timing_offset_rel_ms);
     // Flash only on live CHANGES — the startup replay must stay silent.
-    if (settingsSeen && next !== timingOffsetMs) flashTimingOffset(next);
-    timingOffsetMs = next;
+    if (settingsSeen && next !== userOffsetMs) flashTimingOffset(next);
+    userOffsetMs = next;
+    leadMs = appliedLeadMs(next);
   }
 }
 
@@ -1067,10 +1074,10 @@ window.kashi.onSettings((payload) => {
   // Captured BEFORE the timing-offset branch flips it: branches below the
   // flip would otherwise treat the startup replay as a live change.
   const live = settingsSeen;
-  const { box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
+  const { box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
     payload as {
       box_alpha?: unknown;
-      timing_offset_ms?: unknown;
+      timing_offset_rel_ms?: unknown;
       effect_level?: unknown;
       theme_scope?: unknown;
       fill_style?: unknown;
@@ -1078,7 +1085,7 @@ window.kashi.onSettings((payload) => {
       box_scale?: unknown;
     };
   applyBoxAlpha(box_alpha);
-  applyTimingOffset(timing_offset_ms);
+  applyTimingOffset(timing_offset_rel_ms);
   settingsSeen = true;
   applyEffectLevelSetting(effect_level);
   applyThemeScopeSetting(theme_scope);
@@ -1171,15 +1178,18 @@ boxEl?.addEventListener(
 // otherwise we render the static state once and stop — keeps the compositor
 // asleep when idle (battery).
 let loopActive = false;
-let timingOffsetMs = 0;
+/** The user's number (the readout); leadMs is what the clock adds. Before the
+ * first settings payload the base alone applies. */
+let userOffsetMs = 0;
+let leadMs = appliedLeadMs(0);
 
 function frame(): void {
   checkWatchdog();
-  // Lyrics render on the user-offset clock; the beat pulse must stay on the
-  // RAW clock — a +150 ms offset would detach every pulse from the heard
-  // beat (the window is only [-30,+60] ms).
+  // Lyrics render on the lead clock (base + user offset); the beat pulse must
+  // stay on the RAW clock — a 200 ms lead would detach every pulse from the
+  // heard beat (the window is only [-30,+60] ms).
   const rawPos = clock.positionAt();
-  const pos = rawPos + timingOffsetMs;
+  const pos = rawPos + leadMs;
   const lineIndex = displayLineAt(pos);
   const activeText = lineIndex >= 0 ? (lines[lineIndex]?.text ?? null) : null;
   const activeAdlib = lineIndex >= 0 && lines[lineIndex]?.adlib === true;

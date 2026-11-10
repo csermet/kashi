@@ -69,6 +69,9 @@ files). The timing core is the foundation these build on, not the product.
 - **Standing worry to answer in the review:** "are we burying everything in rules — good on a few
   songs, unproven on all of them?" The review starts with a measurement on 20 fresh songs the owner
   has never listened to and the rules have never seen, plus the human-truth bench.
+- **Also measured in the review:** the overlay's hidden 200 ms base lead (0.31.0; the owner's ear,
+  2026-07) — display-chain latency or taste? The extension's reported position against the audio
+  (`docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md`, "The overlay's 200 ms base lead").
 
 ## Standing constraints
 

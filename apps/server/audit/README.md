@@ -65,6 +65,8 @@ solver under `/models/.cache`. For linting on the host: `uv sync --extra audit`
 | `audit.inject ears` / `audit.inject run` | audit image / host | Faz 3.5 Step 1 on injected errors: JamendoLyrics sheets damaged on purpose |
 | `audit.compare <before> <after> --verdicts review.jsonl` | host (`--audio`: audit image) | a timing change against the verdicts: per song and per reviewed moment, did the document change and which way (below) |
 
+`--offset` (`audit.moment`, `audit.render`, `audit-strip.mjs`) is the user's number as overlay 0.31.0+ shows it: 0 = the hidden 200 ms base lead (`BASE_LEAD_MS`), so the default still lights a word 200 ms early; the "+200 ms" in older notes (perceptual audit, the Faz 3.5 listening set) is that same lead.
+
 `audit.analysis` caches per song: vocal loudness and onsets (the production
 functions, on the 16 kHz stem) and **voice onsets** — where the voice returns
 after ≥150 ms below line QA's −25 dB silence threshold. On pop, librosa onsets

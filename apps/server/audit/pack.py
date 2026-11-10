@@ -21,10 +21,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from audit.find import mmss
+from audit.moment import BASE_LEAD_MS
 
 VERDICT_WORDS = ("ok", "pile", "late", "early", "missing", "wrong_text", "unsure")
 SEVERITIES = (0, 1, 2, 3)
-OVERLAY_OFFSET_MS = 200       # the overlay's default user offset: the screen lights start - 200
+# The overlay's lead at its default (user offset 0): the screen lights start - 200.
+OVERLAY_OFFSET_MS = BASE_LEAD_MS
 MAX_WORDS_PER_LINE = 16
 
 RULES = """\

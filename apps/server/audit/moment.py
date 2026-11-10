@@ -2,14 +2,20 @@
 
 Pure functions over documents, the song analysis and the ear output; no I/O.
 Clocks: documents and audio share the SONG clock (player position). The
-overlay lights words at ``position + offset`` (``timing_offset_ms``, default
-+200), so on the song clock the screen lights word w at ``w.start - offset``.
+overlay lights words at ``position + lead``: its hidden ``BASE_LEAD_MS`` (200)
+plus the user's offset (``timing_offset_rel_ms``, default 0 — overlay 0.30.x
+and older showed this same lead as "+200"). On the song clock the screen lights
+word w at ``w.start - lead``. The ``offset_ms`` arguments below are that lead;
+only the CLIs take the user's number and add the base.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
+# The overlay's BASE_LEAD_MS (apps/overlay/src/shared/timing-offset.ts); a test
+# reads that file, so the two cannot drift apart.
+BASE_LEAD_MS = 200
 STRIP_HALF_MS = 1250
 BUMP_SPAN_PAD_MS = 300
 STRIP_MAX_FRAMES = 10
@@ -150,13 +156,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("id")
     parser.add_argument("t_ms", type=int)
     parser.add_argument("--doc", required=True)
-    parser.add_argument("--offset", type=int, default=200)
+    parser.add_argument("--offset", type=int, default=0,
+                        help="the user offset as the overlay shows it (ms over the 200 ms base)")
     parser.add_argument("--half-ms", type=int, default=STRIP_HALF_MS,
                         help="strip window either side of t (capped at STRIP_HALF_MS)")
     args = parser.parse_args(argv)
     doc = load_document(Path(args.doc), args.id)
     half = min(STRIP_HALF_MS, args.half_ms)
-    print(",".join(str(t) for t in strip_times(doc, args.t_ms, args.offset, half_ms=half)))
+    lead = BASE_LEAD_MS + args.offset
+    print(",".join(str(t) for t in strip_times(doc, args.t_ms, lead, half_ms=half)))
     return 0
 
 

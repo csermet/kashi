@@ -4,7 +4,12 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DEFAULT_SETTINGS, parseSettings, type StoredSettings } from './settings-logic.js';
+import {
+  DEFAULT_SETTINGS,
+  parseSettings,
+  serializeSettings,
+  type StoredSettings,
+} from './settings-logic.js';
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -48,7 +53,7 @@ export class SettingsStore {
     try {
       mkdirSync(dirname(this.filePath), { recursive: true });
       const tmpPath = `${this.filePath}.tmp`;
-      writeFileSync(tmpPath, `${JSON.stringify(this.settings, null, 2)}\n`);
+      writeFileSync(tmpPath, serializeSettings(this.settings));
       // Atomic swap: a crash mid-write must never corrupt the settings file.
       renameSync(tmpPath, this.filePath);
     } catch (err) {

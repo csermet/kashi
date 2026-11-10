@@ -16,11 +16,27 @@ import {
 import { normalizeServerUrl } from './kashi-server-logic.js';
 import { DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from '../shared/box-zone.js';
 import { DEFAULT_TEXT_SCALE, parseTextScale, type TextScale } from '../shared/text-scale.js';
+import {
+  BASE_LEAD_MS,
+  DEFAULT_TIMING_OFFSET_MS,
+  appliedLeadMs,
+  clampTimingOffset,
+  formatTimingOffset,
+} from '../shared/timing-offset.js';
 
 export { DEFAULT_TEXT_SCALE, TEXT_SCALES, TEXT_SCALE_FACTORS, parseTextScale } from '../shared/text-scale.js';
 export type { TextScale } from '../shared/text-scale.js';
 
 export { DEFAULT_BOX_SCALE, parseBoxScale } from '../shared/box-zone.js';
+
+export {
+  BASE_LEAD_MS,
+  DEFAULT_TIMING_OFFSET_MS,
+  TIMING_OFFSET_MAX_ABS,
+  appliedLeadMs,
+  clampTimingOffset,
+  formatTimingOffset,
+} from '../shared/timing-offset.js';
 
 export const OPACITY_PRESETS = [0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9] as const;
 export const OPACITY_MIN = 0;
@@ -32,20 +48,15 @@ export const OPACITY_STEP = 0.02;
 export const DEFAULT_BOX_ALPHA = 0.1;
 
 /**
- * Global lyric timing offset, ms ADDED to the estimated position: positive =
- * lyrics fire EARLIER (karaoke UX convention — perception lags the ear by
- * ~100 ms; Caner: "hafif geç hissettiriyor", 2026-07-12). Applied in the
- * renderer frame loop; per-song data never changes.
+ * The user's lyric timing offset, ms on top of the invisible BASE_LEAD_MS
+ * (shared/timing-offset.ts): positive = lyrics fire EARLIER (karaoke UX
+ * convention — perception lags the ear by ~100 ms; Caner: "hafif geç
+ * hissettiriyor", 2026-07-12). 0 = the base alone. Applied in the renderer
+ * frame loop; per-song data never changes.
  */
 export const TIMING_OFFSET_PRESETS = [
   -250, -200, -150, -100, -50, 0, 50, 100, 150, 200, 250,
 ] as const;
-export const TIMING_OFFSET_MAX_ABS = 500;
-// +200ms out of the box (Caner, Faz 5 kapanisi): the render pipeline's
-// systematic latency reads best around +200 on every tested machine
-// (Windows + Mac field runs) — new installs should not need the manual
-// tune. Stored settings and the live gestures override as always.
-export const DEFAULT_TIMING_OFFSET_MS = 200;
 /** One Ctrl+Shift+scroll notch (matches the prompt's spinner step). */
 export const TIMING_OFFSET_STEP_MS = 10;
 
@@ -74,8 +85,13 @@ export interface StoredSettings {
    * — serverless mode can use one too. null = lrclib.net only.
    */
   lyrics_mirror_url: string | null;
-  /** Lyric timing offset in ms (positive = earlier). */
-  timing_offset_ms: number;
+  /**
+   * The user's timing offset in ms on top of BASE_LEAD_MS (positive =
+   * earlier, 0 = the base). A new key, not timing_offset_ms: up to 0.30.x
+   * that key held the APPLIED lead (stock 200), and this key's presence is
+   * what marks a file as migrated (parseTimingOffsetRel).
+   */
+  timing_offset_rel_ms: number;
   /** Effect engine level (Faz 4): off | simple | full. */
   effect_level: EffectLevel;
   /** How much of the album palette themes the box (Faz 4 saha turu). */
@@ -111,7 +127,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   server_url: null,
   server_api_key: null,
   lyrics_mirror_url: null,
-  timing_offset_ms: DEFAULT_TIMING_OFFSET_MS,
+  timing_offset_rel_ms: DEFAULT_TIMING_OFFSET_MS,
   effect_level: DEFAULT_EFFECT_LEVEL,
   theme_scope: DEFAULT_THEME_SCOPE,
   fill_style: DEFAULT_FILL_STYLE,
@@ -121,15 +137,27 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   box_scale: DEFAULT_BOX_SCALE,
 };
 
-/** Integer ms in [-500, 500]; garbage → 0 (Off). */
-export function clampTimingOffset(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TIMING_OFFSET_MS;
-  return Math.max(-TIMING_OFFSET_MAX_ABS, Math.min(TIMING_OFFSET_MAX_ABS, Math.round(value)));
+/**
+ * The stored user offset. Up to 0.30.x the file held the APPLIED lead as
+ * timing_offset_ms (stock +200); it migrates ONCE to the user's number
+ * (200 → 0, 250 → +50). Once timing_offset_rel_ms exists it alone is read, so
+ * a second start never subtracts the base again — even though the file keeps
+ * a timing_offset_ms (serializeSettings writes it back for rollbacks).
+ */
+export function parseTimingOffsetRel(record: Record<string, unknown>): number {
+  if (record['timing_offset_rel_ms'] !== undefined) {
+    return clampTimingOffset(record['timing_offset_rel_ms']);
+  }
+  const legacy = record['timing_offset_ms'];
+  // Absent or garbage: 0.30.x fell back to its stock +200 — the base, i.e. 0.
+  if (typeof legacy !== 'number' || !Number.isFinite(legacy)) return DEFAULT_TIMING_OFFSET_MS;
+  // 0.30.x clamped the applied value to ±500 first; keep what it played.
+  return clampTimingOffset(clampTimingOffset(legacy) - BASE_LEAD_MS);
 }
 
 export function timingOffsetLabel(offsetMs: number): string {
-  if (offsetMs === 0) return 'Off';
-  return offsetMs > 0 ? `+${offsetMs} ms (earlier)` : `${offsetMs} ms (later)`;
+  if (offsetMs === 0) return '0 ms (default)';
+  return `${formatTimingOffset(offsetMs)} (${offsetMs > 0 ? 'earlier' : 'later'})`;
 }
 
 /** Clamp to [OPACITY_MIN, OPACITY_MAX], 2 decimals; garbage → default. */
@@ -294,7 +322,7 @@ export function parseSettings(raw: string): StoredSettings {
     server_url: serverUrl,
     server_api_key: apiKey,
     lyrics_mirror_url: normalizeServerUrl(record['lyrics_mirror_url']),
-    timing_offset_ms: clampTimingOffset(record['timing_offset_ms']),
+    timing_offset_rel_ms: parseTimingOffsetRel(record),
     effect_level: parseEffectLevel(record['effect_level']),
     theme_scope: parseThemeScope(record['theme_scope']),
     fill_style: parseFillStyle(record['fill_style']),
@@ -305,4 +333,14 @@ export function parseSettings(raw: string): StoredSettings {
     text_scale: parseTextScale(record['text_scale']),
     box_scale: parseBoxScale(record['box_scale']),
   };
+}
+
+/**
+ * The file's text. timing_offset_ms is written back with its 0.30.x meaning
+ * (the applied lead), so rolling back to an older build keeps the delay the
+ * user actually hears; this build reads it only from a pre-0.31 file.
+ */
+export function serializeSettings(settings: StoredSettings): string {
+  const file = { ...settings, timing_offset_ms: appliedLeadMs(settings.timing_offset_rel_ms) };
+  return `${JSON.stringify(file, null, 2)}\n`;
 }

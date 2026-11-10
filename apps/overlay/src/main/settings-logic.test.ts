@@ -1,7 +1,12 @@
 import { BOX_ZONE, WINDOW_HEIGHT, WINDOW_WIDTH } from '../shared/box-zone.js';
 import { describe, expect, it } from 'vitest';
 import {
+  BASE_LEAD_MS,
+  appliedLeadMs,
   clampTimingOffset,
+  formatTimingOffset,
+  parseTimingOffsetRel,
+  serializeSettings,
   timingOffsetLabel,
   TIMING_OFFSET_MAX_ABS,
   TIMING_OFFSET_PRESETS,
@@ -170,7 +175,7 @@ describe('parseSettings', () => {
       server_url: 'http://cnr-intel:8080',
       server_api_key: 'ksh_' + 'a'.repeat(32),
       lyrics_mirror_url: 'http://mirror.example:3300',
-      timing_offset_ms: 100,
+      timing_offset_rel_ms: -100,
       effect_level: 'full',
       theme_scope: 'fixed-text',
       fill_style: 'neutral',
@@ -229,27 +234,103 @@ describe('parseSettings', () => {
 });
 
 describe('clampTimingOffset', () => {
-  it('accepts presets, rounds, clamps to +/-500, defaults garbage to the stock +200', () => {
+  it('accepts presets, rounds, clamps to +/-500, defaults garbage to 0 (the base)', () => {
     expect(clampTimingOffset(100)).toBe(100);
     expect(clampTimingOffset(-100)).toBe(-100);
     expect(clampTimingOffset(100.6)).toBe(101);
     expect(clampTimingOffset(9999)).toBe(500);
     expect(clampTimingOffset(-9999)).toBe(-500);
-    expect(clampTimingOffset('50')).toBe(200);
-    expect(clampTimingOffset(Number.NaN)).toBe(200);
-    expect(clampTimingOffset(undefined)).toBe(200);
+    expect(clampTimingOffset('50')).toBe(0);
+    expect(clampTimingOffset(Number.NaN)).toBe(0);
+    expect(clampTimingOffset(undefined)).toBe(0);
   });
 
-  it('missing field in an old settings file parses to Off', () => {
-    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).timing_offset_ms).toBe(200);
+  it('a fresh install starts at 0 on top of the base', () => {
+    expect(DEFAULT_SETTINGS.timing_offset_rel_ms).toBe(0);
   });
 });
 
-describe('timingOffsetLabel', () => {
-  it('labels the direction in UX terms', () => {
-    expect(timingOffsetLabel(0)).toBe('Off');
+describe('appliedLeadMs (what the frame clock adds)', () => {
+  it('is the hidden 200 ms base plus the user offset', () => {
+    // The owner's ear picked 200 (0.3.4); change it only with a measurement.
+    expect(BASE_LEAD_MS).toBe(200);
+    expect(appliedLeadMs(0)).toBe(200);
+    expect(appliedLeadMs(50)).toBe(250);
+    expect(appliedLeadMs(-30)).toBe(170);
+    expect(appliedLeadMs(9999)).toBe(700);
+  });
+
+  it('never lets garbage reach the clock: NaN and non-numbers mean the base alone', () => {
+    expect(appliedLeadMs(Number.NaN)).toBe(200);
+    expect(appliedLeadMs(Number.POSITIVE_INFINITY)).toBe(200);
+    expect(appliedLeadMs('50')).toBe(200);
+    expect(appliedLeadMs(undefined)).toBe(200);
+  });
+});
+
+describe('timing offset migration (0.30.x applied lead → 0.31 user number)', () => {
+  const rel = (record: Record<string, unknown>): number =>
+    parseSettings(JSON.stringify(record)).timing_offset_rel_ms;
+
+  it('subtracts the base once: 200 → 0, 250 → +50, 0 → -200', () => {
+    expect(rel({ timing_offset_ms: 200 })).toBe(0);
+    expect(rel({ timing_offset_ms: 250 })).toBe(50);
+    expect(rel({ timing_offset_ms: 170 })).toBe(-30);
+    expect(rel({ timing_offset_ms: 0 })).toBe(-200);
+  });
+
+  it('a missing or garbage old value was the stock +200, so it becomes 0', () => {
+    expect(rel({ box_alpha: 0.2 })).toBe(0);
+    expect(rel({ timing_offset_ms: 'x' })).toBe(0);
+    expect(rel({ timing_offset_ms: null })).toBe(0);
+    expect(parseTimingOffsetRel({})).toBe(0);
+  });
+
+  it('keeps the lead 0.30.x actually played (its own ±500 clamp first)', () => {
+    expect(rel({ timing_offset_ms: 900 })).toBe(300); // 0.30.x played 500
+    expect(rel({ timing_offset_ms: 500 })).toBe(300);
+    expect(rel({ timing_offset_ms: -250 })).toBe(-450);
+    expect(rel({ timing_offset_ms: -500 })).toBe(-500); // -700 is past the new range
+  });
+
+  it('a second start does not subtract again (the new key is the marker)', () => {
+    const first = parseSettings(JSON.stringify({ timing_offset_ms: 250, box_alpha: 0.2 }));
+    expect(first.timing_offset_rel_ms).toBe(50);
+    const file = serializeSettings(first);
+    const second = parseSettings(file);
+    expect(second.timing_offset_rel_ms).toBe(50);
+    expect(parseSettings(serializeSettings(second)).timing_offset_rel_ms).toBe(50);
+    // At the base: 0 stays 0 even though the file says timing_offset_ms 200.
+    const atBase = serializeSettings(parseSettings(JSON.stringify({ timing_offset_ms: 200 })));
+    expect(JSON.parse(atBase)).toMatchObject({ timing_offset_ms: 200, timing_offset_rel_ms: 0 });
+    expect(parseSettings(atBase).timing_offset_rel_ms).toBe(0);
+  });
+
+  it('the new key wins, even when it is garbage (no fallback to the old one)', () => {
+    expect(rel({ timing_offset_ms: 250, timing_offset_rel_ms: 0 })).toBe(0);
+    expect(rel({ timing_offset_ms: 250, timing_offset_rel_ms: -40 })).toBe(-40);
+    expect(rel({ timing_offset_ms: 250, timing_offset_rel_ms: 'x' })).toBe(0);
+    expect(rel({ timing_offset_ms: 250, timing_offset_rel_ms: null })).toBe(0);
+  });
+
+  it('writes timing_offset_ms back as the applied lead, so a rollback hears the same delay', () => {
+    const file = JSON.parse(serializeSettings({ ...DEFAULT_SETTINGS, timing_offset_rel_ms: -30 }));
+    expect(file.timing_offset_ms).toBe(170);
+    expect(file.timing_offset_rel_ms).toBe(-30);
+  });
+});
+
+describe('timingOffsetLabel / formatTimingOffset', () => {
+  it('labels the direction in UX terms, 0 = the default', () => {
+    expect(timingOffsetLabel(0)).toBe('0 ms (default)');
     expect(timingOffsetLabel(100)).toBe('+100 ms (earlier)');
-    expect(timingOffsetLabel(-50)).toBe('-50 ms (later)');
+    expect(timingOffsetLabel(-50)).toBe('\u221250 ms (later)');
+  });
+
+  it('shows the user number only, never the base', () => {
+    expect(formatTimingOffset(0)).toBe('0 ms');
+    expect(formatTimingOffset(50)).toBe('+50 ms');
+    expect(formatTimingOffset(-30)).toBe('\u221230 ms');
   });
 });
 
@@ -284,7 +365,7 @@ describe('effect_level setting', () => {
 });
 
 describe('TIMING_OFFSET_PRESETS', () => {
-  it('is the symmetric -250..+250 ladder in 50 ms steps, sorted, with Off', () => {
+  it('is the symmetric -250..+250 ladder in 50 ms steps, sorted, with 0', () => {
     expect([...TIMING_OFFSET_PRESETS]).toEqual([
       -250, -200, -150, -100, -50, 0, 50, 100, 150, 200, 250,
     ]);

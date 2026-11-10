@@ -5,9 +5,14 @@ point (which side of the boundary counts), and get their calibrated values in
 Faz 2.
 """
 
+import json
+import re
+from pathlib import Path
+
 from audit.analysis import voice_onsets
 from audit.ear import blank_id_of, checkpoint_for, letters_text, timed_tokens
 from audit.moment import (
+    BASE_LEAD_MS,
     EVENT_LAG_MS,
     LEAD_IN_PROBE_MS,
     STRIP_MAX_FRAMES,
@@ -15,6 +20,7 @@ from audit.moment import (
     strip_times,
     word_flags,
 )
+from audit.moment import main as moment_main
 
 VOCAB = {0: "<pad>", 1: "d", 2: "o", 3: "n", 4: "|", 5: "t"}
 
@@ -99,6 +105,31 @@ def test_strip_times_takes_word_events_and_lead_in_then_fills_a_grid():
     assert 10_200 - 200 - LEAD_IN_PROBE_MS in times
     assert len(times) >= STRIP_MIN_FRAMES
     assert times == sorted(times)
+
+
+def test_base_lead_is_the_overlays():
+    # The overlay adds a hidden 200 ms under the user's number; a change on one
+    # side only would shift every audit picture against what users see.
+    ts = (Path(__file__).resolve().parents[3]
+          / "apps/overlay/src/shared/timing-offset.ts").read_text()
+    match = re.search(r"^export const BASE_LEAD_MS = (\d+);$", ts, re.M)
+    assert match is not None
+    assert int(match.group(1)) == BASE_LEAD_MS
+
+
+def test_moment_cli_offset_is_the_users_number_on_top_of_the_base(tmp_path, capsys):
+    doc = _doc([(10_200, 10_500), (10_600, 10_900)])
+    path = tmp_path / "doc.json"
+    path.write_text(json.dumps(doc))
+
+    def cli(*extra: str) -> list[int]:
+        assert moment_main(["vid", "10010", "--doc", str(path), *extra]) == 0
+        return [int(t) for t in capsys.readouterr().out.strip().split(",")]
+
+    # The overlay's default (it shows 0) lights a word 200 ms early.
+    assert cli() == strip_times(doc, 10_010, 200)
+    assert cli("--offset", "50") == strip_times(doc, 10_010, 250)
+    assert cli("--offset", "-30") == strip_times(doc, 10_010, 170)
 
 
 def test_strip_times_caps_dense_windows():

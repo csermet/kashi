@@ -37,6 +37,7 @@ import {
 import {
   OPACITY_PRESETS,
   TIMING_OFFSET_PRESETS,
+  formatTimingOffset,
   nearestPresetIndex,
   presetLabel,
   timingOffsetLabel,
@@ -105,7 +106,7 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
   }));
   if (!TIMING_OFFSET_PRESETS.includes(offset as (typeof TIMING_OFFSET_PRESETS)[number])) {
     timingItems.push({
-      label: `Custom: ${offset > 0 ? '+' : ''}${offset} ms`,
+      label: `Custom: ${formatTimingOffset(offset)}`,
       type: 'radio',
       checked: true,
       enabled: false,
@@ -164,7 +165,7 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { label: `Text size — ${scaleLabel(textScale)}`, submenu: textItems },
     { label: `Box size — ${scaleLabel(boxScale)}`, submenu: boxItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },
-    { label: `Timing offset — ${shortOffsetLabel(offset)}`, submenu: timingItems },
+    { label: `Timing offset — ${formatTimingOffset(offset)}`, submenu: timingItems },
     // The per-song "Report good sync to LRCLIB" entry was REMOVED from the UI
     // (Caner, 2026-07-24: don't push lrclib contribution up front — a bulk
     // review UI may come later). The backend (publish gate + ledger + IPC
@@ -185,13 +186,6 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { type: 'separator' },
     { label: 'Quit Kashi', click: opts.onQuit },
   ]);
-}
-
-/** "+100 ms" / "Off" — the parent label / tooltip variant without the
- * (earlier)/(later) coaching the preset rows carry. */
-function shortOffsetLabel(offsetMs: number): string {
-  if (offsetMs === 0) return 'Off';
-  return `${offsetMs > 0 ? '+' : ''}${offsetMs} ms`;
 }
 
 /**
@@ -217,7 +211,7 @@ export function createTray(opts: KashiMenuOptions): TrayHandle {
     tray.setToolTip(
       `Kashi v${opts.version} — ${effectLevelLabel(opts.getEffectLevel())}, ` +
         `opacity ${presetLabel(opts.getAlpha())}, ` +
-        `offset ${shortOffsetLabel(opts.getTimingOffset())}`,
+        `offset ${formatTimingOffset(opts.getTimingOffset())}`,
     );
   };
   refresh();

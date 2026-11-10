@@ -11,9 +11,12 @@
 // Usage (Node >= 22.18; `real` inside the Playwright image, see
 // apps/server/audit/README.md):
 //   node scripts/audit-strip.mjs --doc <doc.json> [--id <video id>] --times 203060,203260
-//        [--offset 200] [--level hype] [--mode sim|real] [--out frames.json] [--png-dir dir]
+//        [--offset 0] [--level hype] [--mode sim|real] [--out frames.json] [--png-dir dir]
 // <doc.json> is a processed-track document, or a [{id, doc}] dump (then --id picks one).
-// Times are PLAYER positions (the raw clock); words render at time + offset.
+// Times are PLAYER positions (the raw clock); words render at time + lead, where
+// lead = the overlay's hidden BASE_LEAD_MS (200) + --offset, the user's number as
+// the overlay shows it (0 = default; 0.30.x and older showed the same lead as +200).
+// A negative offset needs the = form: --offset=-30.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -42,6 +45,7 @@ const OVERLAY = resolve(HERE, '..');
 const src = (p) => pathToFileURL(join(OVERLAY, 'src', p)).href;
 const { mapDocument } = await import(src('main/kashi-server-logic.ts'));
 const { DEFAULT_SETTINGS } = await import(src('main/settings-logic.ts'));
+const { appliedLeadMs } = await import(src('shared/timing-offset.ts'));
 const { findDisplayLine, findActiveWord } = await import(src('renderer/src/view-logic.ts'));
 const { planFillsByLineIdentity, planWordFills, fillProgress, buildFxIndex } = await import(
   src('renderer/src/effects-logic.ts')
@@ -55,7 +59,7 @@ const { values: args } = parseArgs({
     doc: { type: 'string' },
     id: { type: 'string' },
     times: { type: 'string' },
-    offset: { type: 'string', default: '200' },
+    offset: { type: 'string', default: '0' },
     level: { type: 'string', default: 'hype' },
     mode: { type: 'string', default: 'sim' },
     out: { type: 'string' },
@@ -83,6 +87,11 @@ const mapped = mapDocument(doc);
 if (!mapped?.found) throw new Error('mapDocument rejected the document');
 const lines = mapped.lines;
 const offset = Number(args.offset);
+if (!Number.isFinite(offset)) {
+  console.error('--offset is the user offset in ms on top of the 200 ms base, e.g. 0 or --offset=-30');
+  process.exit(2);
+}
+const lead = appliedLeadMs(offset);
 const level = args.level;
 const times = args.times.split(',').map((t) => Math.round(Number(t)));
 
@@ -91,7 +100,7 @@ const fxIndex = level === 'hype' ? buildFxIndex(mapped.fx, lines) : new Map();
 
 /** The renderer's state at player position `t`, from its own functions. */
 function simulate(t) {
-  const pos = t + offset;
+  const pos = t + lead;
   const lineIndex = lines.length > 0 ? findDisplayLine(lines, pos) : -1;
   const line = lineIndex >= 0 ? lines[lineIndex] : undefined;
   const words = line?.words ?? [];
@@ -119,6 +128,7 @@ const result = {
   id: videoId,
   pipeline_version: doc.pipeline_version,
   offset_ms: offset,
+  lead_ms: lead,
   level,
   mode: args.mode,
   frames: times.map((t) => {
@@ -201,9 +211,9 @@ async function realFrames() {
   });
   await page.goto(base + '/');
   if (!args['keep-transitions']) await page.addStyleTag({ url: base + '/__audit.css' });
-  const settings = { ...DEFAULT_SETTINGS, effect_level: level, timing_offset_ms: offset };
-  const pick = ({ box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale }) =>
-    ({ box_alpha, timing_offset_ms, effect_level, theme_scope, fill_style, text_scale, box_scale });
+  const settings = { ...DEFAULT_SETTINGS, effect_level: level, timing_offset_rel_ms: offset };
+  const pick = ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale }) =>
+    ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale });
   const title = doc.track?.title ?? '';
   const artist = doc.track?.artist ?? '';
   await page.evaluate(

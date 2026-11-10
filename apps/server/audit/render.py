@@ -6,7 +6,8 @@ Panels, top to bottom, on ONE song-clock axis (= player position):
      the voice returns after silence; thick);
   2. the model's ear: P(some letter) per frame and its greedy letters;
   3. one lane per document version: word boxes (start..end), flagged words,
-     and under them when the SCREEN lights each word (start - offset);
+     and under them when the SCREEN lights each word (start - lead; lead = the
+     overlay's 200 ms base + offset);
   4. the overlay strip: one row per frame, what is lit at that player time.
 
     python -m audit.render <id> <t_ms> --doc 2.28=<dump>,2.29=<dump> \
@@ -23,7 +24,14 @@ from pathlib import Path
 from audit.analysis import SongAnalysis, analyse
 from audit.docs import load_document
 from audit.ear import ear_path, whole_path
-from audit.moment import BUMP_SPAN_PAD_MS, ear_letters_in, line_numbers, lines_in, word_flags
+from audit.moment import (
+    BASE_LEAD_MS,
+    BUMP_SPAN_PAD_MS,
+    ear_letters_in,
+    line_numbers,
+    lines_in,
+    word_flags,
+)
 from audit.paths import RUNS_DIR
 from audit.stems import decode_16k
 
@@ -216,7 +224,7 @@ def render(video_id: str, t_ms: int, versions: list[tuple[str, dict]], strip: di
                              bottom=0.02)
     doc0 = versions[-1][1]
     title = (f"{doc0['track'].get('artist', '')} – {doc0['track'].get('title', '')}   "
-             f"t={t_ms / 1000:.2f}s   offset +{offset_ms} ms (screen lights a word "
+             f"t={t_ms / 1000:.2f}s   lead {offset_ms} ms (screen lights a word "
              f"{offset_ms} ms before its box)")
     fig.suptitle(title, fontsize=15, x=0.06, ha="left", y=0.995)
 
@@ -371,7 +379,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="label=path[,label=path...]; the LAST is the one the strip shows")
     parser.add_argument("--strip", help="frames.json from apps/overlay/scripts/audit-strip.mjs")
     parser.add_argument("--real-dir", help="directory with frame-<t>.png from --mode real")
-    parser.add_argument("--offset", type=int, default=200)
+    parser.add_argument("--offset", type=int, default=0,
+                        help="the user offset as the overlay shows it (ms over the 200 ms base)")
     parser.add_argument("--out-dir", help="default: scratch/audit/runs/<id>")
     parser.add_argument("--theme", choices=sorted(THEMES), default="kontrast")
     parser.add_argument("--suffix", default="", help="appended to the output file names")
@@ -387,8 +396,9 @@ def main(argv: list[str] | None = None) -> int:
     strip = json.loads(Path(args.strip).read_text()) if args.strip else None
     out_dir = Path(args.out_dir) if args.out_dir else RUNS_DIR / args.id
     png = out_dir / f"moment-{args.t_ms}{args.suffix}.png"
+    lead = BASE_LEAD_MS + args.offset
     numbers = render(args.id, args.t_ms, versions, strip,
-                     Path(args.real_dir) if args.real_dir else None, png, args.offset,
+                     Path(args.real_dir) if args.real_dir else None, png, lead,
                      args.half_ms)
     (out_dir / f"moment-{args.t_ms}{args.suffix}.json").write_text(
         json.dumps(numbers, indent=1, ensure_ascii=False) + "\n")

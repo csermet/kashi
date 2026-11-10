@@ -2,8 +2,11 @@
  * Timing-offset prompt (the tray's "Other…"): a number input whose value goes
  * back through the preload bridge; main clamps to ±500 and persists. Enter =
  * OK, Escape = cancel; empty/garbage input cancels (changes nothing). The
- * current value arrives via the ?value= query param set by main.
+ * current value arrives via the ?value= query param set by main. The number is
+ * the user's offset on top of the hidden base lead: 0 = default.
  */
+import { clampTimingOffset } from '../../shared/timing-offset.js';
+
 interface PromptBridge {
   submitTimingOffset(value: number): void;
   cancelPrompt(): void;
@@ -24,7 +27,7 @@ function submit(): void {
   // Same clamp main applies — but VISIBLE: a typed 900 becomes 500 in the
   // field before it is submitted, instead of silently persisting as 500
   // while the prompt claimed 900 (retro finding: the clamp was mute).
-  const clamped = Math.max(-500, Math.min(500, Math.round(value)));
+  const clamped = clampTimingOffset(value);
   if (clamped !== value) {
     input.value = String(clamped);
     input.select();
