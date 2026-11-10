@@ -752,6 +752,30 @@ the path) and one word each in GOSSIP (540 ms), Take It Off (400 ms) and CEO / �
 2.30.0 refresh, on the GPU, matched its arm exactly. All 12 listening moments
 (`caner-dinle-7.md`, ±0.5 s) are equal to the arm word for word.
 
+**The archive (2026-11-10, 09:43 UTC).** The owner rebuilt the desktop GPU worker in the
+morning; from 06:56 UTC it took the queue at ~30 s a song (one worker, jobs in strict
+sequence), the feeder went back to batches of 5. **303 of 307 on 2.31.0**; on the same
+307 songs, stored → refreshed: documents from lrclib's word file 14 → 0, worded lines
+16 406 → 16 791 (of ~16 975), words 100 427 → 101 970, lines dropped for density
+435 → 165, `uncertain` lines 200 → 89, 0 ms words 1 284 → 1 275. Not refreshed (stored
+document kept):
+
+- Two nightcore uploads, `lyrics_not_found` at the wrong-song gate: lrclib's search now
+  hands "Nightcore – Electric (Remix)" Alina Baraz's "Electric (Marian Hill remix)"
+  (CTC prob 0.000; the stored document is BØRNS "Electric Love (Oliver Remix)"), and
+  "Nightcore – Winter Song" Zara Larsson's "Winter Song" (0.274 < 0.3; the stored
+  document is Year of the Goat's "Song of Winter", probably the wrong song already).
+  The gate did its job; the other 7 nightcore songs refreshed. Lookup drift on
+  nightcore titles is unmeasured beyond these two.
+- Two regression-guard keeps: "Approve Please, Genie!" (TRAP CHICK, 2.26.0) and "Queen
+  of Mean" (Sarah Jeffery, 2.27.1, kept by the 2.30 wave's guard too).
+- Left out up front: More Than Ready (gone from YouTube), Yatcaz Kalkcaz Ordayım and
+  Kırmızı (128 kbps AAC only).
+
+The feeder now lists `lyrics_not_found` and feeds on (it halts at three); the remaining
+nightcore songs were moved to the end of the queue after the second one. The bench
+still waits for the desktop GPU: commands in `scratch/bench-2.31/pc-komut.md`.
+
 ## The overlay's 200 ms base lead (overlay 0.31.0, 2026-11-10)
 
 The overlay has lit lyrics 200 ms ahead of the player position since 0.3.4 (2026-07-17), shown as
