@@ -78,7 +78,12 @@ files). The timing core is the foundation these build on, not the product.
   costs fluency as no gain; where evidence is weak, a placement that keeps the line's pace is a
   candidate against the aligner's best guess (the unmeasured "spread inside the line's own span"
   idea in the Faz 5 note, "2.30.0 measured", Next 4 — not the dead render-side minimum display
-  time). The owner also wants an AI reading of these moments.
+  time). The owner also wants an AI reading of these moments. His own proposal for a word too
+  short to be seen, in this order: give it more time from the empty space before or after it
+  (never over a neighbour), or light it together with its neighbours as one unit, or do not light
+  it at all — anything but one word flashing past unreadably. Unmeasured; the 2026-08 display-floor
+  measurement (`faz-9-devir-askerlik-2026-08.md`, "Word-duration collapse": 13 of 19 short
+  intervals were genuinely fast singing) judged fidelity to the human timing, not readability.
 - **Also measured in the review:** the overlay's hidden 200 ms base lead (0.31.0; the owner's ear,
   2026-07) — display-chain latency or taste? The extension's reported position against the audio
   (`docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md`, "The overlay's 200 ms base lead").
