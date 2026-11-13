@@ -744,5 +744,29 @@
 # listening set read 5 bad:fixed? on 3 of them, SexyBack 2:18.6 piled 8 -> 16
 # starts. Off, such a record aligns like any other and the worker logs the
 # file it skipped; V1 and v3 now reach those songs too.
-PIPELINE_VERSION = "2.31.0"
+# 2.32.0: balance the clock, prune, cap (whole-project review, 2026-11-13,
+# step A). The whole-track vote takes the whole-track time up to 1 200 ms
+# (WHOLE_VOTE_T_MS, was 400); human truth, rule fixed before the runs: eng20
+# PCO@0.1 0.824 -> 0.842, noticeable line starts 0.108 -> 0.062; all 79 songs
+# @0.1 0.886 -> 0.901 (41 songs better, 3 worse). Four line-QA post-passes
+# that moved nothing on 19 fresh songs are gone: V2 voice return, the call-
+# and-response shift, the sub-threshold nudge, the word-end sustain trim
+# (alignment.qa.nudged / response_shifted / trimmed_ends stay as 0). Refactor
+# proof: on 39 songs the branch equals the review's ablation arm "vote 1 200
+# + V2, response, nudge, trim off" on 2.31.0 document for document. The
+# ad-lib re-derivation no longer spreads a line over more than 12 s
+# (ADLIB_REDERIVE_MAX_SPAN_MS): a runaway span gets 2.2 s before the next
+# line (2 of 279 re-derived lines in the 2.31.0 archive). The greedy readers
+# of the emissions take the CTC blank as the aligner does
+# (alignment.ctc_blank_id; byte-identical with the production checkpoints).
+# Against 2.31.0 on the same stems and records (audit.run_local harness):
+# pilot noticeable lines (audit.score) 92/679 -> 83/683, short-dwell share
+# 0.100 -> 0.094, rushed runs 591 -> 555, 0 ms words 1.39 % -> 1.08 %;
+# hold-out 67/531 -> 60/534, 0.064 -> 0.059, 286 -> 271, 0.93 % -> 0.81 %;
+# worded lines unchanged (1 213, 967). The ear witness is the vote's own
+# pass; the independent voice witness reads pilot 18/72 -> 23/77, hold-out
+# 10/38 -> 11/42. Owner-labelled moments: the four heard-fine ones the vote
+# moves past the threshold, the owner preferred blind 4 of 4 on the new
+# side; heard-bad fixed? 8, worse? 2 (both the vote's).
+PIPELINE_VERSION = "2.32.0"
 PIPELINE_MAJOR = 2
