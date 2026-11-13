@@ -38,6 +38,26 @@ One general system, calibrated per language.
 
 Phase order changes only by the owner's decision.
 
+### Proposed re-phasing after the whole-project review (2026-11-13; applies on the owner's "when")
+
+`docs/research/toptan-gozden-gecirme-2026-11.md` holds the measurements and the reasons. 9.4 closes
+with 2.31.0 (the owner's listen: two of six asked moments heard fixed; on fresh songs the rules made
+the screen steadier, not more accurate). No further timing rule is proposed. Three lines may run
+at once.
+
+| Line | Step | What | Size |
+|---|---|---|---|
+| timing | A | Pipeline 2.32.0: whole-track vote threshold 400 → 1 200 ms (human truth: eng20 PCO@0.1 0.824 → 0.842, noticeable line starts 0.108 → 0.062), remove four rules that do nothing on fresh songs, cap the ad-lib re-derivation, then one archive refresh | ~3 workdays + owner 15 min |
+| timing | B | Measure what ships: production configuration as versioned code defaults, the bench runs the shipped pipeline with line-start and dwell metrics, an archive replay rig, persist and revision guards | ~6-7 workdays |
+| timing | D | The ear: own conversion of omniASR 1B and a repeat of its test; then duration-aware decoding in the trellis | ~1.5 + 4-6 workdays |
+| source | C | Per-song overrides that survive reprocessing; clock verification (scale refit for nightcore, whole-sheet offset from repeated lines); honest plain-text fallback; the wordless-line policy (replaces 9.6 as written; the LLM label trial is narrowed and parked) | ~6-8 workdays + owner 10-15 min |
+| client | E | Measure the 200 ms lead; held-note sweep; fewer knobs; golden frames, then the renderer as a shared `packages/view`; thin extension | ~10-13 workdays + owner 45 min |
+| client | F | Android mode (a): probe app, title + artist + duration lookup, minimum app | ~9-14 workdays after E |
+| client | G | Effects foundation (word phases, line exit), then the owner's direction (phase 10) | 2-3 workdays, then open |
+
+9.5 (Turkish parity) follows D's first step; 9.7 (plain lyrics) follows C; 11 (hardening) is partly
+B.
+
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
 of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).

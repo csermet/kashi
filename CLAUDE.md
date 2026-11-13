@@ -7,9 +7,10 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 ## Start here
 
 1. `docs/research/INDEX.md` — why each decision was made.
-2. Current state. `docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md` is the timing re-plan
-   (2026-11-08; one owner decision pending, see its "Decision" section) and the entry point until
-   its successor hand-off note exists. Behind it, newest first: the 2.29 / 2.29.1 paragraphs that
+2. Current state. `docs/research/toptan-gozden-gecirme-2026-11.md` is the whole-project review
+   (2026-11-13: what was measured, the proposed steps A-G, what waits for the owner) and the entry
+   point. Behind it `docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md` (the timing re-plan and
+   everything up to 2.31.0, the owner's listen included), then, newest first: the 2.29 / 2.29.1 paragraphs that
    close `faz-9-pencere-saati-2026-10.md`, then `yerel-model-denetim-2026-11.md` (Faz 3.5 local
    runs and the listening set), then `perceptual-audit-2026-11.md` (Faz 3). The 2026-08 hand-off
    note `faz-9-devir-askerlik-2026-08.md` is history. The deployed pipeline is whatever

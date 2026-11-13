@@ -900,6 +900,14 @@ pilot set, and the gain is under one point (@0.1 +0.7, @0.3 +0.9, @0.5 +1.0). Du
 does not move. The line-start noticeable share is not in the result aggregates and was not
 computed for this entry.
 
+**Correction, 2026-11-13: these three runs are not the pipeline as shipped.** Passing
+`--align-model` makes the bench skip the production offset table, and `--align-offset-ms 0` left
+every word with only the +70 ms windowed lead. With the worker's own `ALIGN_MODELS` line the same
+configuration reads PCO@0.1 **0.824** (regions 800) against 0.816 (regions off), noticeable line
+starts 0.108 against 0.147. The comparison between the three rows above still holds (same flags);
+their level does not. Runs, the line-start and dwell metrics, and the vote-threshold result
+(1 200 ms: 0.842, line starts 0.062) are in `toptan-gozden-gecirme-2026-11.md`, section 2.
+
 ## The owner's listen of 2.31.0 — 2026-11-13
 
 The hold-out list (20 moments, blind) is read in `holdout-olcum-2026-11.md`, "The owner's listen".
