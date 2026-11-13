@@ -19,29 +19,34 @@ that keeps its pace but sits off the voice only as mistimed.
 ## Short answer
 
 1. **The worry is half right.** The large, older mechanisms earn their place on songs they were
-   never tuned on. Four small, late rules do nothing there, and one of them caused two of the errors
-   the owner heard. The pipeline can lose about 580 lines without losing anything measured on fresh
-   songs.
+   never tuned on. Four small, late rules move nothing beyond input noise on 19 fresh songs (where
+   they fired on 0-4 songs, so the arms had little power), and one of them traded a late line start
+   for an early rest of the line on a moment the owner heard as wrong. The pipeline can lose about
+   580 lines at no measured cost there.
 2. **The biggest measured gain of the day is one number, not a rule.** Raising the whole-track
    vote threshold from 400 to 1 200 ms passes a pre-stated rule on human truth: eng20 PCO@0.1
    0.824 → 0.842, noticeable line starts 0.108 → 0.062, early line starts 55 → 23; over all 79
    songs 41 better, 3 worse.
 3. **We were measuring through keyholes.** The human-truth bench never ran the shipped pipeline
-   (no line QA, no sheet shift, no held-end restore; the 2026-11-12 run even without the production
-   offset table), and the audit's "ear" witness is the same emission pass the pipeline's vote
-   consumes. The structural cause of "good on a few songs" is here, not in any single rule.
+   (of line QA only the end trim, no sheet shift, no held-end restore; the 2026-11-12 run even
+   without the production offset table), and the audit's "ear" witness is the same emission pass the
+   pipeline's vote consumes. A likely structural reason for "good on a few songs" is here, not in
+   any single rule.
 4. **Rules made the screen steadier more than they made it more accurate.** On the 20 hold-out
    songs the noticeable-line share moved 0.175 → 0.162 (6 songs better, 6 worse) while the share of
-   words visible for under 120 ms fell 0.117 → 0.081 (17 better, 2 worse). By the owner's own
-   priority the work paid; the metric in use could not see it.
+   words visible for under 120 ms fell 0.117 → 0.081 (17 better, 2 worse). That is the direction of
+   the owner's own priority; whether the ear hears it as better was not measured, and the metric
+   in use could not see it.
 5. **Where AI fits.** Not as a runtime judge of timing (measured dead, 2026-11-05/07), not as a
    referee by proxy (lrclib's word files, dead today), not as display cosmetics (weak today).
    What worked today is AI as the measuring workforce: eight passes and ~40 GPU bench runs in one
    evening, with gates written before the numbers. A runtime LLM keeps one narrow, parked candidate
    (per-section "other version" labels on ASR text).
-6. **No wholesale rewrite is justified anywhere.** Server core, queue, schema and renderer are
-   sound. The one structural investment worth making for the planned Android line is extracting the
-   renderer into a shared view package (5-7 workdays), not a new architecture.
+6. **No wholesale rewrite is justified anywhere.** Server core, queue and schema are small and
+   stable, with three silent-failure paths in persist and refresh semantics confirmed by test (see
+   "Adversarial verification"); the renderer is sound. The one structural investment worth making
+   for the planned Android line is extracting the renderer into a shared view package (5-7
+   workdays), not a new architecture.
 
 ## What was measured
 
@@ -66,16 +71,19 @@ Hold-out baseline: 67 of 531 lines noticeable (0.126), short-dwell share 0.0635,
 | drift-flag family (flag, arbiter rescue, density drop) | +4 | +0.0010 | **10 lines get their words back** | a trade, see decisions |
 | windows (whole-audio alignment instead) | **−17** | +0.0056 | 18 lines lose their words; 8 heard-fine moments broken; 0 ms 0.9 % → 6.2 % | keep (the owner's priority) |
 | V3 unpile | 0 | +0.0007 | bunched runs 7 → 13 | hygiene only |
-| V2 voice return | no change | | fired 0 times in 39 songs, 0 in the archive | remove |
+| V2 voice return | no change | | fired 0 times in 39 songs (the archive does not record it) | remove |
 | response shift | no change | | fired on 1 song | remove |
 | end trim | no change | | ends only | remove |
-| nudge | −1 | 0 | pilot: +6 lines without it; **caused two heard errors** (a hold-out line start pulled 1.81 s early onto its stamp; CEO 1:03 505 ms late) | remove |
+| nudge | −1 | 0 | pilot: +6 lines without it under the 400 ms vote (none under 1 200 ms, see step A); on one heard-wrong hold-out line it pulled the start 1.81 s onto its stamp — the owner calls that start right and the rest of the line early; the CEO 1:03 attribution first written here was another line's (see "Adversarial verification") | remove |
 | ad-lib snap | 0 | 0 | | optional |
 | V2 + trim + nudge + response together ("MIN2") | −1 | 0.0000 | no heard-fine moment broken | **holds** |
 
-- **Defect found:** the ad-lib re-derivation has no maximum span. It spread one interjection line
-  over 23 s on a fresh song, which the owner heard as "flashes past, then crawls". It needs a cap,
-  not removal.
+- **Defect found, first misdiagnosed:** one interjection line on a fresh song spans 23 s, which
+  the owner heard as "flashes past, then crawls". The re-derivation has no maximum span, but it is
+  not the cause: the span is there with the rule off. The sheet shift moved lines 2-29 of that
+  song by +19.3 s and left the two short opening lines behind (too short to be anchors, before the
+  moved section, so nothing carries them). The fix belongs in the sheet shift's carry (step C.2);
+  the cap shipped in 2.32.0 is cosmetic.
 - **Redundancies:** held ends undo what hybrid and vote cut and the end trim caps them again; V3
   undoes piles hybrid and vote make; nudge, ad-lib snap and V1 all pull a line toward its stamp;
   response shift and V2 both block-shift a line onto a loudness return.
@@ -229,15 +237,20 @@ is the owner's own time.
 
 ### A. Pipeline 2.32.0: balance the clock, prune, cap (≈ 3 workdays + owner 15 min)
 
-1. Whole-track vote threshold 400 → 1 200 ms. Proof already in hand on human truth; before the
-   tag, the pilot and hold-out arms through `audit.run_local`, and the owner judges blind clips of
-   the heard-fine moments the ablation flagged as moved (two on each list).
+1. Whole-track vote threshold 400 → 1 200 ms. Measured on the aligner-only bench (the choice among
+   the three passing thresholds was made after seeing eng20); the shipped-pipeline effect and stamp
+   errors beyond 400 ms are unmeasured until step B's bench. Before the tag, the pilot and hold-out
+   arms through `audit.run_local`, and the owner judges blind clips of the heard-fine moments the
+   ablation flagged as moved (four).
 2. Remove V2, the response shift (with `vocal_energy.py`), the nudge and the end trim: ~580
    production lines, ~25 tests, qa counters keep emitting 0, no schema change. Cost known in
-   advance: about 6 noticeable lines on the pilot set, all from the nudge, against two heard errors
-   it caused.
-3. Cap the ad-lib re-derivation's span.
-4. Fix the two `<pad>` blank lookups; drop the word-file preference in `choose_record`.
+   advance: about 6 noticeable lines on the pilot set, all from the nudge, against one ambiguous
+   heard case (a start fixed, the rest of the line early). As built, on top of the 1 200 ms vote
+   the removal cost nothing on either set.
+3. Cap the ad-lib re-derivation's span (cosmetic, see the corrected defect above).
+4. Fix the `<pad>` blank lookups (three sites). The word-file preference in `choose_record` stays
+   until its effect on real picks is measured: 0 of 5 real search answers change without it at the
+   real durations, and the only observed flips were benign.
 5. One archive refresh on the GPU worker afterwards if the pilot reads as the bench does (the
    line-start gain is over the policy's 5 % bar on human truth).
 
@@ -348,9 +361,10 @@ preference (unmeasured), any schema or overlay change.
   preferred the new document in all four (2026-11-14). On the four largest vote moves (Good
   Feeling 0:07 +1.81 s, Timber 1:48, Crazy In Love 0:20, Hey Mama 0:56) neither version is right
   (two "both bad", two weak preferences for the old): the change does not fix badly placed lines
-  and does not break the good ones. Heard-bad moved the corrective way 8 (among them both errors
-  the nudge caused, Good Feeling 0:07 and CEO 1:03), the other way 2 (Crazy In Love 0:19, Stressed
-  Out 1:36; both the vote's).
+  and does not break the good ones. Heard-bad moved the corrective way by the labels 8, the other
+  way 2 (Crazy In Love 0:19, Stressed Out 1:36; both the vote's). Two of the eight need care: Good
+  Feeling 0:07 moves +1.81 s, back toward the late start the owner had not complained about, and
+  the "CEO 1:03" move is the next line's, not the asked one's ("Adversarial verification", 10b-c).
 - **Human truth, the defaults with no vote flag** (desktop GPU, production offsets, 400 ms stamp
   jitter, line regions 800 ms): eng20 0.8424 / 0.9296 / 0.9471 at @0.1 / 0.2 / 0.3, all 79
   0.9012 / 0.9557 / 0.9656, pop valid region 0.6079 / 0.8942 / 0.9186 — section 2's vote 1 200
@@ -365,6 +379,43 @@ preference (unmeasured), any schema or overlay change.
   one lrclib record carries enhanced-LRC word tags that reach the screen as text; the ad-lib snap
   can push a line past the next line's start (two archive cases). Rollout (gitops image tag) and
   the archive refresh wait for the owner.
+
+## Adversarial verification (2026-11-14, night)
+
+One pass tried to refute the findings above by running something for each (throwaway tests on a
+Postgres 17 container, the audit image offline, vitest; working files outside the repository).
+Eleven claims: seven confirmed, three partly, two attributions refuted. What it changes:
+
+| claim | verdict | what ran, what it showed |
+|---|---|---|
+| The regression guard lets a stale worker overwrite a newer document | **confirmed, worse than stated** | real `persist_processed_track`: stored 2.31.0 + incoming 2.29.0 of equal quality → the row becomes 2.29.0; also at a quality drop of 0.2499, at any drop across quality bases, and from an older MAJOR (1.9.0). Nothing orders versions; `claim_next` has no version filter; logged as "persisted" |
+| A per-song repair is overwritten by the next refresh | **confirmed end to end** | real admin endpoint and `process_job`, fakes for audio and lrclib: a repair (explicit speed factor 1.1504 + caller text) is replaced by the feeder's option-less reprocess (r 1.3365, lrclib). It survives only if the refresh fails or keeps under half the worded lines |
+| Listening never refreshes a stored document | **confirmed** | `/v1/lyrics` serves any stored version with 200; the overlay enqueues only on a 404; no client reads `pipeline_version`. Without an admin action an old document is refreshed never |
+| Aligner weights are unpinned | **confirmed; needs code** | neither the loader nor `AlignerChoice` can carry a revision. The "second revision" in the model cache is transformers' background safetensors auto-conversion (`refs/pr/N`), not what is loaded — the "~2× model size" trap in CLAUDE.md is that download |
+| `choose_record` still prefers word-file records | **partly** | live, but 0 of 5 real cached search answers change without it at the real duration; it can pick a record up to 3 s farther inside the band; the archive effect is not measurable offline |
+| `--align-model` skips the offset table; the bench runs of line QA only the end trim | **confirmed by execution** | a profiled bench run on a stub model: 69 pipeline functions called, none of `apply_line_qa`, `restore_held_ends`, the sheet shift, the arbiter |
+| `audit.score`'s ear is the vote's own input | **confirmed, literally** | on 4 English hold-out songs the greedy decode of the vote's cached emissions equals the stored ear token for token; two thirds of ear-placed lines are graded by their own input to within 60 ms |
+| Code defaults are not licence-clean | **confirmed** | a scrubbed env runs the CC-BY-NC MMS aligner for every language with no offset table and the unlicensed separator |
+| Blank lookups assume `<pad>` | **confirmed, three sites** | already wrong for the default MMS model: the by-ear rung could never accept under code defaults (fixed in 2.32.0) |
+| "The ad-lib re-derivation spread a line over 23 s" | **diagnosis refuted** | the 23 s span exists with the rule off; the sheet shift left two short opening lines 19 s behind (corrected above) |
+| "The nudge caused two heard errors" | **one partly, one refuted** | Good Feeling 0:07: the nudge pulled the start onto its stamp; the owner calls the start right and the rest early. CEO 1:03: the asked line is identical with and without the nudge; the 505 ms move is the next line's, at the edge of the scoring window |
+| Client: active word until the next start; any `chrome-extension://` origin accepted; storage read/write per 4 Hz event | confirmed (the first with its exceptions: line-final words, fill runs, fx holds, 0 ms words) | vitest on the real modules |
+
+Consequences for the order of work:
+
+1. **Before any archive refresh:** the three songs repaired by hand on 2026-11-10 must be left out
+   of the feeder's list (or step C.1 must ship first), or the refresh puts them back on the wrong
+   speed ratio — including the refit the owner confirmed by ear. And every worker that takes jobs
+   must run the new image: an older worker's output overwrites silently. Check each worker's
+   `ready: pipeline 2.32.0` line before feeding.
+2. **Step B.4's guard** refuses any older `pipeline_version`, majors included, and warns.
+3. **Step C.2 gains a concrete first item:** the sheet shift carries unanchored lines next to a
+   moved section, and a line's end may not pass the next line's start.
+4. The statistical statements above are bounded by their n: "0 false alarms on 109 healthy songs"
+   bounds the rate below about 3 %; "about one fresh song in twenty on a wrong sheet" is 3 of 60
+   (roughly 1-14 %); several arms named in this note (the combined removal arm, the 1 200 ms vote
+   arm of the ablation, the tie-break among bench arms) were post hoc and are labelled so in the
+   workers' notes.
 
 ## Lines of work and order
 
