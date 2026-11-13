@@ -92,6 +92,10 @@ class LyricsText:
     # stamps live on a DIFFERENT edit's clock (video intro/outro class) and
     # windowed anchors would harm instead of help.
     record_duration_s: float | None = None
+    # A record the owner PINNED for this song (song_overrides.lrclib_id):
+    # trusted like caller text, so the nightcore wrong-song gate - which exists
+    # for records a detection picked - does not judge it.
+    pinned: bool = False
 
 
 def normalize_artist(artist: str) -> str:
@@ -388,7 +392,21 @@ def is_degenerate_synced(entries: list[tuple[int | None, str]], duration_s: floa
     return words / (duration_s / 60) < MIN_WORDS_PER_MINUTE
 
 
-def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | None:
+def _shift_stamps(starts: list[int | None], offset_ms: int) -> list[int | None]:
+    """Every stamp moved by `offset_ms` (a song override's whole-sheet clock
+    error: + = the singing comes later than the stamps say). Pure. A stamp
+    pushed before 0 is blanked, not clamped: it no longer says anything
+    trustworthy, and a stampless line has a defined meaning downstream."""
+    if not offset_ms:
+        return starts
+    return [
+        None if start is None or start + offset_ms < 0 else start + offset_ms for start in starts
+    ]
+
+
+def _extract(
+    record: dict, offset_ms: int = 0
+) -> tuple[list[str], list[int | None] | None, bool] | None:
     if record.get("instrumental"):
         return None
     synced = record.get("syncedLyrics")
@@ -403,7 +421,12 @@ def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | 
             # lyrics_not_found.
             return None
         if entries:
-            starts = _drop_overrunning_stamps([start for start, _ in entries], duration_s)
+            # A song override's offset moves the stamps BEFORE the overrun
+            # check: a sheet 20 s late has its last stamps past the record's
+            # end, and they are fine once moved back.
+            starts = _drop_overrunning_stamps(
+                _shift_stamps([start for start, _ in entries], offset_ms), duration_s
+            )
             return [text for _, text in entries], starts, True
     plain = record.get("plainLyrics")
     if plain:
@@ -754,9 +777,13 @@ def search_candidates(
     return data if isinstance(data, list) else []
 
 
-def lyrics_from_record(record: dict) -> LyricsText:
-    """LyricsText from an already-fetched lrclib record (no extra request)."""
-    extracted = _extract(record)
+def lyrics_from_record(record: dict, *, offset_ms: int = 0) -> LyricsText:
+    """LyricsText from an already-fetched lrclib record (no extra request).
+
+    `offset_ms` is a song override's whole-sheet clock correction (0 = the
+    record as served, byte for byte). A moved sheet drops the record's
+    word-timed file: its times live on the uncorrected clock."""
+    extracted = _extract(record, offset_ms)
     if extracted is None:
         raise PipelineError("lyrics_not_found", "lrclib record carries no usable lyrics")
     line_texts, synced_starts_ms, had_synced = extracted
@@ -766,8 +793,60 @@ def lyrics_from_record(record: dict) -> LyricsText:
         source_id=int(record.get("id") or 0),
         had_synced=had_synced,
         synced_starts_ms=synced_starts_ms,
-        lyricsfile_raw=_lyricsfile_raw(record),
+        lyricsfile_raw=None if offset_ms else _lyricsfile_raw(record),
         record_duration_s=float(record["duration"]) if record.get("duration") else None,
+    )
+
+
+def fetch_record(
+    record_id: int,
+    *,
+    base_url: str,
+    timeout_s: float | None = None,
+    client: httpx.Client | None = None,
+) -> dict | None:
+    """One lrclib record by id (`/api/get/{id}`), or None when there is no
+    such record (404). For a PINNED record (song_overrides): one request, no
+    ladder. Network errors surface as transient PipelineErrors like the main
+    fetch path, so the worker's gateway can fall back to the mirror."""
+    owns_client = client is None
+    http = client or _client(base_url, timeout_s)
+    try:
+        response = http.get(f"/api/get/{int(record_id)}")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPError as exc:
+        raise _pipeline_error(exc, f"record {record_id}") from exc
+    finally:
+        if owns_client:
+            http.close()
+    return data if isinstance(data, dict) else None
+
+
+def is_lrc(text: str) -> bool:
+    """True when caller text carries LRC stamps (any line starting [mm:ss.xx])."""
+    return any(_TIMESTAMP.match(line.strip()) for line in text.splitlines())
+
+
+def lyrics_from_lrc(text: str, *, offset_ms: int = 0) -> LyricsText:
+    """Caller-supplied LRC (a song override's text with stamps). Parsed like
+    an lrclib record's synced lyrics, so the stamps anchor the windows and
+    line QA exactly as a record's would; provenance stays "caller". No
+    degenerate-record gate (the owner wrote it) and no record duration to
+    blank stamps against. `offset_ms` as in `lyrics_from_record`."""
+    entries = _parse_synced(text)
+    if not entries:
+        raise PipelineError("lyrics_not_found", "lyrics text carries no lyric lines")
+    line_texts = [line for _, line in entries]
+    return LyricsText(
+        line_texts=line_texts,
+        full_text=" ".join(line_texts),
+        source_id=0,
+        had_synced=True,
+        synced_starts_ms=_shift_stamps([start for start, _ in entries], offset_ms),
+        source="caller",
     )
 
 

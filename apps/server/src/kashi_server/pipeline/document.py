@@ -16,6 +16,7 @@ from prometheus_client import Counter
 from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
+from kashi_server import overrides
 from kashi_server.config import settings
 from kashi_server.db.models import Job
 from kashi_server.pipeline.alignment import AlignResult
@@ -357,6 +358,50 @@ def regression(stored: dict | None, new: dict) -> str | None:
     return None
 
 
+OVERRIDE_BUILDS_KEPT = Counter(
+    "kashi_persist_override_builds_kept_total",
+    "New documents refused because the stored one was built under the song's "
+    "override and this run did not apply it (C.1)",
+)
+
+# Read under a row lock: a PUT that changes the override waits for this
+# transaction, so the bookkeeping below never lands on content it did not see.
+_OVERRIDE_SQL = sa_text(
+    """
+    SELECT lrclib_id, lyrics_text, speed_factor, offset_ms, applied_etag
+    FROM song_overrides
+    WHERE source_type = :source_type AND source_id = :source_id
+    FOR UPDATE
+    """
+)
+_OVERRIDE_APPLIED_SQL = sa_text(
+    """
+    UPDATE song_overrides SET applied_etag = :etag
+    WHERE source_type = :source_type AND source_id = :source_id
+    """
+)
+
+
+def _override_verdict(override, existing, job: Job) -> tuple[bool, bool]:
+    """(applied, built_under) for the song's override row (see persist).
+
+    applied: this job carries the marker of the override's CURRENT acted-on
+    content, nothing displaced by request options. built_under: the stored
+    document is the one a run that applied this content persisted."""
+    if override is None:
+        return False, False
+    fields = overrides.acted_fields(override)
+    applied = bool(fields) and overrides.applied_fingerprint(
+        job.options
+    ) == overrides.fingerprint(fields)
+    built_under = (
+        existing is not None
+        and override.applied_etag is not None
+        and override.applied_etag == existing.etag
+    )
+    return applied, built_under
+
+
 def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     """Validate (hard gate), then upsert — unless the new document regresses the
     stored one (see `regression`). Returns the etag of what is stored.
@@ -365,26 +410,48 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     worse, and the listener keeps the better one. A new pipeline MAJOR always
     replaces (the old one is invalidated by definition), and an admin
     reprocess with `options.force_persist` accepts a regression on purpose.
+
+    Song overrides (C.1), first match wins after force_persist:
+    G1 the stored document was built under the song's override (its etag is
+    the override's `applied_etag`) and this run did not apply that override
+    whole -> keep it, whatever the major and the scores;
+    G2 this run applied the override and the stored document was not built
+    under it -> replace it without the major/regression checks (the owner's
+    correction, compared with a document built from other inputs);
+    otherwise the rules above. B1: a persisted run that applied the override
+    records the new etag as `applied_etag`. No override row -> exactly the
+    rules above.
     """
     validate_document(doc)
     etag = compute_etag(doc)
-    existing = s.execute(
-        _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
-    ).first()
-    if (
-        existing is not None
-        and existing.pipeline_major >= PIPELINE_MAJOR
-        and not (job.options or {}).get("force_persist")
-    ):
-        reason = regression(existing.document, doc)
-        if reason is not None:
-            REGRESSIONS_KEPT.inc()
+    source = {"source_type": job.source_type, "source_id": job.source_id}
+    existing = s.execute(_EXISTING_SQL, source).first()
+    override = s.execute(_OVERRIDE_SQL, source).first()
+    applied, built_under = _override_verdict(override, existing, job)
+    forced = bool((job.options or {}).get("force_persist"))
+    if existing is not None and not forced:
+        if built_under and not applied:  # G1
+            OVERRIDE_BUILDS_KEPT.inc()
             logger.warning(
-                "kept the stored %s:%s document: the new one regresses it (%s); "
-                "an admin reprocess with force_persist overrides",
-                job.source_type, job.source_id, reason,
+                "kept the stored %s:%s document: it was built under the song's override "
+                "and this run did not apply it; an admin reprocess with force_persist "
+                "overrides",
+                job.source_type, job.source_id,
             )
             return existing.etag
+        first_override_build = applied and not built_under  # G2
+        if not first_override_build and existing.pipeline_major >= PIPELINE_MAJOR:
+            reason = regression(existing.document, doc)
+            if reason is not None:
+                REGRESSIONS_KEPT.inc()
+                logger.warning(
+                    "kept the stored %s:%s document: the new one regresses it (%s); "
+                    "an admin reprocess with force_persist overrides",
+                    job.source_type, job.source_id, reason,
+                )
+                return existing.etag
+    if applied:  # B1
+        s.execute(_OVERRIDE_APPLIED_SQL, {**source, "etag": etag})
     s.execute(
         _UPSERT_SQL,
         {

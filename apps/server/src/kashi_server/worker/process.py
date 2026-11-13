@@ -22,7 +22,7 @@ from prometheus_client import Counter
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from kashi_server import queue
+from kashi_server import overrides, queue
 from kashi_server.config import settings
 from kashi_server.db.models import RUNNING_STATUSES, Job, UploadedAudio
 from kashi_server.pipeline.alignment import (
@@ -50,6 +50,7 @@ from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa, restore_
 from kashi_server.pipeline.lrclib import (
     LyricsText,
     fetch_lyrics,
+    fetch_record,
     lyrics_from_record,
     lyrics_from_text,
     normalize_artist,
@@ -155,6 +156,7 @@ def build_gateway() -> LrclibGateway:
     return LrclibGateway(
         fetch=lambda hints, url: fetch_lyrics(hints, base_url=url),
         search=lambda query, url: search_candidates(query, base_url=url),
+        get=lambda record_id, url: fetch_record(record_id, base_url=url),
         primary_url=settings.lrclib_base_url,
         mirror_url=settings.lrclib_fallback_base_url,
         breaker=LrclibBreaker(
@@ -470,11 +472,12 @@ def _original_song_candidates(query_title: str, artist: str) -> list[dict]:
 def _caller_lyrics(job: Job) -> LyricsText | None:
     """Caller-supplied `options.lyrics_text`, or None. Honored on EVERY path —
     the escape hatch must work exactly when detection failed or reverted
-    (retro finding: it was dead in the r=1 flow)."""
+    (retro finding: it was dead in the r=1 flow). A song override's LRC text
+    or pinned record answers here too, before any lookup (C.1)."""
     text = (job.options or {}).get("lyrics_text")
     if isinstance(text, str) and text.strip():
         return lyrics_from_text(text)
-    return None
+    return overrides.override_lyrics(job.options or {}, lambda rid: LRCLIB.get_record(rid))
 
 
 def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText | None:
@@ -1072,7 +1075,7 @@ def _separation_source(
 
 def _nightcore_gate(result: AlignResult, lyrics: LyricsText, speed_factor: float) -> AlignResult:
     """Wrong-song gate for detected lyrics, then the rescale onto the played clock."""
-    if lyrics.source != "caller":
+    if lyrics.source != "caller" and not lyrics.pinned:
         # Wrong-song gate: detection can only vouch for
         # title+duration ratio; the CTC probs are the honest
         # lyrics-identity signal.

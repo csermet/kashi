@@ -17,7 +17,9 @@ def db_session():
     from kashi_server.db.engine import SessionLocal, engine
 
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE api_keys, jobs, processed_tracks, telemetry CASCADE"))
+        conn.execute(
+            text("TRUNCATE api_keys, jobs, processed_tracks, telemetry, song_overrides CASCADE")
+        )
     session = SessionLocal()
     try:
         yield session
