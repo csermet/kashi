@@ -801,7 +801,7 @@ def _hold_line_starts(
             tally["windows"] = tally.get("windows", 0) + 1
         log_probs = emissions.cpu() if hasattr(emissions, "cpu") else emissions
         log_probs = log_probs.float().numpy() if hasattr(log_probs, "numpy") else log_probs
-        blank_id = dictionary.get("<blank>", tokenizer.pad_token_id)
+        blank_id = ctc_blank_id(tokenizer)
         found = forced_align_cut(np.asarray(log_probs), targets, blank_id, cuts)
         if found is None:
             if tally is not None:
@@ -851,6 +851,23 @@ def _align_slice_hybrid(
 SAMPLES_PER_MS = 16  # load_audio normalizes to 16 kHz mono
 
 
+def ctc_blank_id(tokenizer) -> int:
+    """The CTC blank's id, taken the way the aligner itself takes it
+    (ctc_forced_aligner's get_alignments, 0.3.0): `<blank>` when the
+    vocabulary has one (MMS keeps a separate `<pad>` that never wins), else the
+    tokenizer's pad token. One definition for every greedy reader of the
+    emissions (`transcribe`, `heard_tokens`, `audit.ear`) and for the line
+    regions' trellis (`_hold_line_starts`).
+
+    Before 2.32.0 the greedy readers looked up `vocab["<pad>"]`: right for the
+    three production checkpoints (English `<pad>` = 0, Turkish `[PAD]` = 0
+    through the 0 default, MMS through `<blank>`), wrong for any checkpoint
+    whose pad token is not named `<pad>` (omniASR-CTC: pad `<s>` = 0, `<pad>`
+    = 1; whole-project review, 2026-11-13)."""
+    dictionary = {k.lower(): v for k, v in tokenizer.get_vocab().items()}
+    return dictionary.get("<blank>", tokenizer.pad_token_id)
+
+
 def transcribe(wav_path: Path, model_name: str) -> str:
     """Rough CTC transcript of `wav_path` — what the audio SAYS, not when.
 
@@ -878,7 +895,7 @@ def transcribe(wav_path: Path, model_name: str) -> str:
     keep = usable_columns(int(emissions.shape[-1]), len(vocab))
     ids = emissions[:, :keep].argmax(dim=-1).squeeze().tolist()
     id_to_token = {token_id: token for token, token_id in vocab.items()}
-    return greedy_ctc_decode(ids, id_to_token, vocab.get("<pad>", 0))
+    return greedy_ctc_decode(ids, id_to_token, ctc_blank_id(tokenizer))
 
 
 def heard_tokens(wav_path: Path, language: str) -> list[dict]:
@@ -887,9 +904,8 @@ def heard_tokens(wav_path: Path, language: str) -> list[dict]:
     audit's ear reads it (`audit.ear.hear_audio`). Feeds the sheet shift
     check (2.29.1, `sheet_shift`); never shown, never lyrics.
 
-    The blank is `<blank>` when the vocabulary has one (MMS keeps `<pad>`
-    separate): taking `<pad>` turned every MMS blank frame into a letter in
-    the audit (2026-11)."""
+    The blank is the aligner's own (`ctc_blank_id`): taking `<pad>` turned
+    every MMS blank frame into a letter in the audit (2026-11)."""
     from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
 
     model, tokenizer = _load_model(resolve_aligner(language).model_name)
@@ -901,7 +917,7 @@ def heard_tokens(wav_path: Path, language: str) -> list[dict]:
     if logp.dim() == 3:
         logp = logp.squeeze(0)
     ids = logp.argmax(dim=-1).tolist()
-    blank_id = vocab["<blank>"] if "<blank>" in vocab else vocab.get("<pad>", 0)
+    blank_id = ctc_blank_id(tokenizer)
     id_to_token = {i: tok for tok, i in vocab.items()}
     out: list[dict] = []
     previous: int | None = None

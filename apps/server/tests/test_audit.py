@@ -7,6 +7,7 @@ Faz 2.
 
 import json
 import re
+import types
 from pathlib import Path
 
 from audit.analysis import voice_onsets
@@ -56,10 +57,14 @@ def test_checkpoint_for_reads_alignment_method():
 
 def test_blank_id_is_mms_blank_before_pad():
     # the three vocab shapes in use: MMS, wav2vec2 English, the Turkish checkpoint
-    assert blank_id_of({"<blank>": 0, "<pad>": 1, "a": 4}) == 0
-    assert blank_id_of({"<pad>": 0, "<s>": 1, "|": 4}) == 0
-    assert blank_id_of({"[PAD]": 0, "<s>": 1, "|": 4}) == 0
-    assert blank_id_of({"<pad>": 3, "a": 0}) == 3
+    # (tokenizer stand-ins: 2.32.0 reads the pad id from the tokenizer, as the aligner does)
+    def tok(vocab, pad_id):
+        return types.SimpleNamespace(get_vocab=lambda: vocab, pad_token_id=pad_id)
+
+    assert blank_id_of(tok({"<blank>": 0, "<pad>": 1, "a": 4}, 1)) == 0
+    assert blank_id_of(tok({"<pad>": 0, "<s>": 1, "|": 4}, 0)) == 0
+    assert blank_id_of(tok({"[PAD]": 0, "<s>": 1, "|": 4}, 0)) == 0
+    assert blank_id_of(tok({"<pad>": 3, "a": 0}, 3)) == 3
 
 
 def _contour(levels, hop=10):

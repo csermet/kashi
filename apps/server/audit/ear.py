@@ -51,15 +51,17 @@ def checkpoint_for(method: str) -> str:
     raise ValueError(f"unknown checkpoint in alignment.method {method!r}")
 
 
-def blank_id_of(vocab: Mapping[str, int]) -> int:
-    """The CTC blank's id. MMS names it ``<blank>`` (id 0) and also has a
-    ``<pad>`` (id 1) that never wins; wav2vec2 English has ``<pad>`` = 0 and
-    the Turkish checkpoint ``[PAD]`` = 0. Taking ``<pad>`` for MMS turned every
-    blank frame into a ``<blank>`` letter and the ear-text match into 0 lines
-    (Gasolina, BxMxC; 2026-11-01)."""
-    if "<blank>" in vocab:
-        return vocab["<blank>"]
-    return vocab.get("<pad>", 0)
+def blank_id_of(tokenizer) -> int:
+    """The CTC blank's id, the aligner's own (``alignment.ctc_blank_id``). MMS
+    names it ``<blank>`` (id 0) and also has a ``<pad>`` (id 1) that never
+    wins; wav2vec2 English has ``<pad>`` = 0 and the Turkish checkpoint
+    ``[PAD]`` = 0. Taking ``<pad>`` for MMS turned every blank frame into a
+    ``<blank>`` letter and the ear-text match into 0 lines (Gasolina, BxMxC;
+    2026-11-01); a checkpoint whose pad token is not named ``<pad>``
+    (omniASR-CTC: ``<s>`` = 0) needs the tokenizer's pad id (2.32.0)."""
+    from kashi_server.pipeline.alignment import ctc_blank_id
+
+    return ctc_blank_id(tokenizer)
 
 
 def timed_tokens(
@@ -137,7 +139,7 @@ def hear_audio(path: Path, model_name: str, start_ms: int = 0, length_ms: int | 
     if logp.dim() == 3:
         logp = logp.squeeze(0)
     probs = torch.exp(logp)
-    blank_id = blank_id_of(vocab)
+    blank_id = blank_id_of(tokenizer)
     delim_id = vocab.get(WORD_DELIMITER)
     silent = probs[:, blank_id] + (probs[:, delim_id] if delim_id is not None else 0)
     letter = (1 - silent).clamp(0, 1).tolist()
