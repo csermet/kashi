@@ -582,8 +582,17 @@ HYBRID_T_MS = 400
 #: lyric is aligned once over the whole track and a word takes that time when
 #: it lies within WHOLE_VOTE_T_MS of its windowed one (windows.whole_track_vote).
 #: One extra emission pass per song.
+#:
+#: 2.32.0: 400 -> 1 200 ms. Where the two passes disagree by more than 400 ms
+#: the windowed time is usually the earlier one, and human truth sides with the
+#: whole track (whole-project review, 2026-11-13, rule fixed before the runs):
+#: eng20 (400 ms stamp jitter, production offsets) PCO@0.1 0.824 -> 0.842,
+#: noticeable line starts 0.108 -> 0.062 (early 55 -> 23 of 868 lines); all 79
+#: songs @0.1 0.886 -> 0.901, 41 songs better, 3 worse. The worker and the
+#: bench both take this default; align(whole_vote_t_ms=) and the bench's
+#: --whole-vote-t-ms keep it adjustable.
 WHOLE_VOTE_DEFAULT = True
-WHOLE_VOTE_T_MS = 400
+WHOLE_VOTE_T_MS = 1200
 
 #: Timing v3, V3 (2.30.0): after the hybrid and the vote, a run of 3+ words
 #: starting within 60 ms that they made takes the `edges` starts back

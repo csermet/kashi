@@ -485,19 +485,20 @@ def test_an_edges_word_yields_to_a_segment_word_on_one_clock(monkeypatch, tmp_pa
 
 def test_whole_vote_takes_agreeing_words_and_reclamps_seams(monkeypatch, tmp_path):
     # Edges everywhere (segment far off). Windowed starts after the lead: one
-    # 1.22, two 2.72, three 6.20 (yielded to 6.13 raw), four 6.22. The whole
-    # track says one 1.48 (260 ms: taken), two 3.121 (401: not), four 5.82 (400:
-    # taken — but that lands before "three", so the second seam pass clamps it).
+    # 1.22, two 2.72, three 6.20 (yielded to 6.13 raw), four 6.22. At the
+    # shipped T (1 200 ms since 2.32.0) the whole track says one 2.42 (1 200:
+    # taken), two 3.921 (1 201: not), four 5.02 (-1 200: taken — but that lands
+    # before "three", so the second seam pass clamps it).
     far = [FAR, FAR, FAR, FAR]
     windowed = [1.15, 2.65, 6.13, 6.15, 7.15, 8.65, 11.15, 12.15, 13.65, 16.15, 17.15, 18.65]
     whole = [s + 2.0 for s in windowed]
-    whole[0], whole[1], whole[3] = 1.48, 3.121, 5.82
+    whole[0], whole[1], whole[3] = 2.42, 3.921, 5.02
     result, seen = run_hybrid(monkeypatch, tmp_path, far, whole=whole, whole_vote=True)
     assert seen["lengths"] == [TOTAL_S * 16_000]
     assert seen["vote"] == [("segment", True)]  # whole-track stars, the exact clock
     one, two, three = result.words_per_line[0]
     four = result.words_per_line[1][0]
-    assert (one.source, one.start_ms) == ("whole", 1_480)
+    assert (one.source, one.start_ms) == ("whole", 2_420)
     assert (two.source, two.start_ms) == ("edges", 2_720)
     assert four.source == "whole"
     assert four.start_ms == three.start_ms == 6_200
@@ -550,7 +551,8 @@ def test_one_emission_pass_serves_both_star_placements(monkeypatch):
 def test_hybrid_is_a_known_star_placement():
     assert "hybrid" in alignment.WINDOW_STARS
     assert alignment.HYBRID_T_MS == 400
-    assert alignment.WHOLE_VOTE_T_MS == 400
+    # 2.32.0: the vote trusts the whole track up to 1 200 ms (human truth, eng20 and all 79).
+    assert alignment.WHOLE_VOTE_T_MS == 1200
 
 
 def test_the_shipped_defaults_are_hybrid_stars_and_the_whole_track_vote(monkeypatch, tmp_path):

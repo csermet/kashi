@@ -181,7 +181,9 @@ def test_an_anchored_run_writes_a_valid_windowed_document(stem, heard, record_fi
     assert "edges" in heard["stars"] and "segment" in heard["stars"]  # hybrid windows ran
     assert extras["anchors"] is True and extras["separations"] == 1
     assert extras["onsets"] and extras["vocal_energy"]["frames"]
-    assert {w["source"] for chunk in extras["words"] for w in chunk} == {"edges", "whole"}
+    # The stand-in's passes disagree by 400-1 200 ms on every word: at the shipped vote window
+    # (1 200 ms since 2.32.0) the whole-track pass places them all.
+    assert {w["source"] for chunk in extras["words"] for w in chunk} == {"whole"}
     assert extras["settings"]["separation_mode"] == "always"
 
 
@@ -369,7 +371,14 @@ def test_a_changed_timing_constant_shows_in_the_local_document(stem, heard, reco
                                                                 tmp_path, monkeypatch):
     """The windowed lead 20 ms shorter: every word the edges pass placed lands
     exactly 20 ms earlier, the whole-track vote's words net the lead out and
-    stay (Faz 9 round 5), and the document is no longer the same one."""
+    stay (Faz 9 round 5), and the document is no longer the same one. The vote
+    runs at its pre-2.32 window (400 ms) so that the stand-in leaves the edges
+    pass some words to place."""
+    import functools
+
+    from kashi_server.worker import process
+
+    monkeypatch.setattr(process, "align", functools.partial(alignment.align, whole_vote_t_ms=400))
     before, sources_before = _local(record_file, tmp_path)
     monkeypatch.setattr(alignment, "WINDOWED_LEAD_MS", alignment.WINDOWED_LEAD_MS - 20)
     after, sources_after = _local(record_file, tmp_path)
