@@ -10,7 +10,10 @@ IMAGE='mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4
 HERE=$(cd "$(dirname "$0")" && pwd)
 OVERLAY=$(dirname "$HERE")
 REPO=$(cd "$OVERLAY/../.." && pwd)
+# On a failure the harness writes the actual state and pictures here (host side).
+REPORT=/tmp/kashi-golden-report
+mkdir -p "$REPORT"
 # shellcheck disable=SC2086 # GOLDEN_DOCKER_ARGS is a list of docker flags
 exec docker run --rm --init --user "$(id -u):$(id -g)" --shm-size=1g -e HOME=/tmp \
-  -v "$REPO:$REPO" ${GOLDEN_DOCKER_ARGS:-} -w "$OVERLAY" "$IMAGE" \
+  -v "$REPO:$REPO" -v "$REPORT:$REPORT" ${GOLDEN_DOCKER_ARGS:-} -w "$OVERLAY" "$IMAGE" \
   node scripts/golden-frames.mjs "$@"

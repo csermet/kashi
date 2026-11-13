@@ -59,6 +59,14 @@ jobs:
       # runs stay fast and browser-free.
       - name: Golden frames and dwell (built renderer)
         run: apps/overlay/scripts/golden-frames.sh
+      - name: Keep what the golden frames saw
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-report
+          path: /tmp/kashi-golden-report
+          if-no-files-found: ignore
+          retention-days: 7
 
   python:
     name: Python (server)
