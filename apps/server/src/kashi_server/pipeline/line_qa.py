@@ -110,6 +110,22 @@ ADLIB_HOLD_MAX_GAP_MS = 1500
 # ...and it stops just short of the next line, matching the breath a lexical
 # line leaves (measured median 30 ms).
 ADLIB_HOLD_BREATH_MS = 60
+# 2.32.0: a span this long is not a held hook but a runaway line. The
+# re-derivation had no upper bound and spread "Ah-ah, ah-ah" over 23 s on a
+# fresh Turkish song (whole-project review, 2026-11-13; the owner heard it
+# "very slow, but lit far too early"): its first letter was held at a stamp
+# that is ~19 s early (line regions, V1), its last letters sat against the
+# next line where the voice is. Re-derived spans in the 2.31.0 archive (279
+# lines, 303 documents): median 2 170 ms, p99 9 210, largest healthy 10 110;
+# the only two above it are runaways (23 075 ms, that line; 27 990 ms, a last
+# line run to the end of the audio). The 39 replayed songs: 22 lines, largest
+# healthy 8 460 ms. Any bound between 10 110 and 23 075 sorts them the same.
+ADLIB_REDERIVE_MAX_SPAN_MS = 12_000
+# A runaway line's words are spread over this long instead (the archive's
+# median re-derived span, 2 170 ms, rounded): just before the next line, whose
+# start is the one real edge such a span has, and from its start for the
+# song's last line, whose end is the audio's and not a voice's.
+ADLIB_REDERIVE_RUNAWAY_SPAN_MS = 2_200
 # The cap on a word end that `restore_held_ends` grows: start + clamp(chars x
 # the document's median ms per character x factor, min, max). It is the
 # formula of the word-end sustain trim (Faz 5 P1, words "hanging" past their
@@ -257,6 +273,10 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
     line and the aligner measures only the part it can segment, so the sweep
     used to finish at ~70% of the phrase and wait. Bounded by
     ADLIB_HOLD_MAX_GAP_MS so a real instrumental break is never filled.
+
+    The span itself is bounded too (2.32.0, `_cap_runaway`): past
+    ADLIB_REDERIVE_MAX_SPAN_MS the words go over ADLIB_REDERIVE_RUNAWAY_SPAN_MS
+    instead of crawling across the whole of it.
     """
     if result.sync != "word":
         return result, []
@@ -268,7 +288,7 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
         if len(words) < ADLIB_REDERIVE_MIN_WORDS or not is_adlib(line.text):
             continue
         next_start = _next_start(result.lines, i)
-        line = _hold_to_next(line, next_start)
+        line = _cap_runaway(_hold_to_next(line, next_start), next_start)
         if line is not result.lines[i]:
             lines_out[i] = line
         rederived = _respread(words, line)
@@ -301,6 +321,23 @@ def _hold_to_next(line: LineTiming, next_start: int | None) -> LineTiming:
             if held_end > line.end_ms:  # a gap under the breath changes nothing
                 return replace(line, end_ms=held_end)
     return line
+
+
+def _cap_runaway(line: LineTiming, next_start: int | None) -> LineTiming:
+    """A span over ADLIB_REDERIVE_MAX_SPAN_MS shrinks to
+    ADLIB_REDERIVE_RUNAWAY_SPAN_MS: ending a breath before the next line (and
+    no later than the line's own end), or from its start for the last line.
+    Returns ``line`` itself when nothing moves, and when the next line leaves
+    no room for a span the rederive would spread over."""
+    if line.end_ms - line.start_ms <= ADLIB_REDERIVE_MAX_SPAN_MS:
+        return line
+    if next_start is None:
+        return replace(line, end_ms=line.start_ms + ADLIB_REDERIVE_RUNAWAY_SPAN_MS)
+    end = min(line.end_ms, next_start - ADLIB_HOLD_BREATH_MS)
+    start = max(line.start_ms, end - ADLIB_REDERIVE_RUNAWAY_SPAN_MS)
+    if end - start < ADLIB_REDERIVE_MIN_SPAN_MS:
+        return line
+    return replace(line, start_ms=start, end_ms=end)
 
 
 def _respread(words: list[AlignedWord], line: LineTiming) -> list[AlignedWord] | None:

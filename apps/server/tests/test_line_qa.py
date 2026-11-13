@@ -912,6 +912,74 @@ def test_a_hold_under_the_breath_is_not_counted_as_a_change():
     assert out.lines[0].end_ms == 71_000
 
 
+# --- 2.32.0: a runaway ad-lib span is capped ------------------------------------
+
+
+def _runaway(start_ms: int, end_ms: int, next_start: int | None) -> AlignResult:
+    """'Ah-ah, ah-ah' as the aligner left it (two words, four letters each:
+    an even split), then a lexical line at `next_start`."""
+    words = [AlignedWord(start_ms, end_ms - 20, "Ahah", 0.5),
+             AlignedWord(end_ms - 20, end_ms, "ahah", 0.5)]
+    lines = [LineTiming(start_ms, end_ms, "Ah-ah, ah-ah", 0.0)]
+    chunks = [words]
+    if next_start is not None:
+        lines.append(LineTiming(next_start, next_start + 1800, "Verir hep bana", 0.5))
+        chunks.append([AlignedWord(next_start, next_start + 1800, "Verir", 0.5)])
+    return AlignResult(sync="word", lines=lines, words_per_line=chunks, quality_score=0.8)
+
+
+def test_the_runaway_bounds_are_pinned():
+    from kashi_server.pipeline.line_qa import (
+        ADLIB_REDERIVE_MAX_SPAN_MS,
+        ADLIB_REDERIVE_RUNAWAY_SPAN_MS,
+    )
+
+    # Archive 2.31.0: largest healthy re-derived span 10 110 ms, runaways 23 075 / 27 990;
+    # median re-derived span 2 170 ms.
+    assert (ADLIB_REDERIVE_MAX_SPAN_MS, ADLIB_REDERIVE_RUNAWAY_SPAN_MS) == (12_000, 2_200)
+
+
+@pytest.mark.parametrize(("span", "words"), [
+    (12_000, [(1_000, 7_000), (7_000, 13_000)]),  # at the bound: spread over all of it, as before
+    (12_001, [(10_801, 11_901), (11_901, 13_001)]),  # one ms over: the 2.2 s before the next line
+])
+def test_a_span_over_the_bound_is_spread_over_the_runaway_span_before_the_next_line(span, words):
+    # The next line a breath (60 ms) after the end: the hold moves nothing.
+    end = 1_000 + span
+    out, changed = rederive_adlib_words(_runaway(1_000, end, end + 60))
+    assert changed == [0]
+    assert [(w.start_ms, w.end_ms) for w in out.words_per_line[0]] == words
+    assert (out.lines[0].start_ms, out.lines[0].end_ms) == (words[0][0], words[-1][1])
+    assert out.lines[1] == _runaway(1_000, end, end + 60).lines[1]
+
+
+def test_the_23_second_hook_lands_against_the_next_line():
+    # 0pg0raFMNIU line 1 on 2.31.0: held at its stamp (4.54 s), run 900 ms past the next
+    # line's start (26.775 s) by the ad-lib snap, spread over 23 135 ms. The voice sings it
+    # at 23.7-25.8 s (vocal loudness); now it lights at 24.5 s for 2.2 s.
+    out, changed = rederive_adlib_words(_runaway(4_540, 27_675, 26_775))
+    assert changed == [0]
+    assert [(w.start_ms, w.end_ms) for w in out.words_per_line[0]] == [
+        (24_515, 25_615), (25_615, 26_715)]
+    assert out.lines[0].end_ms == 26_775 - 60
+
+
+def test_a_runaway_last_line_keeps_its_start():
+    # A last line run to the end of the audio (the archive's 28 s one): its end is no voice's.
+    out, _ = rederive_adlib_words(_runaway(146_225, 174_215, None))
+    assert [(w.start_ms, w.end_ms) for w in out.words_per_line[0]] == [
+        (146_225, 147_325), (147_325, 148_425)]
+
+
+def test_a_runaway_with_no_room_before_the_next_line_is_left_as_it_was():
+    # The next line starts 400 ms in: no span the rederive would spread over fits. Unchanged
+    # from 2.31.0 rather than squeezed.
+    out, _ = rederive_adlib_words(_runaway(1_000, 20_000, 1_400))
+    assert (out.lines[0].start_ms, out.lines[0].end_ms) == (1_000, 20_000)
+    assert [(w.start_ms, w.end_ms) for w in out.words_per_line[0]] == [
+        (1_000, 10_500), (10_500, 20_000)]
+
+
 # --- 2.29.1: held ends come back after line QA ---------------------------------
 
 
