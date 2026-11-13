@@ -923,6 +923,59 @@ steps is not yet readable. Three of the four remaining errors are described as p
 as on the hold-out. The owner's conclusion from both lists is in `docs/roadmap.md`, "Perceptual
 priority": steady tempo before exact timing, and a proposal for words too short to be seen.
 
+## Readability trial — 2026-11-13
+
+The owner's proposal, tried as a pure transform on the 2.31.0 documents (no pipeline, overlay or
+repo change; scripts `~/Documents/krediler/kashi-okunurluk-betikler/`, outputs
+`scratch/audit/runs/okunurluk/`). Variants: A pulls a short word's start into the silence before
+it; B re-spaces a rushed run (starts closer than 120 ms) evenly, lending the unit one slot of its
+last word; C does both at 180 ms. Six moments the owner had complained about (CEO 1:03, Good
+Feeling 0:06, Got It Maid 2:07, C'Mon 0:43, Crazy In Love 0:14, New Rules 3:09) and one control
+(SexyBack 2:24) were rendered as four-row clips of the built renderer on a virtual clock, with the
+vocal stem (frame/state agreement 8 308 of 8 308, audio lag 0 samples).
+
+- **What is on screen is the dwell, not the duration.** The overlay keeps a word lit until the next
+  word starts; a word's end only drives the long fill. Lengthening an end changes nothing visible.
+  Archive (306 documents, 101 957 words): 10 166 words last under 120 ms by duration, 6 080 are
+  visible for under 120 ms; of those 21 % can be fixed by an earlier start alone, 58 % need the run
+  re-spaced, 12 % only reach 120 ms under the 180 ms variant, 9 % are out of reach.
+- **The owner's eye:** no clear difference on most clips, "because most of these places are badly
+  broken, the word does not arrive right anyway"; somewhere between B and C; C clearly better on
+  CEO, sometimes still fast elsewhere. C delays dense lines by 300-450 ms and is the only variant
+  that moves the control.
+- **Reading.** Where the placement itself is wrong, spacing the words does not help: the rush is
+  the symptom. It helps on a clean pile inside a well-placed line (one of six here). Shelved as a
+  possible small polish; not a lever. The trial used the worst moments, so mild crowding in good
+  lines is unmeasured.
+
+## lrclib's word file as a referee — measured 2026-11-13, no
+
+The "kept as a witness until measured" item of "Found at the 2.30.0 rollout". Gates written
+before any fetch (`scratch/hakem/gates.md`), 311 polite requests, no pipeline or repo change.
+
+| gate | measured | verdict |
+|---|---|---|
+| not our own output | 0 of 159 usable files match a Kashi document within 20 ms on half their words (best share median 0.12, max 0.37) | pass |
+| better than what it judges (pop hand truth) | 2 songs, 151 valid words: PCO@0.1 0.153, @0.3 0.603, gross 14.6 %; Kashi on the same words 0.67-0.77 / 0.99 / 0.7 % | unmeasurable as gated (3 of 5 records line-only); the numbers are far below the bar |
+| agrees with the owner's ear | late/early moments 5 of 7 on the corrective side, ok moments 5 of 6 in agreement | unmeasurable (n < 10) |
+| hygiene | 0 ms share 0.59 %, piled runs per file median 0 | pass |
+| coverage | 159 of 307 archive records (English 124 of 210, Turkish 23 of 55, MMS 12 of 42; pilot 11 of 20, hold-out 4 of 20) | pass |
+
+Inside a line the file's words bunch toward the line start (Stressed Out: word 1 at −92 ms, words
+6-8 at −406 to −428 ms), which is why its line starts read fine and its words do not. By the ear
+its line starts are no better than 2.31.0's (English pilot 0.145 against 0.150), and across
+versions its ranking agrees with `audit.score` 11 times and disagrees 8. It cannot see the fixes
+the owner heard (no file for BxMxC, CEO, Crazy In Love; SexyBack's and New Rules' repeated lines
+carry other text). Provenance: one schema on 158 of 159 files, byte-identical lines across 15
+records of one song (compilations included), 121 of 135 files inconsistent with lrclib's own
+publish path, new files appearing on old record ids after 2026-11-09 — bulk-made rather than
+crowd-timed, not proven. **Verdict: not a referee.** Row in `olu-fikirler.md`.
+
+Side finding, unverified by a listen: on 2.31.0 GOSSIP's middle (16 lines, 1:54-2:34) is still
+~18 s late (the ear and the file put "naked" at 105.9 / 104.9 s, the document at 123.0 s);
+`audit.score` cannot see it beyond its ±8 s window. This is the unanchored stretch the 2.30.1
+paragraph describes, larger than it read there.
+
 ## The overlay's 200 ms base lead (overlay 0.31.0, 2026-11-10)
 
 The overlay has lit lyrics 200 ms ahead of the player position since 0.3.4 (2026-07-17), shown as
