@@ -382,12 +382,16 @@ _OVERRIDE_APPLIED_SQL = sa_text(
 )
 
 
-def _override_verdict(override, existing, job: Job) -> tuple[bool, bool]:
+def _override_verdict(s: Session, job: Job, existing) -> tuple[bool, bool]:
     """(applied, built_under) for the song's override row (see persist).
 
     applied: this job carries the marker of the override's CURRENT acted-on
     content, nothing displaced by request options. built_under: the stored
-    document is the one a run that applied this content persisted."""
+    document is the one a run that applied this content persisted. No row:
+    (False, False), and persist decides exactly as it did before C.1."""
+    override = s.execute(
+        _OVERRIDE_SQL, {"source_type": job.source_type, "source_id": job.source_id}
+    ).first()
     if override is None:
         return False, False
     fields = overrides.acted_fields(override)
@@ -424,34 +428,43 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     """
     validate_document(doc)
     etag = compute_etag(doc)
-    source = {"source_type": job.source_type, "source_id": job.source_id}
-    existing = s.execute(_EXISTING_SQL, source).first()
-    override = s.execute(_OVERRIDE_SQL, source).first()
-    applied, built_under = _override_verdict(override, existing, job)
-    forced = bool((job.options or {}).get("force_persist"))
-    if existing is not None and not forced:
-        if built_under and not applied:  # G1
-            OVERRIDE_BUILDS_KEPT.inc()
+    existing = s.execute(
+        _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
+    ).first()
+    applied, built_under = _override_verdict(s, job, existing)
+    if (
+        existing is not None
+        and built_under
+        and not applied
+        and not (job.options or {}).get("force_persist")
+    ):  # G1
+        OVERRIDE_BUILDS_KEPT.inc()
+        logger.warning(
+            "kept the stored %s:%s document: it was built under the song's override and "
+            "this run did not apply it; an admin reprocess with force_persist overrides",
+            job.source_type, job.source_id,
+        )
+        return existing.etag
+    if (
+        existing is not None
+        and existing.pipeline_major >= PIPELINE_MAJOR
+        and not (job.options or {}).get("force_persist")
+        and not (applied and not built_under)  # G2: an override's first build
+    ):
+        reason = regression(existing.document, doc)
+        if reason is not None:
+            REGRESSIONS_KEPT.inc()
             logger.warning(
-                "kept the stored %s:%s document: it was built under the song's override "
-                "and this run did not apply it; an admin reprocess with force_persist "
-                "overrides",
-                job.source_type, job.source_id,
+                "kept the stored %s:%s document: the new one regresses it (%s); "
+                "an admin reprocess with force_persist overrides",
+                job.source_type, job.source_id, reason,
             )
             return existing.etag
-        first_override_build = applied and not built_under  # G2
-        if not first_override_build and existing.pipeline_major >= PIPELINE_MAJOR:
-            reason = regression(existing.document, doc)
-            if reason is not None:
-                REGRESSIONS_KEPT.inc()
-                logger.warning(
-                    "kept the stored %s:%s document: the new one regresses it (%s); "
-                    "an admin reprocess with force_persist overrides",
-                    job.source_type, job.source_id, reason,
-                )
-                return existing.etag
     if applied:  # B1
-        s.execute(_OVERRIDE_APPLIED_SQL, {**source, "etag": etag})
+        s.execute(
+            _OVERRIDE_APPLIED_SQL,
+            {"source_type": job.source_type, "source_id": job.source_id, "etag": etag},
+        )
     s.execute(
         _UPSERT_SQL,
         {
