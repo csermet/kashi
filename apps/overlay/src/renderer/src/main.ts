@@ -90,6 +90,7 @@ import type {
 } from '../../shared/lyrics.js';
 import { loadArtworkPalette } from './artwork-palette.js';
 import { IdleStash } from './idle-stash.js';
+import { LATENCY_MARKER, LatencyMarker, lineWordOffsets } from './latency-marker.js';
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
 
@@ -749,7 +750,17 @@ function highlightWord(index: number): void {
     wordSpans[i]?.classList.toggle('word-sung', i < index);
   }
   activeWordIndex = index;
+  if (latencyMarker && index >= 0) {
+    latencyMarker.show((markerLineOffsets[wordLineIndex] ?? 0) + index);
+  }
 }
+
+/**
+ * Dev-only chain-latency marker (latency-marker.ts): exists only in a build
+ * made with KASHI_LATENCY_MARKER=1; null, and never drawn, in every other.
+ */
+const latencyMarker = LATENCY_MARKER ? new LatencyMarker(document.body) : null;
+let markerLineOffsets: number[] = [];
 
 function applyView(view: ViewOutput): void {
   if (viewsEqual(appliedView, view)) return;
@@ -919,6 +930,7 @@ function showSearching(retrying: boolean): void {
 
 function applyFoundLyrics(data: LyricsPayload, found: LyricLine[]): void {
   lines = found;
+  if (latencyMarker) markerLineOffsets = lineWordOffsets(lines);
   resetFirstFillReport();
   rebuildFillPlans();
   // Server enrichment (Faz 4): palette themes the box, beats drive the

@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'electron-vite';
 import type { Plugin } from 'vite';
+import { buildFlag } from './src/shared/build-flags';
 
 // Dev keeps style-src 'unsafe-inline' (vite HMR injects styles via JS); the
 // PRODUCTION bundle links a real stylesheet, so the token is dropped at
@@ -53,8 +54,13 @@ export default defineConfig({
     // at build time: `KASHI_FX_DEBUG=1 pnpm dev` draws the box and window
     // bounds, and a normal build folds it to `false` so the outline cannot be
     // drawn in a shipped app.
+    // `KASHI_LATENCY_MARKER=1 electron-vite build` (the chain-latency
+    // measurement, src/renderer/src/latency-marker.ts) draws a black/white
+    // code block in the window's top-left corner on every word activation, for
+    // a screen recording to read. Folded to `false` in every normal build.
     define: {
-      __KASHI_FX_DEBUG__: JSON.stringify(process.env['KASHI_FX_DEBUG'] === '1'),
+      __KASHI_FX_DEBUG__: JSON.stringify(buildFlag(process.env['KASHI_FX_DEBUG'])),
+      __KASHI_LATENCY_MARKER__: JSON.stringify(buildFlag(process.env['KASHI_LATENCY_MARKER'])),
     },
     build: {
       rollupOptions: {

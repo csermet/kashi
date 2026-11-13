@@ -104,6 +104,9 @@ function pageInit() {
       fx_fired: idx('fx-fired')[0] ?? null,
       line_classes: [...line.classList].filter((c) => c !== 'lyric').sort(),
       box_classes: [...box.classList].sort(),
+      // The dev-only chain-latency marker (KASHI_LATENCY_MARKER=1 builds):
+      // a normal build must never draw it.
+      latency_marker: document.getElementById('latency-marker') !== null,
     };
   };
   const callbacks = {};

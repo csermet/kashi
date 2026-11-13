@@ -20,7 +20,8 @@
      "line_classes": [
       "interlude"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 1600,
@@ -34,7 +35,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2000,
@@ -48,7 +50,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2399,
@@ -62,7 +65,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2400,
@@ -78,7 +82,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4100,
@@ -96,7 +101,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4250,
@@ -110,7 +116,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5000,
@@ -126,7 +133,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5100,
@@ -143,7 +151,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5300,
@@ -162,7 +171,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5900,
@@ -186,7 +196,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 6500,
@@ -200,7 +211,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 7700,
@@ -220,7 +232,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 8400,
@@ -240,7 +253,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 9200,
@@ -258,7 +272,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 10900,
@@ -281,7 +296,8 @@
       "adlib",
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 12000,
@@ -295,7 +311,8 @@
      "line_classes": [
       "interlude"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 17600,
@@ -309,7 +326,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 19600,
@@ -330,7 +348,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 21500,
@@ -345,7 +364,8 @@
       "line-in",
       "plain"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 29000,
@@ -359,7 +379,8 @@
      "line_classes": [
       "interlude"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     }
    ],
    "png": [
@@ -388,7 +409,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 1450,
@@ -404,7 +426,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2200,
@@ -425,7 +448,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 3100,
@@ -446,7 +470,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 3200,
@@ -464,7 +489,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4000,
@@ -487,7 +513,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5700,
@@ -503,7 +530,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 6299,
@@ -520,7 +548,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 7100,
@@ -542,7 +571,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 8450,
@@ -560,7 +590,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 9300,
@@ -582,7 +613,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 10000,
@@ -599,7 +631,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 12000,
@@ -619,7 +652,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 13500,
@@ -641,7 +675,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 15300,
@@ -658,7 +693,8 @@
       "line-in",
       "uncertain"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 17400,
@@ -678,7 +714,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 17850,
@@ -698,7 +735,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 18500,
@@ -720,7 +758,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 20600,
@@ -740,7 +779,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 23400,
@@ -761,7 +801,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 24400,
@@ -782,7 +823,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 24600,
@@ -796,7 +838,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2201,
@@ -817,7 +860,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     }
    ],
    "png": [
@@ -846,7 +890,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 1450,
@@ -862,7 +907,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2200,
@@ -883,7 +929,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 3100,
@@ -904,7 +951,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 3200,
@@ -922,7 +970,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4000,
@@ -945,7 +994,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5700,
@@ -961,7 +1011,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 6299,
@@ -978,7 +1029,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 7100,
@@ -1000,7 +1052,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 8450,
@@ -1018,7 +1071,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 9300,
@@ -1040,7 +1094,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 10000,
@@ -1057,7 +1112,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 12000,
@@ -1077,7 +1133,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 13500,
@@ -1099,7 +1156,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 15300,
@@ -1116,7 +1174,8 @@
       "line-in",
       "uncertain"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 17400,
@@ -1136,7 +1195,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 17850,
@@ -1156,7 +1216,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 18500,
@@ -1178,7 +1239,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 20600,
@@ -1198,7 +1260,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 23400,
@@ -1219,7 +1282,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 24400,
@@ -1240,7 +1304,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 24600,
@@ -1254,7 +1319,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 2201,
@@ -1275,7 +1341,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     }
    ],
    "png": [
@@ -1305,7 +1372,8 @@
      ],
      "box_classes": [
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 2350,
@@ -1325,7 +1393,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 2900,
@@ -1345,7 +1414,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 3100,
@@ -1370,7 +1440,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 3600,
@@ -1395,7 +1466,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 4050,
@@ -1409,7 +1481,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4150,
@@ -1425,7 +1498,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4200,
@@ -1442,7 +1516,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 4300,
@@ -1460,7 +1535,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5000,
@@ -1483,7 +1559,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 5800,
@@ -1499,7 +1576,8 @@
      ],
      "box_classes": [
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 6500,
@@ -1522,7 +1600,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 7000,
@@ -1545,7 +1624,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 7500,
@@ -1565,7 +1645,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 8200,
@@ -1590,7 +1671,8 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
-     ]
+     ],
+     "latency_marker": false
     },
     {
      "pos": 9100,
@@ -1604,7 +1686,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 9500,
@@ -1621,7 +1704,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 10600,
@@ -1639,7 +1723,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 11000,
@@ -1657,7 +1742,8 @@
      "line_classes": [
       "line-in"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     },
     {
      "pos": 16000,
@@ -1671,7 +1757,8 @@
      "line_classes": [
       "interlude"
      ],
-     "box_classes": []
+     "box_classes": [],
+     "latency_marker": false
     }
    ],
    "png": [
