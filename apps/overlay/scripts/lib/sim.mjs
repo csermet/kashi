@@ -83,6 +83,40 @@ export function wordLitTimes(R, lines) {
   return lit;
 }
 
+/**
+ * Every word activation the renderer makes during straight playback, in
+ * order: [{line, word, g, pos}], `g` the word's index in the whole document
+ * (what the latency marker shows), `pos` the clock position it lights at.
+ * Mirrors main.ts: a new displayed line rebuilds its spans and lights its
+ * active word, if any; within a line, each change of the active word lights.
+ */
+export function wordActivations(R, lines) {
+  const offsets = [];
+  let total = 0;
+  for (const line of lines) {
+    offsets.push(total);
+    total += line.words?.length ?? 0;
+  }
+  const out = [];
+  if (total === 0) return out;
+  const from = Math.min(...lines.map((l) => l.start_ms)) - R.view.LINE_LEAD_IN_MS - 1;
+  const to = Math.max(...lines.map((l) => l.end_ms)) + R.view.INTERLUDE_GAP_MS + 1;
+  let previousLine = -2;
+  let previousWord = -2;
+  for (let pos = from; pos <= to; pos += 1) {
+    const line = R.view.findDisplayLine(lines, pos);
+    const words = line >= 0 ? lines[line].words : undefined;
+    const word = words && words.length > 0 ? R.view.findActiveWord(words, pos) : -1;
+    if (line === previousLine && word === previousWord) continue;
+    if (word >= 0 && (line !== previousLine || word !== previousWord)) {
+      out.push({ line, word, g: offsets[line] + word, pos });
+    }
+    previousLine = line;
+    previousWord = word;
+  }
+  return out;
+}
+
 /** Counts behind the dwell report: words lit for under 120 and 180 ms. */
 export function dwellSummary(litTimes) {
   const all = litTimes.flat();
