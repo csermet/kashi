@@ -144,7 +144,9 @@ sheets, and the LAN mirror for alternates; gates written before each check.
   GOSSIP and Enemy among the 39 songs it was drawn from. Frozen and replayed on 60 fresh archive
   songs (41 English / 11 Turkish / 8 other; stems and ears on the desktop GPU, ~31 s a song): the
   switch rules fired on **0 of 60** and the scale flag on 0. In the separate nightcore group (8) the
-  scale refit fired once and worked (She Doesn't Mind: lines within 1 s 4 of 18 → 18 of 18). A scan
+  scale refit fired once and worked (She Doesn't Mind: lines within 1 s 4 of 18 → 18 of 18; the
+owner, blind on a two-row clip, 2026-11-14: the old document "by far too late", the refit "right
+on" — the old row is the stored document from before the 2026-11-10 per-song repair). A scan
   of 31 more songs found one document with 6 lines where lrclib holds a fitting 55-line record.
 - **What the fresh songs do show:** 3 of 60 documents sit on a sheet that is clearly off (medians
   −20.8 s and −15.2 s, one drifting) with no better record anywhere. About one song in twenty is
