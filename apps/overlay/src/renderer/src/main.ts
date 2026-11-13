@@ -66,6 +66,7 @@ import {
   clampTimingOffset,
   formatTimingOffset,
 } from '../../shared/timing-offset.js';
+import { ClockStats, formatClockStats } from './clock-stats.js';
 import { PositionClock } from './position-clock.js';
 import { SnapClassifier } from './snap-classifier.js';
 import {
@@ -135,10 +136,33 @@ const snapClassifier = new SnapClassifier();
 /** Lyrics dropped on an idle edge, for a re-announce of the same track. */
 const idleStash = new IdleStash<unknown>();
 
-const clock = new PositionClock(undefined, undefined, ({ deltaMs, positionMs }) => {
-  window.kashi.log(`position snapped ${deltaMs}ms with no seek yet (pos ${positionMs}ms)`);
-  snapClassifier.onJump(deltaMs, positionMs, performance.now(), currentKey);
-});
+/**
+ * Report age and clock corrections (clock-stats.ts): one summary line per
+ * track and a running one for the session, logged at track change and idle.
+ */
+const trackClockStats = new ClockStats();
+const sessionClockStats = new ClockStats();
+
+const clock = new PositionClock(
+  undefined,
+  undefined,
+  ({ deltaMs, positionMs }) => {
+    window.kashi.log(`position snapped ${deltaMs}ms with no seek yet (pos ${positionMs}ms)`);
+    snapClassifier.onJump(deltaMs, positionMs, performance.now(), currentKey);
+  },
+  (info) => {
+    trackClockStats.add(info);
+    sessionClockStats.add(info);
+  },
+);
+
+/** Logs the clock-stats lines for the track that just ended; quiet when nothing played. */
+function flushClockStats(): void {
+  if (trackClockStats.empty) return;
+  window.kashi.log(formatClockStats('track', trackClockStats.summary()));
+  window.kashi.log(formatClockStats('session', sessionClockStats.summary()));
+  trackClockStats.clear();
+}
 
 /** Drains the classifier off the render path — never per frame. */
 function reportClassifiedSnaps(): void {
@@ -794,6 +818,7 @@ function clearEnrichment(): void {
 }
 
 function resetToIdle(): void {
+  flushClockStats();
   idleStash.idle(currentKey);
   currentKey = null;
   lines = [];
@@ -823,6 +848,7 @@ window.kashi.onTrack((payload) => {
   adActive = false; // a track announce proves no ad is playing (audit: a lost
   // ad_state=false otherwise blanks every following song forever)
   if (!sameTrack) {
+    flushClockStats(); // the track that just ended
     lines = [];
     searching = false;
     clock.reset();

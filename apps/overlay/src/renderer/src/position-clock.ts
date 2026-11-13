@@ -44,6 +44,24 @@ interface Slew {
   deltaMs: number;
 }
 
+/**
+ * What the clock did with one report (the lead-measurement telemetry,
+ * review step E.1): how old the report was on arrival and how far it sat from
+ * the clock's own estimate. Purely an observation — see PositionClock.
+ */
+export interface ClockReportInfo {
+  /** now - captured_at on arrival, before the 0-5 s clamp (ms; can be < 0). */
+  transportMs: number;
+  /**
+   * anchor: the first report; seek: an explicit seek (snaps regardless);
+   * deadband: |delta| < IGNORE_BELOW_MS, nothing corrected; slew: blended in
+   * over SLEW_DURATION_MS; snap: |delta| > SEEK_SNAP_ABOVE_MS with no seek.
+   */
+  action: 'anchor' | 'seek' | 'deadband' | 'slew' | 'snap';
+  /** The latency-compensated report minus the clock's estimate (ms; 0 for anchor and seek). */
+  deltaMs: number;
+}
+
 export class PositionClock {
   private anchorPositionMs = 0;
   private anchorAtMono = 0;
@@ -62,18 +80,28 @@ export class PositionClock {
      * observer — the clock behaves identically whether anyone listens.
      */
     private readonly onUnexplainedJump?: (info: { deltaMs: number; positionMs: number }) => void,
+    /**
+     * Sees every report and what was done with it (ClockReportInfo). Purely an
+     * observer, like onUnexplainedJump: the clock behaves identically whether
+     * anyone listens.
+     */
+    private readonly onReport?: (info: ClockReportInfo) => void,
   ) {}
 
   /** Feed a position/seek/playback_state report. `isSeek` forces a snap. */
   update(report: PositionReport, isSeek = false): void {
     const mono = this.nowMono();
     const rate = report.playback_rate ?? this.rate;
+    const transportMs = this.nowEpoch() - report.captured_at;
     // Clamp: a snapshot replayed minutes after capture must not catapult the
     // position forward by the whole gap (transport latency is what we model).
-    const latencyMs = Math.min(5000, Math.max(0, this.nowEpoch() - report.captured_at));
+    const latencyMs = Math.min(5000, Math.max(0, transportMs));
     const compensated = report.position_ms + (report.is_playing ? latencyMs * rate : 0);
+    const observe = (action: ClockReportInfo['action'], deltaMs: number): void =>
+      this.onReport?.({ transportMs, action, deltaMs });
 
     if (!this.hasAnchor || isSeek) {
+      observe(this.hasAnchor ? 'seek' : 'anchor', 0);
       this.setAnchor(compensated, mono, rate, report.is_playing);
       return;
     }
@@ -84,20 +112,27 @@ export class PositionClock {
       const current = this.positionAt(mono);
       const delta = compensated - current;
       if (Math.abs(delta) > SEEK_SNAP_ABOVE_MS) {
+        observe('snap', delta);
         this.setAnchor(compensated, mono, rate, report.is_playing);
       } else {
         // Absorb any in-flight slew into the anchor (continuity), then correct.
         this.reAnchorAt(current, mono);
         this.rate = rate;
         this.playing = report.is_playing;
-        if (Math.abs(delta) >= IGNORE_BELOW_MS) this.startSlew(delta, mono);
+        const slews = Math.abs(delta) >= IGNORE_BELOW_MS;
+        observe(slews ? 'slew' : 'deadband', delta);
+        if (slews) this.startSlew(delta, mono);
       }
       return;
     }
 
     const delta = compensated - this.positionAt(mono);
-    if (Math.abs(delta) < IGNORE_BELOW_MS) return;
+    if (Math.abs(delta) < IGNORE_BELOW_MS) {
+      observe('deadband', delta);
+      return;
+    }
     if (Math.abs(delta) <= SEEK_SNAP_ABOVE_MS) {
+      observe('slew', delta);
       // Absorb the in-flight slew's applied portion into the anchor so the
       // estimate stays continuous; the fresh report supersedes its remainder.
       this.reAnchorAt(this.positionAt(mono), mono);
@@ -105,6 +140,7 @@ export class PositionClock {
       return;
     }
     // A jump this large with no seek behind it is worth reporting.
+    observe('snap', delta);
     this.onUnexplainedJump?.({ deltaMs: Math.round(delta), positionMs: report.position_ms });
     this.setAnchor(compensated, mono, rate, report.is_playing); // real seek → snap
   }

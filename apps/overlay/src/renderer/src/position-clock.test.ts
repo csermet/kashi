@@ -4,6 +4,7 @@ import {
   PositionClock,
   SEEK_SNAP_ABOVE_MS,
   SLEW_DURATION_MS,
+  type ClockReportInfo,
 } from './position-clock.js';
 
 /** Deterministic clock pair: mono and epoch advance together. */
@@ -207,5 +208,100 @@ describe('PositionClock', () => {
     // again rather than inheriting the last one's certainty.
     t.clock.reset();
     expect(t.clock.anchored).toBe(false);
+  });
+});
+
+describe('PositionClock report observer (lead telemetry, review E.1)', () => {
+  function observed(startEpoch = 1_000_000) {
+    let now = 0;
+    const seen: ClockReportInfo[] = [];
+    const clock = new PositionClock(
+      () => now,
+      () => startEpoch + now,
+      undefined,
+      (info) => seen.push(info),
+    );
+    return {
+      clock,
+      seen,
+      advance(ms: number) {
+        now += ms;
+      },
+      report(position_ms: number, latencyMs = 0, playing = true) {
+        return { position_ms, playback_rate: 1, is_playing: playing, captured_at: startEpoch + now - latencyMs };
+      },
+    };
+  }
+
+  it('names what the clock did, with the delta exactly on each threshold', () => {
+    const t = observed();
+    t.clock.update(t.report(10_000));
+    t.advance(1000); // estimate 11 000
+    t.clock.update(t.report(11_000 + IGNORE_BELOW_MS - 1)); // 29: ignored
+    t.advance(1000); // estimate 12 000
+    t.clock.update(t.report(12_000 + IGNORE_BELOW_MS)); // 30: slewed
+    t.advance(1000); // the slew has landed: estimate 13 030
+    t.clock.update(t.report(13_030 + SEEK_SNAP_ABOVE_MS)); // 1 500: still a slew
+    t.advance(1000); // estimate 15 530
+    t.clock.update(t.report(15_530 + SEEK_SNAP_ABOVE_MS + 1)); // 1 501: snap
+    t.clock.update(t.report(40_000), true); // an explicit seek
+    expect(t.seen.map((s) => [s.action, Math.round(s.deltaMs)])).toEqual([
+      ['anchor', 0],
+      ['deadband', IGNORE_BELOW_MS - 1],
+      ['slew', IGNORE_BELOW_MS],
+      ['slew', SEEK_SNAP_ABOVE_MS],
+      ['snap', SEEK_SNAP_ABOVE_MS + 1],
+      ['seek', 0],
+    ]);
+  });
+
+  it('reports the transport delay unclamped, the way it arrived', () => {
+    const t = observed();
+    t.clock.update(t.report(10_000, 37));
+    t.clock.update(t.report(10_000, -4));
+    t.clock.update(t.report(10_000, 9000));
+    expect(t.seen.map((s) => s.transportMs)).toEqual([37, -4, 9000]);
+  });
+
+  it('classifies a play-state change by the correction it makes', () => {
+    const t = observed();
+    t.clock.update(t.report(10_000));
+    t.advance(500); // estimate 10 500
+    t.clock.update(t.report(10_510, 0, false)); // pause, 10 ms off: ignored, frozen at 10 500
+    t.clock.update(t.report(10_600, 0, true)); // resume, 100 ms off: slewed
+    expect(t.seen.slice(1).map((s) => [s.action, Math.round(s.deltaMs)])).toEqual([
+      ['deadband', 10],
+      ['slew', 100],
+    ]);
+  });
+
+  it('is only an observer: positions are identical with and without it', () => {
+    // Seeded walk over reports that sit exactly on every threshold.
+    let seed = 20261113;
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed / 2 ** 31;
+    };
+    const plain = makeClock();
+    const watched = observed();
+    const offsets = [0, 29, 30, 31, 1499, 1500, 1501, -30, -1500, -1501, 4999, 5000, 5001];
+    let position = 10_000;
+    for (let step = 0; step < 400; step += 1) {
+      const dt = Math.floor(random() * 400);
+      plain.advance(dt);
+      watched.advance(dt);
+      position += dt;
+      const off = offsets[Math.floor(random() * offsets.length)] ?? 0;
+      const latency = offsets[Math.floor(random() * offsets.length)] ?? 0;
+      const playing = random() < 0.9;
+      const seek = random() < 0.05;
+      const base = { position_ms: position + off, playback_rate: 1, is_playing: playing };
+      plain.clock.update({ ...base, captured_at: plain.epoch() - latency }, seek);
+      watched.clock.update({ ...base, captured_at: 1_000_000 + plain.now - latency }, seek);
+      for (const probe of [0, 17, 250]) {
+        expect(watched.clock.positionAt(plain.now + probe)).toBe(plain.clock.positionAt(plain.now + probe));
+      }
+    }
+    expect(watched.seen).toHaveLength(400);
   });
 });
