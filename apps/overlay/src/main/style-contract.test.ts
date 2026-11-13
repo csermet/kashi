@@ -382,3 +382,64 @@ describe('style contract: the fx-fired hold (Faz 9, field report 2026-08-12)', (
     expect(strays).toEqual([]);
   });
 });
+
+describe('style contract: the two fill dialects sweep alike (held-note sweep, 2026-11-13)', () => {
+  /** The rule body whose selector list names `selector` exactly. */
+  function ruleBody(selector: string): string {
+    const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const hit = noComments.split('}').find((block) =>
+      (block.split('{')[0] ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .includes(selector),
+    );
+    return (hit?.split('{')[1] ?? '').replace(/\s+/g, ' ');
+  }
+  /** The gradient's arguments, split on top-level commas. */
+  function stops(body: string): string[] {
+    const inner = /background-image: linear-gradient\((.*)\);/.exec(body)?.[1] ?? '';
+    const parts: string[] = [];
+    let depth = 0;
+    let current = '';
+    for (const ch of inner) {
+      if (ch === '(') depth += 1;
+      if (ch === ')') depth -= 1;
+      if (ch === ',' && depth === 0) {
+        parts.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    parts.push(current.trim());
+    return parts;
+  }
+  const levels = ['fx-simple', 'fx-full', 'fx-hype'];
+
+  it('both dialects exist at every sweeping level', () => {
+    for (const level of levels) {
+      expect(stops(ruleBody(`body.${level} .word-fill`))).toHaveLength(3);
+      expect(stops(ruleBody(`body.${level}.fill-neutral .word-fill`))).toHaveLength(3);
+    }
+  });
+
+  it('the sweep head and its boundary are the same in both: only the tail tone differs', () => {
+    // A held note sweeps through --kashi-fill like every other sweep; the
+    // dialect may only change what the UNSUNG part rests on. A head or a
+    // boundary edited in one dialect alone makes the two sweep apart.
+    const boundary = (stop: string | undefined) => stop?.slice(stop.lastIndexOf(' calc('));
+    for (const level of levels) {
+      const themed = stops(ruleBody(`body.${level} .word-fill`));
+      const neutral = stops(ruleBody(`body.${level}.fill-neutral .word-fill`));
+      expect(themed[0]).toBe('90deg');
+      expect(neutral[0]).toBe('90deg');
+      expect(themed[1]).toBe(
+        'var(--fx-color, var(--kashi-primary, #fff)) calc(var(--kashi-fill, 0) * 100%)',
+      );
+      expect(neutral[1]).toBe(themed[1]);
+      expect(boundary(themed[2])).toBe(' calc(var(--kashi-fill, 0) * 100%)');
+      expect(boundary(neutral[2])).toBe(boundary(themed[2]));
+      expect(neutral[2]).not.toBe(themed[2]);
+    }
+  });
+});

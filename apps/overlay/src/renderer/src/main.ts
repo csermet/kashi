@@ -29,12 +29,15 @@ import {
   computeFxTintVars,
   FX_BASE_COLORS,
   fillProgress,
+  lineFinalDwellMs,
   resolveFxProfile,
   inRampSection,
   isNightcore,
   paletteToCssVars,
-  planFillsByLineIdentity,
-  planWordFills,
+  planLineFills,
+  planLineFillsByIdentity,
+  planSweepSpans,
+  type LineFillPlan,
   quantizedEnergy,
   type BeatFrame,
   type BeatsLike,
@@ -462,6 +465,8 @@ function clearWordSpans(): void {
 let fillRunStart = -1;
 let fillActiveIndex = -1;
 let fillPlan: boolean[] = [];
+/** What each planned word sweeps over: its own span, or a held note's longer one. */
+let sweepSpans: { start_ms: number; end_ms: number }[] = [];
 
 function clearRunFill(): void {
   if (fillRunStart < 0) return;
@@ -532,28 +537,40 @@ function updateWordFill(words: readonly WordTiming[], index: number, pos: number
     filling?.classList.add('word-fill');
     reportFirstFill(filling);
   }
-  wordSpans[index]?.style.setProperty('--kashi-fill', fillProgress(word, pos).toFixed(3));
+  wordSpans[index]?.style.setProperty(
+    '--kashi-fill',
+    fillProgress(sweepSpans[index] ?? word, pos).toFixed(3),
+  );
 }
 
 /** One plan per distinct line text; rebuilt when the document or level changes. */
-let sharedFillPlans: (boolean[] | undefined)[] = [];
+let sharedFillPlans: (LineFillPlan | undefined)[] = [];
 
 function rebuildFillPlans(): void {
-  sharedFillPlans = planFillsByLineIdentity(lines, effectLevel);
+  sharedFillPlans = planLineFillsByIdentity(lines, effectLevel);
   // Report how many lines the identity rule actually CORRECTED. Without this
   // the mechanism is invisible: a repeated line looking consistent proves
   // nothing on its own, since it may simply have measured consistently
-  // (2026-08-13 — a field check stalled for exactly this reason).
+  // (2026-08-13 — a field check stalled for exactly this reason). The held
+  // notes are counted for the same reason.
   let corrected = 0;
+  let held = 0;
   for (const [index, plan] of sharedFillPlans.entries()) {
     const words = lines[index]?.words;
     if (!plan || !words || words.length === 0) continue;
-    const own = planWordFills(words, lines[index]?.adlib === true, effectLevel);
-    if (own.join() !== plan.join()) corrected += 1;
+    const own = planLineFills(
+      words,
+      lines[index]?.adlib === true,
+      effectLevel,
+      lineFinalDwellMs(lines, index),
+    );
+    if (own.sweep.join() !== plan.sweep.join()) corrected += 1;
+    held += plan.held.filter(Boolean).length;
   }
   if (sharedFillPlans.length > 0) {
     window.kashi.log(
-      `fill plan: ${corrected}/${sharedFillPlans.length} line(s) took their group's shared sweep pattern`,
+      `fill plan: ${corrected}/${sharedFillPlans.length} line(s) took their group's shared sweep pattern, ` +
+        `${held} held note(s) sweep`,
     );
   }
 }
@@ -570,10 +587,14 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
   // durations: a repeated chorus must not change its look pass to pass just
   // because the aligner measured the same word 273 ms one time and 1092 ms
   // the next (field report 2026-08-13). The per-instance call remains the
-  // fallback for a line that belongs to no group.
-  fillPlan =
+  // fallback for a line that belongs to no group. The SPAN each word sweeps
+  // over is this instance's own (a held note's runs past its measured end).
+  const finalDwell = lineFinalDwellMs(lines, lineIndex);
+  const plan =
     sharedFillPlans[lineIndex] ??
-    planWordFills(words, lines[lineIndex]?.adlib === true, effectLevel);
+    planLineFills(words, lines[lineIndex]?.adlib === true, effectLevel, finalDwell);
+  fillPlan = plan.sweep;
+  sweepSpans = planSweepSpans(words, plan.held, finalDwell);
   const fxHits = fxIndex.get(lineIndex) ?? [];
   // The halo's colour is NOT chosen here: ambientColors() takes the line's
   // primary hit itself, so a two-category line cannot repaint it mid-line.

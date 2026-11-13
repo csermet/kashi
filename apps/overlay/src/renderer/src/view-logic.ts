@@ -265,6 +265,32 @@ export function findActiveWord(words: readonly WordTiming[], pos: number): numbe
   return lastStartedAt(words, pos);
 }
 
+/**
+ * When line `index + 1` takes the display over from line `index`, searching
+ * from `fromMs` (a position at which `index` is on screen) — or undefined when
+ * the line gives way to the interlude mark, is the last line, or is not on
+ * screen at `fromMs`. Found with findDisplayLine itself, so it follows the
+ * display rules (held gaps, the lead-in borrowed from silence) instead of
+ * restating them. Integer positions: every boundary those rules use is one.
+ */
+export function nextLineTakeoverMs(
+  lines: readonly LineSpan[],
+  index: number,
+  fromMs: number,
+): number | undefined {
+  const next = lines[index + 1];
+  if (!next || findDisplayLine(lines, fromMs) !== index) return undefined;
+  let lo = fromMs; // on screen
+  let hi = Math.max(fromMs + 1, next.start_ms); // the next line covers here
+  if (findDisplayLine(lines, hi) === index) return undefined;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (findDisplayLine(lines, mid) === index) lo = mid;
+    else hi = mid;
+  }
+  return findDisplayLine(lines, hi) === index + 1 ? hi : undefined;
+}
+
 // 60 s, not 10 s (field bug, Caner 2026-07-24): a big SEEK stalls YTM's MSE
 // buffer with `paused=false`, so the clock reads "playing" while timeupdate
 // goes silent — at 10 s the watchdog mistook the buffer for a dead source and

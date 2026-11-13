@@ -128,6 +128,19 @@ try {
   server.close();
 }
 
+// Twin runs: the same document and times under settings that may only change
+// paint (the two fill dialects) must reach the same DOM state, frame by frame.
+for (const [a, b] of spec.twins ?? []) {
+  const left = actual.runs[a];
+  const right = actual.runs[b];
+  if (!left || !right) continue;
+  left.frames.forEach((frame, i) => {
+    if (JSON.stringify(frame) !== JSON.stringify(right.frames[i])) {
+      fail(`twins ${a} / ${b} @${frame.pos}: DOM state differs`);
+    }
+  });
+}
+
 // ---- compare or write
 if (args.update) {
   const pngDir = join(GOLDEN, 'png');

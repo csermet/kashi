@@ -14,9 +14,19 @@ export function simContext(R, lines, level, fx) {
   return {
     lines,
     level,
-    plans: R.effects.planFillsByLineIdentity(lines, level),
+    plans: R.effects.planLineFillsByIdentity(lines, level),
     fxIndex: level === 'hype' ? R.effects.buildFxIndex(fx, lines) : new Map(),
   };
+}
+
+/** A line's sweep plan and the span each word sweeps over, as main.ts builds them. */
+export function linePlan(R, ctx, lineIndex) {
+  const { lines, level, plans } = ctx;
+  const line = lines[lineIndex];
+  const words = line?.words ?? [];
+  const finalDwell = R.effects.lineFinalDwellMs(lines, lineIndex);
+  const plan = plans[lineIndex] ?? R.effects.planLineFills(words, line?.adlib === true, level, finalDwell);
+  return { ...plan, spans: R.effects.planSweepSpans(words, plan.held, finalDwell) };
 }
 
 /**
@@ -24,7 +34,7 @@ export function simContext(R, lines, level, fx) {
  * `fx_fired` assumes forward play through every word, as during playback.
  */
 export function simulateAt(R, ctx, pos) {
-  const { lines, level, plans, fxIndex } = ctx;
+  const { lines, fxIndex } = ctx;
   const lineIndex = lines.length > 0 ? R.view.findDisplayLine(lines, pos) : -1;
   const line = lineIndex >= 0 ? lines[lineIndex] : undefined;
   const words = line?.words ?? [];
@@ -33,12 +43,12 @@ export function simulateAt(R, ctx, pos) {
   const active = R.view.findActiveWord(words, pos);
   state.active = active;
   state.sung = words.map((_, i) => i).filter((i) => i < active);
-  const plan = plans[lineIndex] ?? R.effects.planWordFills(words, line.adlib === true, level);
-  if (active >= 0 && plan[active]) {
+  const { sweep, spans } = linePlan(R, ctx, lineIndex);
+  if (active >= 0 && sweep[active]) {
     let runStart = active;
-    while (runStart > 0 && plan[runStart - 1]) runStart -= 1;
+    while (runStart > 0 && sweep[runStart - 1]) runStart -= 1;
     for (let i = runStart; i < active; i += 1) state.fill[i] = 1;
-    state.fill[active] = Number(R.effects.fillProgress(words[active], pos).toFixed(3));
+    state.fill[active] = Number(R.effects.fillProgress(spans[active], pos).toFixed(3));
   }
   for (const hit of fxIndex.get(lineIndex) ?? []) {
     const w = words[hit.word];

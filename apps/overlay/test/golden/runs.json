@@ -1,5 +1,6 @@
 {
-  "comment": "Golden-frame runs (scripts/golden-frames.mjs). Times are DOCUMENT positions (what the renderer's clock reads after the lead); the harness seeks the player to time - lead. png lists the times that also keep a picture. Documents are synthetic: invented words, no lyrics.",
+  "comment": "Golden-frame runs (scripts/golden-frames.mjs). Times are DOCUMENT positions (what the renderer's clock reads after the lead); the harness seeks the player to time - lead. png lists the times that also keep a picture. Documents are synthetic: invented words, no lyrics. twins: runs whose DOM state must be identical frame by frame (settings that may only change paint).",
+  "twins": [["b-held-hype-themed", "b-held-hype-neutral"]],
   "runs": [
     {
       "name": "a-basic-hype",
@@ -12,15 +13,15 @@
       "name": "b-held-hype-themed",
       "doc": "docs/b-held.json",
       "settings": { "effect_level": "hype", "fill_style": "themed" },
-      "times": [900, 1450, 2200, 3100, 3200, 4000, 5700, 6299, 7100, 8450, 9300, 10000, 12000, 13500, 15300, 17400, 17850, 18500, 20600, 2201],
-      "png": [2200, 9300, 12000]
+      "times": [900, 1450, 2200, 3100, 3200, 4000, 5700, 6299, 7100, 8450, 9300, 10000, 12000, 13500, 15300, 17400, 17850, 18500, 20600, 23400, 24400, 24600, 2201],
+      "png": [2200, 9300, 12000, 23400]
     },
     {
       "name": "b-held-hype-neutral",
       "doc": "docs/b-held.json",
       "settings": { "effect_level": "hype", "fill_style": "neutral" },
-      "times": [900, 1450, 2200, 3100, 3200, 4000, 5700, 6299, 7100, 8450, 9300, 10000, 12000, 13500, 15300, 17400, 17850, 18500, 20600, 2201],
-      "png": [2200, 9300, 12000]
+      "times": [900, 1450, 2200, 3100, 3200, 4000, 5700, 6299, 7100, 8450, 9300, 10000, 12000, 13500, 15300, 17400, 17850, 18500, 20600, 23400, 24400, 24600, 2201],
+      "png": [2200, 9300, 12000, 23400]
     },
     {
       "name": "c-fx-hype",

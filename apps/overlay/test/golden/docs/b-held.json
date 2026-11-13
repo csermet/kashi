@@ -192,6 +192,45 @@
           "text": "hanaa"
         }
       ]
+    },
+    {
+      "start_ms": 22000,
+      "end_ms": 22900,
+      "text": "suma teli roo",
+      "words": [
+        {
+          "start_ms": 22000,
+          "end_ms": 22300,
+          "text": "suma"
+        },
+        {
+          "start_ms": 22300,
+          "end_ms": 22600,
+          "text": "teli"
+        },
+        {
+          "start_ms": 22600,
+          "end_ms": 22900,
+          "text": "roo"
+        }
+      ]
+    },
+    {
+      "start_ms": 25000,
+      "end_ms": 26000,
+      "text": "vaki nemo",
+      "words": [
+        {
+          "start_ms": 25000,
+          "end_ms": 25400,
+          "text": "vaki"
+        },
+        {
+          "start_ms": 25400,
+          "end_ms": 26000,
+          "text": "nemo"
+        }
+      ]
     }
   ],
   "palette": {

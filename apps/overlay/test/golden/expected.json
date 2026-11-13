@@ -210,8 +210,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.500"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -226,8 +230,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -407,8 +415,12 @@
       0,
       1
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -424,8 +436,12 @@
       0,
       1
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -593,8 +609,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -648,8 +668,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.208"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -664,8 +688,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -715,6 +743,62 @@
      "box_classes": []
     },
     {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.526"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": []
+    },
+    {
+     "pos": 24400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": []
+    },
+    {
+     "pos": 24600,
+     "visible": true,
+     "text": "vaki nemo",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": []
+    },
+    {
      "pos": 2201,
      "visible": true,
      "text": "anu belo kasira diro venta",
@@ -723,8 +807,12 @@
       0,
       1
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.470"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -735,7 +823,8 @@
    "png": [
     "b-held-hype-themed-2200.png",
     "b-held-hype-themed-9300.png",
-    "b-held-hype-themed-12000.png"
+    "b-held-hype-themed-12000.png",
+    "b-held-hype-themed-23400.png"
    ]
   },
   "b-held-hype-neutral": {
@@ -784,8 +873,12 @@
       0,
       1
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -801,8 +894,12 @@
       0,
       1
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -970,8 +1067,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -1025,8 +1126,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.208"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -1041,8 +1146,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -1092,6 +1201,62 @@
      "box_classes": []
     },
     {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.526"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": []
+    },
+    {
+     "pos": 24400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": []
+    },
+    {
+     "pos": 24600,
+     "visible": true,
+     "text": "vaki nemo",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": []
+    },
+    {
      "pos": 2201,
      "visible": true,
      "text": "anu belo kasira diro venta",
@@ -1100,8 +1265,12 @@
       0,
       1
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.470"
+     },
      "fx_fired": null,
      "line_classes": [
       "line-in"
@@ -1112,7 +1281,8 @@
    "png": [
     "b-held-hype-neutral-2200.png",
     "b-held-hype-neutral-9300.png",
-    "b-held-hype-neutral-12000.png"
+    "b-held-hype-neutral-12000.png",
+    "b-held-hype-neutral-23400.png"
    ]
   },
   "c-fx-hype": {
@@ -1339,8 +1509,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.100"
+     },
      "fx_fired": 1,
      "line_classes": [
       "line-in"
@@ -1358,8 +1532,12 @@
      "sung": [
       0
      ],
-     "word_fill": [],
-     "fill": {},
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.600"
+     },
      "fx_fired": 1,
      "line_classes": [
       "line-in"
@@ -1548,7 +1726,7 @@
   },
   "b-held": {
    "summary": {
-    "words": 25,
+    "words": 30,
     "never_lit": 0,
     "lit_lt_120": 0,
     "lit_lt_180": 0,
@@ -1592,7 +1770,16 @@
     ],
     [
      300,
-     6701
+     1700
+    ],
+    [
+     300,
+     300,
+     1900
+    ],
+    [
+     400,
+     5601
     ]
    ]
   },

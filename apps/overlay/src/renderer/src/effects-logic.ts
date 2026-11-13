@@ -4,6 +4,7 @@
  * class/variable writes live in main.ts.
  */
 import type { EffectLevel, ThemeScope } from '../../shared/effect-level.js';
+import { nextLineTakeoverMs } from './view-logic.js';
 import {
   NEUTRAL_BG_TRIPLET,
   bestHueDonor,
@@ -196,35 +197,210 @@ export const FILL_MIN_WORD_DURATION_MS = 800;
 export const FILL_MIN_RUN = 2;
 
 /**
+ * Held-note sweep (client review step E.2, 2026-11-13). The owner asked for a
+ * slow left-to-right sweep on a held note. The rules above sweep a held word
+ * only at the line end or in a run, and they judge "held" by the word's
+ * measured duration, which the aligner often collapses: a sung ~1.4 s "aah"
+ * came back as 636 ms. This rule judges by DWELL instead — how long the
+ * renderer keeps the word lit, which is until the next word starts — and only
+ * for a word the rules above leave popping:
+ *
+ *   dwell >= max(minDwellMs, lineMedianFactor x median dwell of the line's
+ *                OTHER non-final words)
+ *
+ * and sweeps it over [start, max(end, start + spanDwellFraction x dwell)], so
+ * a collapsed duration cannot turn the sweep into a flash.
+ *
+ * Details the review left open, decided here:
+ *   - the median leaves the word itself out. With it in, a line of two or
+ *     three words can never qualify (D >= 2.5 x mean(D, d) has no solution) —
+ *     an exclusion nobody chose. A line with no other dwell has the floor only;
+ *   - back-to-back repeats keep their single answer (unanimity, 2026-08-13):
+ *     a repeat takes the held sweep only when every member qualifies;
+ *   - `lineFinal`: the review names non-final words. The owner's own example
+ *     is a line-final word whose duration collapsed, so the same test also
+ *     applies to a line-final word that does not sweep today, its dwell
+ *     running until the next line takes the display over — never into an
+ *     interlude or the outro hold, which have no next word. One flag turns
+ *     that part off;
+ *   - `maxDwellMs`: a dwell past 5 s is no held note but a hole in the
+ *     document (a word left lit across a break). Over the 306 live documents
+ *     (2026-11-13), sweeps on dwells above 5 s sat on silence (voiced share of
+ *     the extension 0.00-0.03 against 0.69-1.00 below), and a 16-25 s crawl
+ *     would assert a duration nobody sings; such a word keeps popping.
+ */
+export const HELD_NOTE_SWEEP = {
+  minDwellMs: 1000,
+  maxDwellMs: 5000,
+  lineMedianFactor: 2.5,
+  spanDwellFraction: 0.8,
+  lineFinal: true,
+} as const;
+
+interface TimedWord {
+  start_ms: number;
+  end_ms: number;
+  text?: string;
+}
+
+interface LineWithWords {
+  start_ms: number;
+  end_ms: number;
+  words?: readonly TimedWord[];
+}
+
+/** Which words of a line sweep, and which of those are held notes. */
+export interface LineFillPlan {
+  /** Every word that sweeps: ad-lib, line-end hold, runs, held notes. */
+  sweep: boolean[];
+  /** The held notes among them: they sweep over the longer dwell span. */
+  held: boolean[];
+}
+
+/**
  * Which words of the ACTIVE line sweep (field feedback 2026-07-12: per-word
  * alternation between sweep and pop reads as random). Line-level plan:
  *   - ad-lib line → every word sweeps (one coherent gesture);
  *   - otherwise a sustained LAST word sweeps (line-end hold), and mid-line
- *     sustained words sweep only as a consecutive run of >= FILL_MIN_RUN —
- *     an isolated long word mid-line pops like its neighbours.
- * Computed once per line (span build time), not per frame.
+ *     sustained words sweep only as a consecutive run of >= FILL_MIN_RUN;
+ *   - a word those rules leave popping sweeps when its dwell makes it a held
+ *     note (HELD_NOTE_SWEEP).
+ * `finalDwellMs` is the last word's dwell (lineFinalDwellMs), absent when
+ * nothing follows it on screen. Computed once per line, not per frame.
  */
+export function planLineFills(
+  words: readonly TimedWord[],
+  lineAdlib: boolean,
+  level: EffectLevel,
+  finalDwellMs?: number,
+): LineFillPlan {
+  if (level === 'off' || words.length === 0) {
+    return { sweep: words.map(() => false), held: words.map(() => false) };
+  }
+  if (lineAdlib) return { sweep: words.map(() => true), held: words.map(() => false) };
+  const longEnough = (i: number): boolean => {
+    const word = words[i];
+    return word !== undefined && word.end_ms - word.start_ms >= FILL_MIN_WORD_DURATION_MS;
+  };
+  const sustained = words.map((_, i) => longEnough(i));
+  unifyRepeats(words, sustained, longEnough);
+  const runs = sweepRuns(sustained);
+  const held = heldNotes(words, runs, finalDwellMs);
+  return { sweep: runs.map((swept, i) => swept || held[i] === true), held };
+}
+
+/** The sweep plan alone: planLineFills().sweep. */
+export function planWordFills(
+  words: readonly TimedWord[],
+  lineAdlib: boolean,
+  level: EffectLevel,
+  finalDwellMs?: number,
+): boolean[] {
+  return planLineFills(words, lineAdlib, level, finalDwellMs).sweep;
+}
+
+/**
+ * How long the renderer keeps each word lit: until the next word starts. The
+ * last word's comes from the caller (`finalDwellMs`), or null.
+ */
+export function wordDwells(words: readonly TimedWord[], finalDwellMs?: number): (number | null)[] {
+  return words.map((word, i) => {
+    const next = words[i + 1];
+    if (next) return next.start_ms - word.start_ms;
+    return finalDwellMs ?? null;
+  });
+}
+
+/**
+ * The line-final word's dwell: from its start until the next line takes the
+ * display over. Undefined when the line gives way to the interlude mark or to
+ * the outro hold (no next word), or has no words.
+ */
+export function lineFinalDwellMs(
+  lines: readonly LineWithWords[],
+  index: number,
+): number | undefined {
+  const words = lines[index]?.words;
+  const last = words?.[words.length - 1];
+  if (!last) return undefined;
+  const takeover = nextLineTakeoverMs(lines, index, last.start_ms);
+  return takeover === undefined ? undefined : takeover - last.start_ms;
+}
+
+/** Middle value (mean of the two middle ones for an even count); null when empty. */
+function medianOf(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle] as number;
+  return ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
+}
+
+/** The held notes among the words `runs` leaves popping (HELD_NOTE_SWEEP). */
+function heldNotes(
+  words: readonly TimedWord[],
+  runs: readonly boolean[],
+  finalDwellMs: number | undefined,
+): boolean[] {
+  const dwells = wordDwells(words, finalDwellMs);
+  const last = words.length - 1;
+  const inner = dwells.slice(0, last) as number[];
+  const qualifies = (i: number): boolean => {
+    if (runs[i] === true) return false;
+    if (i === last && !HELD_NOTE_SWEEP.lineFinal) return false;
+    const dwell = dwells[i];
+    if (dwell === null || dwell === undefined || dwell > HELD_NOTE_SWEEP.maxDwellMs) return false;
+    const typical = medianOf(inner.filter((_, j) => j !== i));
+    const threshold = Math.max(
+      HELD_NOTE_SWEEP.minDwellMs,
+      typical === null ? 0 : HELD_NOTE_SWEEP.lineMedianFactor * typical,
+    );
+    return dwell >= threshold;
+  };
+  const held = words.map((_, i) => qualifies(i));
+  unifyRepeats(words, held, qualifies);
+  return held;
+}
+
+/**
+ * The span each word's sweep runs over: its own [start, end], or for a held
+ * note [start, max(end, start + spanDwellFraction x dwell)]. A pass whose own
+ * dwell is past maxDwellMs keeps its own span even when its line's group
+ * holds the note: the group decides the look, never a 20 s crawl.
+ */
+export function planSweepSpans(
+  words: readonly TimedWord[],
+  held: readonly boolean[],
+  finalDwellMs?: number,
+): { start_ms: number; end_ms: number }[] {
+  const dwells = wordDwells(words, finalDwellMs);
+  return words.map((word, i) => {
+    const dwell = dwells[i];
+    if (
+      held[i] !== true ||
+      dwell === null ||
+      dwell === undefined ||
+      dwell > HELD_NOTE_SWEEP.maxDwellMs
+    ) {
+      return { start_ms: word.start_ms, end_ms: word.end_ms };
+    }
+    return {
+      start_ms: word.start_ms,
+      end_ms: Math.max(word.end_ms, word.start_ms + HELD_NOTE_SWEEP.spanDwellFraction * dwell),
+    };
+  });
+}
+
 /** Letters only, so "music", "(music," and "music)" are one word repeated. */
 function repeatKey(text: string | undefined): string {
   return (text ?? '').toLowerCase().replace(/[^\p{L}]/gu, '');
 }
 
-export function planWordFills(
-  words: readonly { start_ms: number; end_ms: number; text?: string }[],
-  lineAdlib: boolean,
-  level: EffectLevel,
-): boolean[] {
-  if (level === 'off' || words.length === 0) return words.map(() => false);
-  if (lineAdlib) return words.map(() => true);
-  const sustained = words.map((w) => w.end_ms - w.start_ms >= FILL_MIN_WORD_DURATION_MS);
-  unifyRepeats(words, sustained);
-  return sweepRuns(sustained);
-}
-
 /** Give every back-to-back repeat of one word a single answer, in place. */
 function unifyRepeats(
-  words: readonly { start_ms: number; end_ms: number; text?: string }[],
-  sustained: boolean[],
+  words: readonly TimedWord[],
+  flags: boolean[],
+  qualifies: (index: number) => boolean,
 ): void {
   // A word REPEATED back to back is one gesture, so it gets one answer (field
   // report 2026-08-13, Rihanna "(music, music, music, music)"): five identical
@@ -244,11 +420,10 @@ function unifyRepeats(
       // A pop asserts nothing. When one member of a repeat came back short, the
       // run's timing is the thing in doubt, and the whole run should decline to
       // make a claim about it. "The run is only as trustworthy as its weakest
-      // measurement."
-      const together = words
-        .slice(start, end + 1)
-        .every((w) => w.end_ms - w.start_ms >= FILL_MIN_WORD_DURATION_MS);
-      for (let i = start; i <= end; i += 1) sustained[i] = together;
+      // measurement." The held-note rule takes the same answer.
+      let together = true;
+      for (let i = start; i <= end; i += 1) together = together && qualifies(i);
+      for (let i = start; i <= end; i += 1) flags[i] = together;
     }
     start = end + 1;
   }
@@ -760,15 +935,15 @@ export function computeFxTintVars(
  *
  * Groups that disagree on word COUNT are left alone: same text with a
  * different number of words means the lines are not really the same line.
+ *
+ * Held notes (HELD_NOTE_SWEEP) are decided the same way, from the group's
+ * median dwell of each word and of its line-final word; each pass still
+ * sweeps over its own measured span (planSweepSpans).
  */
-export function planFillsByLineIdentity(
-  lines: readonly {
-    text: string;
-    adlib?: boolean;
-    words?: readonly { start_ms: number; end_ms: number; text?: string }[];
-  }[],
+export function planLineFillsByIdentity(
+  lines: readonly IdentityLine[],
   level: EffectLevel,
-): (boolean[] | undefined)[] {
+): (LineFillPlan | undefined)[] {
   const groups = new Map<string, number[]>();
   for (const [index, line] of lines.entries()) {
     if (!line.words || line.words.length === 0) continue;
@@ -778,29 +953,62 @@ export function planFillsByLineIdentity(
     else groups.set(key, [index]);
   }
 
-  const plans: (boolean[] | undefined)[] = lines.map(() => undefined);
+  const finals = finalDwells(lines);
+  const plans: (LineFillPlan | undefined)[] = lines.map(() => undefined);
   for (const indices of groups.values()) {
     const first = lines[indices[0] as number];
     const words = first?.words;
     if (!words) continue;
+    const acrossGroup = (pick: (lineIndex: number) => number | null | undefined): number | null =>
+      medianOf(indices.map(pick).filter((value): value is number => typeof value === 'number'));
+    // A synthetic line carrying the medians: planLineFills reads durations
+    // (end - start) and dwells (next start - start), and nothing else.
+    let start = 0;
     const typical = words.map((_, wordIndex) => {
-      const spans = indices
-        .map((lineIndex) => {
+      const duration =
+        acrossGroup((lineIndex) => {
           const word = lines[lineIndex]?.words?.[wordIndex];
           return word ? word.end_ms - word.start_ms : null;
-        })
-        .filter((span): span is number => span !== null)
-        .sort((a, b) => a - b);
-      const middle = Math.floor(spans.length / 2);
-      let median = 0;
-      if (spans.length % 2 === 1) median = spans[middle] as number;
-      else if (spans.length > 0) median = ((spans[middle - 1] as number) + (spans[middle] as number)) / 2;
-      // planWordFills only ever reads end-start, so a synthetic span carrying
-      // the median is the whole input it needs.
-      return { start_ms: 0, end_ms: median, text: words[wordIndex]?.text };
+        }) ?? 0;
+      const word = { start_ms: start, end_ms: start + duration, text: words[wordIndex]?.text };
+      const dwell = acrossGroup((lineIndex) => {
+        const own = lines[lineIndex]?.words;
+        const word = own?.[wordIndex];
+        const next = own?.[wordIndex + 1];
+        return word && next ? next.start_ms - word.start_ms : null;
+      });
+      start += dwell ?? 0;
+      return word;
     });
-    const shared = planWordFills(typical, first?.adlib === true, level);
+    const finalDwell = acrossGroup((lineIndex) => finals[lineIndex]) ?? undefined;
+    const shared = planLineFills(typical, first?.adlib === true, level, finalDwell);
     for (const lineIndex of indices) plans[lineIndex] = shared;
   }
   return plans;
+}
+
+/** The sweep plans alone: planLineFillsByIdentity().sweep per line. */
+export function planFillsByLineIdentity(
+  lines: readonly IdentityLine[],
+  level: EffectLevel,
+): (boolean[] | undefined)[] {
+  return planLineFillsByIdentity(lines, level).map((plan) => plan?.sweep);
+}
+
+interface IdentityLine {
+  text: string;
+  adlib?: boolean;
+  /** Line spans let the line-final word's dwell be measured (lineFinalDwellMs). */
+  start_ms?: number;
+  end_ms?: number;
+  words?: readonly TimedWord[];
+}
+
+/** Every line's line-final dwell, when the lines carry their spans. */
+function finalDwells(lines: readonly IdentityLine[]): (number | undefined)[] {
+  const spanned = lines.every(
+    (line) => typeof line.start_ms === 'number' && typeof line.end_ms === 'number',
+  );
+  if (!spanned) return lines.map(() => undefined);
+  return lines.map((_, index) => lineFinalDwellMs(lines as readonly LineWithWords[], index));
 }

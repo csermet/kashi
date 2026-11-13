@@ -8,6 +8,7 @@ import {
   deriveView,
   findActiveWord,
   findDisplayLine,
+  nextLineTakeoverMs,
   popScaleCap,
   shouldAnimateLineChange,
   viewsEqual,
@@ -320,6 +321,40 @@ describe('findDisplayLine', () => {
 
   it('handles empty input', () => {
     expect(findDisplayLine([], 1000)).toBe(-1);
+  });
+});
+
+describe('nextLineTakeoverMs', () => {
+  const lines = [
+    { start_ms: 1000, end_ms: 4000 }, // line 0
+    { start_ms: 5000, end_ms: 8000 }, // line 1 (1 s gap: held, 500 ms lead-in)
+    { start_ms: 30_000, end_ms: 33_000 }, // line 2 (22 s break: interlude)
+  ];
+
+  it('is the first position findDisplayLine shows the next line', () => {
+    expect(nextLineTakeoverMs(lines, 0, 3000)).toBe(4500);
+    expect(findDisplayLine(lines, 4499)).toBe(0);
+    expect(findDisplayLine(lines, 4500)).toBe(1);
+  });
+
+  it('follows the lead-in down to its minimum, and drops it below that', () => {
+    const at = (gap: number) => [
+      { start_ms: 1000, end_ms: 4000 },
+      { start_ms: 4000 + gap, end_ms: 8000 },
+    ];
+    expect(nextLineTakeoverMs(at(300), 0, 3000)).toBe(4000); // lead = the 300 ms gap
+    expect(nextLineTakeoverMs(at(120), 0, 3000)).toBe(4000); // exactly the minimum lead
+    expect(nextLineTakeoverMs(at(119), 0, 3000)).toBe(4119); // too short: on its start
+    expect(nextLineTakeoverMs(at(0), 0, 3000)).toBe(4000); // back to back
+  });
+
+  it('is undefined where the interlude mark or the outro hold follows', () => {
+    expect(nextLineTakeoverMs(lines, 1, 7000)).toBeUndefined();
+    expect(nextLineTakeoverMs(lines, 2, 32_000)).toBeUndefined();
+  });
+
+  it('is undefined when the line is not on screen at the start position', () => {
+    expect(nextLineTakeoverMs(lines, 1, 1000)).toBeUndefined();
   });
 });
 

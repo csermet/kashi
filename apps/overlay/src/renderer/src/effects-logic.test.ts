@@ -33,10 +33,16 @@ import {
   quantizedEnergy,
   contrastRatio,
   fillProgress,
+  HELD_NOTE_SWEEP,
+  lineFinalDwellMs,
   paletteToCssVars,
+  planLineFills,
+  planLineFillsByIdentity,
+  planSweepSpans,
   planWordFills,
   relativeLuminance,
   planFillsByLineIdentity,
+  wordDwells,
 } from './effects-logic.js';
 import { NEUTRAL_BG_TRIPLET, PARTICLE_BANDS, hexToOklch, hueDistance } from './color-tone.js';
 
@@ -791,5 +797,218 @@ describe('a repeated word is one gesture', () => {
       'full',
     );
     expect(plan).toEqual([true, true]);
+  });
+});
+
+describe('held-note sweep (client review E.2)', () => {
+  /**
+   * Words starting at `starts`, 200 ms long unless overridden. Distinct texts
+   * by default: the repeat rule compares letters only, so "w0" and "w1" would
+   * read as one word repeated.
+   */
+  const DISTINCT = ['ka', 'lo', 'mi', 'nu', 'pe', 'ra', 'si', 'tu', 've'];
+  const at = (starts: number[], durations: number[] = [], texts: string[] = []) =>
+    starts.map((start, i) => ({
+      start_ms: start,
+      end_ms: start + (durations[i] ?? 200),
+      text: texts[i] ?? DISTINCT[i] ?? 'zo',
+    }));
+  const held = (words: ReturnType<typeof at>, finalDwellMs?: number) =>
+    planLineFills(words, false, 'hype', finalDwellMs).held;
+
+  it('pins its numbers', () => {
+    // Pinned as values, not as the constant (olu-fikirler: a test written
+    // relative to a constant hid an unmeasured gate for months).
+    expect(HELD_NOTE_SWEEP).toEqual({
+      minDwellMs: 1000,
+      maxDwellMs: 5000,
+      lineMedianFactor: 2.5,
+      spanDwellFraction: 0.8,
+      lineFinal: true,
+    });
+  });
+
+  it('a dwell exactly on the 1 000 ms floor sweeps; 1 ms less pops', () => {
+    // Other dwells 300/300/300: 2.5 x 300 = 750, so the floor decides.
+    expect(held(at([0, 300, 600, 1600, 1900]))).toEqual([false, false, true, false, false]);
+    expect(held(at([0, 300, 600, 1599, 1899]))).toEqual([false, false, false, false, false]);
+  });
+
+  it('a dwell up to 5 000 ms sweeps; 1 ms more is a hole in the document and pops', () => {
+    expect(held(at([0, 300, 600, 5600, 5900]))).toEqual([false, false, true, false, false]);
+    expect(held(at([0, 300, 600, 5601, 5901]))).toEqual([false, false, false, false, false]);
+    // The line-final word's dwell has the same ceiling.
+    expect(held(at([0, 300, 600]), 5000)).toEqual([false, false, true]);
+    expect(held(at([0, 300, 600]), 5001)).toEqual([false, false, false]);
+  });
+
+  it('a dwell exactly 2.5 x the median of the other dwells sweeps; 1 ms less pops', () => {
+    // Other dwells 480/480/480: 2.5 x 480 = 1 200 > the floor.
+    expect(held(at([0, 480, 960, 2160, 2640]))).toEqual([false, false, true, false, false]);
+    expect(held(at([0, 480, 960, 2159, 2639]))).toEqual([false, false, false, false, false]);
+  });
+
+  it('an even count of other dwells takes the mean of the middle two', () => {
+    // Word 1's others are 400 and 600: median 500, threshold 1 250.
+    expect(held(at([0, 400, 1650, 2250]))[1]).toBe(true);
+    expect(held(at([0, 400, 1649, 2249]))[1]).toBe(false);
+  });
+
+  it('leaves the word itself out of the median, so short lines can qualify', () => {
+    // Three words, dwells 2 000 and 300. With itself in, the median would be
+    // 1 150 and the threshold 2 875: a 2- or 3-word line could never sweep.
+    expect(held(at([0, 2000, 2300]))).toEqual([true, false, false]);
+    // Two words: no other dwell, the floor alone.
+    expect(held(at([0, 1000]))).toEqual([true, false]);
+    expect(held(at([0, 999]))).toEqual([false, false]);
+  });
+
+  it('never claims a word the run rules already sweep, nor any word when off', () => {
+    // Sustained run of two mid-line: swept by the run rule, not a held note.
+    const run = at([0, 1500, 3000, 3300], [1400, 1400, 200, 200]);
+    expect(planLineFills(run, false, 'hype').sweep).toEqual([true, true, false, false]);
+    expect(held(run)).toEqual([false, false, false, false]);
+    // Sustained last word: the line-end hold, over its own span.
+    const lineEnd = at([0, 300, 600], [200, 200, 900]);
+    expect(planLineFills(lineEnd, false, 'hype', 5000)).toEqual({
+      sweep: [false, false, true],
+      held: [false, false, false],
+    });
+    // Ad-lib lines sweep every word over its own span; off sweeps nothing.
+    const long = at([0, 300, 600, 1600, 1900]);
+    expect(planLineFills(long, true, 'hype').held.some(Boolean)).toBe(false);
+    expect(planLineFills(long, false, 'off')).toEqual({
+      sweep: [false, false, false, false, false],
+      held: [false, false, false, false, false],
+    });
+  });
+
+  it('a held note joins the sweep plan the renderer reads', () => {
+    expect(planWordFills(at([0, 300, 600, 1600, 1900]), false, 'simple')).toEqual([
+      false,
+      false,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it('judges a line-final word by its dwell until the next line takes over', () => {
+    const words = at([0, 300, 600]); // inner dwells 300/300, threshold 1 000
+    expect(held(words, 1000)).toEqual([false, false, true]);
+    expect(held(words, 999)).toEqual([false, false, false]);
+    expect(held(words, undefined)).toEqual([false, false, false]); // interlude / outro
+    const flags = HELD_NOTE_SWEEP as { lineFinal: boolean };
+    flags.lineFinal = false;
+    try {
+      expect(held(words, 5000)).toEqual([false, false, false]);
+    } finally {
+      flags.lineFinal = true;
+    }
+  });
+
+  it('gives a back-to-back repeat one answer: held only when every member is', () => {
+    const texts = ['a', 'b', 'c', 'na', 'na', 'd', 'e', 'f'];
+    const both = at([0, 300, 600, 900, 2100, 3300, 3600, 3900], [], texts);
+    expect(held(both)).toEqual([false, false, false, true, true, false, false, false]);
+    // The second "na" now dwells 900 ms: one member short, so neither sweeps.
+    const one = at([0, 300, 600, 900, 2100, 3000, 3300, 3600], [], texts);
+    expect(held(one)).toEqual([false, false, false, false, false, false, false, false]);
+  });
+
+  it('sweeps a held note over [start, max(end, start + 0.8 x dwell)]', () => {
+    const words = at([0, 300, 600, 1600, 1900]);
+    const spans = planSweepSpans(words, held(words));
+    expect(spans[2]).toEqual({ start_ms: 600, end_ms: 1400 }); // 600 + 0.8 x 1 000
+    expect(spans[1]).toEqual({ start_ms: 300, end_ms: 500 }); // not held: own span
+    expect(fillProgress(spans[2]!, 1000)).toBeCloseTo(0.5);
+    // A measured end beyond 0.8 x dwell is kept.
+    const longEnd = at([0, 300, 600, 1600, 1900], [200, 200, 900, 200, 200]);
+    expect(planSweepSpans(longEnd, [false, false, true, false, false])[2]).toEqual({
+      start_ms: 600,
+      end_ms: 1500,
+    });
+    // The line-final word's dwell comes from the caller.
+    expect(planSweepSpans(at([0, 300, 600]), [false, false, true], 2000)[2]).toEqual({
+      start_ms: 600,
+      end_ms: 2200,
+    });
+  });
+
+  it('measures dwell as next start minus own start', () => {
+    expect(wordDwells(at([0, 250, 1000]))).toEqual([250, 750, null]);
+    expect(wordDwells(at([0, 250, 1000]), 640)).toEqual([250, 750, 640]);
+  });
+
+  it('a line-final dwell ends where the next line takes the display over', () => {
+    const line = (start: number, end: number, lastStart: number) => ({
+      start_ms: start,
+      end_ms: end,
+      text: 'x',
+      words: [
+        { start_ms: start, end_ms: lastStart, text: 'a' },
+        { start_ms: lastStart, end_ms: end, text: 'b' },
+      ],
+    });
+    // 800 ms of silence: the next line borrows a 500 ms lead-in -> takes over at 1 300.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(1800, 2500, 2000)], 0)).toBe(500);
+    // 100 ms of silence (< the 120 ms minimum lead): it takes over on its start.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(1100, 2500, 2000)], 0)).toBe(300);
+    // Exactly 120 ms: a 120 ms lead-in.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(1120, 2500, 2000)], 0)).toBe(200);
+    // A long break shows the interlude mark, the last line the outro hold: no next word.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(6001, 7000, 6500)], 0)).toBeUndefined();
+    expect(lineFinalDwellMs([line(0, 1000, 800)], 0)).toBeUndefined();
+  });
+
+  it('decides held notes by line identity, sweeping each pass over its own span', () => {
+    const pass = (start: number, satoDwell: number) => ({
+      start_ms: start,
+      end_ms: start + satoDwell + 1100,
+      text: 'lumi sato rani nefa',
+      words: [
+        { start_ms: start, end_ms: start + 300, text: 'lumi' },
+        { start_ms: start + 300, end_ms: start + 500, text: 'sato' },
+        { start_ms: start + 300 + satoDwell, end_ms: start + 600 + satoDwell, text: 'rani' },
+        { start_ms: start + 600 + satoDwell, end_ms: start + 1100 + satoDwell, text: 'nefa' },
+      ],
+    });
+    // sato dwells 1 500 then 600: the group's 1 050 clears the 1 000 floor.
+    const lines = [pass(0, 1500), pass(20_000, 600)];
+    const plans = planLineFillsByIdentity(lines, 'hype');
+    expect(plans[0]?.held).toEqual([false, true, false, false]);
+    expect(plans[1]?.held).toEqual([false, true, false, false]);
+    expect(planSweepSpans(lines[0]!.words, plans[0]!.held)[1]).toEqual({ start_ms: 300, end_ms: 1500 });
+    expect(planSweepSpans(lines[1]!.words, plans[1]!.held)[1]).toEqual({
+      start_ms: 20_300,
+      end_ms: 20_780,
+    });
+    // The boolean view stays what it was for existing callers.
+    expect(planFillsByLineIdentity(lines, 'hype')[0]).toEqual([false, true, false, false]);
+  });
+
+  it('a pass whose own dwell is past the ceiling sweeps over its own span', () => {
+    const pass = (start: number, satoDwell: number) => ({
+      start_ms: start,
+      end_ms: start + satoDwell + 1100,
+      text: 'lumi sato rani nefa',
+      words: [
+        { start_ms: start, end_ms: start + 300, text: 'lumi' },
+        { start_ms: start + 300, end_ms: start + 500, text: 'sato' },
+        { start_ms: start + 300 + satoDwell, end_ms: start + 600 + satoDwell, text: 'rani' },
+        { start_ms: start + 600 + satoDwell, end_ms: start + 1100 + satoDwell, text: 'nefa' },
+      ],
+    });
+    // Group median 1 500: held. The third pass dwells 20 s on "sato".
+    const lines = [pass(0, 1500), pass(30_000, 1500), pass(60_000, 20_000)];
+    const plans = planLineFillsByIdentity(lines, 'hype');
+    expect(plans[2]?.held).toEqual([false, true, false, false]);
+    expect(planSweepSpans(lines[2]!.words, plans[2]!.held)[1]).toEqual({
+      start_ms: 60_300,
+      end_ms: 60_500,
+    });
+    expect(planSweepSpans(lines[2]!.words, plans[2]!.held, undefined)[1]?.end_ms).not.toBe(
+      60_300 + 0.8 * 20_000,
+    );
   });
 });
