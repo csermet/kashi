@@ -1,5 +1,6 @@
 """The one test that touches the real model. Marked slow: it needs the `align`
-extra and downloads ~1.2 GB of weights on first run."""
+extra and downloads the English production checkpoint (~3.9 GB, the code
+default since pipeline 2.33.0; MMS ~1.2 GB before) on first run."""
 
 import pytest
 

@@ -17,9 +17,11 @@ Separation is never repeated: the worker's separator call returns the cached
 worker's own ``_decode``). The aligner stage decodes it again at 16 kHz, which
 is sample-identical, so the aligner hears what prod's aligner heard.
 
-The pipeline's settings come from the environment, as in the worker: run with
-the worker's env (``ALIGN_MODELS`` above all) or the document comes from a
-different pipeline. ``--extras`` records what was in force, plus what prod
+The pipeline's settings come from the environment, as in the worker. Since
+pipeline 2.33.0 the code defaults ARE the live worker's pipeline (aligner table
+and offsets, separator, structure flag), so no env file is needed; an env value
+still overrides, and then the document comes from a different pipeline.
+``--extras`` records what was in force, plus what prod
 computes and never stores: the onsets line QA reads, each
 word's prob, lateness shift and placing pass (``AlignedWord.source``), and
 line QA's per-line lists.

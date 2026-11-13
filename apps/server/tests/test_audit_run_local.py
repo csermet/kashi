@@ -171,7 +171,8 @@ def _without_clock(doc):
 def test_an_anchored_run_writes_a_valid_windowed_document(stem, heard, record_file, tmp_path):
     doc, extras = _local(record_file, tmp_path)
     a = doc["alignment"]
-    assert a["method"] == "ctc-forced-aligner/mms-300m+line-windowed"
+    # The production table routes English to the 1B checkpoint (code default since 2.33.0).
+    assert a["method"] == "ctc-forced-aligner/wav2vec2-xls-r-1b-english+line-windowed"
     assert (a["vocals_separated"], a["lyrics_source"], a["lyrics_source_id"]) == (True, "lrclib",
                                                                                   4242)
     assert doc["track"]["source"] == {"type": "youtube", "id": VID}
@@ -202,7 +203,7 @@ def test_the_aligner_hears_the_cached_stem_and_nothing_is_separated(
 def test_no_anchors_keeps_the_lines_and_aligns_the_whole_track(
         stem, heard, record_file, tmp_path):
     doc, extras = _local(record_file, tmp_path, "--no-anchors")
-    assert doc["alignment"]["method"] == "ctc-forced-aligner/mms-300m"
+    assert doc["alignment"]["method"] == "ctc-forced-aligner/wav2vec2-xls-r-1b-english"
     assert [ln["text"] for ln in doc["lines"]] == LINES
     assert doc["alignment"]["lyrics_source"] == "lrclib"
     assert extras["anchors"] is False and "edges" not in heard["stars"]
@@ -591,3 +592,38 @@ def test_the_worker_env_example_is_the_live_aligner(stem, heard, record_file, tm
         "ctc-forced-aligner/wav2vec2-xls-r-1b-english+line-windowed"
     assert extras["language"] == "eng"
     assert extras["aligner"]["offset_by_initial"]["vowel"] == -80
+
+
+# --- production configuration as code defaults (2.33.0) -----------------------------
+
+def _run_with_pipeline_of(fresh, monkeypatch, record_file, tmp_path):
+    """One local run with the live settings' pipeline fields taken from `fresh`."""
+    from kashi_server.config import PIPELINE_FIELDS, settings
+
+    for name in PIPELINE_FIELDS:
+        monkeypatch.setattr(settings, name, getattr(fresh, name))
+    return _local(record_file, tmp_path)
+
+
+def test_the_worker_env_and_the_code_defaults_make_one_document(stem, heard, record_file,
+                                                                 tmp_path, monkeypatch):
+    """One song through the worker's chain twice: pipeline settings from the live
+    worker's env file, then from no env at all. Same document, same extras (the
+    aligner spec with its offsets included). Against the pre-2.33 defaults it
+    differs, so the comparison can see a configuration."""
+    from helpers import env_file, settings_from
+
+    from kashi_server.config import Settings
+
+    from_env = settings_from(monkeypatch, env_file())
+    bare = settings_from(monkeypatch, {})
+    old = Settings(align_models={}, separation_model_filename="mel_band_roformer_kim_ft_unwa.ckpt",
+                   structure_sections=False)
+    doc_env, extras_env = _run_with_pipeline_of(from_env, monkeypatch, record_file, tmp_path)
+    doc_bare, extras_bare = _run_with_pipeline_of(bare, monkeypatch, record_file, tmp_path)
+    doc_old, extras_old = _run_with_pipeline_of(old, monkeypatch, record_file, tmp_path)
+    assert _without_clock(doc_env) == _without_clock(doc_bare)
+    assert extras_env == extras_bare
+    assert extras_bare["aligner"]["offset_by_initial"]["vowel"] == -80
+    assert doc_old["alignment"]["method"] != doc_bare["alignment"]["method"]
+    assert extras_old["aligner"] != extras_bare["aligner"]

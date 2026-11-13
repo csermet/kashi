@@ -768,5 +768,21 @@
 # 10/38 -> 11/42. Owner-labelled moments: the four heard-fine ones the vote
 # moves past the threshold, the owner preferred blind 4 of 4 on the new
 # side; heard-bad fixed? 8, worse? 2 (both the vote's).
-PIPELINE_VERSION = "2.32.0"
+# 2.33.0: the production configuration is the code default (whole-project
+# review, step B.1; the owner agreed 2026-11-14). The per-language aligner
+# table with its offsets (English jonatasgrosman XLS-R 1B, base -50 ms and
+# vowel -80 / fricative -50 / plosive -30 / sonorant -20; Turkish mpoyraz cv7,
+# romanize off), the separator vocals_mel_band_roformer.ckpt and
+# structure_sections on lived only in env values copied by hand (gitops, the
+# GPU helper's env file, audit/worker.env.example, bench flags), while the
+# defaults named the CC-BY-NC MMS checkpoint for every language, the
+# unlicensed unwa separator and no chorus sections. Production documents do
+# not change: the worker's env and no env resolve every pipeline field alike
+# (config.PIPELINE_FIELDS, tests/test_config_defaults), and one song through
+# the worker's chain makes the same document either way
+# (tests/test_audit_run_local). A worker started WITHOUT that env, which until
+# now ran another pipeline under the same version, runs this one. A minor bump
+# by the house rule that flipping a default is a pipeline bump (2.28.0); the
+# worker's ready line now names any pipeline setting an env value overrides.
+PIPELINE_VERSION = "2.33.0"
 PIPELINE_MAJOR = 2
