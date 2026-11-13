@@ -327,6 +327,16 @@ def _word_metrics(args, song, result: AlignResult, onset_ms, tolerances_ms, entr
         entry["error"] = "no verified words in this song"
         return False
     entry["words"] = asdict(stats)
+    # What the screen shows (review step B.3): line starts against the human
+    # start, words the overlay lights for under 120 ms, gross errors.
+    line_index = _word_line_indices(result)
+    entry["fluency"] = asdict(metrics.fluency([
+        metrics.WordRow(
+            line_index[i], truth_ms, round(truth_ms + deviations[i]),
+            True if song.verified is None else song.verified[i],
+        )
+        for i, (truth_ms, _) in enumerate(song.words)
+    ]))
     if args.dump_words:
         # Per-word rows keyed by ANNOTATION INDEX — the join key for
         # cross-model comparison. Everything else here reduces to
@@ -427,6 +437,12 @@ def _log_jamendo_song(index, total, song, entry, align_s, separate_s) -> None:
     )
 
 
+def _fluency_of(rows: list[dict]) -> dict:
+    return metrics.fluency_summary(
+        [metrics.Fluency(**r["fluency"]) for r in rows if "fluency" in r]
+    )
+
+
 def _jamendo_aggregate(rows: list[dict]) -> dict:
     scored = [r for r in rows if "words" in r]
     aggregate: dict = {
@@ -448,11 +464,14 @@ def _jamendo_aggregate(rows: list[dict]) -> dict:
             "align_s_total": round(sum(r["align_s"] for r in scored), 1),
             "align_x_realtime": round(sum(r["align_s"] for r in scored) / total_audio, 3),
             "trimmed_ends_total": sum(r.get("trimmed_ends", 0) for r in scored),
+            # Line starts, dwell and gross errors (metrics.fluency_summary).
+            "fluency": _fluency_of(scored),
             "per_language": {
                 lang: {
                     "songs": len(group),
                     "word_mae_ms_mean": round(mean(r["words"]["mae_ms"] for r in group), 1),
                     "pco_0.3": round(mean(r["words"]["pcs"]["0.3"] for r in group), 4),
+                    "fluency": _fluency_of(group),
                 }
                 for lang in sorted({r["language"] for r in scored})
                 if (group := [r for r in scored if r["language"] == lang])
