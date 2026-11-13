@@ -69,6 +69,16 @@ files). The timing core is the foundation these build on, not the product.
 - **Standing worry to answer in the review:** "are we burying everything in rules — good on a few
   songs, unproven on all of them?" The review starts with a measurement on 20 fresh songs the owner
   has never listened to and the rules have never seen, plus the human-truth bench.
+- **Perceptual priority (owner, 2026-11-13): steady tempo before exact timing.** What stands out
+  most on screen is not a word lit at the wrong time but words that rush past (piles, near-zero
+  durations, sudden jumps) or long gaps: they read as a bug and start a wave of wrong timing after
+  them. A line that keeps its pace but sits off the voice reads as "mistimed", which is far easier
+  to accept. Consequences for every later evaluation: count fluency (piled starts, 0 ms and < 60 ms
+  words, tempo breaks inside a line, long gaps) next to accuracy, and treat an accuracy gain that
+  costs fluency as no gain; where evidence is weak, a placement that keeps the line's pace is a
+  candidate against the aligner's best guess (the unmeasured "spread inside the line's own span"
+  idea in the Faz 5 note, "2.30.0 measured", Next 4 — not the dead render-side minimum display
+  time). The owner also wants an AI reading of these moments.
 - **Also measured in the review:** the overlay's hidden 200 ms base lead (0.31.0; the owner's ear,
   2026-07) — display-chain latency or taste? The extension's reported position against the audio
   (`docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md`, "The overlay's 200 ms base lead").
