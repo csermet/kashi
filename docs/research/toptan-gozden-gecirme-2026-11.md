@@ -305,6 +305,67 @@ Word phases and a line exit as the foundation (2-3 days); the rest is the owner'
   to do D.1 before any calibration.
 - Timing rules beyond 2.32.0: none proposed. The next lever inside timing is D.2, not a rule.
 
+## Step A carried out: 2.32.0 measured (2026-11-14)
+
+In `main` as bbae307, tagged `server-v0.36.0` the same night on the owner's advance yes (given
+2026-11-14 ~01:30 TR, on the condition that the gate, the differential proof and the human-truth
+runs hold; CI on `main` green before the tag). Review step A in five commits: the whole-track vote
+at 1 200 ms (`WHOLE_VOTE_T_MS`, worker and bench default); V2, the call-and-response shift, the
+sub-threshold nudge and the word-end sustain trim removed (the document keeps
+`alignment.qa.nudged / response_shifted / trimmed_ends` as 0; `vocal_energy.py` stays for the
+audit's voice witness; the bench keeps its own copy of the trim so its end axis stays comparable);
+the ad-lib re-derivation capped; the CTC blank of `transcribe`, `heard_tokens` and the audit's ear
+taken as the aligner takes it. Production code 145 lines added, 638 removed; tests 23 removed with
+their rules, 5 moved with the bench's trim copy, 10 added. Not in it: `choose_record`'s word-file
+preference (unmeasured), any schema or overlay change.
+
+- **Refactor proof.** The review's ablation harness rebuilt the arm "vote 1 200 + V2, response,
+  nudge, trim off" on 2.31.0 (its base and vote arms reproduce the review's documents 39 of 39);
+  the branch through the same harness with no switches equals it on 39 of 39 songs, word for word
+  and as whole documents (qa counters included). Two one-line mutations are seen (34 and 10 songs
+  differ). With the blank fix and the cap added, 38 of 39 stay equal; the 39th is the capped line.
+- **Blank id.** Byte-identical with the production checkpoints on 5 songs (3 English 1B, 1 Turkish,
+  1 MMS): the sheet shift's ear, the audit's whole-song ear and the by-ear transcript. A unit test
+  with an omniASR-shaped vocabulary (pad `<s>` = 0, `<pad>` = 1) fails on each old lookup.
+- **Ad-lib cap, from the data.** Re-derived spans in the 2.31.0 archive (279 lines): median
+  2 170 ms, p99 9 210, largest healthy 10 110; the only two above are runaways (23 075 ms, the Toz
+  Pembe hook the owner heard "very slow, lit far too early"; 27 990 ms, a last line run to the end
+  of the audio). A span over 12 s gets 2.2 s (the median), a breath before the next line, or from
+  its start for a last line. It fires on 2 of 279 archive lines and 1 of 22 on the 39 songs; the
+  Toz Pembe line goes from 4.5-27.7 s to 25.2-27.4 s (voice at 23.7-25.8 s). Boundary tests,
+  8 of 8 mutations caught. The last-line half is unverified (its one archive case had no stem).
+- **Pilot / hold-out against 2.31.0** (same stems and records, `audit.score`): pilot noticeable
+  lines 92/679 → 83/683 (8 songs better, 3 worse), short-dwell share 0.100 → 0.094, rushed runs
+  591 → 555, tempo breaks 55.4 → 48.6 per 1 000 words, 0 ms words 1.39 % → 1.08 %, bunched runs
+  20 → 13; hold-out 67/531 → 60/534 (5 better, 2 worse), 0.064 → 0.059, 286 → 271, 51.2 → 47.0,
+  0.93 % → 0.81 %, 7 → 6; worded lines unchanged (1 213, 967), wordless unchanged (0, 10). The
+  vote carries all of it; the removals and the cap on top move pilot 85 → 83, hold-out 60 → 60 —
+  the ~6 pilot lines the nudge was expected to cost do not appear on top of the new vote. The ear
+  witness is the vote's own pass; the independent voice witness reads pilot 18/72 → 23/77,
+  hold-out 10/38 → 11/42.
+- **Owner-heard moments.** Heard-fine moments moved past +220 / −330 ms: only the vote's four
+  (Dynamite 2:52, KTS 0:26, Deli Oğlan 0:49, BxMxC 2:06); blind on two-row clips, the owner
+  preferred the new document in all four (2026-11-14). On the four largest vote moves (Good
+  Feeling 0:07 +1.81 s, Timber 1:48, Crazy In Love 0:20, Hey Mama 0:56) neither version is right
+  (two "both bad", two weak preferences for the old): the change does not fix badly placed lines
+  and does not break the good ones. Heard-bad moved the corrective way 8 (among them both errors
+  the nudge caused, Good Feeling 0:07 and CEO 1:03), the other way 2 (Crazy In Love 0:19, Stressed
+  Out 1:36; both the vote's).
+- **Human truth, the defaults with no vote flag** (desktop GPU, production offsets, 400 ms stamp
+  jitter, line regions 800 ms): eng20 0.8424 / 0.9296 / 0.9471 at @0.1 / 0.2 / 0.3, all 79
+  0.9012 / 0.9557 / 0.9656, pop valid region 0.6079 / 0.8942 / 0.9186 — section 2's vote 1 200
+  runs to the last word (0 of 5 693, 21 580 and 2 411 words differ). The bench does not run line
+  QA, so the removals and the cap are not on human truth.
+- **Lead taste, measured the same night:** six clips of well-timed lines at total leads of 0, 100,
+  200 and 300 ms, blind: the owner cannot tell them apart ("every time I listen another one looks
+  right"). A constant offset inside that range is below his perception; the overlay's hidden
+  200 ms is to be set from a measured chain latency, not from preference.
+- **Open:** five blind clips for the owner (the cap on Toz Pembe, with the vote's +665 ms on its
+  next line, a line he had called right; four moments the removed rules moved). Found, not fixed:
+  one lrclib record carries enhanced-LRC word tags that reach the screen as text; the ad-lib snap
+  can push a line past the next line's start (two archive cases). Rollout (gitops image tag) and
+  the archive refresh wait for the owner.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.

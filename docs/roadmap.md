@@ -47,7 +47,7 @@ at once.
 
 | Line | Step | What | Size |
 |---|---|---|---|
-| timing | A | Pipeline 2.32.0: whole-track vote threshold 400 → 1 200 ms (human truth: eng20 PCO@0.1 0.824 → 0.842, noticeable line starts 0.108 → 0.062), remove four rules that do nothing on fresh songs, cap the ad-lib re-derivation, then one archive refresh | ~3 workdays + owner 15 min |
+| timing | A | Pipeline 2.32.0: whole-track vote threshold 400 → 1 200 ms (human truth: eng20 PCO@0.1 0.824 → 0.842, noticeable line starts 0.108 → 0.062), remove four rules that do nothing on fresh songs, cap the ad-lib re-derivation, then one archive refresh | **in `main` and tagged `server-v0.36.0` 2026-11-14** (the owner's advance yes; blind, he preferred the new document on all four heard-fine moments it moves); rollout and the archive refresh wait for the owner's gitops merge |
 | timing | B | Measure what ships: production configuration as versioned code defaults, the bench runs the shipped pipeline with line-start and dwell metrics, an archive replay rig, persist and revision guards | ~6-7 workdays |
 | timing | D | The ear: own conversion of omniASR 1B and a repeat of its test; then duration-aware decoding in the trellis | ~1.5 + 4-6 workdays |
 | source | C | Per-song overrides that survive reprocessing; clock verification (scale refit for nightcore, whole-sheet offset from repeated lines); honest plain-text fallback; the wordless-line policy (replaces 9.6 as written; the LLM label trial is narrowed and parked) | ~6-8 workdays + owner 10-15 min |
