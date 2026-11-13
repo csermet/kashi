@@ -149,7 +149,7 @@ python -m audit.run_local <id> --lyrics record.json --out local.json \
 
 For timing experiments (v3, 2.29.1, plain lyrics) without the production worker, a GPU or the
 database. It runs the worker's own `_align_with_ctc` (nightcore plan, aligner stage, line QA on the
-stem's onsets and vocal energy) and `_assemble_document` (fx, palette, `build_document`), then the
+stem's onsets) and `_assemble_document` (fx, palette, `build_document`), then the
 schema gate `persist_processed_track` applies, and writes the document instead of storing it. The
 job is an in-memory `Job`, the session a no-op. The separator call returns the cached
 `stems/<id>.16k.wav` (make it with `audit.stems`; nothing is separated here); decoding it again at
@@ -163,9 +163,9 @@ record gets a warning.
   comes from a different pipeline. **Sync that file with gitops
   `apps/kashi-server/deployment-worker.yaml` before an acceptance run**; docker takes its values
   literally (no quotes around the JSON). `--extras` records what was in force (settings, the
-  resolved aligner and its offsets) and what prod computes but never stores: the onsets and vocal
-  energy line QA read, each word's prob / lateness shift / placing pass (`edges`, `segment`,
-  `whole`), line QA's per-line lists.
+  resolved aligner and its offsets) and what prod computes but never stores: the onsets line QA
+  reads (vocal energy too, before pipeline 2.32.0), each word's prob / lateness shift / placing
+  pass (`edges`, `segment`, `whole`), line QA's per-line lists.
 - **Lyrics:** an lrclib record (`/api/get` JSON, or a search list with `--record-id`) is anchored as
   in prod; `--no-anchors` keeps its lines and drops the stamps (whole-audio alignment, line QA
   without references); a text file is plain lyrics, exactly like `options.lyrics_text` (needs

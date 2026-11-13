@@ -26,6 +26,7 @@ from pathlib import Path
 from statistics import mean, median
 
 from benchmarks import datasets, metrics
+from benchmarks.trim import trim_word_ends
 from kashi_server.pipeline.alignment import (
     EXACT_STRIDE_DEFAULT,
     HYBRID_T_MS,
@@ -40,7 +41,6 @@ from kashi_server.pipeline.alignment import (
     WINDOWED_LEAD_MS,
     AlignResult,
 )
-from kashi_server.pipeline.line_qa import trim_word_ends
 
 logger = logging.getLogger("benchmarks")
 
@@ -304,8 +304,8 @@ def _postprocess(args, result: AlignResult, anchors, entry: dict) -> AlignResult
         from benchmarks.softoffset import apply_soft_offset
 
         result = apply_soft_offset(result, anchors, mode=args.line_postprocess)
-    # Production line_qa order: trim precedes everything. Line starts are
-    # untouched, so the case suite only records it (for the P1 A/B).
+    # The end trim production ran until 2.31.0 (benchmarks/trim.py). Line
+    # starts are untouched, so the case suite only records it (for the P1 A/B).
     if args.trim_ends:
         result, trimmed = trim_word_ends(result)
         entry["trimmed_ends"] = trimmed
@@ -714,7 +714,9 @@ def _parse_args() -> argparse.Namespace:
         "--trim-ends",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="apply production word-end sustain trim (--no-trim-ends for the P1 baseline)",
+        help="apply the word-end sustain trim production ran until pipeline 2.31.0 "
+        "(benchmarks/trim.py; on by default so the end axis stays comparable with earlier "
+        "results; --no-trim-ends for the P1 baseline)",
     )
     parser.add_argument(
         "--anchor-jitter-ms",

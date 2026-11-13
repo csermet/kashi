@@ -341,7 +341,6 @@ def test_qa_provenance_block_and_words_derived_flag():
         density_dropped=[],
         adlib_shifted=[],
         adlib_rederived=[0],
-        trimmed_ends=3,
     )
     doc = build_document(
         _job(), _lyrics(), result, _beats(), DEFAULT_PALETTE, vocals_separated=False, qa=qa
@@ -353,15 +352,13 @@ def test_qa_provenance_block_and_words_derived_flag():
         "adlib_shifted": 0,
         "adlib_rederived": 1,
         "offset_ms": -120,
-        "trimmed_ends": 3,
+        # 2.32.0 removed the end trim, the nudge and the response shift; their
+        # counters stay in the document, always 0 (no schema change).
+        "trimmed_ends": 0,
         # Faz 8 B4: how many flagged lines the audio vouched for. Zero here —
         # this fixture predates the arbiter and none were rescued.
         "uncertain": 0,
-        # Faz 9: lines that drifted BELOW the flag threshold and were moved
-        # onto their anchor because the audio backed that position.
         "nudged": 0,
-        # Faz 9 (2.27.0): parenthetical responses moved onto the answering
-        # voice. Zero here — this fixture carries no contour.
         "response_shifted": 0,
     }
     assert doc["lines"][0]["words_derived"] is True  # rederived AND word-carrying

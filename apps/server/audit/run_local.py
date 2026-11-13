@@ -6,7 +6,7 @@ no separation, no GPU.
         [--title T] [--artist A] [--extras extras.json]
 
 What runs is the worker's own code: ``process._align_with_ctc`` (nightcore
-plan, the aligner stage, line QA on the stem's onsets and vocal energy) and
+plan, the aligner stage, line QA on the stem's onsets) and
 ``process._assemble_document`` (fx, palette, ``build_document``), then
 ``validate_document``, the hard gate ``persist_processed_track`` applies. The
 document is written to ``--out`` instead of persisted. The job is an in-memory
@@ -20,7 +20,7 @@ is sample-identical, so the aligner hears what prod's aligner heard.
 The pipeline's settings come from the environment, as in the worker: run with
 the worker's env (``ALIGN_MODELS`` above all) or the document comes from a
 different pipeline. ``--extras`` records what was in force, plus what prod
-computes and never stores: the onsets and vocal energy line QA read, each
+computes and never stores: the onsets line QA reads, each
 word's prob, lateness shift and placing pass (``AlignedWord.source``), and
 line QA's per-line lists.
 
@@ -185,10 +185,10 @@ def audio_duration_s(video_id: str, stem: Path) -> float:
 @contextmanager
 def worker_seams(process: Any, stem: Path, seen: dict) -> Iterator[None]:
     """The worker module, for one local run: its separator hands back the
-    cached stem, and the onsets / vocal energy line QA reads are recorded on
-    their way through. Restored afterwards, also on failure."""
-    real = (process._separate_vocals, process.detect_onsets, process.measure_vocal_energy)
-    real_separate, real_onsets, real_energy = real
+    cached stem, and the onsets line QA reads are recorded on their way
+    through. Restored afterwards, also on failure."""
+    real = (process._separate_vocals, process.detect_onsets)
+    real_separate, real_onsets = real
 
     def separate(audio: Path, tmp: Path, **_kw: Any) -> Path:
         seen["separations"] = seen.get("separations", 0) + 1
@@ -198,16 +198,11 @@ def worker_seams(process: Any, stem: Path, seen: dict) -> Iterator[None]:
         seen["onsets"] = real_onsets(wav)
         return seen["onsets"]
 
-    def energy(wav: Path):
-        seen["vocal_energy"] = real_energy(wav)
-        return seen["vocal_energy"]
-
-    process._separate_vocals, process.detect_onsets, process.measure_vocal_energy = (
-        separate, onsets, energy)
+    process._separate_vocals, process.detect_onsets = separate, onsets
     try:
         yield
     finally:
-        process._separate_vocals, process.detect_onsets, process.measure_vocal_energy = real
+        process._separate_vocals, process.detect_onsets = real
 
 
 @contextmanager
@@ -332,7 +327,6 @@ def _extras(video_id: str, stem: Path, lyrics: LyricsText, result, qa, seen: dic
     from kashi_server.pipeline.langid import detect_language
 
     language = detect_language(lyrics.full_text)
-    energy = seen.get("vocal_energy")
     return {
         "id": video_id,
         "stem": str(stem),
@@ -351,14 +345,11 @@ def _extras(video_id: str, stem: Path, lyrics: LyricsText, result, qa, seen: dic
         "qa": None if qa is None else {
             k: getattr(qa, k) for k in (
                 "flagged", "offset_ms", "degraded_to_line", "density_dropped", "adlib_shifted",
-                "adlib_rederived", "trimmed_ends", "uncertain", "response_shifted", "nudged",
-                "voice_returned")},
+                "adlib_rederived", "uncertain")},
         "words": [[{"text": w.text, "start_ms": w.start_ms, "end_ms": w.end_ms,
                     "prob": round(w.prob, 4), "shift_ms": w.shift_ms, "source": w.source}
                    for w in chunk] for chunk in result.words_per_line],
         "onsets": seen.get("onsets"),
-        "vocal_energy": None if energy is None else {
-            "hop_ms": energy.hop_ms, "frames": [list(f) for f in energy.frames]},
     }
 
 

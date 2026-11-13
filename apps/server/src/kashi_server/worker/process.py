@@ -71,7 +71,6 @@ from kashi_server.pipeline.palette import extract_palette
 from kashi_server.pipeline.sheet_shift import shift_sheet
 from kashi_server.pipeline.structure import extract_structure
 from kashi_server.pipeline.titles import clean_title, parse_composite_title
-from kashi_server.pipeline.vocal_energy import measure_vocal_energy
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
 logger = logging.getLogger(__name__)
@@ -126,18 +125,10 @@ LINE_QA_ADLIB_REDERIVED_LINES = Counter(
     "kashi_line_qa_adlib_rederived_lines_total",
     "Ad-lib lines whose word spans were redistributed across the line (Faz 4)",
 )
-LINE_QA_RESPONSE_SHIFTED_LINES = Counter(
-    "kashi_line_qa_response_shifted_lines_total",
-    "Parenthetical responses moved onto the answering voice (Faz 9, 2.27.0)",
-)
 NIGHTCORE_JOBS = Counter(
     "kashi_nightcore_jobs_total",
     "Jobs that entered the nightcore branch, by how the factor was resolved",
     ["outcome"],  # explicit | detected | reverted | explicit_failed
-)
-WORD_END_TRIMS = Counter(
-    "kashi_line_qa_word_end_trims_total",
-    "Word ends capped by the sustain trim (Faz 5 P1 ear-test fix)",
 )
 LYRICSFILE_DOCS = Counter(
     "kashi_lyricsfile_docs_total",
@@ -992,16 +983,14 @@ def _resolve_plain_lyrics(
 def _shift_sheet(
     job: Job, tmp: Path, source_audio: Path, lyrics: LyricsText, align_wav: Path | None,
     speed_factor: float,
-) -> tuple[LyricsText, Path | None, list[dict] | None]:
+) -> tuple[LyricsText, Path | None]:
     """Move an lrclib section the ear hears seconds away (2.29.1, sheet_shift),
     before windows are cut around the stamps and line QA trusts them. Windowed
     alignment only (the stamps' one consumer besides QA), r = 1 only. Returns
-    the lyrics, the decoded wav, which `_align_stage` then reuses, and the
-    ear's tokens, which line QA's voice-return rule reads (2.30.0); None
-    where the check does not run."""
+    the lyrics and the decoded wav, which `_align_stage` then reuses."""
     starts = lyrics.synced_starts_ms
     if not settings.windowed_alignment or starts is None or not is_original_speed(speed_factor):
-        return lyrics, align_wav, None
+        return lyrics, align_wav
     wav = align_wav or _decode(source_audio, tmp / ALIGN_WAV, rate=16000)
     tokens = heard_tokens(wav, detect_language(lyrics.full_text))
     shifted, applied = shift_sheet(lyrics.line_texts, starts, tokens)
@@ -1012,8 +1001,8 @@ def _shift_sheet(
             job.id, sec.median_ms, sec.first_line, sec.last_line, sec.anchors, sec.carried,
         )
     if not applied:
-        return lyrics, wav, tokens
-    return replace(lyrics, synced_starts_ms=shifted), wav, tokens
+        return lyrics, wav
+    return replace(lyrics, synced_starts_ms=shifted), wav
 
 
 def _align_with_ctc(
@@ -1037,9 +1026,7 @@ def _align_with_ctc(
         checkpoint(s, job)
     lyrics = plan.lyrics
     speed_factor = plan.speed_factor
-    lyrics, align_wav, heard = _shift_sheet(
-        job, tmp, source_audio, lyrics, plan.align_wav, speed_factor
-    )
+    lyrics, align_wav = _shift_sheet(job, tmp, source_audio, lyrics, plan.align_wav, speed_factor)
     result, second_pass_separated, aligned_wav = _align_stage(
         s,
         job,
@@ -1053,17 +1040,8 @@ def _align_with_ctc(
     # The arbiter's only aligner-independent evidence (Faz 8 B4).
     # Measured on the audio the winning alignment actually heard; a
     # failure returns None and line QA falls back to today's rule.
-    # The response rule reads LOUDNESS, and only a separated stem has
-    # the silences it looks for — on a full mix the drums fill every
-    # breath. So it is handed a contour only when separation actually
-    # produced the audio the alignment won on.
     qa = apply_line_qa(
-        result,
-        lyrics.line_texts,
-        lyrics.synced_starts_ms,
-        detect_onsets(aligned_wav),
-        energy=measure_vocal_energy(aligned_wav) if vocals_separated else None,
-        heard=heard,
+        result, lyrics.line_texts, lyrics.synced_starts_ms, detect_onsets(aligned_wav)
     )
     # 2.29.1: QA judged the cut ends; the words get their length back now.
     result, _restored = restore_held_ends(qa.result)
@@ -1134,8 +1112,6 @@ def _record_line_qa(job: Job, qa: LineQAOutcome) -> None:
         LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
     LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
     LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
-    LINE_QA_RESPONSE_SHIFTED_LINES.inc(len(qa.response_shifted))
-    WORD_END_TRIMS.inc(qa.trimmed_ends)
 
 
 def _mix_features(mix: Path) -> tuple[Beats | None, Energy | None, list[Section] | None]:

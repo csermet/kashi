@@ -9,16 +9,11 @@ import pytest
 from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
 from kashi_server.pipeline.line_qa import (
     DRIFT_THRESHOLD_MS,
-    RESPONSE_SCAN_MS,
-    TRIM_MAX_HOLD_MS,
     apply_line_qa,
     is_adlib,
     rederive_adlib_words,
     restore_held_ends,
-    shift_call_response,
-    trim_word_ends,
 )
-from kashi_server.pipeline.vocal_energy import VocalEnergy
 
 
 def _words(start_ms: int, texts: list[str], *, prob: float = 0.2) -> list[AlignedWord]:
@@ -575,112 +570,38 @@ def test_no_reference_path_still_rederives_adlib_words():
     assert outcome.result.words_per_line[1]  # lexical lines untouched
 
 
-# --- word-END sustain trim (Faz 5 P1) ---
+# --- 2.32.0: line QA no longer trims word ends ---------------------------------
 
 
-def _crisp_line(start_ms: int, text: str) -> tuple[LineTiming, list[AlignedWord]]:
-    """Words at a steady 100 ms/char with 100 ms gaps — a crisp reference tempo."""
-    words = []
-    t = start_ms
-    for token in text.split():
-        words.append(AlignedWord(start_ms=t, end_ms=t + len(token) * 100, text=token, prob=0.5))
-        t = words[-1].end_ms + 100
-    return LineTiming(start_ms, words[-1].end_ms, text, 0.5), words
+def test_line_qa_leaves_a_hanging_end_alone_and_still_rederives_the_adlib():
+    """The word-end sustain trim left line QA in 2.32.0 (the bench keeps a copy,
+    benchmarks/trim.py): a 14 s end survives QA as the aligner made it, and the
+    no-reference path still rederives the ad-lib line."""
+    def crisp(start_ms: int, text: str) -> tuple[LineTiming, list[AlignedWord]]:
+        words, t = [], start_ms
+        for token in text.split():
+            words.append(AlignedWord(t, t + len(token) * 100, token, 0.5))
+            t = words[-1].end_ms + 100
+        return LineTiming(start_ms, words[-1].end_ms, text, 0.5), words
 
-
-def _trim_fixture(extra: list[tuple[LineTiming, list[AlignedWord]]]) -> AlignResult:
-    base = [
-        _crisp_line(0, "alpha beta gamma"),
-        _crisp_line(3000, "delta epsilon zeta"),
-        _crisp_line(6000, "eta theta iota"),
+    rows = [
+        crisp(0, "alpha beta gamma"),
+        crisp(3000, "delta epsilon zeta"),
+        crisp(6000, "eta theta iota"),
+        (LineTiming(10_000, 24_000, "so", 0.5), [AlignedWord(10_000, 24_000, "so", 0.5)]),
+        (
+            LineTiming(30_000, 31_000, "Ooh ooh", 0.5),
+            [AlignedWord(30_000, 30_100, "Ooh", 0.5), AlignedWord(30_150, 30_300, "ooh", 0.5)],
+        ),
     ]
-    lines = [line for line, _ in base + extra]
-    words = [chunk for _, chunk in base + extra]
-    return AlignResult(sync="word", lines=lines, words_per_line=words, quality_score=0.8)
-
-
-def test_trim_caps_a_hanging_end_and_leaves_crisp_words_alone():
-    # "so" sung at ~100 ms/char but CTC extends its end 14 s into the gap.
-    hang = (LineTiming(10_000, 24_000, "so", 0.5), [AlignedWord(10_000, 24_000, "so", 0.5)])
-    trimmed_result, trimmed = trim_word_ends(_trim_fixture([hang]))
-    assert trimmed == 1
-    # med 100 ms/char -> allowed = max(350, 2*100*3) = 600.
-    assert trimmed_result.words_per_line[3][0].end_ms == 10_600
-    # Crisp words are all under the 350 ms floor — byte-for-byte untouched.
-    assert trimmed_result.words_per_line[:3] == _trim_fixture([hang]).words_per_line[:3]
-    # Line timings are DISPLAY-hold semantics — never touched by the trim.
-    assert trimmed_result.lines[3].end_ms == 24_000
-
-
-def test_trim_never_extends_and_respects_the_max_hold_cap():
-    long_word = "abcdefghijklmnopqrstuvwxyz"  # 26 chars -> raw cap 7800 > MAX
-    hang = (
-        LineTiming(10_000, 40_000, long_word, 0.5),
-        [AlignedWord(10_000, 40_000, long_word, 0.5)],
-    )
-    trimmed_result, trimmed = trim_word_ends(_trim_fixture([hang]))
-    assert trimmed == 1
-    assert trimmed_result.words_per_line[3][0].end_ms == 10_000 + TRIM_MAX_HOLD_MS
-
-
-def test_trim_exempts_adlib_lines_entirely():
-    # Sustained hook spans are rederive's business (user-approved aesthetics):
-    # neither trimmed nor counted into the median char speed.
-    hook = (
-        LineTiming(10_000, 18_000, "Ooh ooh", 0.5),
-        [AlignedWord(10_000, 14_000, "Ooh", 0.5), AlignedWord(14_000, 18_000, "ooh", 0.5)],
-    )
-    trimmed_result, trimmed = trim_word_ends(_trim_fixture([hook]))
-    assert trimmed == 0
-    assert trimmed_result.words_per_line[3][0].end_ms == 14_000
-
-
-def test_trim_skips_documents_with_too_small_a_sample():
-    line, chunk = _crisp_line(0, "hi yo")  # 2 measurable words < the sample floor
-    hang = (LineTiming(5000, 30_000, "so", 0.5), [AlignedWord(5000, 30_000, "so", 0.5)])
-    result = AlignResult(
-        sync="word",
-        lines=[line, hang[0]],
-        words_per_line=[chunk, hang[1]],
-        quality_score=0.8,
-    )
-    trimmed_result, trimmed = trim_word_ends(result)
-    assert trimmed == 0
-    assert trimmed_result.words_per_line[1][0].end_ms == 30_000
-
-
-def test_trim_is_a_noop_on_line_sync():
-    result = AlignResult(
-        sync="line", lines=[LineTiming(0, 1000, "a", 0.5)], words_per_line=[], quality_score=0.8
-    )
-    assert trim_word_ends(result) == (result, 0)
-
-
-def test_apply_line_qa_trims_before_rederive_and_reports_the_count():
-    # No-reference path: the trim must still run, and an ad-lib line keeps its
-    # rederived full-span words (trim runs BEFORE rederive, exempts ad-libs).
-    hang = (LineTiming(10_000, 24_000, "so", 0.5), [AlignedWord(10_000, 24_000, "so", 0.5)])
-    hook = (
-        LineTiming(30_000, 31_000, "Ooh ooh", 0.5),
-        [AlignedWord(30_000, 30_100, "Ooh", 0.5), AlignedWord(30_150, 30_300, "ooh", 0.5)],
-    )
-    outcome = apply_line_qa(
-        _trim_fixture([hang, hook]),
-        [
-            "alpha beta gamma",
-            "delta epsilon zeta",
-            "eta theta iota",
-            "so",
-            "Ooh ooh",
-        ],
-        None,
-    )
-    assert outcome.trimmed_ends == 1
-    assert outcome.result.words_per_line[3][0].end_ms == 10_600
+    result = AlignResult(sync="word", lines=[line for line, _ in rows],
+                         words_per_line=[chunk for _, chunk in rows], quality_score=0.8)
+    outcome = apply_line_qa(result, [line.text for line, _ in rows], None)
+    assert outcome.result.words_per_line[3][0].end_ms == 24_000  # not capped at 10 600
+    assert outcome.result.words_per_line[:3] == result.words_per_line[:3]
     assert outcome.adlib_rederived == [4]
     hook_words = outcome.result.words_per_line[4]
-    assert hook_words[0].start_ms == 30_000
-    assert hook_words[-1].end_ms == 31_000  # rederived span survived the trim pass
+    assert (hook_words[0].start_ms, hook_words[-1].end_ms) == (30_000, 31_000)
 
 
 def test_damage_never_raises_the_score():
@@ -853,225 +774,6 @@ def test_without_onsets_the_old_rule_still_governs():
     assert outcome.uncertain == []
 
 
-# --- sub-threshold drift nudge (Faz 9, field report 2026-08-12) ------------
-
-
-def _nudge_case(line_start_ms: int, onsets: list[int]):
-    """One 4-word line whose anchor sits at 10 000 ms, plus enough clean
-    reference lines for QA to run at all."""
-    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
-
-    words = [
-        AlignedWord(
-            start_ms=line_start_ms + k * 400, end_ms=line_start_ms + k * 400 + 300, text=t, prob=0.9
-        )
-        for k, t in enumerate(["hold", "me", "closer", "now"])
-    ]
-    lines = [
-        LineTiming(start_ms=1_000, end_ms=2_000, text="first line here", score=0.9),
-        LineTiming(start_ms=5_000, end_ms=6_000, text="second line here", score=0.9),
-        LineTiming(
-            start_ms=line_start_ms,
-            end_ms=line_start_ms + 1_500,
-            text="hold me closer now",
-            score=0.9,
-        ),
-        LineTiming(start_ms=20_000, end_ms=21_000, text="last line here", score=0.9),
-    ]
-    per_line = [
-        [AlignedWord(start_ms=1_000, end_ms=1_500, text="first", prob=0.9)],
-        [AlignedWord(start_ms=5_000, end_ms=5_500, text="second", prob=0.9)],
-        words,
-        [AlignedWord(start_ms=20_000, end_ms=20_500, text="last", prob=0.9)],
-    ]
-    result = AlignResult(sync="word", lines=lines, words_per_line=per_line, quality_score=0.9)
-    texts = [line.text for line in lines]
-    refs = [1_000, 5_000, 10_000, 20_000]
-    return apply_line_qa(result, texts, refs, onsets)
-
-
-def test_a_line_drifting_under_the_flag_threshold_moves_when_the_audio_agrees():
-    """The field case: a line 700 ms late is too close to be flagged and far
-    enough to be seen. The anchor says 10 000; the onsets are there, not where
-    the aligner put the words."""
-    onsets = [1_000, 5_000, 10_000, 10_400, 10_800, 11_200, 20_000]
-    out = _nudge_case(10_700, onsets)
-    assert out.nudged == [2]
-    assert out.result.lines[2].start_ms == 10_000
-    assert out.result.words_per_line[2][0].start_ms == 10_000  # words came along
-    assert out.flagged == []  # never flagged, never deleted
-
-
-def test_the_line_stays_when_the_audio_backs_the_ALIGNER(monkeypatch):
-    """The anchor is crowd-sourced and can simply be wrong. Onsets sitting
-    where the aligner put the words must win — the point is evidence, not
-    obedience to lrclib."""
-    onsets = [1_000, 5_000, 10_700, 11_100, 11_500, 11_900, 20_000]
-    out = _nudge_case(10_700, onsets)
-    assert out.nudged == []
-    assert out.result.lines[2].start_ms == 10_700
-
-
-def test_no_onsets_means_no_nudge():
-    """Without the independent signal there is no argument to settle, and the
-    aligner keeps what it produced."""
-    out = _nudge_case(10_700, [])
-    assert out.nudged == []
-    assert out.result.lines[2].start_ms == 10_700
-
-
-def test_a_drift_too_small_to_see_is_left_alone():
-    """Below the band the line is where it belongs; moving it would be churn.
-
-    The onsets here would REWARD the move (0.25 support becomes 1.0), so only
-    the band keeps the line still — otherwise this test would pass for the
-    wrong reason."""
-    onsets = [1_000, 5_000, 10_000, 10_400, 10_800, 11_200, 20_000]
-    out = _nudge_case(10_150, onsets)  # 150 ms: under SUBTHRESHOLD_DRIFT_MS
-    assert out.nudged == []
-    assert out.result.lines[2].start_ms == 10_150
-
-
-def test_the_band_sits_above_the_evidence_it_depends_on():
-    """The lower bound is a cheap skip, not the protection, and the two must
-    not be confused by the next person to tune them: below the arbiter's
-    onset tolerance a shift cannot change support at all — every word stays
-    inside tolerance before AND after — so a smaller band would only ask
-    questions whose answer is already known."""
-    from kashi_server.pipeline.alignment import AlignedWord
-    from kashi_server.pipeline.arbiter import ONSET_TOLERANCE_MS, better_supported_position
-    from kashi_server.pipeline.line_qa import SUBTHRESHOLD_DRIFT_MS
-
-    assert SUBTHRESHOLD_DRIFT_MS > ONSET_TOLERANCE_MS
-    # ...and here is the fact behind the rule: onsets exactly on the shifted
-    # starts still lose, because the current position is already supported.
-    tiny = ONSET_TOLERANCE_MS - 50
-    words = [
-        AlignedWord(
-            start_ms=10_000 + tiny + k * 400, end_ms=10_100 + tiny + k * 400, text="w", prob=0.9
-        )
-        for k in range(4)
-    ]
-    onsets = [10_000 + k * 400 for k in range(4)]
-    assert better_supported_position(words, -tiny, onsets) is False
-
-
-def test_a_marginal_win_is_not_a_win():
-    """Evidence has to be MEANINGFULLY better, not better by one word: moving
-    a line the listener can see is not free, and a single-word difference is
-    noise. Eight words, four supported where they are, five if moved — a
-    0.125 gain, under the 0.15 margin."""
-    from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
-
-    start = 10_700  # 700 ms drift: inside the band
-    words = [
-        AlignedWord(start_ms=start + k * 400, end_ms=start + k * 400 + 300, text="w", prob=0.9)
-        for k in range(8)
-    ]
-    lines = [
-        LineTiming(start_ms=1_000, end_ms=2_000, text="first line here", score=0.9),
-        LineTiming(start_ms=5_000, end_ms=6_000, text="second line here", score=0.9),
-        LineTiming(start_ms=start, end_ms=start + 3_200, text="w w w w w w w w", score=0.9),
-        LineTiming(start_ms=20_000, end_ms=21_000, text="last line here", score=0.9),
-    ]
-    per_line = [
-        [AlignedWord(start_ms=1_000, end_ms=1_500, text="first", prob=0.9)],
-        [AlignedWord(start_ms=5_000, end_ms=5_500, text="second", prob=0.9)],
-        words,
-        [AlignedWord(start_ms=20_000, end_ms=20_500, text="last", prob=0.9)],
-    ]
-    # Four onsets sit on the CURRENT starts, five on the shifted ones.
-    onsets = sorted(
-        [1_000, 5_000, 20_000]
-        + [start + k * 400 for k in (0, 1, 2, 3)]
-        + [10_000 + k * 400 for k in (4, 5, 6, 7)]
-        + [10_000 + 400 * 3 - 1]
-    )
-    result = AlignResult(sync="word", lines=lines, words_per_line=per_line, quality_score=0.9)
-    out = apply_line_qa(
-        result, [line.text for line in lines], [1_000, 5_000, 10_000, 20_000], onsets
-    )
-    assert out.nudged == []
-    assert out.result.lines[2].start_ms == start
-
-
-def _nudge_between(specs: list[tuple[int, int, int]], onsets: list[int]):
-    """specs: (line start, n words, anchor) per line; words every 400 ms, 300
-    long. Lines 0 and the last are plain far-away references."""
-    lines, per_line, refs = [], [], []
-    for n, (start, count, anchor) in enumerate(specs):
-        words = [
-            AlignedWord(
-                start_ms=start + k * 400, end_ms=start + k * 400 + 300, text=f"w{n}{k}", prob=0.9
-            )
-            for k in range(count)
-        ]
-        text = " ".join(w.text for w in words)
-        lines.append(LineTiming(start_ms=start, end_ms=words[-1].end_ms, text=text, score=0.9))
-        per_line.append(words)
-        refs.append(anchor)
-    result = AlignResult(sync="word", lines=lines, words_per_line=per_line, quality_score=0.9)
-    return apply_line_qa(result, [line.text for line in lines], refs, onsets)
-
-
-def _starts_never_go_backwards(out) -> bool:
-    starts = [w.start_ms for chunk in out.result.words_per_line for w in chunk]
-    return starts == sorted(starts)
-
-
-def test_a_nudge_never_lands_on_the_previous_lines_sung_words():
-    """2026-10 review: the nudge had no neighbour guard. The anchor says 11 000
-    for a line the aligner put at 13 000, and the onsets agree — but they are
-    the PREVIOUS line's own words (10 000 … 12 300). Moving there interleaves
-    word starts across the two lines, so the move is refused."""
-    specs = [
-        (1_000, 1, 1_000),
-        (5_000, 1, 5_000),
-        (10_000, 6, 10_000),  # previous line: words 10 000 … 12 000, last ends 12 300
-        (13_000, 4, 11_000),  # target: 2 s late per the anchor, inside the band
-        (20_000, 1, 20_000),
-    ]
-    onsets = [1_000, 5_000, 11_000, 11_400, 11_800, 12_200, 20_000]
-    out = _nudge_between(specs, onsets)
-    assert out.nudged == []
-    assert out.result.lines[3].start_ms == 13_000
-    assert _starts_never_go_backwards(out)
-
-
-def test_a_nudge_never_runs_into_the_next_line():
-    """The forward twin: the anchor pulls the line 2 s later, onto audio the
-    NEXT line already owns. The old code moved it and left the next line's
-    words starting before their own line."""
-    specs = [
-        (1_000, 1, 1_000),
-        (5_000, 1, 5_000),
-        (13_000, 4, 15_000),  # target: 2 s early per the anchor
-        (14_500, 4, 14_500),  # next line starts inside the target's shifted span
-        (20_000, 1, 20_000),
-    ]
-    onsets = [1_000, 5_000, 14_500, 14_900, 15_000, 15_300, 15_400, 15_700, 15_800, 16_200, 20_000]
-    out = _nudge_between(specs, onsets)
-    assert 2 not in out.nudged
-    assert out.result.lines[2].start_ms == 13_000
-    assert _starts_never_go_backwards(out)
-
-
-def test_the_neighbour_guard_still_lets_a_line_with_room_move():
-    """The guard must not become a ban: with the neighbours far away the same
-    2 s move goes through (this is the 2.25.0 behaviour the guard keeps)."""
-    specs = [
-        (1_000, 1, 1_000),
-        (5_000, 1, 5_000),
-        (13_000, 4, 11_000),
-        (20_000, 1, 20_000),
-    ]
-    onsets = [1_000, 5_000, 11_000, 11_400, 11_800, 12_200, 20_000]
-    out = _nudge_between(specs, onsets)
-    assert out.nudged == [2]
-    assert out.result.lines[2].start_ms == 11_000
-    assert _starts_never_go_backwards(out)
-
-
 # --- ad-lib detection: the two shapes it was missing (field fix 2026-08-13) -
 
 
@@ -1192,172 +894,6 @@ def test_lexical_lines_are_never_held():
     assert out.lines[0].end_ms == 1_800
 
 
-# --- call-and-response (Faz 9, 2.27.0) -------------------------------------
-
-
-def _contour(spans: list[tuple[int, int, float]], *, hop_ms: float = 11.61) -> VocalEnergy:
-    """Frames every hop_ms; each (start, end, dB) span paints that level."""
-    frames = []
-    t = 0
-    end = max(e for _, e, _ in spans)
-    while t <= end:
-        level = -80.0
-        for a, b, db in spans:
-            if a <= t <= b:
-                level = db
-        frames.append((t, level))
-        t = round(t + hop_ms)
-    return VocalEnergy(hop_ms=hop_ms, frames=tuple(frames))
-
-
-def _call_response(t_open: int, *, n_after: int = 2, next_start: int | None = None):
-    """'call call (resp resp)' with the response group starting at t_open."""
-    words = [
-        AlignedWord(0, 400, "I'm", 0.9),
-        AlignedWord(400, 800, "hot", 0.9),
-        AlignedWord(t_open, t_open + 300, "(hot", 0.9),
-        AlignedWord(t_open + 300, t_open + 600, "damn)", 0.9),
-    ][: 2 + n_after]
-    lines = [LineTiming(0, words[-1].end_ms, "I'm hot (hot damn)", 0.9)]
-    wpl = [words]
-    if next_start is not None:
-        lines.append(LineTiming(next_start, next_start + 500, "next line", 0.9))
-        wpl.append([AlignedWord(next_start, next_start + 500, "next", 0.9)])
-    return AlignResult(sync="word", lines=lines, words_per_line=wpl, quality_score=0.9)
-
-
-def test_response_moves_forward_onto_the_voice_after_the_breath():
-    # call loud to 900, breath 900-1200, response voice from 1200.
-    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
-    result = _call_response(850)
-    out, changed = shift_call_response(result, energy)
-    assert changed == [0]
-    assert out.words_per_line[0][2].start_ms >= 1200
-    assert out.words_per_line[0][0].start_ms == 0  # the call never moves
-
-
-def test_response_dropped_inside_the_silence_walks_BACK_to_the_burst():
-    # The one instance in eight that was LATE: we placed it in the gap itself.
-    energy = _contour([(0, 600, -4.0), (600, 900, -45.0), (900, 1400, -5.0), (1400, 1700, -45.0)])
-    result = _call_response(1500)  # inside the second silence
-    out, changed = shift_call_response(result, energy)
-    assert changed == [0]
-    assert 850 <= out.words_per_line[0][2].start_ms <= 950  # start of the 900-1400 burst
-
-
-def test_no_breath_means_no_opinion():
-    energy = _contour([(0, 3000, -4.0)])  # unbroken voice
-    assert shift_call_response(_call_response(850), energy)[1] == []
-
-
-def test_a_consonant_sized_dip_is_not_a_breath():
-    # 30 ms below the floor — under RESPONSE_MIN_GAP_MS.
-    energy = _contour([(0, 900, -4.0), (900, 930, -45.0), (930, 3000, -5.0)])
-    assert shift_call_response(_call_response(850), energy)[1] == []
-
-
-def test_it_refuses_rather_than_pushing_into_the_next_line():
-    # The guard that actually fires in the field: three real lines would
-    # otherwise be shoved 391-748 ms into the line after them.
-    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
-    crowded = _call_response(850, next_start=1300)
-    assert shift_call_response(crowded, energy)[1] == []
-
-
-def test_the_call_still_finishes_before_its_answer():
-    # A backward shift may never put the response before the call's last word.
-    energy = _contour([(0, 200, -4.0), (200, 400, -45.0), (400, 700, -5.0), (700, 900, -45.0)])
-    result = _call_response(800)
-    out, changed = shift_call_response(result, energy)
-    for chunk in out.words_per_line:
-        for a, b in zip(chunk, chunk[1:], strict=False):
-            assert b.start_ms >= a.start_ms
-
-
-def test_a_whole_line_backing_vocal_is_not_a_response():
-    # "(ooh ooh)" opening the line has no call to be stuck to.
-    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
-    words = [AlignedWord(850, 1150, "(ooh", 0.9), AlignedWord(1150, 1450, "ooh)", 0.9)]
-    result = AlignResult("word", [LineTiming(850, 1450, "(ooh ooh)", 0.9)], [words], 0.9)
-    assert shift_call_response(result, energy)[1] == []
-
-
-def test_adlib_lines_belong_to_the_rederive_step():
-    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
-    words = [AlignedWord(0, 400, "ooh", 0.9), AlignedWord(850, 1150, "(ooh)", 0.9)]
-    result = AlignResult("word", [LineTiming(0, 1150, "ooh (ooh)", 0.9)], [words], 0.9)
-    assert shift_call_response(result, energy)[1] == []
-
-
-def test_no_contour_and_line_sync_are_both_no_ops():
-    energy = _contour([(0, 900, -4.0), (900, 1200, -45.0), (1200, 3000, -6.0)])
-    assert shift_call_response(_call_response(850), None)[1] == []
-    line_mode = AlignResult("line", _call_response(850).lines, [], 0.9)
-    assert shift_call_response(line_mode, energy)[1] == []
-
-
-def test_a_shift_beyond_the_cap_is_refused():
-    # Voice returns 1.6 s later: INSIDE the 1800 ms scan but past the 1500 ms
-    # cap, so the cap is what refuses it. (A 1.7 s gap would have been thrown
-    # out by the scan first and never exercised the cap at all — the first
-    # version of this test made exactly that mistake and a mutation escaped.)
-    energy = _contour([(0, 900, -4.0), (900, 2440, -45.0), (2440, 4000, -6.0)])
-    result = _call_response(850)
-    assert 1500 < 2440 - 850 <= RESPONSE_SCAN_MS
-    assert shift_call_response(result, energy)[1] == []
-
-
-def test_the_eight_annotated_instances():
-    """The measurement this rule exists for, pinned to the numbers.
-
-    Real word timings from the shipped document, real loudness windows from
-    the separated vocal stem, and the positions Caner marked by ear.
-    """
-    import json
-    from pathlib import Path
-    from statistics import median
-
-    data = json.loads((Path(__file__).parent / "data" / "uptown_response_windows.json").read_text())
-    energy = VocalEnergy(hop_ms=data["hop_ms"], frames=tuple((a, b) for a, b in data["frames"]))
-    expected = {16: -81, 18: -12, 20: -850, 22: 215, 47: -43, 49: -23, 51: -550, 53: -550}
-
-    before, after = [], []
-    for case in data["cases"]:
-        words = [AlignedWord(a, b, t, 0.9) for a, b, t in case["words"]]
-        lines = [LineTiming(words[0].start_ms, words[-1].end_ms, "I'm too hot (hot damn)", 0.9)]
-        wpl = [words]
-        if case["next_start"] is not None:
-            # The following line is part of the evidence: it is what refuses
-            # line 53, whose words already end 10 ms short of it.
-            lines.append(LineTiming(case["next_start"], case["next_start"] + 500, "next", 0.9))
-            wpl.append([AlignedWord(case["next_start"], case["next_start"] + 500, "next", 0.9)])
-        result = AlignResult(sync="word", lines=lines, words_per_line=wpl, quality_score=0.9)
-        out, _ = shift_call_response(result, energy)
-        k = next(i for i, w in enumerate(words) if "(" in w.text)
-        moved = out.words_per_line[0][k].start_ms
-        before.append(abs(case["ours"] - case["truth"]))
-        after.append(abs(moved - case["truth"]))
-        assert abs((moved - case["truth"]) - expected[case["line"]]) <= 5, (
-            case["line"],
-            moved - case["truth"],
-        )
-
-    assert median(before) == 750
-    assert median(after) <= 250
-    assert sum(1 for x in after if x <= 200) >= 4
-    assert not any(a > b + 50 for a, b in zip(after, before, strict=True))  # nothing worsens
-
-
-def test_voice_entry_just_past_the_last_frame_does_not_crash():
-    """2026-10 review: t0 inside the level window but past the last frame, on
-    silence, started the backward walk at len(frames) — an IndexError that
-    would fail the whole job as "other"."""
-    from kashi_server.pipeline.line_qa import _voice_entry
-
-    frames = [(t, -10.0) for t in range(0, 900, 12)] + [(t, -60.0) for t in range(900, 1_001, 12)]
-    _voice_entry(frames, 1_030)  # must simply not raise
-
-
 def test_a_hold_under_the_breath_is_not_counted_as_a_change():
     """A hole smaller than the breath leaves the line exactly as it was. It used
     to build an equal copy anyway, and identity said "changed" — inflating
@@ -1436,33 +972,3 @@ def test_held_ends_skip_adlib_lines_and_line_sync():
     line_sync = AlignResult(sync="line", lines=_held_fixture({}).lines, words_per_line=[],
                             quality_score=0.8)
     assert restore_held_ends(line_sync) == (line_sync, 0)
-
-
-# --- 2.30.0, timing v3 V2: a line after silence starts on the voice's return --
-
-
-def _ear(text: str, start_ms: int, step_ms: int = 60) -> list[dict]:
-    """The checkpoint's greedy letters, one token per letter (raw clock)."""
-    return [{"text": ch, "start_ms": start_ms + k * step_ms} for k, ch in enumerate(text)]
-
-
-def test_a_line_after_silence_moves_onto_the_voice_only_when_the_ear_hears_it_there():
-    # New Rules 2:54's shape: the voice is back at 7.3 s after a 3.6 s silence,
-    # the line lights at 8.0 s. The ear spells "tellthem" from the return.
-    specs = [(1000, "one a"), (3000, "two b"), (8000, "tell them to myself"), (12_000, "next line")]
-    refs = [start for start, _ in specs]
-    energy = _contour([(0, 1000, -60.0), (1000, 3700, -5.0), (3700, 7300, -60.0),
-                       (7300, 9500, -5.0), (9500, 12_000, -60.0), (12_000, 13_000, -5.0)])
-    outcome = apply_line_qa(_result(specs), [s[1] for s in specs], refs, energy=energy,
-                            heard=_ear("tellthemtomyself", 7300 + 50))
-    assert outcome.voice_returned == [2]
-    moved = [w.start_ms for w in outcome.result.words_per_line[2]]
-    assert 7300 <= moved[0] < 7300 + 12  # the first loud frame (11.6 ms hop)
-    assert [b - a for a, b in zip(moved, moved[1:], strict=False)] == [400, 400, 400]  # spacing
-    assert outcome.result.lines[2].start_ms == moved[0]
-    assert outcome.result.lines[3].start_ms == 12_000
-    # A shout in the gap ("eeey", Deli Oğlan 1:57) moves nothing.
-    shout = apply_line_qa(_result(specs), [s[1] for s in specs], refs, energy=energy,
-                          heard=_ear("eeey", 7300 + 50) + _ear("tellthem", 8050))
-    assert shout.voice_returned == []
-    assert shout.result.lines[2].start_ms == 8000

@@ -180,7 +180,8 @@ def test_an_anchored_run_writes_a_valid_windowed_document(stem, heard, record_fi
     assert all(len(ln["words"]) == 3 for ln in doc["lines"])
     assert "edges" in heard["stars"] and "segment" in heard["stars"]  # hybrid windows ran
     assert extras["anchors"] is True and extras["separations"] == 1
-    assert extras["onsets"] and extras["vocal_energy"]["frames"]
+    # 2.32.0: line QA reads onsets only (the loudness rules are gone)
+    assert extras["onsets"] and "vocal_energy" not in extras
     # The stand-in's passes disagree by 400-1 200 ms on every word: at the shipped vote window
     # (1 200 ms since 2.32.0) the whole-track pass places them all.
     assert {w["source"] for chunk in extras["words"] for w in chunk} == {"whole"}
