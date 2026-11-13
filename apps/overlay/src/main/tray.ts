@@ -25,13 +25,10 @@ const resolvedTrayIcon = app.isPackaged
   : trayIconPath;
 import {
   EFFECT_LEVELS,
-  FILL_STYLES,
   THEME_SCOPES,
   effectLevelLabel,
-  fillStyleLabel,
   themeScopeLabel,
   type EffectLevel,
-  type FillStyle,
   type ThemeScope,
 } from '../shared/effect-level.js';
 import {
@@ -55,8 +52,6 @@ export interface KashiMenuOptions {
   onEffectLevelSelect: (level: EffectLevel) => void;
   getThemeScope: () => ThemeScope;
   onThemeScopeSelect: (scope: ThemeScope) => void;
-  getFillStyle: () => FillStyle;
-  onFillStyleSelect: (style: FillStyle) => void;
   getTextScale: () => TextScale;
   onTextScaleSelect: (scale: TextScale) => void;
   getBoxScale: () => BoxScale;
@@ -132,13 +127,6 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     checked: scope === themeScope,
     click: () => opts.onThemeScopeSelect(scope),
   }));
-  const fillStyle = opts.getFillStyle();
-  const fillItems: MenuItemConstructorOptions[] = FILL_STYLES.map((style) => ({
-    label: fillStyleLabel(style),
-    type: 'radio',
-    checked: style === fillStyle,
-    click: () => opts.onFillStyleSelect(style),
-  }));
   const textScale = opts.getTextScale();
   const textItems: MenuItemConstructorOptions[] = TEXT_SCALES.map((scale) => ({
     label: scaleLabel(scale),
@@ -161,7 +149,6 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { type: 'separator' },
     { label: `Effects — ${effectLevelLabel(effectLevel)}`, submenu: effectItems },
     { label: `Theme colors — ${themeScopeLabel(themeScope)}`, submenu: themeItems },
-    { label: `Word fill — ${fillStyleLabel(fillStyle)}`, submenu: fillItems },
     { label: `Text size — ${scaleLabel(textScale)}`, submenu: textItems },
     { label: `Box size — ${scaleLabel(boxScale)}`, submenu: boxItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },

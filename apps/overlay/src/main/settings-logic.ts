@@ -4,13 +4,10 @@
  */
 import {
   DEFAULT_EFFECT_LEVEL,
-  DEFAULT_FILL_STYLE,
   DEFAULT_THEME_SCOPE,
   parseEffectLevel,
-  parseFillStyle,
   parseThemeScope,
   type EffectLevel,
-  type FillStyle,
   type ThemeScope,
 } from '../shared/effect-level.js';
 import { normalizeServerUrl } from './kashi-server-logic.js';
@@ -94,9 +91,12 @@ export interface StoredSettings {
   timing_offset_rel_ms: number;
   /** Effect engine level (Faz 4): off | simple | full. */
   effect_level: EffectLevel;
-  /** How much of the album palette themes the box (Faz 4 saha turu). */
+  /**
+   * How much of the album palette themes the box (Faz 4 saha turu). Two
+   * scopes since client review E.3; a stored `fixed-bg` / `fixed-text` reads
+   * as `full` (parseThemeScope).
+   */
   theme_scope: ThemeScope;
-  fill_style: FillStyle;
   /**
    * Send diagnostics to the configured server (Faz 6.7 P2). Meaningless
    * without server_url + server_api_key: it is the user's OWN server, so the
@@ -130,7 +130,6 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   timing_offset_rel_ms: DEFAULT_TIMING_OFFSET_MS,
   effect_level: DEFAULT_EFFECT_LEVEL,
   theme_scope: DEFAULT_THEME_SCOPE,
-  fill_style: DEFAULT_FILL_STYLE,
   telemetry_enabled: true,
   prefetch_next_track: true,
   text_scale: DEFAULT_TEXT_SCALE,
@@ -264,6 +263,25 @@ export function isPositionVisible(
   });
 }
 
+/**
+ * Keys this build has removed, dropped on read so the next save writes the
+ * file without them. Everything else unknown survives the round-trip (see
+ * parseSettings) — these are the exception because they are not a NEWER
+ * build's fields but this one's retired knobs.
+ *
+ * `fill_style` (client review E.3, 2026-11-14): the sweep had two base
+ * dialects, `themed` and `neutral`; only `themed` is left. A stored `neutral`
+ * goes silently: the file loses the key and the user sees the themed sweep,
+ * which is also what a build from before the setting existed did.
+ */
+export const REMOVED_SETTINGS_KEYS: readonly string[] = ['fill_style'];
+
+function withoutRemovedKeys(record: Record<string, unknown>): Record<string, unknown> {
+  const kept = { ...record };
+  for (const key of REMOVED_SETTINGS_KEYS) delete kept[key];
+  return kept;
+}
+
 /** Tolerant parse (corrupt/hand-edited/future file must never crash startup). */
 export function parseSettings(raw: string): StoredSettings {
   let data: unknown;
@@ -273,7 +291,7 @@ export function parseSettings(raw: string): StoredSettings {
     return { ...DEFAULT_SETTINGS };
   }
   if (typeof data !== 'object' || data === null) return { ...DEFAULT_SETTINGS };
-  const record = data as Record<string, unknown>;
+  const record = withoutRemovedKeys(data as Record<string, unknown>);
 
   const alpha =
     typeof record['box_alpha'] === 'number' ? clampAlpha(record['box_alpha']) : DEFAULT_BOX_ALPHA;
@@ -325,7 +343,6 @@ export function parseSettings(raw: string): StoredSettings {
     timing_offset_rel_ms: parseTimingOffsetRel(record),
     effect_level: parseEffectLevel(record['effect_level']),
     theme_scope: parseThemeScope(record['theme_scope']),
-    fill_style: parseFillStyle(record['fill_style']),
     // Only an explicit false opts out — a corrupt or absent value keeps the
     // default rather than silently disabling the channel we debug with.
     telemetry_enabled: record['telemetry_enabled'] !== false,

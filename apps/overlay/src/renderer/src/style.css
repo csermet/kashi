@@ -186,15 +186,12 @@ body.fx-full .word {
     color 120ms ease-out;
 }
 
-/* Unsung base tone per dialect — MUST sit before .word-active (equal
-   specificity; source order decides): the active word's primary always
-   wins over the resting base. */
+/* Unsung base tone — MUST sit before .word-active (equal specificity;
+   source order decides): the active word's primary always wins over the
+   resting base. */
 body.fx-simple .word,
 body.fx-full .word {
   color: var(--kashi-secondary, #fff);
-}
-body.fill-neutral .word {
-  color: inherit; /* neutral dialect: unsung stays the plain text tone */
 }
 
 /* Every active-word pop is min(its scale, --kashi-pop-cap): the cap, written
@@ -301,10 +298,10 @@ body.fx-full .lyric.adlib .word-fill {
 /* One coherent karaoke language (field screenshots 2026-07-14, round 2 —
    three tones sat side by side: bright sung, grey pop words, dim planned):
      SUNG part stays bright, UNSUNG part rests in ONE tone, the active word
-     transitions between them (sweep fill or pop). The user-picked dialect
-     only decides the UNSUNG tone:
-       themed (default) — unsung words rest on the dim THEME tone
-       neutral (body.fill-neutral) — unsung words rest on the text tone
+     transitions between them (sweep fill or pop). Unsung words rest on the
+     dim THEME tone. (A second, "neutral" dialect resting on the text tone was
+     user-picked until client review E.3 removed it: nobody used it, and it
+     was the twin every sweep change had to be made in twice.)
    FULL secondary here, no alpha: the resting .word opacity (0.55) does the
    dimming, so the stock #fff secondary is pixel-identical to the classic
    grey (an alpha would DOUBLE-dim, 0.55 x 0.55 ≈ 30% — reviewer catch). */
@@ -344,24 +341,6 @@ body.fx-hype .word-fill {
      already gone (retro finding). text-fill-color snaps back instantly. */
   -webkit-text-fill-color: transparent;
   text-shadow: none;
-}
-
-/* Neutral dialect: the unfilled tail matches the resting text tone (the
-   themed tone only ever appears inside the advancing fill).
-   The HEAD still carries `--fx-color` — neutral is a statement about the TAIL,
-   not a licence to strip a word's identity. Field diagnosis 2026-08-13: this
-   rule outranks the themed one (two body classes), so a neutral-dialect user
-   saw the fx fix have no effect at all — the computed gradient came back
-   `rgb(68,213,217) ... color(srgb 1 1 1 / 0.55)`, which is this rule exactly. */
-body.fx-simple.fill-neutral .word-fill,
-body.fx-full.fill-neutral .word-fill,
-body.fx-hype.fill-neutral .word-fill {
-  background-image: linear-gradient(
-    90deg,
-    var(--fx-color, var(--kashi-primary, #fff)) calc(var(--kashi-fill, 0) * 100%),
-    color-mix(in srgb, var(--kashi-text, #fff) 55%, transparent)
-      calc(var(--kashi-fill, 0) * 100%)
-  );
 }
 
 /* Animated "searching" row: lives on its own line under the track label. */
@@ -499,8 +478,12 @@ body.fx-hype.fill-neutral .word-fill {
 /* Category tints (field round 2): computed in TS (color-tone.toneFx) —
    semantic hue from the category ("love is pink, toxic is green"), tone in
    a fixed readable band, and LIGHTNESS pushed apart when the album theme
-   already sits on the category's hue. Vars land on :root at palette/settings
-   cadence; theme-none clears them and the fallback keeps everything stock. */
+   already sits on the category's hue. The renderer sets each fx word's tint
+   INLINE as --fx-color (effects-logic fxWordColor), at line build and on
+   every palette/settings change; this rule is the default it overrides —
+   theme scope "none" or a category newer than this build stays on the
+   primary. Until client review E.3 there were 24 hand-written per-category
+   rules here, one per lexicon tag. */
 body.fx-hype .word.fx-word {
   --fx-color: var(--kashi-primary, #fff);
 }
@@ -520,30 +503,6 @@ body.fx-hype .word.fx-fired:not(.word-fill) {
   color: var(--fx-color, var(--kashi-primary, #fff));
   text-shadow: 0 0 12px var(--fx-color, var(--kashi-primary, #fff));
 }
-body.fx-hype .word.fx-word.fx-explosion { --fx-color: var(--fx-tint-explosion, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-fire { --fx-color: var(--fx-tint-fire, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-poison { --fx-color: var(--fx-tint-poison, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-love { --fx-color: var(--fx-tint-love, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-heartbreak { --fx-color: var(--fx-tint-heartbreak, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-water { --fx-color: var(--fx-tint-water, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-night { --fx-color: var(--fx-tint-night, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-shine { --fx-color: var(--fx-tint-shine, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-dance { --fx-color: var(--fx-tint-dance, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-money { --fx-color: var(--fx-tint-money, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-fly { --fx-color: var(--fx-tint-fly, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-speed { --fx-color: var(--fx-tint-speed, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-electric { --fx-color: var(--fx-tint-electric, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-cold { --fx-color: var(--fx-tint-cold, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-dark { --fx-color: var(--fx-tint-dark, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-death { --fx-color: var(--fx-tint-death, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-crown { --fx-color: var(--fx-tint-crown, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-phone { --fx-color: var(--fx-tint-phone, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-fight { --fx-color: var(--fx-tint-fight, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-music { --fx-color: var(--fx-tint-music, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-drink { --fx-color: var(--fx-tint-drink, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-dream { --fx-color: var(--fx-tint-dream, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-space { --fx-color: var(--fx-tint-space, var(--kashi-primary, #fff)); }
-body.fx-hype .word.fx-word.fx-storm { --fx-color: var(--fx-tint-storm, var(--kashi-primary, #fff)); }
 
 /* The fx word's activation pop: stronger than the stock word-active
    (specificity wins: 3 classes + body), scaled by the server intensity.

@@ -25,6 +25,7 @@ import {
   buildLineThemeIndex,
   clampBackground,
   computeFxTintVars,
+  fxWordColor,
   FX_BASE_COLORS,
   energyAt,
   inRampSection,
@@ -66,10 +67,11 @@ describe('parseEffectLevel', () => {
     expect(effectLevelLabel('hype')).toBe('Hype');
   });
 
-  it('parses theme scopes, defaulting garbage to full', () => {
-    expect(parseThemeScope('fixed-bg')).toBe('fixed-bg');
-    expect(parseThemeScope('fixed-text')).toBe('fixed-text');
+  it('parses theme scopes, defaulting garbage and the removed scopes to full', () => {
+    expect(parseThemeScope('full')).toBe('full');
     expect(parseThemeScope('none')).toBe('none');
+    expect(parseThemeScope('fixed-bg')).toBe('full');
+    expect(parseThemeScope('fixed-text')).toBe('full');
     expect(parseThemeScope('ULTRA')).toBe('full');
     expect(parseThemeScope(undefined)).toBe('full');
   });
@@ -211,22 +213,17 @@ describe('color rules (field feedback: readability is a RULE, not luck)', () => 
     );
   });
 
-  it('theme scope pins color groups (field setting)', () => {
+  it('theme scope: full themes background and effect colors, none keeps everything stock', () => {
     const palette = {
       primary: '#e84545',
       background: '#1a1a2e',
       text: '#f5d76e',
       accent: '#903749',
     };
-    const fixedBg = paletteToCssVars(palette, 'fixed-bg');
-    expect(fixedBg['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
-    expect(fixedBg['--kashi-text']).toBe('#ffffff'); // base text pinned (0.2.4)
-    expect(fixedBg['--kashi-primary']).toBe('#ff847c'); // effect colors themed
-
-    const fixedText = paletteToCssVars(palette, 'fixed-text');
-    expect(fixedText['--kashi-bg-rgb']).toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
-    expect(fixedText['--kashi-text']).toBe(DEFAULT_PALETTE_VARS['--kashi-text']);
-    expect(fixedText['--kashi-primary']).toBe('#ff847c'); // effect colors still theme
+    const full = paletteToCssVars(palette, 'full');
+    expect(full['--kashi-bg-rgb']).not.toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
+    expect(full['--kashi-text']).toBe('#ffffff'); // base text pinned (0.2.4)
+    expect(full['--kashi-primary']).toBe('#ff847c'); // effect colors themed
 
     expect(paletteToCssVars(palette, 'none')).toEqual(DEFAULT_PALETTE_VARS);
   });
@@ -551,6 +548,23 @@ describe('computeFxTintVars (Faz 6 field round 2)', () => {
       (hueDistance(hue(FX_BASE_COLORS[a]!), hue(FX_BASE_COLORS[b]!)) * 180) / Math.PI;
     expect(apart('shine', 'electric')).toBeGreaterThan(30);
     expect(apart('money', 'poison')).toBeGreaterThan(20);
+  });
+
+  it('every category wears its own text tint inline; none and unknown tags fall back', () => {
+    // Replaces the stylesheet's 24 hand-written `.fx-<tag>` rules (client
+    // review E.3): the word's colour is read from the same map, so no category
+    // can be left without one (the v1.2 categories once were).
+    const vars = computeFxTintVars('#ff847c', 'full');
+    for (const tag of Object.keys(FX_BASE_COLORS)) {
+      expect(fxWordColor(tag, vars), tag).toBe(vars[`--fx-tint-${tag}`]);
+      expect(fxWordColor(tag, vars), tag).toMatch(/^#[0-9a-f]{6}$/);
+      // The particle set is not the text set: a word never wears --fx-pt-.
+      if (vars[`--fx-pt-${tag}`] !== vars[`--fx-tint-${tag}`]) {
+        expect(fxWordColor(tag, vars), tag).not.toBe(vars[`--fx-pt-${tag}`]);
+      }
+    }
+    expect(fxWordColor('love', computeFxTintVars('#ff847c', 'none'))).toBeUndefined();
+    expect(fxWordColor('a-newer-category', vars)).toBeUndefined();
   });
 
   it('tints are valid hex and keep the category hue (0.7.1 own-vividness)', () => {

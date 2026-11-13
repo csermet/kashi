@@ -44,10 +44,10 @@ const GOLDEN = join(OVERLAY, 'test/golden');
 // image (box crops of 182-418 x 58 px):
 //   - a repeat run: 0 pixels differ in all 13 pictures (max channel delta 0);
 //   - the active word moving one word on: 6.0 % of the box;
-//   - the fill dialect switched (themed <-> neutral): 4.3-5.2 %;
+//   - the fill dialect switched (themed <-> neutral, removed since): 4.3-5.2 %;
 //   - a sweep advanced by 5 % of one word: 0.12-0.15 %; by 2 %: 0-0.08 %.
 // Exact fill values are the DOM golden's job (compared to the digit); the
-// pictures guard what the DOM cannot see — colours, gradients, the dialect,
+// pictures guard what the DOM cannot see — colours, gradients, the tints,
 // layout. 0.1 % catches every class above, a 5 % sweep step included, and
 // leaves room for anti-aliasing noise from another CPU under the same
 // software rasteriser (12-24 pixels per box), which this host cannot measure.
@@ -129,7 +129,7 @@ try {
 }
 
 // Twin runs: the same document and times under settings that may only change
-// paint (the two fill dialects) must reach the same DOM state, frame by frame.
+// paint (the theme scope) must reach the same DOM state, frame by frame.
 for (const [a, b] of spec.twins ?? []) {
   const left = actual.runs[a];
   const right = actual.runs[b];

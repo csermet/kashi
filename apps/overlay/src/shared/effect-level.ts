@@ -35,61 +35,38 @@ export function effectLevelLabel(level: EffectLevel): string {
 }
 
 /**
- * How much of the album palette themes the box (field feedback 2026-07-12:
- * "renkler sabit kalabilmeli — 3 ayar"). Independent of the effect LEVEL:
- * effects can pulse while every color stays stock.
- *   full        — background + text + effect colors themed (default)
- *   fixed-bg    — background stays stock; text + effect colors themed
- *   fixed-text  — background + text stay stock; only effect colors themed
- *   none        — everything stays stock
+ * How much of the album palette themes the box (field feedback 2026-07-12).
+ * Independent of the effect LEVEL: effects can pulse while every color stays
+ * stock.
+ *   full — background, text and effect colors themed (default)
+ *   none — everything stays stock
+ *
+ * Two scopes, not four (client review step E.3, 2026-11-14): the owner uses
+ * "All colors", and "Keep background" (`fixed-bg`) and "Keep background &
+ * text" (`fixed-text`) had no user while every new effect had to be right in
+ * all four. A settings file that still names one of them lands on `full`,
+ * the nearest kept scope: both themed the text and effect colours, which
+ * `full` does too.
+ *
+ * (The sweep's second base dialect, `fill_style: neutral`, went in the same
+ * step: one dialect is left, so there is nothing to choose. settings-logic.ts
+ * drops the stored key.)
  */
-export type ThemeScope = 'full' | 'fixed-bg' | 'fixed-text' | 'none';
+export type ThemeScope = 'full' | 'none';
 
-export const THEME_SCOPES: readonly ThemeScope[] = ['full', 'fixed-bg', 'fixed-text', 'none'];
+export const THEME_SCOPES: readonly ThemeScope[] = ['full', 'none'];
 
 export const DEFAULT_THEME_SCOPE: ThemeScope = 'full';
 
+/** Untrusted value → scope; the removed scopes and garbage both land on `full`. */
 export function parseThemeScope(value: unknown): ThemeScope {
-  return value === 'full' || value === 'fixed-bg' || value === 'fixed-text' || value === 'none'
-    ? value
-    : DEFAULT_THEME_SCOPE;
-}
-
-/**
- * Sweep-fill base language (field feedback 2026-07-14: the grey -> dim-theme
- * snap at word activation read as a glitch; the base must be constant from
- * line build). Two consistent dialects, user-picked:
- *   themed  — planned sweep words start on the dim THEME tone and fill bright
- *             (Apple Music look; default)
- *   neutral — words keep the resting grey; only the fill itself is themed
- */
-export type FillStyle = 'themed' | 'neutral';
-
-export const FILL_STYLES: readonly FillStyle[] = ['themed', 'neutral'];
-
-export const DEFAULT_FILL_STYLE: FillStyle = 'themed';
-
-export function parseFillStyle(value: unknown): FillStyle {
-  return value === 'themed' || value === 'neutral' ? value : DEFAULT_FILL_STYLE;
-}
-
-export function fillStyleLabel(style: FillStyle): string {
-  switch (style) {
-    case 'themed':
-      return 'Themed base';
-    case 'neutral':
-      return 'Neutral base';
-  }
+  return value === 'none' ? 'none' : DEFAULT_THEME_SCOPE;
 }
 
 export function themeScopeLabel(scope: ThemeScope): string {
   switch (scope) {
     case 'full':
       return 'All colors';
-    case 'fixed-bg':
-      return 'Keep background';
-    case 'fixed-text':
-      return 'Keep background & text';
     case 'none':
       return 'Off';
   }

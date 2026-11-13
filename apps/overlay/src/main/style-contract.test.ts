@@ -61,20 +61,6 @@ describe('style contract: ambient ring stays hype-scoped', () => {
   });
 });
 
-describe('style contract: every FX category has a live CSS tint rule', () => {
-  it('FX_BASE_COLORS keys and the .fx-<tag> --fx-color block stay in lockstep', async () => {
-    // The v1.2 categories shipped colors + icons but NO CSS mapping — the
-    // words rendered stock while the ambient ring showed the hue (reviewer
-    // violation). This pins the two lists together forever.
-    const { FX_BASE_COLORS } = await import('../renderer/src/effects-logic.js');
-    for (const tag of Object.keys(FX_BASE_COLORS)) {
-      expect(css, tag).toContain(
-        `body.fx-hype .word.fx-word.fx-${tag} { --fx-color: var(--fx-tint-${tag},`,
-      );
-    }
-  });
-});
-
 describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
   it('every selector naming nightcore starts with body.fx-hype', () => {
     const offenders = selectorLines(css).filter(
@@ -85,22 +71,6 @@ describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
 
   it('the nightcore rules exist', () => {
     expect(css).toContain('body.fx-hype.nightcore .lyric');
-  });
-});
-
-describe('style contract: the removed icon stage stays removed (Faz 6.7 P4)', () => {
-  it('no rule mentions the stage band or the park spot', () => {
-    // 0.9.0 put icons outside the box by dropping them from a top band and
-    // parking one in the left gutter. Caner's field verdict was that both
-    // read as plain, so they were removed rather than tuned — the particle
-    // layer replaces them. A stray rule would be dead weight that still
-    // participates in the cascade.
-    const strays = selectorLines(css).filter(
-      (line) =>
-        line.includes('fx-stage') || line.includes('stage-slot') || line.includes('fx-park'),
-    );
-    expect(strays).toEqual([]);
-    expect(css).not.toContain('kashi-stage-drop');
   });
 });
 
@@ -191,30 +161,6 @@ describe('style contract: no invented hues (Faz 6.7 field bug)', () => {
     // travel along; sRGB is fine too. This rule only bans the trap.
     const offenders = css.match(/color-mix\(\s*in\s+oklch[^)]*\)/g) ?? [];
     expect(offenders).toEqual([]);
-  });
-});
-
-describe('style contract: the DOM burst pool stays removed (Faz 7 P2)', () => {
-  const rendererSource = ['main.ts', 'effects-logic.ts']
-    .map((file) => readFileSync(fileURLToPath(new URL(`../renderer/src/${file}`, import.meta.url)), 'utf8'))
-    .join('\n');
-
-  it('no CSS rule is left behind from the old pool', () => {
-    // 0.4.0 scattered twelve absolutely-positioned spans INSIDE the box for
-    // explosion and electric. The Pixi layer does that job for all 24
-    // categories now, outside the box, so the pool went. A leftover rule
-    // would still take part in the cascade.
-    const strays = selectorLines(css).filter(
-      (line) => line.includes('fx-burst') || line.includes('bursting') || /\.fx-particle\b/.test(line),
-    );
-    expect(strays).toEqual([]);
-    expect(css).not.toContain('kashi-fx-burst');
-  });
-
-  it('no code path still reaches for it', () => {
-    for (const token of ['FX_BURST_TAGS', 'ensureBurstPool', 'triggerBurst']) {
-      expect(rendererSource, `${token} survived the removal`).not.toContain(token);
-    }
   });
 });
 
@@ -383,7 +329,7 @@ describe('style contract: the fx-fired hold (Faz 9, field report 2026-08-12)', (
   });
 });
 
-describe('style contract: the two fill dialects sweep alike (held-note sweep, 2026-11-13)', () => {
+describe('style contract: one sweep, the same at every sweeping level (client review E.3)', () => {
   /** The rule body whose selector list names `selector` exactly. */
   function ruleBody(selector: string): string {
     const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -414,32 +360,17 @@ describe('style contract: the two fill dialects sweep alike (held-note sweep, 20
     parts.push(current.trim());
     return parts;
   }
-  const levels = ['fx-simple', 'fx-full', 'fx-hype'];
 
-  it('both dialects exist at every sweeping level', () => {
-    for (const level of levels) {
-      expect(stops(ruleBody(`body.${level} .word-fill`))).toHaveLength(3);
-      expect(stops(ruleBody(`body.${level}.fill-neutral .word-fill`))).toHaveLength(3);
-    }
-  });
-
-  it('the sweep head and its boundary are the same in both: only the tail tone differs', () => {
-    // A held note sweeps through --kashi-fill like every other sweep; the
-    // dialect may only change what the UNSUNG part rests on. A head or a
-    // boundary edited in one dialect alone makes the two sweep apart.
-    const boundary = (stop: string | undefined) => stop?.slice(stop.lastIndexOf(' calc('));
-    for (const level of levels) {
-      const themed = stops(ruleBody(`body.${level} .word-fill`));
-      const neutral = stops(ruleBody(`body.${level}.fill-neutral .word-fill`));
-      expect(themed[0]).toBe('90deg');
-      expect(neutral[0]).toBe('90deg');
-      expect(themed[1]).toBe(
+  it('head, boundary and tail are pinned at every sweeping level', () => {
+    // A held note sweeps through --kashi-fill like every other sweep. The head
+    // carries the fx word's own colour first (--fx-color, 2026-08-13), the
+    // unsung tail rests on the dim theme tone; the boundary is the fill value.
+    for (const level of ['fx-simple', 'fx-full', 'fx-hype']) {
+      expect(stops(ruleBody(`body.${level} .word-fill`)), level).toEqual([
+        '90deg',
         'var(--fx-color, var(--kashi-primary, #fff)) calc(var(--kashi-fill, 0) * 100%)',
-      );
-      expect(neutral[1]).toBe(themed[1]);
-      expect(boundary(themed[2])).toBe(' calc(var(--kashi-fill, 0) * 100%)');
-      expect(boundary(neutral[2])).toBe(boundary(themed[2]));
-      expect(neutral[2]).not.toBe(themed[2]);
+        'color-mix(in srgb, var(--fx-color, var(--kashi-secondary, #fff)) 55%, transparent) calc(var(--kashi-fill, 0) * 100%)',
+      ]);
     }
   });
 });

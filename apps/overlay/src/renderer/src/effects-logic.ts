@@ -130,7 +130,7 @@ function parseSlot(value: unknown): Oklch | null {
  *
  * Rules preserved from 0.2.3: every input validated against #rrggbb (R-7);
  * background emitted as an "r, g, b" triplet composed with the user's box
- * alpha; `scope` pins color groups; base text stays white (differentiation
+ * alpha; scope `none` keeps every default; base text stays white (differentiation
  * from the primary is guaranteed by construction: ΔE_OK ≥ ~0.19). The WCAG
  * check remains as a backstop that provably never fires with today's bands.
  */
@@ -154,19 +154,16 @@ export function paletteToCssVars(
   const resolve = (slot: Oklch | null): Oklch | null =>
     slot && hasUsableHue(slot) ? slot : donor;
 
-  let bgHex: string | null = null;
-  if (scope === 'full') {
-    const bg = resolve(slots.background);
-    bgHex = bg ? toneBackground(bg) : null;
-    vars['--kashi-bg-rgb'] = bgHex
-      ? `${channel(bgHex, 0)}, ${channel(bgHex, 1)}, ${channel(bgHex, 2)}`
-      : NEUTRAL_BG_TRIPLET;
-  }
+  const bg = resolve(slots.background);
+  const bgHex = bg ? toneBackground(bg) : null;
+  vars['--kashi-bg-rgb'] = bgHex
+    ? `${channel(bgHex, 0)}, ${channel(bgHex, 1)}, ${channel(bgHex, 2)}`
+    : NEUTRAL_BG_TRIPLET;
 
   // Base text is pinned white (see module note) — DEFAULT_PALETTE_VARS value.
 
-  // Effect colors (active word / sweep tail / glow) theme in every non-none
-  // scope; a neutral palette with no donor keeps them stock white.
+  // Effect colors (active word / sweep tail / glow); a neutral palette with
+  // no donor keeps them stock white.
   const primarySource = resolve(slots.primary);
   if (primarySource) {
     const primary = tonePrimary(primarySource);
@@ -911,6 +908,25 @@ export function computeFxTintVars(
     );
   }
   return vars;
+}
+
+/**
+ * The colour an fx word wears, set inline on its span as `--fx-color`: its
+ * category's text tint from computeFxTintVars. Undefined when there is none —
+ * scope `none` (an empty map) or a tag newer than FX_BASE_COLORS — and the
+ * stylesheet's `.fx-word` default, the theme primary, applies instead.
+ *
+ * Until client review E.3 the stylesheet carried one hand-written rule per
+ * category mapping `.fx-<tag>` to `var(--fx-tint-<tag>)`, which had to be kept
+ * in step with this map by a test (the v1.2 categories once shipped without
+ * theirs). The colour now comes from the map itself, so a category cannot
+ * miss it.
+ */
+export function fxWordColor(
+  tag: string,
+  tintVars: Readonly<Record<string, string>>,
+): string | undefined {
+  return tintVars[`--fx-tint-${tag}`];
 }
 
 /**

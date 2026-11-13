@@ -22,10 +22,8 @@ import { join } from 'node:path';
 import type { ExtensionToOverlayMessage, TrackInfo } from '@kashi/protocol';
 import {
   DEFAULT_EFFECT_LEVEL,
-  DEFAULT_FILL_STYLE,
   DEFAULT_THEME_SCOPE,
   parseEffectLevel,
-  parseFillStyle,
   parseThemeScope,
 } from '../shared/effect-level.js';
 import { BOX_ZONE, WINDOW_HEIGHT, WINDOW_WIDTH } from '../shared/box-zone.js';
@@ -574,7 +572,6 @@ function broadcastSettings(): void {
     timing_offset_rel_ms: current.timing_offset_rel_ms,
     effect_level: current.effect_level,
     theme_scope: current.theme_scope,
-    fill_style: current.fill_style,
     text_scale: current.text_scale,
     box_scale: current.box_scale,
   });
@@ -607,14 +604,6 @@ function applyThemeScope(scope: unknown): void {
   const parsed = parseThemeScope(scope);
   settings?.update({ theme_scope: parsed });
   log(`setting: theme colors -> ${parsed}`);
-  broadcastSettings();
-  tray?.refresh();
-}
-
-function applyFillStyle(style: unknown): void {
-  const parsed = parseFillStyle(style);
-  settings?.update({ fill_style: parsed });
-  log(`setting: fill style -> ${parsed}`);
   broadcastSettings();
   tray?.refresh();
 }
@@ -999,7 +988,6 @@ function sendSessionEnvelope(serverUrl: string): void {
       displaySize: `${primary.width}x${primary.height}`,
       effectLevel: current.effect_level,
       themeScope: current.theme_scope,
-      fillStyle: current.fill_style,
       // The APPLIED lead, as in every earlier build: the server's numbers
       // keep one meaning across the 0.31.0 switch to a relative offset.
       timingOffsetMs: appliedLeadMs(current.timing_offset_rel_ms),
@@ -1160,8 +1148,6 @@ app.whenReady().then(async () => {
     onEffectLevelSelect: applyEffectLevel,
     getThemeScope: () => settings?.get().theme_scope ?? DEFAULT_THEME_SCOPE,
     onThemeScopeSelect: applyThemeScope,
-    getFillStyle: () => settings?.get().fill_style ?? DEFAULT_FILL_STYLE,
-    onFillStyleSelect: applyFillStyle,
     getTextScale: () => settings?.get().text_scale ?? DEFAULT_TEXT_SCALE,
     onTextScaleSelect: applyTextScale,
     getBoxScale: () => settings?.get().box_scale ?? DEFAULT_BOX_SCALE,

@@ -177,8 +177,7 @@ describe('parseSettings', () => {
       lyrics_mirror_url: 'http://mirror.example:3300',
       timing_offset_rel_ms: -100,
       effect_level: 'full',
-      theme_scope: 'fixed-text',
-      fill_style: 'neutral',
+      theme_scope: 'none',
       telemetry_enabled: true,
       prefetch_next_track: false,
       text_scale: 'medium',
@@ -335,20 +334,43 @@ describe('timingOffsetLabel / formatTimingOffset', () => {
 });
 
 describe('theme_scope setting', () => {
-  it('defaults to full and round-trips', () => {
+  it('defaults to full; the two kept scopes round-trip', () => {
     expect(DEFAULT_SETTINGS.theme_scope).toBe('full');
-    expect(parseSettings(JSON.stringify({ theme_scope: 'fixed-bg' })).theme_scope).toBe('fixed-bg');
+    expect(parseSettings(JSON.stringify({ theme_scope: 'full' })).theme_scope).toBe('full');
+    expect(parseSettings(JSON.stringify({ theme_scope: 'none' })).theme_scope).toBe('none');
     expect(parseSettings(JSON.stringify({ theme_scope: 'renkler' })).theme_scope).toBe('full');
   });
 });
 
-describe('fill_style setting', () => {
-  it('defaults to themed and round-trips', () => {
-    expect(DEFAULT_SETTINGS.fill_style).toBe('themed');
-    expect(parseSettings(JSON.stringify({ fill_style: 'neutral' })).fill_style).toBe('neutral');
-    // Garbage/missing -> default (tolerant parse, hand-edited files).
-    expect(parseSettings(JSON.stringify({ fill_style: 'rainbow' })).fill_style).toBe('themed');
-    expect(parseSettings(JSON.stringify({ box_alpha: 0.2 })).fill_style).toBe('themed');
+describe('settings migration: the knobs removed in client review E.3', () => {
+  // The owner's file as 0.31.0 wrote it, plus the two values this step removes.
+  const old = (patch: Record<string, unknown>) =>
+    JSON.stringify({ ...DEFAULT_SETTINGS, effect_level: 'hype', box_alpha: 0.9, ...patch });
+
+  it('a removed theme scope lands on "All colors", in memory and in the saved file', () => {
+    for (const removed of ['fixed-bg', 'fixed-text']) {
+      const parsed = parseSettings(old({ theme_scope: removed }));
+      expect(parsed.theme_scope, removed).toBe('full');
+      expect(JSON.parse(serializeSettings(parsed)).theme_scope, removed).toBe('full');
+    }
+  });
+
+  it('a stored fill_style goes silently: no key in memory, none in the saved file', () => {
+    for (const stored of ['neutral', 'themed', 'rainbow']) {
+      const parsed = parseSettings(old({ fill_style: stored }));
+      expect(parsed, stored).not.toHaveProperty('fill_style');
+      expect(JSON.parse(serializeSettings(parsed)), stored).not.toHaveProperty('fill_style');
+    }
+  });
+
+  it('nothing else moves: every other value of the old file survives', () => {
+    const parsed = parseSettings(old({ theme_scope: 'fixed-bg', fill_style: 'neutral' }));
+    expect(parsed).toEqual({ ...DEFAULT_SETTINGS, effect_level: 'hype', box_alpha: 0.9 });
+  });
+
+  it("an unknown key a NEWER build wrote still survives (the round-trip rule's other half)", () => {
+    const parsed = parseSettings(old({ fill_style: 'neutral', future_knob: 3 }));
+    expect(parsed).toHaveProperty('future_knob', 3);
   });
 });
 

@@ -390,10 +390,9 @@
     "a-basic-hype-21500.png"
    ]
   },
-  "b-held-hype-themed": {
+  "b-held-hype": {
    "settings": {
-    "effect_level": "hype",
-    "fill_style": "themed"
+    "effect_level": "hype"
    },
    "lead_ms": 200,
    "frames": [
@@ -865,16 +864,16 @@
     }
    ],
    "png": [
-    "b-held-hype-themed-2200.png",
-    "b-held-hype-themed-9300.png",
-    "b-held-hype-themed-12000.png",
-    "b-held-hype-themed-23400.png"
+    "b-held-hype-2200.png",
+    "b-held-hype-9300.png",
+    "b-held-hype-12000.png",
+    "b-held-hype-23400.png"
    ]
   },
-  "b-held-hype-neutral": {
+  "b-held-hype-scope-none": {
    "settings": {
     "effect_level": "hype",
-    "fill_style": "neutral"
+    "theme_scope": "none"
    },
    "lead_ms": 200,
    "frames": [
@@ -1346,10 +1345,8 @@
     }
    ],
    "png": [
-    "b-held-hype-neutral-2200.png",
-    "b-held-hype-neutral-9300.png",
-    "b-held-hype-neutral-12000.png",
-    "b-held-hype-neutral-23400.png"
+    "b-held-hype-scope-none-2200.png",
+    "b-held-hype-scope-none-9300.png"
    ]
   },
   "b-held-simple": {
@@ -2018,6 +2015,394 @@
     "c-fx-hype-2350.png",
     "c-fx-hype-6500.png",
     "c-fx-hype-9500.png"
+   ]
+  },
+  "c-fx-hype-scope-none": {
+   "settings": {
+    "effect_level": "hype",
+    "theme_scope": "none"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1200,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 2350,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": 2,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 2900,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": 2,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.100"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 3600,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.600"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 4050,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 4150,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 4200,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 4300,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 5000,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.524"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 5800,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 6500,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.100"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 7000,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.600"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 7500,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 8200,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.556"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 9100,
+     "visible": true,
+     "text": "na na na na",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 9500,
+     "visible": true,
+     "text": "na na na na",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 10600,
+     "visible": true,
+     "text": "na na na na",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 11000,
+     "visible": true,
+     "text": "na na na na",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    },
+    {
+     "pos": 16000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "c-fx-hype-scope-none-2350.png",
+    "c-fx-hype-scope-none-6500.png",
+    "c-fx-hype-scope-none-9500.png"
    ]
   }
  },

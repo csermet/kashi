@@ -168,8 +168,8 @@ async function realFrames() {
   await page.goto(base + '/');
   if (!args['keep-transitions']) await page.addStyleTag({ url: base + '/__audit.css' });
   const settings = { ...DEFAULT_SETTINGS, effect_level: level, timing_offset_rel_ms: offset };
-  const pick = ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale }) =>
-    ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale });
+  const pick = ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, text_scale, box_scale }) =>
+    ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, text_scale, box_scale });
   const title = doc.track?.title ?? '';
   const artist = doc.track?.artist ?? '';
   await page.evaluate(

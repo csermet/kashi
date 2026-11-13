@@ -12,10 +12,8 @@ import type {
 } from '@kashi/protocol';
 import {
   parseEffectLevel,
-  parseFillStyle,
   parseThemeScope,
   type EffectLevel,
-  type FillStyle,
   type ThemeScope,
 } from '../../shared/effect-level.js';
 import {
@@ -27,8 +25,8 @@ import {
   primaryFxHit,
   buildLineThemeIndex,
   computeFxTintVars,
-  FX_BASE_COLORS,
   fillProgress,
+  fxWordColor,
   lineFinalDwellMs,
   resolveFxProfile,
   inRampSection,
@@ -190,7 +188,6 @@ let appliedView: ViewOutput | null = null;
 // comes from settings. All per-frame beat work is class toggles on edges.
 let effectLevel: EffectLevel = 'simple';
 let themeScope: ThemeScope = 'full';
-let fillStyle: FillStyle = 'themed';
 let currentPalette: PaletteLike | undefined; // what applyPaletteVars renders
 let serverPalette: PaletteLike | undefined; // from a kashi-server document
 let artworkPalette: PaletteLike | undefined; // local extraction (lrclib mode)
@@ -363,25 +360,18 @@ function applyPaletteVars(): void {
   for (const [name, value] of Object.entries(vars)) {
     document.documentElement.style.setProperty(name, value);
   }
-  // Fx tints key off this class: scope "none" means EVERYTHING stays stock,
-  // including semantic category colors (Faz 6 — the scope contract holds).
-  document.body.classList.toggle('theme-none', themeScope === 'none');
-  // Per-category tint vars (field round 2): semantic hue, theme-distinct
-  // tone — recomputed here (track/settings cadence, never per frame).
-  const tintVars = computeFxTintVars(
+  // Per-category tints (field round 2): semantic hue, theme-distinct tone —
+  // recomputed here (track/settings cadence, never per frame). Scope "none"
+  // empties the map: fx words, particles and the ring all fall back to stock.
+  currentTintVars = computeFxTintVars(
     effectLevel === 'off' ? undefined : vars['--kashi-primary'],
     themeScope,
   );
-  for (const tag of Object.keys(FX_BASE_COLORS)) {
-    const name = `--fx-tint-${tag}`;
-    const value = tintVars[name];
-    if (value) document.documentElement.style.setProperty(name, value);
-    else document.documentElement.style.removeProperty(name);
-  }
+  // The words of the line on screen wear the new tint at once, as they did
+  // when it was a :root variable; later lines get it at build.
+  for (const [index, effect] of fxWordTags) applyFxColor(wordSpans[index], effect.tag);
   // Ambient ring colors ride the same tint map — re-derive for the current
-  // line whenever the palette/scope changes (scope "none" empties the map
-  // and the ring goes with it: the scope contract covers ambient too).
-  currentTintVars = tintVars;
+  // line whenever the palette/scope changes.
   applyAmbient(ambientLineIndex, true);
   if (currentPalette && effectLevel !== 'off' && themeScope !== 'none') {
     // One line per theme application — the color-iteration feedback loop
@@ -453,6 +443,17 @@ function fxIconPath(tag: string, wordText: string): string | null {
   for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
   const path = variants[Math.abs(hash) % variants.length];
   return typeof path === 'string' ? path : null;
+}
+
+/**
+ * An fx word's category colour, inline as `--fx-color` (fxWordColor). Unset
+ * leaves the stylesheet's `.fx-word` default, the theme primary.
+ */
+function applyFxColor(span: HTMLElement | undefined, tag: string): void {
+  if (!span) return;
+  const color = fxWordColor(tag, currentTintVars);
+  if (color) span.style.setProperty('--fx-color', color);
+  else span.style.removeProperty('--fx-color');
 }
 
 /** Inline SVG icon (createElementNS — R-7 keeps innerHTML banned; strict
@@ -638,6 +639,7 @@ function buildWordSpans(lineIndex: number, words: readonly WordTiming[]): void {
       // word — the box clips at the window edge, never past it.
       span.classList.add('fx-word', `fx-${hit.effect.tag}`);
       span.style.setProperty('--fx-intensity', String(hit.effect.intensity));
+      applyFxColor(span, hit.effect.tag);
       // ONE icon per line, on the strongest hit. Two icons on one line read as
       // clutter — the field verdict was blunt about it — and the halo already
       // follows the same "one identity per line" rule. Secondary hits keep
@@ -1101,15 +1103,6 @@ function applyThemeScopeSetting(theme_scope: unknown): void {
   }
 }
 
-function applyFillStyleSetting(fill_style: unknown): void {
-  if (fill_style !== undefined && parseFillStyle(fill_style) !== fillStyle) {
-    fillStyle = parseFillStyle(fill_style);
-    // Pure CSS dialect switch — the gradient tail and the pre-base both key
-    // off this one class; spans and plans stay as they are.
-    document.body.classList.toggle('fill-neutral', fillStyle === 'neutral');
-  }
-}
-
 function applyTextScaleSetting(text_scale: unknown): void {
   if (text_scale !== undefined && parseTextScale(text_scale) !== textScale) {
     textScale = parseTextScale(text_scale);
@@ -1133,13 +1126,12 @@ window.kashi.onSettings((payload) => {
   // Captured BEFORE the timing-offset branch flips it: branches below the
   // flip would otherwise treat the startup replay as a live change.
   const live = settingsSeen;
-  const { box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale } =
+  const { box_alpha, timing_offset_rel_ms, effect_level, theme_scope, text_scale, box_scale } =
     payload as {
       box_alpha?: unknown;
       timing_offset_rel_ms?: unknown;
       effect_level?: unknown;
       theme_scope?: unknown;
-      fill_style?: unknown;
       text_scale?: unknown;
       box_scale?: unknown;
     };
@@ -1148,7 +1140,6 @@ window.kashi.onSettings((payload) => {
   settingsSeen = true;
   applyEffectLevelSetting(effect_level);
   applyThemeScopeSetting(theme_scope);
-  applyFillStyleSetting(fill_style);
   applyTextScaleSetting(text_scale);
   applyBoxScaleSetting(box_scale, live);
   // Paused screens must repaint NOW, not on the 1 Hz self-heal — the user is

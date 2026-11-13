@@ -85,7 +85,6 @@ export interface SessionEnvelopeInput {
   displaySize: string;
   effectLevel: string;
   themeScope: string;
-  fillStyle: string;
   /** The APPLIED lead (base + user offset) — its meaning before 0.31.0 too. */
   timingOffsetMs: number;
   serverHost: string;
@@ -96,6 +95,8 @@ export interface SessionEnvelopeInput {
  * the events that follow" — the question a field report never answers well.
  * Field names mirror the server's allowlist (telemetry_contract.py); a
  * mismatch is silently dropped there, so the two lists move together.
+ * `fill_style` is no longer sent (one sweep dialect is left, client review
+ * E.3); the server keeps accepting it from older overlays.
  */
 export function sessionEnvelope(input: SessionEnvelopeInput, ts: string): TelemetryEvent {
   return {
@@ -113,7 +114,6 @@ export function sessionEnvelope(input: SessionEnvelopeInput, ts: string): Teleme
       display_size: input.displaySize,
       effect_level: input.effectLevel,
       theme_scope: input.themeScope,
-      fill_style: input.fillStyle,
       timing_offset_ms: input.timingOffsetMs,
       server_host: input.serverHost,
     },
