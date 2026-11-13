@@ -24,6 +24,13 @@
       "png": [2200, 9300, 12000, 23400]
     },
     {
+      "name": "b-held-simple",
+      "doc": "docs/b-held.json",
+      "settings": { "effect_level": "simple" },
+      "times": [900, 2200, 3100, 4000, 5700, 9300, 12000, 15300, 17400, 20600, 23400, 24600],
+      "png": [2200, 23400]
+    },
+    {
       "name": "c-fx-hype",
       "doc": "docs/c-fx.json",
       "settings": { "effect_level": "hype" },

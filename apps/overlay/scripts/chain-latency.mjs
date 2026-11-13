@@ -56,8 +56,6 @@ import { wordActivations } from './lib/sim.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OVERLAY = resolve(HERE, '..');
 const RATE = 16000;
-const CELLS = 7; // src/renderer/src/latency-marker.ts MARKER_CELLS
-const CODE_BITS = 6; // MARKER_CODE_BITS
 
 const { values: args } = parseArgs({
   options: {
@@ -161,6 +159,9 @@ async function findMarker(file, video) {
 
 // ---- 1. the document's activations ------------------------------------------
 const R = await loadRendererSrc(OVERLAY);
+// The marker's layout from the renderer's own module (latency-marker.ts).
+const CELLS = R.marker.MARKER_CELLS;
+const CODE_BITS = R.marker.MARKER_CODE_BITS;
 const raw = JSON.parse(readFileSync(args.doc, 'utf8'));
 const doc = Array.isArray(raw) ? raw.find((e) => e.id === args.id)?.doc : raw;
 if (!doc) throw new Error(`no document${args.id ? ` for ${args.id}` : ''} in ${args.doc}`);

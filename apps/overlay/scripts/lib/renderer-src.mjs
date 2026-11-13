@@ -23,12 +23,13 @@ export async function resolve(specifier, context, next) {
 /** The pure modules of the overlay at `overlayRoot` (apps/overlay). */
 export async function loadRendererSrc(overlayRoot) {
   const src = (p) => pathToFileURL(join(overlayRoot, 'src', p)).href;
-  const [main, settings, timing, view, effects] = await Promise.all([
+  const [main, settings, timing, view, effects, marker] = await Promise.all([
     import(src('main/kashi-server-logic.ts')),
     import(src('main/settings-logic.ts')),
     import(src('shared/timing-offset.ts')),
     import(src('renderer/src/view-logic.ts')),
     import(src('renderer/src/effects-logic.ts')),
+    import(src('renderer/src/latency-marker.ts')),
   ]);
   return {
     mapDocument: main.mapDocument,
@@ -36,5 +37,6 @@ export async function loadRendererSrc(overlayRoot) {
     appliedLeadMs: timing.appliedLeadMs,
     view,
     effects,
+    marker,
   };
 }

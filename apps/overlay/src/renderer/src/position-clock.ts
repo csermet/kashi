@@ -97,8 +97,14 @@ export class PositionClock {
     // position forward by the whole gap (transport latency is what we model).
     const latencyMs = Math.min(5000, Math.max(0, transportMs));
     const compensated = report.position_ms + (report.is_playing ? latencyMs * rate : 0);
-    const observe = (action: ClockReportInfo['action'], deltaMs: number): void =>
-      this.onReport?.({ transportMs, action, deltaMs });
+    const observe = (action: ClockReportInfo['action'], deltaMs: number): void => {
+      // An observer runs before the clock moves; a throwing one must not stop it.
+      try {
+        this.onReport?.({ transportMs, action, deltaMs });
+      } catch {
+        // diagnostics only
+      }
+    };
 
     if (!this.hasAnchor || isSeek) {
       observe(this.hasAnchor ? 'seek' : 'anchor', 0);

@@ -91,14 +91,10 @@ export function wordLitTimes(R, lines) {
  * active word, if any; within a line, each change of the active word lights.
  */
 export function wordActivations(R, lines) {
-  const offsets = [];
-  let total = 0;
-  for (const line of lines) {
-    offsets.push(total);
-    total += line.words?.length ?? 0;
-  }
+  // The marker's own numbering (latency-marker.ts), not a copy of it.
+  const offsets = R.marker.lineWordOffsets(lines);
   const out = [];
-  if (total === 0) return out;
+  if (lines.every((line) => (line.words?.length ?? 0) === 0)) return out;
   const from = Math.min(...lines.map((l) => l.start_ms)) - R.view.LINE_LEAD_IN_MS - 1;
   const to = Math.max(...lines.map((l) => l.end_ms)) + R.view.INTERLUDE_GAP_MS + 1;
   let previousLine = -2;

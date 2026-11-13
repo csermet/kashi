@@ -58,6 +58,8 @@ jobs:
       # pulling the image on a fresh runner. Kept out of `pnpm test` so unit
       # runs stay fast and browser-free.
       - name: Golden frames and dwell (built renderer)
+        # A hung headless shell must not hold the job for the 6 h default.
+        timeout-minutes: 8
         run: apps/overlay/scripts/golden-frames.sh
       - name: Keep what the golden frames saw
         if: failure()

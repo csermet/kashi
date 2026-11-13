@@ -11,12 +11,21 @@
  * exactly like a normal unsigned-but-runnable app. Version-independent: it
  * doesn't rely on electron-builder's identity auto-discovery behavior.
  *
- * Runs only on darwin; a no-op on the Windows/Linux packers.
+ * Signs only on darwin. On every platform it first refuses to package a build
+ * made with a dev-only renderer drawing switched on (`dist:*` builds and packs
+ * in one script, so the build saw the same environment).
  */
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 
+const DEV_ONLY_FLAGS = ['KASHI_LATENCY_MARKER', 'KASHI_FX_DEBUG'];
+
 exports.default = async function afterPack(context) {
+  for (const flag of DEV_ONLY_FLAGS) {
+    if (process.env[flag] === '1') {
+      throw new Error(`afterPack: ${flag}=1 is set; a dev-only renderer build must not be packaged`);
+    }
+  }
   if (context.electronPlatformName !== 'darwin') return;
   const appName = `${context.packager.appInfo.productFilename}.app`;
   const appPath = path.join(context.appOutDir, appName);

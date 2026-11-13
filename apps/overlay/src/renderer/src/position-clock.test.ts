@@ -255,6 +255,23 @@ describe('PositionClock report observer (lead telemetry, review E.1)', () => {
     ]);
   });
 
+  it('keeps the clock moving when the observer throws', () => {
+    let now = 0;
+    const clock = new PositionClock(
+      () => now,
+      () => 1_000_000 + now,
+      undefined,
+      () => {
+        throw new Error('observer bug');
+      },
+    );
+    clock.update({ position_ms: 10_000, playback_rate: 1, is_playing: true, captured_at: 1_000_000 });
+    now = 1000;
+    clock.update({ position_ms: 11_500, playback_rate: 1, is_playing: true, captured_at: 1_001_000 }); // slew
+    expect(clock.anchored).toBe(true);
+    expect(clock.positionAt(1000 + SLEW_DURATION_MS)).toBeCloseTo(11_000 + SLEW_DURATION_MS + 500, 0);
+  });
+
   it('reports the transport delay unclamped, the way it arrived', () => {
     const t = observed();
     t.clock.update(t.report(10_000, 37));
