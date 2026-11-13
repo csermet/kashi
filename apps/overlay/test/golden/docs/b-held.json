@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "2.31.0",
+  "generated_at": "2026-11-13T22:00:00Z",
+  "track": {
+    "source": {
+      "type": "youtube",
+      "id": "golden-b-held"
+    },
+    "title": "Golden B: held notes",
+    "artist": "Kashi golden fixture",
+    "duration_ms": 25000
+  },
+  "sync": "word",
+  "alignment": {
+    "method": "synthetic/golden-fixture",
+    "lyrics_source": "synthetic",
+    "quality_score": 0.9
+  },
+  "lines": [
+    {
+      "start_ms": 1000,
+      "end_ms": 4600,
+      "text": "anu belo kasira diro venta",
+      "words": [
+        {
+          "start_ms": 1000,
+          "end_ms": 1300,
+          "text": "anu"
+        },
+        {
+          "start_ms": 1300,
+          "end_ms": 1600,
+          "text": "belo"
+        },
+        {
+          "start_ms": 1600,
+          "end_ms": 1900,
+          "text": "kasira"
+        },
+        {
+          "start_ms": 3200,
+          "end_ms": 3500,
+          "text": "diro"
+        },
+        {
+          "start_ms": 3500,
+          "end_ms": 4600,
+          "text": "venta"
+        }
+      ]
+    },
+    {
+      "start_ms": 5000,
+      "end_ms": 7600,
+      "text": "mori sela tani voro",
+      "words": [
+        {
+          "start_ms": 5000,
+          "end_ms": 5300,
+          "text": "mori"
+        },
+        {
+          "start_ms": 5300,
+          "end_ms": 6100,
+          "text": "sela"
+        },
+        {
+          "start_ms": 6299,
+          "end_ms": 6599,
+          "text": "tani"
+        },
+        {
+          "start_ms": 6599,
+          "end_ms": 7600,
+          "text": "voro"
+        }
+      ]
+    },
+    {
+      "start_ms": 8000,
+      "end_ms": 10400,
+      "text": "kelu runa pavi",
+      "words": [
+        {
+          "start_ms": 8000,
+          "end_ms": 8900,
+          "text": "kelu"
+        },
+        {
+          "start_ms": 8900,
+          "end_ms": 9800,
+          "text": "runa"
+        },
+        {
+          "start_ms": 9800,
+          "end_ms": 10400,
+          "text": "pavi"
+        }
+      ]
+    },
+    {
+      "start_ms": 11000,
+      "end_ms": 13900,
+      "text": "lumi sato rani nefa",
+      "words": [
+        {
+          "start_ms": 11000,
+          "end_ms": 11300,
+          "text": "lumi"
+        },
+        {
+          "start_ms": 11300,
+          "end_ms": 11500,
+          "text": "sato"
+        },
+        {
+          "start_ms": 12800,
+          "end_ms": 13100,
+          "text": "rani"
+        },
+        {
+          "start_ms": 13100,
+          "end_ms": 13900,
+          "text": "nefa"
+        }
+      ]
+    },
+    {
+      "start_ms": 14500,
+      "end_ms": 16500,
+      "text": "dosa mevi tarun",
+      "uncertain": true,
+      "words": [
+        {
+          "start_ms": 14500,
+          "end_ms": 15000,
+          "text": "dosa"
+        },
+        {
+          "start_ms": 15000,
+          "end_ms": 15600,
+          "text": "mevi"
+        },
+        {
+          "start_ms": 15600,
+          "end_ms": 16500,
+          "text": "tarun"
+        }
+      ]
+    },
+    {
+      "start_ms": 17000,
+      "end_ms": 19000,
+      "text": "lumi sato rani nefa",
+      "words": [
+        {
+          "start_ms": 17000,
+          "end_ms": 17300,
+          "text": "lumi"
+        },
+        {
+          "start_ms": 17300,
+          "end_ms": 17500,
+          "text": "sato"
+        },
+        {
+          "start_ms": 17900,
+          "end_ms": 18200,
+          "text": "rani"
+        },
+        {
+          "start_ms": 18200,
+          "end_ms": 19000,
+          "text": "nefa"
+        }
+      ]
+    },
+    {
+      "start_ms": 19500,
+      "end_ms": 21500,
+      "text": "oyo hanaa",
+      "words": [
+        {
+          "start_ms": 19500,
+          "end_ms": 19800,
+          "text": "oyo"
+        },
+        {
+          "start_ms": 19800,
+          "end_ms": 21500,
+          "text": "hanaa"
+        }
+      ]
+    }
+  ],
+  "palette": {
+    "source": "album_art",
+    "primary": "#3fa7ff",
+    "secondary": "#2a6fb0",
+    "background": "#10202f",
+    "text": "#ffffff",
+    "accent": "#ff8a3d"
+  }
+}

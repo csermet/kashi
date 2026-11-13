@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "2.31.0",
+  "generated_at": "2026-11-13T22:00:00Z",
+  "track": {
+    "source": {
+      "type": "youtube",
+      "id": "golden-a-basic"
+    },
+    "title": "Golden A: basic lines",
+    "artist": "Kashi golden fixture",
+    "duration_ms": 30000
+  },
+  "sync": "word",
+  "alignment": {
+    "method": "synthetic/golden-fixture",
+    "lyrics_source": "synthetic",
+    "quality_score": 0.9
+  },
+  "lines": [
+    {
+      "start_ms": 2000,
+      "end_ms": 4200,
+      "text": "velo mira tando suvi",
+      "words": [
+        {
+          "start_ms": 2000,
+          "end_ms": 2400,
+          "text": "velo"
+        },
+        {
+          "start_ms": 2400,
+          "end_ms": 2900,
+          "text": "mira"
+        },
+        {
+          "start_ms": 2900,
+          "end_ms": 3500,
+          "text": "tando"
+        },
+        {
+          "start_ms": 3500,
+          "end_ms": 4200,
+          "text": "suvi"
+        }
+      ]
+    },
+    {
+      "start_ms": 4600,
+      "end_ms": 6400,
+      "text": "kerra lomo pesta ruvan oti nelo",
+      "words": [
+        {
+          "start_ms": 4600,
+          "end_ms": 5000,
+          "text": "kerra"
+        },
+        {
+          "start_ms": 5000,
+          "end_ms": 5080,
+          "text": "lomo"
+        },
+        {
+          "start_ms": 5080,
+          "end_ms": 5150,
+          "text": "pesta"
+        },
+        {
+          "start_ms": 5150,
+          "end_ms": 5260,
+          "text": "ruvan"
+        },
+        {
+          "start_ms": 5260,
+          "end_ms": 5400,
+          "text": "oti"
+        },
+        {
+          "start_ms": 5400,
+          "end_ms": 6400,
+          "text": "nelo"
+        }
+      ]
+    },
+    {
+      "start_ms": 6800,
+      "end_ms": 9500,
+      "text": "sela vintu doranna miko",
+      "words": [
+        {
+          "start_ms": 6800,
+          "end_ms": 7100,
+          "text": "sela"
+        },
+        {
+          "start_ms": 7100,
+          "end_ms": 8300,
+          "text": "vintu"
+        },
+        {
+          "start_ms": 8500,
+          "end_ms": 9000,
+          "text": "doranna"
+        },
+        {
+          "start_ms": 9000,
+          "end_ms": 9500,
+          "text": "miko"
+        }
+      ]
+    },
+    {
+      "start_ms": 10000,
+      "end_ms": 11800,
+      "text": "ooh aah ooh",
+      "adlib": true,
+      "words": [
+        {
+          "start_ms": 10000,
+          "end_ms": 10600,
+          "text": "ooh"
+        },
+        {
+          "start_ms": 10600,
+          "end_ms": 11200,
+          "text": "aah"
+        },
+        {
+          "start_ms": 11200,
+          "end_ms": 11800,
+          "text": "ooh"
+        }
+      ]
+    },
+    {
+      "start_ms": 18000,
+      "end_ms": 20500,
+      "text": "tavi nor sentaa",
+      "words": [
+        {
+          "start_ms": 18000,
+          "end_ms": 18400,
+          "text": "tavi"
+        },
+        {
+          "start_ms": 18400,
+          "end_ms": 18700,
+          "text": "nor"
+        },
+        {
+          "start_ms": 18700,
+          "end_ms": 20500,
+          "text": "sentaa"
+        }
+      ]
+    },
+    {
+      "start_ms": 21000,
+      "end_ms": 23000,
+      "text": "rimo kesta lanu"
+    }
+  ]
+}

@@ -50,6 +50,15 @@ jobs:
           path: apps/*/coverage/lcov.info
           retention-days: 3
       - run: pnpm build
+      # Golden frames + dwell on the renderer just built: 4 runs x ~20 seeks on
+      # synthetic documents, DOM state and pictures against the committed
+      # goldens, words lit < 120 / 180 ms against pinned counts
+      # (apps/overlay/scripts/golden-frames.mjs). Runs in the digest-pinned
+      # Playwright image (its Chromium and fonts made the pictures): ~5 s, plus
+      # pulling the image on a fresh runner. Kept out of `pnpm test` so unit
+      # runs stay fast and browser-free.
+      - name: Golden frames and dwell (built renderer)
+        run: apps/overlay/scripts/golden-frames.sh
 
   python:
     name: Python (server)

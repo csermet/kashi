@@ -1,0 +1,33 @@
+{
+  "comment": "Golden-frame runs (scripts/golden-frames.mjs). Times are DOCUMENT positions (what the renderer's clock reads after the lead); the harness seeks the player to time - lead. png lists the times that also keep a picture. Documents are synthetic: invented words, no lyrics.",
+  "runs": [
+    {
+      "name": "a-basic-hype",
+      "doc": "docs/a-basic.json",
+      "settings": { "effect_level": "hype" },
+      "times": [1000, 1600, 2000, 2399, 2400, 4100, 4250, 5000, 5100, 5300, 5900, 6500, 7700, 8400, 9200, 10900, 12000, 17600, 19600, 21500, 29000],
+      "png": [5900, 7700, 10900, 21500]
+    },
+    {
+      "name": "b-held-hype-themed",
+      "doc": "docs/b-held.json",
+      "settings": { "effect_level": "hype", "fill_style": "themed" },
+      "times": [900, 1450, 2200, 3100, 3200, 4000, 5700, 6299, 7100, 8450, 9300, 10000, 12000, 13500, 15300, 17400, 17850, 18500, 20600, 2201],
+      "png": [2200, 9300, 12000]
+    },
+    {
+      "name": "b-held-hype-neutral",
+      "doc": "docs/b-held.json",
+      "settings": { "effect_level": "hype", "fill_style": "neutral" },
+      "times": [900, 1450, 2200, 3100, 3200, 4000, 5700, 6299, 7100, 8450, 9300, 10000, 12000, 13500, 15300, 17400, 17850, 18500, 20600, 2201],
+      "png": [2200, 9300, 12000]
+    },
+    {
+      "name": "c-fx-hype",
+      "doc": "docs/c-fx.json",
+      "settings": { "effect_level": "hype" },
+      "times": [1200, 2350, 2900, 3100, 3600, 4050, 4150, 4200, 4300, 5000, 5800, 6500, 7000, 7500, 8200, 9100, 9500, 10600, 11000, 16000],
+      "png": [2350, 6500, 9500]
+    }
+  ]
+}

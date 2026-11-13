@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "2.31.0",
+  "generated_at": "2026-11-13T22:00:00Z",
+  "track": {
+    "source": {
+      "type": "youtube",
+      "id": "golden-c-fx"
+    },
+    "title": "Golden C: effects",
+    "artist": "Kashi golden fixture",
+    "duration_ms": 15000
+  },
+  "sync": "word",
+  "alignment": {
+    "method": "synthetic/golden-fixture",
+    "lyrics_source": "synthetic",
+    "quality_score": 0.9
+  },
+  "lines": [
+    {
+      "start_ms": 1500,
+      "end_ms": 4000,
+      "text": "sira menu kalpa doru",
+      "words": [
+        {
+          "start_ms": 1500,
+          "end_ms": 1900,
+          "text": "sira"
+        },
+        {
+          "start_ms": 1900,
+          "end_ms": 2300,
+          "text": "menu"
+        },
+        {
+          "start_ms": 2300,
+          "end_ms": 3000,
+          "text": "kalpa"
+        },
+        {
+          "start_ms": 3000,
+          "end_ms": 4000,
+          "text": "doru"
+        }
+      ]
+    },
+    {
+      "start_ms": 4000,
+      "end_ms": 5600,
+      "text": "tiki taka tiki taka nolo",
+      "words": [
+        {
+          "start_ms": 4000,
+          "end_ms": 4100,
+          "text": "tiki"
+        },
+        {
+          "start_ms": 4100,
+          "end_ms": 4180,
+          "text": "taka"
+        },
+        {
+          "start_ms": 4180,
+          "end_ms": 4260,
+          "text": "tiki"
+        },
+        {
+          "start_ms": 4260,
+          "end_ms": 4340,
+          "text": "taka"
+        },
+        {
+          "start_ms": 4340,
+          "end_ms": 5600,
+          "text": "nolo"
+        }
+      ]
+    },
+    {
+      "start_ms": 6000,
+      "end_ms": 8600,
+      "text": "uma selin varo pidi",
+      "words": [
+        {
+          "start_ms": 6000,
+          "end_ms": 6400,
+          "text": "uma"
+        },
+        {
+          "start_ms": 6400,
+          "end_ms": 7400,
+          "text": "selin"
+        },
+        {
+          "start_ms": 7400,
+          "end_ms": 7700,
+          "text": "varo"
+        },
+        {
+          "start_ms": 7700,
+          "end_ms": 8600,
+          "text": "pidi"
+        }
+      ]
+    },
+    {
+      "start_ms": 9000,
+      "end_ms": 10800,
+      "text": "na na na na",
+      "words": [
+        {
+          "start_ms": 9000,
+          "end_ms": 9200,
+          "text": "na"
+        },
+        {
+          "start_ms": 9200,
+          "end_ms": 9400,
+          "text": "na"
+        },
+        {
+          "start_ms": 9400,
+          "end_ms": 9600,
+          "text": "na"
+        },
+        {
+          "start_ms": 10500,
+          "end_ms": 10800,
+          "text": "na"
+        }
+      ]
+    }
+  ],
+  "palette": {
+    "source": "album_art",
+    "primary": "#e0409a",
+    "secondary": "#8a2b63",
+    "background": "#1a0b14",
+    "text": "#ffffff",
+    "accent": "#ffd166"
+  },
+  "fx": {
+    "lexicon": "kashi-fx/1.0.0",
+    "engine": "keywords",
+    "select": "density/1.0",
+    "words": [
+      {
+        "line": 0,
+        "word": 2,
+        "tag": "love",
+        "intensity": 0.8
+      },
+      {
+        "line": 2,
+        "word": 1,
+        "tag": "water",
+        "intensity": 0.6
+      }
+    ]
+  }
+}

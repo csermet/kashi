@@ -20,39 +20,17 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { register } from 'node:module';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-
-// src/ imports siblings as './x.js' while only x.ts exists; Node's type
-// stripping does not remap that, so fall back to .ts on a miss.
-register(
-  'data:text/javascript,' +
-    encodeURIComponent(`
-export async function resolve(specifier, context, next) {
-  try { return await next(specifier, context); }
-  catch (err) {
-    if (err?.code === 'ERR_MODULE_NOT_FOUND' && specifier.endsWith('.js'))
-      return next(specifier.slice(0, -3) + '.ts', context);
-    throw err;
-  }
-}`),
-);
+import { loadRendererSrc } from './lib/renderer-src.mjs';
+import { simContext, simulateAt } from './lib/sim.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OVERLAY = resolve(HERE, '..');
-const src = (p) => pathToFileURL(join(OVERLAY, 'src', p)).href;
-const { mapDocument } = await import(src('main/kashi-server-logic.ts'));
-const { DEFAULT_SETTINGS } = await import(src('main/settings-logic.ts'));
-const { appliedLeadMs } = await import(src('shared/timing-offset.ts'));
-const { findDisplayLine, findActiveWord } = await import(src('renderer/src/view-logic.ts'));
-const { planFillsByLineIdentity, planWordFills, fillProgress, buildFxIndex } = await import(
-  src('renderer/src/effects-logic.ts')
-);
-
-// main.ts FX_FIRED_HOLD_MS: at hype an fx word stays lit this long after it fires.
-const FX_FIRED_HOLD_MS = 700;
+// The renderer's own pure functions (src/), loaded with their types stripped.
+const R = await loadRendererSrc(OVERLAY);
+const { mapDocument, DEFAULT_SETTINGS, appliedLeadMs } = R;
 
 const { values: args } = parseArgs({
   options: {
@@ -95,33 +73,11 @@ const lead = appliedLeadMs(offset);
 const level = args.level;
 const times = args.times.split(',').map((t) => Math.round(Number(t)));
 
-const sharedPlans = planFillsByLineIdentity(lines, level);
-const fxIndex = level === 'hype' ? buildFxIndex(mapped.fx, lines) : new Map();
+const ctx = simContext(R, lines, level, mapped.fx);
 
 /** The renderer's state at player position `t`, from its own functions. */
 function simulate(t) {
-  const pos = t + lead;
-  const lineIndex = lines.length > 0 ? findDisplayLine(lines, pos) : -1;
-  const line = lineIndex >= 0 ? lines[lineIndex] : undefined;
-  const words = line?.words ?? [];
-  const state = { t, pos, line: lineIndex, text: line?.text ?? null, active: -1, sung: [], fill: {}, fx_fired: null };
-  if (!line || words.length === 0) return state;
-  const active = findActiveWord(words, pos);
-  state.active = active;
-  state.sung = words.map((_, i) => i).filter((i) => i < active);
-  const plan = sharedPlans[lineIndex] ?? planWordFills(words, line.adlib === true, level);
-  if (active >= 0 && plan[active]) {
-    let runStart = active;
-    while (runStart > 0 && plan[runStart - 1]) runStart -= 1;
-    for (let i = runStart; i < active; i += 1) state.fill[i] = 1;
-    state.fill[active] = Number(fillProgress(words[active], pos).toFixed(3));
-  }
-  // The latest fx word fired on this line, held FX_FIRED_HOLD_MS (forward play).
-  for (const hit of fxIndex.get(lineIndex) ?? []) {
-    const w = words[hit.word];
-    if (w && hit.word <= active && pos - w.start_ms < FX_FIRED_HOLD_MS) state.fx_fired = hit.word;
-  }
-  return state;
+  return { t, ...simulateAt(R, ctx, t + lead) };
 }
 
 const result = {
