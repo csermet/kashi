@@ -324,26 +324,22 @@ def _warn_lyricsfile(lyrics: LyricsText, duration_s: float) -> None:
 
 
 def _extras(video_id: str, stem: Path, lyrics: LyricsText, result, qa, seen: dict) -> dict:
-    from kashi_server.config import settings
+    from kashi_server.config import PIPELINE_FIELDS, pipeline_value, settings
     from kashi_server.pipeline.alignment import resolve_aligner
     from kashi_server.pipeline.langid import detect_language
 
     language = detect_language(lyrics.full_text)
+    aligner = asdict(resolve_aligner(language))
     return {
         "id": video_id,
         "stem": str(stem),
         "anchors": lyrics.synced_starts_ms is not None,
         "separations": seen.get("separations", 0),
         "language": language,
-        "aligner": asdict(resolve_aligner(language)),
-        "settings": {
-            **{k: getattr(settings, k) for k in (
-                "separation_mode", "windowed_alignment", "align_model", "align_romanize",
-                "align_offset_ms", "separation_model_filename", "separation_mixback",
-                "structure_sections",
-                "fx_embeddings")},
-            "align_models": {k: v.model_dump() for k, v in settings.align_models.items()},
-        },
+        "aligner": {**aligner,
+                    "revision": settings.align_model_revisions.get(aligner["model_name"])},
+        # Every field that shapes a document (config.PIPELINE_FIELDS), as JSON.
+        "settings": {k: pipeline_value(k, getattr(settings, k)) for k in PIPELINE_FIELDS},
         "qa": None if qa is None else {
             k: getattr(qa, k) for k in (
                 "flagged", "offset_ms", "degraded_to_line", "density_dropped", "adlib_shifted",

@@ -109,6 +109,18 @@ PRODUCTION_ALIGN_MODELS: dict[str, dict] = {
     },
     "tur": {"checkpoint": "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish", "romanize": False},
 }
+# Hub commits the aligner checkpoints load from (review step B.4b, 2.33.0), instead of each
+# repository's moving `main`: a fresh model volume used to load whatever `main` was that day,
+# and `alignment.method` records only the name. Each value is the repository's `main` head read
+# from the hub API (read-only) on 2026-11-13 UTC, which is also what any worker that (re)started
+# online loaded: transformers resolves `main` at every load. What the production volume holds
+# was not readable from that session. Last commits: XLS-R 1B English 2022-12-14 (README),
+# mpoyraz cv7 2022-03-23 (README), MMS 2026-04-15 ("Remove word delimiter (#4)").
+ALIGNER_REVISIONS: dict[str, str] = {
+    "jonatasgrosman/wav2vec2-xls-r-1b-english": "24ee09749bb6c198a8c90ae24e2d0b5a43efd533",
+    "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish": "708639f50559d7970f462e13ec64d3f059ca89f6",
+    "MahmoudAshraf/mms-300m-1130-forced-aligner": "49402e9577b1158620820667c218cd494cc44486",
+}
 # Kimberley Jensen's base vocal MelBand model (the bench's "kim-base"; MIT on its model card):
 # 79 songs 2026-08-09, PCO@0.3 0.909 against 0.915 for the unwa fine-tune it replaced (median MAE
 # +2 ms), which carries no licence at all (docs/research/lisans-temiz-zincir-2026-08.md).
@@ -208,6 +220,14 @@ class Settings(BaseSettings):
     # Detail: docs/research/lisans-temiz-zincir-2026-08.md
     align_models: dict[str, AlignerChoice] = Field(
         default_factory=lambda: copy.deepcopy(PRODUCTION_ALIGN_MODELS), validate_default=True
+    )
+    # Checkpoint name -> hub revision (commit, tag or branch) its weights load
+    # from (ALIGNER_REVISIONS above). A checkpoint not listed loads the hub's
+    # `main`, unpinned, and the load log line says so (a bench bake-off of a new
+    # model). An env value replaces the whole table, e.g.
+    #   ALIGN_MODEL_REVISIONS='{"jonatasgrosman/wav2vec2-xls-r-1b-english":"main"}'
+    align_model_revisions: dict[str, str] = Field(
+        default_factory=lambda: dict(ALIGNER_REVISIONS)
     )
     # audio-separator registry filename. Kim MelBand: best measured PCO/MAE of
     # all candidates at ~2.1x realtime on the worker (BS-RoFormer quality at a
@@ -342,6 +362,7 @@ PIPELINE_FIELDS: tuple[str, ...] = (
     "align_romanize",
     "align_offset_ms",
     "align_models",
+    "align_model_revisions",
     "separation_model_filename",
     "separation_mixback",
     "nightcore_detection",

@@ -184,9 +184,7 @@ def _load_model(model_name: str):
         _loaded[model_name] = _loaded.pop(model_name)
         return _loaded[model_name]
 
-    # The [align] extra — absent in plain dev installs, present in the image.
-    import torch  # pyright: ignore[reportMissingImports]
-    from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
+    from kashi_server.config import settings
 
     while len(_loaded) >= _MAX_LOADED_MODELS:
         evicted = next(iter(_loaded))  # insertion order: first = least recent
@@ -199,11 +197,15 @@ def _load_model(model_name: str):
     # Prod images ship CPU torch, so the default never changes behaviour;
     # the GPU benchmark image opts in with KASHI_ALIGN_DEVICE=cuda.
     device = os.environ.get("KASHI_ALIGN_DEVICE", "cpu")
-    logger.info("loading alignment model %s (%s)", model_name, device)
+    # Pinned hub revision (2.33.0): a fresh volume loads the weights the
+    # pipeline was measured with, not whatever the repository's main is today.
+    revision = settings.align_model_revisions.get(model_name)
+    logger.info(
+        "loading alignment model %s @ %s (%s)",
+        model_name, revision or "hub main, UNPINNED", device,
+    )
     try:
-        _loaded[model_name] = load_alignment_model(
-            device=device, model_path=model_name, dtype=torch.float32
-        )
+        _loaded[model_name] = _load_checkpoint(model_name, device=device, revision=revision)
     except Exception as exc:
         # Unlisted-language models are not warmed at startup (warmup aligns
         # "eng"), so the first such job downloads ~1.2 GB INSIDE the job. An
@@ -220,6 +222,25 @@ def _load_model(model_name: str):
             ) from exc
         raise
     return _loaded[model_name]
+
+
+def _load_checkpoint(model_name: str, *, device: str, revision: str | None) -> tuple:
+    """`ctc_forced_aligner.load_alignment_model` (at the git commit pyproject pins)
+    plus the hub revision, which the library's loader cannot pass: the same two
+    `from_pretrained` calls with the same arguments, and `revision` only when one
+    is pinned, so an unpinned load is the library's call exactly."""
+    # The [align] extra — absent in plain dev installs, present in the image.
+    import torch  # pyright: ignore[reportMissingImports]
+    from transformers import AutoModelForCTC, AutoTokenizer  # pyright: ignore[reportMissingImports]
+
+    pinned = {"revision": revision} if revision else {}
+    model = (
+        AutoModelForCTC.from_pretrained(model_name, dtype=torch.float32, **pinned)
+        .to(device)
+        .eval()
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_name, word_delimiter_token=None, **pinned)
+    return model, tokenizer
 
 
 def _word_prob(score: float) -> float:

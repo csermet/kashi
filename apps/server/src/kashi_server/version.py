@@ -784,5 +784,9 @@
 # now ran another pipeline under the same version, runs this one. A minor bump
 # by the house rule that flipping a default is a pipeline bump (2.28.0); the
 # worker's ready line now names any pipeline setting an env value overrides.
+# Also in 2.33.0: the aligner checkpoints load from pinned hub commits
+# (config.ALIGNER_REVISIONS, settable as align_model_revisions), not from each
+# repository's moving main; each pin is that repository's main head on
+# 2026-11-13, i.e. what a worker (re)started online loaded already.
 PIPELINE_VERSION = "2.33.0"
 PIPELINE_MAJOR = 2
