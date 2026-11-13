@@ -882,6 +882,47 @@ delete's output was not kept, and the three new documents are not inspected yet:
 session's production reads were refused. Next check: the three documents' `speed_factor`
 and `lyrics_source` ("caller"), and a 404 for `8HyKY_LiVtE`.
 
+## eng20 bench for V1 — run 2026-11-12
+
+The owner ran the three configurations of "2.31.0 merged", Bench, on the desktop GPU
+(`apps/server/benchmarks/results/2026-11-12-v1-eng20-j400-r{0,800,1200}.json`, fa15a51): eng20,
+windowed, stamps jittered by 400 ms, pipeline 2.31.0, 20 of 20 scored.
+
+| `--line-region-ms` | PCO@0.1 | @0.2 | @0.3 | @0.5 | word MAE mean / median | end MAE mean | 0 ms / < 60 ms share | bunched runs |
+|---|---|---|---|---|---|---|---|---|
+| 0 (off = 2.30.x) | 0.748 | 0.888 | 0.915 | 0.942 | 265 / 94 ms | 368 ms | 0.058 / 0.144 | 4 |
+| 800 (shipped) | **0.755** | 0.895 | **0.924** | 0.952 | 249 / 82 ms | 352 ms | 0.059 / 0.145 | 3 |
+| 1200 | 0.751 | 0.890 | 0.918 | 0.946 | 256 / 88 ms | 360 ms | 0.059 / 0.144 | 3 |
+
+Read against the acceptance layer 1: with jittered stamps the region does not cost precision at
+any tolerance (the risk this bench was for), 800 ms is the better of the two values here as on the
+pilot set, and the gain is under one point (@0.1 +0.7, @0.3 +0.9, @0.5 +1.0). Duration hygiene
+does not move. The line-start noticeable share is not in the result aggregates and was not
+computed for this entry.
+
+## The owner's listen of 2.31.0 — 2026-11-13
+
+The hold-out list (20 moments, blind) is read in `holdout-olcum-2026-11.md`, "The owner's listen".
+From `caner-dinle-7.md` six of the twelve moments were asked, the ones V1 moved most (answers
+`scratch/audit/cevaplar-8-7.txt`, classified `scratch/audit/listening-7.jsonl`):
+
+| moment | on 2.29 | on 2.31.0, the owner |
+|---|---|---|
+| BxMxC 0:05-0:17 | shouts heard late | fine |
+| SexyBack 2:24-2:34 | first "You ready?" 1.2 s late | fine |
+| Deli Oğlan 1:56-2:10 | "Hadi" early, the next lines wordless | "Hadi" still a little early, then recovers; the next "hadi" off again |
+| Crazy In Love 0:14-0:26 | "Uh oh" lines wordless | words light now, pace uneven: "a bit fast, a bit slow, sometimes right" |
+| New Rules 3:09-3:23 | the "don't" runs early / late | "late, early, fast, slow, stops" |
+| CEO 1:01-1:05 | pile | "comes a little late, then rushes past" |
+
+Two of six heard fixed, both of them line starts V1 was built for. Of the plan's ten heard line
+starts, four were asked again here (SexyBack, BxMxC, New Rules, Deli Oğlan): two fixed, so the
+"≥ 6 of 10" line is not met by ear either. CEO 1:03, which `audit.compare` read `bad:fixed?` on
+2.30.0 (five word starts spread over 0.4 s), is still heard as a rush: a pile opened to 40-140 ms
+steps is not yet readable. Three of the four remaining errors are described as pace, not offset,
+as on the hold-out. The owner's conclusion from both lists is in `docs/roadmap.md`, "Perceptual
+priority": steady tempo before exact timing, and a proposal for words too short to be seen.
+
 ## The overlay's 200 ms base lead (overlay 0.31.0, 2026-11-10)
 
 The overlay has lit lyrics 200 ms ahead of the player position since 0.3.4 (2026-07-17), shown as

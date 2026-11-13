@@ -4,8 +4,9 @@
 2.31 V1, line QA changes along the way) was measured on the same 20-song pilot set. Does the
 gain seen there show up on 20 songs that no rule and no listen has touched?
 
-**Status: measured, listening pending.** This note only prepares the review's first input: the
-numbers, the frozen verdicts and a blind listening list. It does not say whether the rules work.
+**Status: measured, and listened to on 2026-11-13 (see "The owner's listen").** This note prepares
+the review's first input: the numbers, the frozen verdicts, the blind listen. The verdict on the
+rules stays the review's.
 No code, setting, label or document changed. Song names, ids and lyrics stay in `scratch/holdout/`
 (git-excluded), per the audit's data rules.
 
@@ -141,3 +142,48 @@ hold-out it fell 0.175 → 0.162 (0.149 → 0.126 without the nightcore song), w
 and 6 worse. The hold-out started lower than the pilot set did. Hygiene (0 ms, < 60 ms, bunched)
 and line-QA drops improved on both sets from 2.30.0 to 2.31.0. Late misses fell on both sets,
 while early misses rose on the hold-out (56 → 62) and stayed near flat on the pilot set (46 → 43).
+
+## The owner's listen (2026-11-13)
+
+All 20 moments of `caner-dinle-8.md`, on the live 2.31.0 documents (overlay 0.31.0, offset 0), each
+answered with a menu word and a free description. Raw answers `scratch/audit/cevaplar-8-7.txt`,
+classified `scratch/holdout/listening.jsonl` (rows as in the list; backups in
+`/mnt/storage/arsiv/kashi-audit/`). The frozen file was not touched.
+
+| moments | frozen: ok / error / unsure | owner: fine / error |
+|---|---|---|
+| seeded controls (4) | 4 / 0 / 0 | 4 / 0 |
+| finder-ranked (12) | 3 / 8 / 1 | 2 / 10 |
+| most moved 2.27 → 2.31 (4) | 2 / 1 / 1 | 1 / 3 |
+
+**The frozen verdicts against the ear.** Error or not, on the 18 moments with a frozen decision:
+16 agree. All 9 frozen errors were heard as errors (no false alarm), all 4 controls as fine, and
+3 of the 5 non-control `ok` verdicts as fine. Class on the 9 errors: 5 the same; 2 with the
+opposite direction (rows 3 and 7, frozen `early`, heard late); 2 the same fact under another word
+(row 9 `missing`: the sheet lacks a sung repeat, heard as wrong text; row 19 `pile`: heard as "lights
+very fast, shifts the others, then recovers"). The 2 unsure moments were both heard as errors
+(row 6 wrong text: the sheet has another chorus variant; row 13 early by ~1 s with rushed words).
+
+**The two misses are both pace.** Row 11 (frozen `ok`, "better on 2.31"): the first two words
+light together, so the second is lit before it is sung and the rest of the line runs early. Row
+14: the asked line is right for both, but the interjection line before it, which the frozen claim
+describes as two 11.5 s boxes and did not count, is heard as "flashes past in 2 s, then crawls".
+
+**What the 13 heard errors are.** Lyrics source 4 (one song's sheet clock ~4 s ahead on both its
+moments; a chorus variant; a missing repeat), a wordless line 1, timing 8. Of the 8 timing
+errors the owner describes 5 in terms of pace, not offset (lit together, rushed, flashed past;
+row 3 is the reverse: three words spread evenly over ~3.5 s for a phrase sung in 1-2 s, heard as
+too slow), and a sixth (row 20, heard late) has five words inside 430 ms on the frozen numbers.
+
+**Versions.** The owner heard 2.31.0 only. Read with the frozen notes: row 15 is heard fine where
+2.27 showed another line (a fix); row 20 is heard late where 2.27 started the line on the ear and
+2.30/2.31 start it ~0.8 s later (a regression, the errata's moment); row 11 went from 1.9 s late
+on 2.27 to early with piled first words (not a fix by ear). The other errors are the same on
+every version. So the listen agrees with the numbers above: on songs the rules never saw, their
+audible effect on these moments is about one fix against one regression, and most of what is
+heard is the sheet or the pace of the words.
+
+**Said beside the answers.** A held note (row 18) stays lit and would look right with a slow
+left-to-right sweep; on row 7 the asked backing line is barely audible and the clearly sung lines
+around it matter more. The owner's standing view, recorded the same day in `docs/roadmap.md`
+("Perceptual priority"): words that rush past read as a bug, an off-pace line only as mistimed.
