@@ -21,6 +21,12 @@
       "interlude"
      ],
      "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -36,6 +42,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -51,6 +63,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -66,6 +84,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -83,6 +107,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -102,6 +132,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -117,6 +153,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -134,6 +176,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -152,6 +200,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -172,6 +226,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -197,6 +257,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -212,6 +278,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -233,6 +305,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -254,6 +332,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -273,6 +357,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -297,6 +387,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      305.67,
+      221.8,
+      188.66,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -312,6 +408,12 @@
       "interlude"
      ],
      "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -327,6 +429,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      290.56,
+      221.8,
+      218.88,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -349,6 +457,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      290.56,
+      221.8,
+      218.88,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -365,6 +479,12 @@
       "plain"
      ],
      "box_classes": [],
+     "box_rect": [
+      286.94,
+      221.8,
+      226.13,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -380,6 +500,12 @@
       "interlude"
      ],
      "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
      "latency_marker": false
     }
    ],
@@ -409,6 +535,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -426,6 +558,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -448,6 +586,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -470,6 +614,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -489,6 +639,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -513,6 +669,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -530,6 +692,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -548,6 +716,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -571,6 +745,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -590,6 +770,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -613,6 +799,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -631,6 +823,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -652,6 +850,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -675,6 +879,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -693,6 +903,12 @@
       "uncertain"
      ],
      "box_classes": [],
+     "box_rect": [
+      283.56,
+      221.8,
+      232.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -714,6 +930,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -735,6 +957,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -758,6 +986,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -779,6 +1013,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      319.08,
+      221.8,
+      161.83,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -801,6 +1041,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -823,6 +1069,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -838,6 +1090,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      319.63,
+      221.8,
+      160.75,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -860,6 +1118,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     }
    ],
@@ -890,6 +1154,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -907,6 +1177,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -929,6 +1205,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -951,6 +1233,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -970,6 +1258,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -994,6 +1288,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1011,6 +1311,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1029,6 +1335,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1052,6 +1364,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1071,6 +1389,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1094,6 +1418,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1112,6 +1442,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1133,6 +1469,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1156,6 +1498,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1174,6 +1522,12 @@
       "uncertain"
      ],
      "box_classes": [],
+     "box_rect": [
+      283.56,
+      221.8,
+      232.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1195,6 +1549,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1216,6 +1576,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1239,6 +1605,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1260,6 +1632,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      319.08,
+      221.8,
+      161.83,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1282,6 +1660,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1304,6 +1688,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1319,6 +1709,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      319.63,
+      221.8,
+      160.75,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1341,6 +1737,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     }
    ],
@@ -1368,6 +1770,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1390,6 +1798,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1412,6 +1826,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1436,6 +1856,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1453,6 +1879,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1476,6 +1908,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1497,6 +1935,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1515,6 +1959,12 @@
       "uncertain"
      ],
      "box_classes": [],
+     "box_rect": [
+      283.56,
+      221.8,
+      232.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1536,6 +1986,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1557,6 +2013,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      319.08,
+      221.8,
+      161.83,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1579,6 +2041,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1594,6 +2062,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      319.63,
+      221.8,
+      160.75,
+      56.39
+     ],
      "latency_marker": false
     }
    ],
@@ -1623,6 +2097,12 @@
      "box_classes": [
       "fx-ambient"
      ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1644,6 +2124,12 @@
       "ambient-flash",
       "fx-ambient"
      ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1664,6 +2150,12 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
+     ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
      ],
      "latency_marker": false
     },
@@ -1691,6 +2183,12 @@
       "ambient-flash",
       "fx-ambient"
      ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1717,6 +2215,12 @@
       "ambient-flash",
       "fx-ambient"
      ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1732,6 +2236,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1749,6 +2259,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1767,6 +2283,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1786,6 +2308,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1810,6 +2338,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1826,6 +2360,12 @@
      ],
      "box_classes": [
       "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
      ],
      "latency_marker": false
     },
@@ -1851,6 +2391,12 @@
       "ambient-flash",
       "fx-ambient"
      ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1875,6 +2421,12 @@
       "ambient-flash",
       "fx-ambient"
      ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1895,6 +2447,12 @@
      "box_classes": [
       "ambient-flash",
       "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
      ],
      "latency_marker": false
     },
@@ -1922,6 +2480,12 @@
       "ambient-flash",
       "fx-ambient"
      ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1937,6 +2501,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1955,6 +2525,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1974,6 +2550,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -1993,6 +2575,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2008,6 +2596,12 @@
       "interlude"
      ],
      "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
      "latency_marker": false
     }
    ],
@@ -2015,6 +2609,658 @@
     "c-fx-hype-2350.png",
     "c-fx-hype-6500.png",
     "c-fx-hype-9500.png"
+   ]
+  },
+  "a-basic-off": {
+   "settings": {
+    "effect_level": "off"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 1600,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2000,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10900,
+     "visible": true,
+     "text": "ooh aah ooh",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "adlib"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      305.67,
+      221.8,
+      188.66,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 21500,
+     "visible": true,
+     "text": "rimo kesta lanu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      286.94,
+      221.8,
+      226.13,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-off-5100.png",
+    "a-basic-off-10900.png"
+   ]
+  },
+  "a-basic-full-large": {
+   "settings": {
+    "effect_level": "full",
+    "box_scale": "large",
+    "text_scale": "small",
+    "box_alpha": 0.9
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1600,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      274.61,
+      220.44,
+      250.78,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      274.61,
+      220.44,
+      250.78,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      220.28,
+      220.44,
+      359.44,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      255.83,
+      220.44,
+      288.34,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10900,
+     "visible": true,
+     "text": "ooh aah ooh",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      311.95,
+      220.44,
+      176.09,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      361.8,
+      220.44,
+      76.39,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 21500,
+     "visible": true,
+     "text": "rimo kesta lanu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.97,
+      220.44,
+      206.05,
+      59.13
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-full-large-5100.png",
+    "a-basic-full-large-10900.png"
+   ]
+  },
+  "a-basic-simple-small": {
+   "settings": {
+    "effect_level": "simple",
+    "box_scale": "small",
+    "text_scale": "large"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      239.45,
+      221.16,
+      321.09,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      177,
+      199.33,
+      446,
+      101.34
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      211.3,
+      221.16,
+      377.41,
+      57.67
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-simple-small-5100.png"
+   ]
+  },
+  "b-held-hype-small": {
+   "settings": {
+    "effect_level": "hype",
+    "box_scale": "small",
+    "text_scale": "large",
+    "box_alpha": 0.9,
+    "timing_offset_rel_ms": -120
+   },
+   "lead_ms": 80,
+   "frames": [
+    {
+     "pos": 900,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      196.53,
+      221.16,
+      406.92,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      196.53,
+      221.16,
+      406.92,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4000,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.455"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      196.53,
+      221.16,
+      406.92,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9300,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.444"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      284.39,
+      221.16,
+      231.22,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.17,
+      221.16,
+      301.64,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 15300,
+     "visible": true,
+     "text": "dosa mevi tarun",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "uncertain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.97,
+      221.16,
+      262.06,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.526"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      290.41,
+      221.16,
+      219.17,
+      57.67
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "b-held-hype-small-2200.png",
+    "b-held-hype-small-12000.png"
    ]
   },
   "c-fx-hype-scope-none": {
@@ -2037,6 +3283,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2055,6 +3307,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2073,6 +3331,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2096,6 +3360,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2119,6 +3389,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2134,6 +3410,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2151,6 +3433,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2169,6 +3457,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2188,6 +3482,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2212,6 +3512,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2227,6 +3533,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2248,6 +3560,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2269,6 +3587,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2287,6 +3611,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2310,6 +3640,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2325,6 +3661,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2343,6 +3685,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2362,6 +3710,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2381,6 +3735,12 @@
       "line-in"
      ],
      "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
      "latency_marker": false
     },
     {
@@ -2396,6 +3756,12 @@
       "interlude"
      ],
      "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
      "latency_marker": false
     }
    ],

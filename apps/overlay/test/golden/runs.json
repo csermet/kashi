@@ -38,6 +38,34 @@
       "png": [2350, 6500, 9500]
     },
     {
+      "name": "a-basic-off",
+      "doc": "docs/a-basic.json",
+      "settings": { "effect_level": "off" },
+      "times": [1000, 1600, 2000, 2400, 5100, 7700, 10900, 21500],
+      "png": [5100, 10900]
+    },
+    {
+      "name": "a-basic-full-large",
+      "doc": "docs/a-basic.json",
+      "settings": { "effect_level": "full", "box_scale": "large", "text_scale": "small", "box_alpha": 0.9 },
+      "times": [1600, 2400, 5100, 7700, 10900, 12000, 21500],
+      "png": [5100, 10900]
+    },
+    {
+      "name": "a-basic-simple-small",
+      "doc": "docs/a-basic.json",
+      "settings": { "effect_level": "simple", "box_scale": "small", "text_scale": "large" },
+      "times": [2400, 5100, 7700],
+      "png": [5100]
+    },
+    {
+      "name": "b-held-hype-small",
+      "doc": "docs/b-held.json",
+      "settings": { "effect_level": "hype", "box_scale": "small", "text_scale": "large", "box_alpha": 0.9, "timing_offset_rel_ms": -120 },
+      "times": [900, 2200, 4000, 9300, 12000, 15300, 23400],
+      "png": [2200, 12000]
+    },
+    {
       "name": "c-fx-hype-scope-none",
       "doc": "docs/c-fx.json",
       "settings": { "effect_level": "hype", "theme_scope": "none" },

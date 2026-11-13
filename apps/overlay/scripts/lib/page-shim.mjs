@@ -90,6 +90,11 @@ function pageInit() {
       const value = s.style.getPropertyValue('--kashi-fill');
       if (value !== '') fill[i] = value;
     });
+    // Where the box sits and how big it is (CSS px, 2 decimals): the window
+    // geometry, the box and text size presets and the wrap width all land
+    // here, and a picture crop alone cannot see a box that moved.
+    const r = box.getBoundingClientRect();
+    const px = (v) => Math.round(v * 100) / 100;
     return {
       visible:
         !box.classList.contains('hidden') &&
@@ -104,6 +109,7 @@ function pageInit() {
       fx_fired: idx('fx-fired')[0] ?? null,
       line_classes: [...line.classList].filter((c) => c !== 'lyric').sort(),
       box_classes: [...box.classList].sort(),
+      box_rect: [px(r.x), px(r.y), px(r.width), px(r.height)],
       // The dev-only chain-latency marker (KASHI_LATENCY_MARKER=1 builds):
       // a normal build must never draw it.
       latency_marker: document.getElementById('latency-marker') !== null,
