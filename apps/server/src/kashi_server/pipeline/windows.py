@@ -36,6 +36,10 @@ MIN_STAMPED_FRACTION = 0.8
 # this span of the run's first. The benchmark's bunched-run rule.
 PILE_MIN_WORDS = 3
 PILE_SPAN_MS = 60
+# 2.32.1 (whole_track_vote's spacing guard): the vote may not bring two words
+# closer than this when their windowed starts are at least this far apart —
+# the overlay's short dwell (a word lit under 120 ms reads as a flash).
+VOTE_MIN_GAP_MS = 120
 # Timing v3, V1 (line_regions): how far a line inside a merged window may
 # start from its own stamp, either way. 1200 and 800 were measured on the 20
 # pilot songs (2026-11-09): the same moments fixed, 800 also lands BxMxC 0:13
@@ -376,7 +380,8 @@ def hybrid_star_words(
 
 
 def whole_track_vote(
-    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0
+    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0,
+    *, keep_order: bool = True,
 ) -> tuple[list[dict], int, bool]:
     """A third vote from the whole track (Faz 9 round 5, "Third vote").
 
@@ -393,6 +398,17 @@ def whole_track_vote(
     the whole track joins every line, windows join only their own). A
     different word count or text means the two streams cannot be paired, and
     nothing changes. Returns (rows, words taken, paired).
+
+    `keep_order` (2.32.1): a word is refused the whole-track time when that
+    time would start it at or after the next word, or at or before the
+    previous word, where that neighbour keeps its windowed time, or would
+    bring it under VOTE_MIN_GAP_MS of a neighbour the windows kept at least
+    that far away; refusals repeat until none is left (`_order_refusals`).
+    Where the whole-track pass drifts late over a phrase, a 1 200 ms vote
+    takes some of its words and not the next ones, and the seam pass after
+    the vote clamped the kept words onto the voted one: 229 of the 274 words
+    in new 0 ms runs on the 2.32.0 archive (vote-pile-guard, 2026-11-14).
+    False reproduces 2.32.0.
     """
     mine = [i for i, row in enumerate(results) if _is_word(row)]
     theirs = [row for row in whole if _is_word(row)]
@@ -401,11 +417,21 @@ def whole_track_vote(
     ):
         return results, 0, False
     back_s = edges_lead_ms / 1000
+    voted = [
+        abs(_start_ms(w) - (_start_ms(results[i]) + edges_lead_ms)) <= t_ms
+        for i, w in zip(mine, theirs, strict=True)
+    ]
+    if keep_order:
+        voted = _order_refusals(
+            voted,
+            [_start_ms(results[i]) for i in mine],
+            [round((float(w["start"]) - back_s) * 1000) for w in theirs],
+        )
     out = list(results)
     taken = 0
-    for i, w in zip(mine, theirs, strict=True):
+    for i, w, vote in zip(mine, theirs, voted, strict=True):
         row = out[i]
-        if abs(_start_ms(w) - (_start_ms(row) + edges_lead_ms)) <= t_ms:
+        if vote:
             out[i] = {
                 **row,
                 "start": float(w["start"]) - back_s,
@@ -416,6 +442,39 @@ def whole_track_vote(
             }
             taken += 1
     return out, taken, True
+
+
+def _order_refusals(
+    voted: list[bool], kept_ms: list[int], taken_ms: list[int], min_gap_ms: int = VOTE_MIN_GAP_MS
+) -> list[bool]:
+    """The vote's order and spacing guard (2.32.1): `voted` with refusals, pair
+    by pair of adjacent words, each at its taken start (`taken_ms`) if voted
+    and its windowed start (`kept_ms`) if not:
+
+    - order: a voted word that would start at or after its kept next word, or
+      at or before its kept previous one, is refused;
+    - spacing: two words that would start under `min_gap_ms` apart while their
+      windowed starts are at least that far apart refuse their voted
+      member(s) — the whole-track pass squeezing a pair the windows kept apart.
+
+    A refusal changes the pairs around it, so the check repeats until nothing
+    changes. Two voted words are never out of order: the whole-track pass is
+    one path, its starts never go backwards."""
+    voted = list(voted)
+    changed = True
+    while changed:
+        changed = False
+        for n in range(len(voted) - 1):
+            a, b = voted[n], voted[n + 1]
+            if not (a or b):
+                continue
+            gap = (taken_ms[n + 1] if b else kept_ms[n + 1]) - (taken_ms[n] if a else kept_ms[n])
+            out_of_order = a != b and gap <= 0
+            squeezed = gap < min_gap_ms <= kept_ms[n + 1] - kept_ms[n]
+            if out_of_order or squeezed:
+                voted[n] = voted[n + 1] = False
+                changed = True
+    return voted
 
 
 def unpile_starts(
