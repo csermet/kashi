@@ -169,6 +169,8 @@ class LrclibBreaker:
 # exactly `(hints, base_url=url)` / `(query, base_url=url)`.
 FetchFn = Callable[[dict, str], LyricsText]
 SearchFn = Callable[[str, str], list[dict]]
+# (record_id, base_url) -> the record, or None on a clean 404 (song overrides).
+GetFn = Callable[[int, str], dict | None]
 
 
 class LrclibGateway:
@@ -180,12 +182,25 @@ class LrclibGateway:
         primary_url: str,
         mirror_url: str | None,
         breaker: LrclibBreaker | None = None,
+        get: GetFn | None = None,
     ) -> None:
         self._fetch = fetch
         self._search = search
+        self._get = get
         self.primary_url = primary_url
         self.mirror_url = mirror_url
         self.breaker = breaker or LrclibBreaker()
+
+    def get_record(self, record_id: int) -> dict | None:
+        """A pinned record by id. A clean primary 404 is None (the record is
+        gone); a mirror without it while the primary is busy is
+        `lrclib_unavailable` like every other mirror miss."""
+        get = self._get
+        if get is None:
+            raise PipelineError("other", "this lrclib gateway cannot fetch records by id")
+        return self._ask(
+            lambda url: get(record_id, url), f"record {record_id}", lambda r: r is None
+        )
 
     def fetch_lyrics(self, hints: dict) -> LyricsText:
         context = f"{hints.get('artist')} - {hints.get('title')}"

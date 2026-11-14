@@ -136,6 +136,50 @@ class ProcessedTrack(Base):
     )
 
 
+class SongOverride(Base):
+    """A per-song correction entered once and remembered (review step C.1).
+
+    Repairs used to live only in one job's `options` and were lost at the next
+    reprocess (the archive feeder sends none). Every job enqueued for the song
+    starts from this row (`kashi_server.overrides.apply`), and the persist
+    guard keeps a document built under it from being replaced by a run that
+    did not apply it. Keyed by the song's source identity, like `jobs` and
+    `processed_tracks`. Who set it is deliberately not stored."""
+
+    __tablename__ = "song_overrides"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
+    )
+    source_type: Mapped[str]
+    source_id: Mapped[str]
+    # Acted on by the worker (and fingerprinted by the guard):
+    lrclib_id: Mapped[int | None] = mapped_column(BigInteger)
+    lyrics_text: Mapped[str | None]  # plain, or LRC when a line carries [mm:ss.xx]
+    speed_factor: Mapped[float | None]
+    offset_ms: Mapped[int | None]
+    # Stored only: the document schema cannot express "text without times" yet.
+    plain_only: Mapped[bool] = mapped_column(server_default=text("false"))
+    note: Mapped[str | None]
+    # Bookkeeping: etag of the stored document built under this row's CURRENT
+    # acted-on content (written by the persist guard, cleared by a PUT that
+    # changes that content). Equal to processed_tracks.etag = "built under it".
+    applied_etag: Mapped[str | None]
+    created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
+    updated_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
+
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", name="uq_song_overrides_source"),
+        CheckConstraint(
+            "source_type IN ('youtube','plex','upload')", name="ck_song_overrides_source_type"
+        ),
+        # One lyrics source per song: caller text OR a pinned record.
+        CheckConstraint(
+            "lyrics_text IS NULL OR lrclib_id IS NULL", name="ck_song_overrides_one_lyrics_source"
+        ),
+    )
+
+
 class UploadedAudio(Base):
     """Bring-your-own-audio staging (Faz 5 P4): the API pod receives the
     multipart upload, the worker pod fetches it from here — no shared
