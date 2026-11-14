@@ -252,6 +252,42 @@ def test_force_persist_lets_an_older_pipeline_write_on_purpose(db_session, monke
     assert new_etag != etag and _stored(db_session).pipeline_version == "2.31.0"
 
 
+@pytest.mark.parametrize(
+    ("version", "lines", "quality", "basis"),
+    [
+        # The 2026-11-13 adversarial verification's overwrites (dogrulama/
+        # test_dg1_stale_worker.py), each of which the major-only guard let in.
+        ("2.29.0", 40, 0.93, None),  # equal quality
+        ("2.29.0", 21, 0.6801, None),  # a drop just under the limit, 21 of 40 lines
+        ("2.29.0", 40, 0.05, "ctc-probs"),  # any drop across quality bases
+        ("1.9.0", 40, 0.93, None),  # an older MAJOR
+    ],
+)
+def test_the_verifications_stale_overwrites_are_refused_and_logged(
+        db_session, monkeypatch, caplog, version, lines, quality, basis):
+    import logging
+
+    from kashi_server.pipeline import document
+
+    # alembic's fileConfig (test_alembic_downgrade) disables loggers that exist
+    # by then; this one has to speak for the assertion below.
+    monkeypatch.setattr(logging.getLogger(document.__name__), "disabled", False)
+    job = _job()
+    db_session.add(job)
+    db_session.flush()
+    stored_etag = _persist_as(monkeypatch, db_session, job, "2.31.0", 40, 0.93)
+    monkeypatch.setattr(document, "PIPELINE_VERSION", version)
+    monkeypatch.setattr(document, "PIPELINE_MAJOR", int(version.split(".")[0]))
+    doc = _real_doc(job, lines, quality)
+    if basis is not None:
+        doc["alignment"]["quality_basis"] = basis
+    with caplog.at_level("WARNING", logger="kashi_server.pipeline.document"):
+        assert document.persist_processed_track(db_session, job, doc) == stored_etag
+    db_session.expire_all()
+    assert _stored(db_session).pipeline_version == "2.31.0"
+    assert f"stored by pipeline 2.31.0, this worker runs {version}" in caplog.text
+
+
 def test_a_newer_worker_replaces_and_an_equal_one_still_meets_the_quality_rules(
         db_session, monkeypatch, stored_2320):
     job, etag = stored_2320

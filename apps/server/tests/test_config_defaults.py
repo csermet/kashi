@@ -114,6 +114,29 @@ def test_one_changed_pipeline_value_is_seen(monkeypatch, name, value):
     assert pipeline_overrides(bare) == [name]
 
 
+def test_a_worker_with_no_env_resolves_the_production_aligner_per_language(monkeypatch):
+    """The 2026-11-13 verification (dogrulama/dg8_defaults.py): with a scrubbed
+    env every language got the CC-BY-NC MMS checkpoint with no lateness
+    correction, and the by-ear rung transcribed with it."""
+    from kashi_server.config import settings
+    from kashi_server.pipeline.alignment import resolve_aligner
+
+    bare = _settings_from(monkeypatch, {})
+    for name in PIPELINE_FIELDS:
+        monkeypatch.setattr(settings, name, getattr(bare, name))
+    eng, tur = resolve_aligner("eng"), resolve_aligner("tur")
+    assert (eng.model_name, eng.romanize, eng.offset_ms) == (
+        "jonatasgrosman/wav2vec2-xls-r-1b-english", True, -50)
+    assert eng.offset_by_initial == {"vowel": -80, "fricative": -50, "plosive": -30,
+                                     "sonorant": -20}
+    assert (tur.model_name, tur.romanize, tur.offset_ms, tur.offset_by_initial) == (
+        "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish", False, 0, None)
+    for other in ("deu", "spa", "jpn"):  # the fallback, as production runs it
+        assert resolve_aligner(other).model_name == "MahmoudAshraf/mms-300m-1130-forced-aligner"
+    # The by-ear rung's transcriber (process._lyrics_by_ear) is the English model.
+    assert resolve_aligner("eng", None, None, None, None).model_name == eng.model_name
+
+
 def test_the_ready_line_says_when_the_version_does_not_name_the_pipeline(monkeypatch):
     from kashi_server.config import settings
     from kashi_server.worker import main
