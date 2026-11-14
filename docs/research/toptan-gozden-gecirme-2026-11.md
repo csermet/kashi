@@ -417,6 +417,48 @@ Consequences for the order of work:
    arm of the ablation, the tie-break among bench arms) were post hoc and are labelled so in the
    workers' notes.
 
+## Release 0.37.0: steps B and C.1 together (2026-11-14, prepared, not deployed)
+
+Server 0.37.0, pipeline 2.33.0: `song-overrides` (C.1) and `measure-what-ships` (B) merged on
+`release-0.37.0`. Working notes outside the repository (`kashi-gozden-gecirme/surum-0370/`).
+
+- **Ships.** Per-song overrides (pinned record, caller or LRC text, speed factor, sheet offset;
+  admin API `/v1/admin/overrides`, `scripts/import_overrides.py`); production configuration as code
+  defaults; aligner weights from pinned commits; `pipeline_version` in `/v1/health`; the
+  `clock_stats` telemetry kind; the shipped-chain bench. One persist guard for both: an admin
+  `force_persist` stores; a document from a newer pipeline version is kept, also against a run
+  that applied the song's override; a document built under the override is kept against any run
+  that did not apply it, whatever its version; the first build under an override skips the
+  quality comparison; then the regression rules. For a song with an override the guard locks the
+  override row before it reads the stored document (a per-song mutex; a song without one locks
+  nothing, as before). A worker whose database is behind its code waits for the migration before
+  its ready line and its first claim.
+- **Does not change any document.** 39 of 39 pilot/hold-out songs through the 2.32.0 harness equal
+  2.32.0's documents except `pipeline_version`, with the worker env file and with no env at all.
+  No schema, overlay or extension change; no archive refresh needed.
+- **Migration** `f3a8c2d61b07` (adds `song_overrides`, additive), the single head on
+  `b36dfc2aae66`.
+- **Rollout order.** (1) The API with its initContainer migration (`alembic upgrade head`) first;
+  (2) the cluster worker (a 0.37.0 worker that starts before the migration logs `not claiming
+  jobs: database schema behind this worker: expected Alembic revision f3a8c2d61b07, found
+  b36dfc2aae66 …` and waits); (3) the GPU helper last, rebuilt at `server-v0.37.0` with no pipeline
+  settings (`docs/gpu-worker.md`). Every worker logs `ready: pipeline 2.33.0, code-default
+  configuration`; `/v1/health` returns `pipeline_version` 2.33.0. Only then the owner imports the
+  three 2026-11-10 repairs (`import_overrides.py --reprocess`; each line must say
+  `"job_carries_override": true`). `ALIGN_MODELS`, `STRUCTURE_SECTIONS` and
+  `SEPARATION_MODEL_FILENAME` in gitops equal the code defaults but stay for this rollout (a
+  rollback needs them; the ready line proves the equality); a later MR drops them.
+- **Rollback to 0.36.0 is not an image swap.** 0.36.0's initContainer runs `alembic upgrade head`
+  with its own migrations and fails on a database at `f3a8c2d61b07` ("Can't locate revision",
+  exit 255, reproduced on a throwaway database). So: export the overrides (`GET
+  /v1/admin/overrides`, then each `GET /v1/admin/overrides/<type>/<id>`, kept private: they hold
+  lyrics text) into the importer's payload shape; stop the cluster worker and the GPU helper; run
+  `alembic downgrade b36dfc2aae66` from the 0.37.0 image (e.g. in the 0.37.0 API pod; it drops
+  `song_overrides` and nothing else); then swap the images to 0.36.0, API first (its `upgrade
+  head` is then a no-op). The helper rebuilt at `server-v0.36.0` needs its three pipeline env
+  lines again. 0.36.0 has neither the version order nor the override rules, so no reprocess wave
+  over the songs that had an override until 0.37.0 is back and the export is re-imported.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.
