@@ -366,6 +366,83 @@ preference (unmeasured), any schema or overlay change.
   can push a line past the next line's start (two archive cases). Rollout (gitops image tag) and
   the archive refresh wait for the owner.
 
+## Step C.2, first half: the sheet shift carries the lines it leaves behind (2026-11-14)
+
+Branch `sheet-shift-carry` (pipeline 2.32.1, server version unchanged, not merged, not tagged).
+Working files, the pre-registration and every score: `~/Documents/krediler/kashi-gozden-gecirme/c2-tasima/`.
+The defect is the adversarial verification's claim 10a: Toz Pembe's record is 19.3 s early, the
+shift moved lines 2-29 and left the two opening "Ah-ah" lines (too short to anchor, before the
+section) at their stamps, so the first line lit 19 s before the voice and crawled.
+
+- **The size, before any change.** On the injected JamendoLyrics harness (79 songs, `audit.inject`'s
+  trials plus their mirror: 1 343 trials, 949 with a moved section) 2.32.0 leaves 12 333 stamped
+  lines at the old clock next to a moved section, 11 393 of them > 1 s from the human stamp
+  (median 4.7 s): 89 % of every line still off in moved trials, and on whole-sheet shifts all of
+  them (a sheet moved earlier leaves its tail, one moved later its head; the 2.30.1 carry only
+  reaches lines the move overtakes). In the archive (278 stamped r = 1 records with an ear) the
+  shift fires on 7 songs and all 7 leave lines behind (118). GOSSIP's "second chorus 3-4 s late"
+  (2.29.1) was a ±8 s-window reading: the whole-song ear hears every stamped line after its moved
+  section at −19 s, so the "middle" side finding is the same defect.
+- **The rule** (`sheet_shift._adopt_left_behind`). A gap (the stamped lines between two found
+  sections, or before the first, or after the last) that borders a moved section and still holds a
+  line at its old stamp is decided again: a split sends its first lines with the left side and the
+  rest with the right, each side applying its offset (a moved section's median; a section that
+  stays, the song start and the song end 0). The split keeps the stamps in order (never more out of
+  order than 2.32.0), then follows the lines' own evidence — a lone anchor votes for the nearer
+  offset; any other line of 12+ letters votes for the side near whose moved stamp (±1.5 s) the ear
+  hears its letters (>= 0.55, 0.10 ahead) — then position (before the first section and after the
+  last, everything goes with it; between two, the nearer edge stamp). Everything else is 2.32.0's.
+  Plus: a re-derived ad-lib line ends a breath before the next line instead of past its start.
+- **Pre-registered** (bars and three arms fixed before the new code ran): position + lone anchors
+  (P) failed the verse bar — next to an injected verse it pushed 61 healthy lines > 1 s off against
+  34 brought back; head and tail only failed it too (39 against 8); with the ear's vote (P2) every
+  bar passed, so P2 is the rule: of the left-behind lines > 1 s off, 6 094 of 6 124 come within
+  1 s (global and verse trials; whole-sheet shifts 6 060 of 6 090); 12 of 6 106 changed lines end
+  farther from the human stamp; next to a moved verse 11 made > 1 s off against 34 brought back;
+  unmodified sheets 0 of 79 change; the shift's own detection, false alarms and offset error are
+  identical (sections identical on every trial); the windows plan 938 of 949 moved trials (908
+  before, none lost). Drift (a scale error) is reported: 1 444 of 5 269 within 1 s, changed lines
+  farther 294 of 4 708.
+- **Proof that nothing else moves.** A copy of 2.32.0's module against the branch's on 3 000 seeded
+  synthetic sheets whose ears hear every long line exactly where it is sung, with offsets and
+  jitter exactly on SHIFT_MS, SECTION_TOL_MS, MIN_LETTERS, the overtaken equality, the start
+  clamp, the split's tie and the vote's tie (2 501 sheets moved, 2 136 left lines behind, 1 908
+  changed): sections identical on all; stamps byte-identical on every sheet where 2.32.0 leaves no
+  line behind; every changed line takes one of its gap's two offsets; never more stamps out of
+  order. A stricter property added with the harness (only left-behind lines change) failed on 15
+  sheets: the rule decides such a gap as a whole, so a line 2.30.1's carry moved there can take the
+  other side's offset (on the injected harness 6 lines, all between two moved drift sections, the
+  two checked closer to the human stamp). Eleven one-line mutations (the skip, the threshold, the
+  disorder bound, the tie, the votes, the start clamp, the end clamp's two bounds, ...) each fail
+  the unit tests; the differential also sees the four that touch the identity.
+- **Real songs** (the 39 pilot / hold-out songs through the 2.32.0 audit harness, same stems,
+  records and cached emissions; 2.32.0 itself reproduces a-2320's documents 39 of 39): 37
+  byte-identical. Toz Pembe: line 0 0.33 -> 20.43 s (the owner: "sung at about 0:20"), line 1
+  25.18 -> 24.00 s (voice 23.7-25.8 s), no line ending past the next start; the heard-right line 2
+  unchanged. GOSSIP: lines 25-37 move 17.1-19.5 s earlier onto the ear (`audit.score` errors 20-600
+  ms, one −1.46 s); stampless line 38, which rides in line 37's moved window, goes from 3.7 s late
+  to 6.8 s early (its first word now held 144.1-151.2 s), line 39 from 2.7 s late to on time.
+  `audit.score`: pilot 83/683 -> 80/689 noticeable, hold-out 60/534 -> 59/533; short-dwell share
+  0.0939 -> 0.0895 and 0.0589 -> 0.0584; worded and wordless lines unchanged. Owner-labelled
+  moments: none heard fine is touched; Toz Pembe 0:26.8 stays `bad:fixed?`. The archive's seven
+  firing songs at stamp level: 83 lines change; the ear (two windows) sides with the new stamp on
+  26, the old on 3, neither on 48, 6 too short to tell.
+- **Repeated-line consensus (C.2's second idea), measured and failed as registered**, left out: a
+  whole-sheet offset from the placements of every long line fires on 0 of 79 healthy and 0 of 158
+  verse trials, finds 462 of 474 whole-sheet shifts (error median 70 ms), and in the archive fires
+  only on true shifts (4 of 278) — among them **Yalan (dSybIb9CO2s), 13 s late with no unique line,
+  which nothing catches today** (fit 0/14 -> 36/36). It failed its two named targets (loops on a
+  7 s / 15 s period, where offset 0 is as well supported as a period) and a mis-specified healthy
+  set (it counted Toz Pembe's off record as healthy). A fresh pre-registration is a proposal.
+- **Open:** the owner's blind clips (Toz Pembe's opening; three GOSSIP moments, one of them line
+  38); the archive's two LMFAO songs whose small moves (1.25 / 1.56 s) rest on few anchors and now
+  carry more lines (Best Night: 20 lines, the ear 6 for / 3 against). The twin `audit/anchors.py`
+  only flags, it never moves a stamp, so it has nothing to carry; the overlay's own lrclib client
+  still shows raw stamps.
+- **Gate and bench.** pytest 1 180 passed (DB tests against a throwaway Postgres 17; the one skip is
+  the alignment smoke test), ruff, pyright and check-versions clean. No human-truth bench run: the
+  bench runs neither the sheet shift nor line QA, so it cannot see this change.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.
