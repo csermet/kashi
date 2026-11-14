@@ -41,13 +41,17 @@ jobs:
           '--coverage.include=src/**/*.ts' --coverage.reportsDirectory=coverage
       - name: Repo-relative lcov paths
         run: |
-          for pkg in apps/overlay apps/extension; do
+          for pkg in apps/overlay apps/extension packages/view; do
             sed -i "s#^SF:#SF:$pkg/#" "$pkg/coverage/lcov.info"
           done
+      # Two roots (apps/, packages/): the artifact keeps repo-relative paths and
+      # the sonar job downloads it into the checkout root.
       - uses: actions/upload-artifact@v4
         with:
           name: ts-coverage
-          path: apps/*/coverage/lcov.info
+          path: |
+            apps/*/coverage/lcov.info
+            packages/view/coverage/lcov.info
           retention-days: 3
       - run: pnpm build
       # Golden frames + dwell on the renderer just built: 10 runs x ~15 seeks on
@@ -165,7 +169,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: ts-coverage
-          path: apps
+          path: .
       - uses: actions/download-artifact@v4
         with:
           name: py-coverage

@@ -11,84 +11,75 @@ import type {
   SeekMessage,
 } from '@kashi/protocol';
 import {
-  parseEffectLevel,
-  parseThemeScope,
-  type EffectLevel,
-  type ThemeScope,
-} from '../../shared/effect-level.js';
-import {
+  accumulateWheel,
   ambientColors,
+  appliedLeadMs,
   BEAT_IDLE,
+  BOX_CHROME,
   BeatCursor,
   beatsUsable,
   buildFxIndex,
-  primaryFxHit,
   buildLineThemeIndex,
+  clampTimingOffset,
+  ClockStats,
   computeFxTintVars,
+  DEFAULT_BOX_SCALE,
+  DEFAULT_TEXT_SCALE,
+  deriveView,
   fillProgress,
+  findActiveWord,
+  findDisplayLine,
+  formatClockStats,
+  formatTimingOffset,
+  FX_ICON_VARIANTS,
+  FX_ICON_VIEWBOX,
+  FxCanvas,
   fxWordColor,
-  lineFinalDwellMs,
-  resolveFxProfile,
+  IdleStash,
   inRampSection,
   isNightcore,
+  LATENCY_MARKER,
+  LatencyMarker,
+  lineFinalDwellMs,
+  lineWordOffsets,
+  loadArtworkPalette,
   paletteToCssVars,
+  parseBoxScale,
+  parseEffectLevel,
+  parseTextScale,
+  parseThemeScope,
+  parseTintColor,
   planLineFills,
   planLineFillsByIdentity,
   planSweepSpans,
-  type LineFillPlan,
-  quantizedEnergy,
-  type BeatFrame,
-  type BeatsLike,
-  type PaletteLike,
-} from './effects-logic.js';
-import { FxCanvas } from './fx-canvas.js';
-import { FX_ICON_VARIANTS, FX_ICON_VIEWBOX } from './fx-icons.js';
-import { parseTintColor, shouldMountLayer } from './fx-particles-logic.js';
-import {
-  BOX_ZONE,
-  boxZoneFor,
-  DEFAULT_BOX_SCALE,
-  parseBoxScale,
-  WINDOW_HEIGHT,
-  type BoxScale,
-} from '../../shared/box-zone.js';
-import { BOX_CHROME } from '../../shared/box-zone.js';
-import {
-  DEFAULT_TEXT_SCALE,
-  parseTextScale,
-  TEXT_SCALE_FACTORS,
-  type TextScale,
-} from '../../shared/text-scale.js';
-import {
-  appliedLeadMs,
-  clampTimingOffset,
-  formatTimingOffset,
-} from '../../shared/timing-offset.js';
-import { ClockStats, formatClockStats } from './clock-stats.js';
-import { PositionClock } from './position-clock.js';
-import { SnapClassifier } from './snap-classifier.js';
-import {
-  accumulateWheel,
-  deriveView,
-  findActiveWord,
-  findDisplayLine,
   popScaleCap,
+  PositionClock,
+  primaryFxHit,
+  quantizedEnergy,
+  resolveFxProfile,
   shouldAnimateLineChange,
+  shouldMountLayer,
+  SnapClassifier,
+  TEXT_SCALE_FACTORS,
   viewsEqual,
   watchdogShouldReset,
+  type AlignmentData,
+  type BeatFrame,
+  type BeatsLike,
+  type BoxScale,
+  type EffectLevel,
+  type EnergyData,
+  type FxData,
+  type LineFillPlan,
+  type LyricLine,
+  type PaletteLike,
+  type SectionData,
+  type TextScale,
+  type ThemeScope,
   type ViewOutput,
   type WordTiming,
-} from './view-logic.js';
-import type {
-  AlignmentData,
-  EnergyData,
-  FxData,
-  LyricLine,
-  SectionData,
-} from '../../shared/lyrics.js';
-import { loadArtworkPalette } from './artwork-palette.js';
-import { IdleStash } from './idle-stash.js';
-import { LATENCY_MARKER, LatencyMarker, lineWordOffsets } from './latency-marker.js';
+} from '@kashi/view';
+import { BOX_ZONE, boxZoneFor, WINDOW_HEIGHT } from '../../shared/box-zone.js';
 
 type PlaybackMessage = PositionMessage | SeekMessage | PlaybackStateMessage | AdStateMessage;
 

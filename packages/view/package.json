@@ -1,0 +1,29 @@
+{
+  "name": "@kashi/view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The lyrics view: display rules, effects, styles and the DOM/canvas renderer, hosted by the desktop overlay today and by a WebView later",
+  "exports": {
+    ".": "./src/index.ts",
+    "./document": "./src/document.ts",
+    "./lyrics": "./src/lyrics.ts",
+    "./effect-level": "./src/effect-level.ts",
+    "./text-scale": "./src/text-scale.ts",
+    "./timing-offset": "./src/timing-offset.ts",
+    "./box-scale": "./src/box-scale.ts",
+    "./view.css": "./src/view.css"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@kashi/schemas": "workspace:*",
+    "@vitest/coverage-v8": "4.1.11",
+    "pixi.js": "8.19.0",
+    "typescript": "^6.0.0",
+    "vitest": "^4.1.11"
+  }
+}

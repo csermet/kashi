@@ -5,7 +5,7 @@ import {
   effectLevelLabel,
   parseEffectLevel,
   parseThemeScope,
-} from '../../shared/effect-level.js';
+} from './effect-level.js';
 import {
   ambientColors,
   BEAT_IDLE,

@@ -18,6 +18,11 @@
  *    guarantees, because one of them being wrong should not put anything on
  *    top of the text.
  */
+// Referenced, not only included: a host's TypeScript program reaches this file
+// through an import and would otherwise miss the ambient declaration (an
+// `import` cannot carry a non-module .d.ts).
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference path="./pixi-unsafe-eval.d.ts" />
 import type { Application, Container, Sprite, Texture } from 'pixi.js';
 import {
   GENERIC_PROFILE,

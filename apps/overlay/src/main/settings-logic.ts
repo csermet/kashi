@@ -9,22 +9,22 @@ import {
   parseThemeScope,
   type EffectLevel,
   type ThemeScope,
-} from '../shared/effect-level.js';
+} from '@kashi/view/effect-level';
 import { normalizeServerUrl } from './kashi-server-logic.js';
-import { DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from '../shared/box-zone.js';
-import { DEFAULT_TEXT_SCALE, parseTextScale, type TextScale } from '../shared/text-scale.js';
+import { DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from '@kashi/view/box-scale';
+import { DEFAULT_TEXT_SCALE, parseTextScale, type TextScale } from '@kashi/view/text-scale';
 import {
   BASE_LEAD_MS,
   DEFAULT_TIMING_OFFSET_MS,
   appliedLeadMs,
   clampTimingOffset,
   formatTimingOffset,
-} from '../shared/timing-offset.js';
+} from '@kashi/view/timing-offset';
 
-export { DEFAULT_TEXT_SCALE, TEXT_SCALES, TEXT_SCALE_FACTORS, parseTextScale } from '../shared/text-scale.js';
-export type { TextScale } from '../shared/text-scale.js';
+export { DEFAULT_TEXT_SCALE, TEXT_SCALES, TEXT_SCALE_FACTORS, parseTextScale } from '@kashi/view/text-scale';
+export type { TextScale } from '@kashi/view/text-scale';
 
-export { DEFAULT_BOX_SCALE, parseBoxScale } from '../shared/box-zone.js';
+export { DEFAULT_BOX_SCALE, parseBoxScale } from '@kashi/view/box-scale';
 
 export {
   BASE_LEAD_MS,
@@ -33,7 +33,7 @@ export {
   appliedLeadMs,
   clampTimingOffset,
   formatTimingOffset,
-} from '../shared/timing-offset.js';
+} from '@kashi/view/timing-offset';
 
 export const OPACITY_PRESETS = [0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9] as const;
 export const OPACITY_MIN = 0;

@@ -9,7 +9,7 @@
 // properties, every Kashi custom property as the element resolves it, its
 // rect), the box's ::before / ::after rings, <html> and <body> themselves, the
 // renderer's log lines since the last step, and a picture of the whole window
-// (compared exactly: 0 differing pixels).
+// (no pixel may move by more than 8/255 in any channel; see below).
 //
 // Normalisation, and nothing else:
 //   - text nodes that are only whitespace are skipped (the old page's markup
@@ -51,6 +51,11 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OVERLAY = resolve(HERE, '..');
 const GOLDEN = join(OVERLAY, 'test/golden');
 const VIEWPORT = { width: 800, height: 460, deviceScaleFactor: 1 };
+// A window picture fails on ANY pixel whose channels moved by more than this
+// (the golden harness's per-pixel tolerance, without its 0.1 % allowance).
+// Measured: two runs of the same DOM state can differ by 1 level in 1-2
+// pixels of a blurred halo (software raster); a real change moves hundreds.
+const PICTURE_CHANNEL_TOLERANCE = 8;
 
 const { values: args } = parseArgs({
   options: {
@@ -597,6 +602,7 @@ const failures = [];
 let snapshots = 0;
 let bytes = 0;
 let pictures = 0;
+let noisyPictures = 0; // differed, but no pixel beyond the tolerance
 
 try {
   for (const scenario of SCENARIOS.filter((s) => !args.only || s.name === args.only)) {
@@ -626,7 +632,8 @@ try {
         const [pa, pb] = [await a.picture(), await b.picture()];
         pictures += 1;
         if (!pa.equals(pb)) {
-          const cmp = comparePixels(decodePng(pa), decodePng(pb), 0);
+          const cmp = comparePixels(decodePng(pa), decodePng(pb), PICTURE_CHANNEL_TOLERANCE);
+          if (!cmp.sizeMismatch && cmp.differing === 0) noisyPictures += 1;
           if (cmp.sizeMismatch || cmp.differing > 0) {
             diverged = true;
             mkdirSync(report, { recursive: true });
@@ -668,8 +675,8 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  `view differential: ${snapshots} snapshots (${(bytes / 1e6).toFixed(1)} MB each side) and ${pictures} window pictures, ` +
-    `old and new identical (${seconds} s, ${product})`,
+  `view differential: ${snapshots} snapshots (${(bytes / 1e6).toFixed(1)} MB each side) and ${pictures} window pictures ` +
+    `(${noisyPictures} not byte-equal, none beyond ${PICTURE_CHANNEL_TOLERANCE}/255), old and new identical (${seconds} s, ${product})`,
 );
 
 function firstDifference(a = '', b = '') {

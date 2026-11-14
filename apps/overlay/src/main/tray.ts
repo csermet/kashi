@@ -12,8 +12,8 @@ import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'e
 // The PACKAGED app ships the icon via electron-builder extraResources and
 // reads it from process.resourcesPath instead (Faz 5 P5).
 import trayIconPath from '../../resources/tray.png?asset';
-import { BOX_SCALES, type BoxScale } from '../shared/box-zone.js';
-import { TEXT_SCALES, type TextScale } from '../shared/text-scale.js';
+import { BOX_SCALES, type BoxScale } from '@kashi/view/box-scale';
+import { TEXT_SCALES, type TextScale } from '@kashi/view/text-scale';
 
 /** Shared label for both size presets — they offer the same three steps. */
 function scaleLabel(scale: TextScale | BoxScale): string {
@@ -30,7 +30,7 @@ import {
   themeScopeLabel,
   type EffectLevel,
   type ThemeScope,
-} from '../shared/effect-level.js';
+} from '@kashi/view/effect-level';
 import {
   OPACITY_PRESETS,
   TIMING_OFFSET_PRESETS,

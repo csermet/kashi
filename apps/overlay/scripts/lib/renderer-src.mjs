@@ -20,16 +20,21 @@ export async function resolve(specifier, context, next) {
 }`),
 );
 
-/** The pure modules of the overlay at `overlayRoot` (apps/overlay). */
+/**
+ * The pure modules of the overlay at `overlayRoot` (apps/overlay): the view's
+ * from the shared package (packages/view, client review E.4), the settings
+ * defaults from the overlay's main process.
+ */
 export async function loadRendererSrc(overlayRoot) {
   const src = (p) => pathToFileURL(join(overlayRoot, 'src', p)).href;
+  const pkg = (p) => pathToFileURL(join(overlayRoot, '../../packages/view/src', p)).href;
   const [main, settings, timing, view, effects, marker] = await Promise.all([
-    import(src('main/kashi-server-logic.ts')),
+    import(pkg('document.ts')),
     import(src('main/settings-logic.ts')),
-    import(src('shared/timing-offset.ts')),
-    import(src('renderer/src/view-logic.ts')),
-    import(src('renderer/src/effects-logic.ts')),
-    import(src('renderer/src/latency-marker.ts')),
+    import(pkg('timing-offset.ts')),
+    import(pkg('view-logic.ts')),
+    import(pkg('effects-logic.ts')),
+    import(pkg('latency-marker.ts')),
   ]);
   return {
     mapDocument: main.mapDocument,

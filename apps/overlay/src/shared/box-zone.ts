@@ -1,10 +1,11 @@
 /**
- * Window and box geometry — one definition, three readers (Faz 6.7 P4/P5).
+ * The DESKTOP window's geometry — one definition, three readers (Faz 6.7
+ * P4/P5).
  *
  * The main process hit-tests and migrates saved positions against BOX_ZONE,
- * the renderer aims particles around it, and the stylesheet lays the box out
- * with the matching padding. They were three hand-kept copies; two of them
- * now import this, and style-contract.test.ts nails the third to it.
+ * and the renderer's desktop host hands the same zone to the shared view as
+ * CSS variables (stage padding, wrap width). The view itself knows nothing of
+ * the window: the box scale and its chrome live in @kashi/view/box-scale.
  *
  * 0.15.0 grew the window a second time (640×300 → 800×460) so effects have
  * room on EVERY side of the box: 160 above as a runway, 120 below to fade out
@@ -14,6 +15,7 @@
  *
  * FIXED size, always: transparent windows must never resize (Electron).
  */
+import type { BoxScale } from '@kashi/view/box-scale';
 
 export interface BoxRect {
   x: number;
@@ -24,10 +26,6 @@ export interface BoxRect {
 
 export const WINDOW_WIDTH = 800;
 export const WINDOW_HEIGHT = 460;
-
-export type BoxScale = 'small' | 'medium' | 'large';
-
-export const BOX_SCALES: readonly BoxScale[] = ['small', 'medium', 'large'];
 
 /**
  * How big the box is, at the user's choice (Faz 7 P3). The WINDOW never
@@ -47,40 +45,11 @@ export const BOX_ZONE_PRESETS: Record<BoxScale, BoxRect> = {
 };
 
 /**
- * The box CHROME each preset wears — the part of "Box size" the eye can
- * actually see (2026-08-12, field report: "I change Box size and nothing
- * happens"). The zone above only changes the WRAP width, and the box is
- * content-sized around a fixed centre, so on lines shorter than the wrap
- * limit the three presets rendered pixel-identical. The chrome makes every
- * preset visibly different on every line: padding and corner radius scale
- * with the choice. `medium` is EXACTLY the stylesheet's shipped literals —
- * an untouched install cannot change appearance (contract-tested).
- */
-export interface BoxChrome {
-  padY: number;
-  padX: number;
-  radius: number;
-}
-
-export const BOX_CHROME: Record<BoxScale, BoxChrome> = {
-  small: { padY: 7, padX: 13, radius: 11 },
-  medium: { padY: 10, padX: 18, radius: 14 },
-  large: { padY: 15, padX: 27, radius: 18 },
-};
-
-/**
- * The default geometry, unchanged since 0.15.0. Saved window positions and
- * the stylesheet's static padding are both anchored to THIS, so a user who
- * never touches the setting sees exactly what they saw before.
+ * The default geometry, unchanged since 0.15.0. Saved window positions are
+ * anchored to THIS, so a user who never touches the setting sees exactly what
+ * they saw before.
  */
 export const BOX_ZONE: BoxRect = BOX_ZONE_PRESETS.medium;
-
-/** The size the app has always had. */
-export const DEFAULT_BOX_SCALE: BoxScale = 'medium';
-
-export function parseBoxScale(value: unknown): BoxScale {
-  return BOX_SCALES.includes(value as BoxScale) ? (value as BoxScale) : DEFAULT_BOX_SCALE;
-}
 
 /** The zone for a scale, tolerant of anything unexpected. */
 export function boxZoneFor(scale: string | undefined): BoxRect {

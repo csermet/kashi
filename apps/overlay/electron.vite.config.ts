@@ -35,13 +35,15 @@ export default defineConfig({
       // Workspace packages must be BUNDLED: externalized they resolve to TS
       // source at runtime and crash Electron's ESM loader on first launch.
       // Real deps (ws) stay external — correct for the main process.
-      externalizeDeps: { exclude: ['@kashi/protocol'] },
+      // @kashi/view is a devDependency (bundled by default) and listed anyway:
+      // main imports its document mapper and settings vocabulary.
+      externalizeDeps: { exclude: ['@kashi/protocol', '@kashi/view'] },
     },
   },
   preload: {
     // Sandboxed renderers cannot load ESM preload scripts — force CJS output.
     build: {
-      externalizeDeps: { exclude: ['@kashi/protocol'] },
+      externalizeDeps: { exclude: ['@kashi/protocol', '@kashi/view'] },
       rollupOptions: {
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
       },

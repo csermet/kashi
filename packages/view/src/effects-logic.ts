@@ -3,7 +3,7 @@
  * and the frame-loop beat cursor. DOM-free so every rule is unit-tested; the
  * class/variable writes live in main.ts.
  */
-import type { EffectLevel, ThemeScope } from '../../shared/effect-level.js';
+import type { EffectLevel, ThemeScope } from './effect-level.js';
 import { nextLineTakeoverMs } from './view-logic.js';
 import {
   NEUTRAL_BG_TRIPLET,
@@ -544,7 +544,7 @@ import type {
   FxData,
   LyricLine,
   SectionData,
-} from '../../shared/lyrics.js';
+} from './lyrics.js';
 import {
   ARCHETYPE_PROFILES,
   GENERIC_PROFILE,

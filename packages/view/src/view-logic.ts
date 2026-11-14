@@ -3,7 +3,7 @@
  * the "what should be on screen right now" rules unit-testable — several Faz 2
  * bugs were exactly these rules interacting badly (render-gap audit).
  */
-import type { EffectLevel } from '../../shared/effect-level.js';
+import type { EffectLevel } from './effect-level.js';
 
 export interface ViewState {
   /** An ad is playing — the overlay must show nothing at all. */
@@ -149,7 +149,7 @@ export function shouldAnimateLineChange(
   );
 }
 
-import type { WordTiming } from '../../shared/lyrics.js';
+import type { WordTiming } from './lyrics.js';
 
 export type { WordTiming };
 

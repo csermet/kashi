@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@kashi/schemas": "workspace:*",
+    "@kashi/view": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.0",
     "@vitest/coverage-v8": "4.1.11",

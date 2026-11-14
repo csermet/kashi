@@ -1,0 +1,324 @@
+/**
+ * processed-track.v1 document -> the payload the view renders (moved from the
+ * overlay's main process, client review E.4). Pure and DOM-free: the desktop
+ * maps in its main process today; an Android WebView host can map in the page.
+ * Untrusted input throughout — every field is validated, bad enrichment drops
+ * out, a malformed line or word rejects the document.
+ */
+
+import type {
+  AlignmentData,
+  BeatsData,
+  EnergyData,
+  FxData,
+  FxLineTag,
+  FxWordTag,
+  LyricLine,
+  PaletteData,
+  SectionData,
+  WordTiming,
+} from './lyrics.js';
+
+// One source of truth for these shapes: ./lyrics.ts (schema-drift
+// guarded). The Server* names stay as aliases for the existing call sites.
+export type ServerWord = WordTiming;
+export type ServerLine = LyricLine;
+export type ServerPalette = PaletteData;
+export type ServerBeats = BeatsData;
+
+/** What lookupLyrics forwards to the renderer for a server hit. */
+export interface ServerLyricsFound {
+  found: true;
+  /** Served from cache because the live request failed — not a fresh answer. */
+  stale?: boolean;
+  /**
+   * Came off a 200 whose content the cache did NOT already hold. Since every
+   * request revalidates with If-None-Match, fresh means "the server has
+   * deliberately produced a different document than the one we knew" — the
+   * only trustworthy upgrade signal between two server documents. The
+   * quality score is NOT one: measured against ground truth it ranks real
+   * accuracy at Spearman +0.24 (2026-08-12 audit).
+   */
+  fresh?: boolean;
+  source: 'kashi-server';
+  sync: 'word' | 'line';
+  qualityScore: number;
+  lines: ServerLine[];
+  /** Passed through for Faz 4 (renderer ignores them until then). */
+  palette?: ServerPalette;
+  beats?: ServerBeats;
+  /** Semantic effect tags (server 2.6.0+, Faz 6) — hype level consumes them. */
+  fx?: FxData;
+  /** Track-normalized loudness curve + energy-derived sections (2.6.0+). */
+  energy?: EnergyData;
+  sections?: SectionData[];
+  /** Alignment slice (Faz 6.5 P5): nightcore speed factor for the aesthetics. */
+  alignment?: AlignmentData;
+  /**
+   * What the SERVER measured this audio to be (ffprobe on the file it actually
+   * downloaded) — the one duration for this video that never passed through the
+   * page, and so the only one immune to the auto-advance carry-over. The
+   * renderer ignores it; the duration ledger learns from it.
+   */
+  trackDurationMs?: number;
+}
+
+/**
+ * Clients fall back to LINE rendering below this quality (schema contract).
+ * The gate lives HERE, in the mapping — the render loop stays dumb (plan R-F3-7).
+ *
+ * 0.5 -> 0.2 (Faz 9 P4, measured 2026-08-12). The gate was set where the
+ * number LOOKED like a confidence, not where the score's own calibration put
+ * anything. That calibration says: wrong-lyrics territory lands near 0.2, a
+ * correctly aligned full mix near 0.7. 0.5 therefore sat in the middle of the
+ * CORRECT range, and the archive paid for it.
+ *
+ * Measured against ground truth on the shipped chain (20 songs, JamendoLyrics
+ * English), the document score ranks real accuracy at Spearman +0.244 — it
+ * barely knows. Of the two songs it gated: one had a real PCO@0.3 of 0.979,
+ * i.e. very nearly perfect word timings, thrown away in the field. Of the one
+ * song that was genuinely bad, it gated NOTHING: that document scored 0.81 and
+ * sailed through. A gate that catches none of the bad and one of the best is
+ * not a conservative gate, it is a coin flip with a cost.
+ *
+ * 0.2 keeps the part the calibration actually supports — a document aligned
+ * against the WRONG lyrics still collapses below it — and hands the rest to
+ * the layer built for it: the arbiter judges lines with evidence independent
+ * of the model (vocal onsets, silence coverage) and marks survivors
+ * `uncertain`, which this app already renders faded. Line-level doubt belongs
+ * to the line, not to the whole document.
+ */
+export const QUALITY_GATE = 0.2;
+
+function isMs(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+}
+
+/** Indexing a null entry throws — every array element is checked with this first. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+/** One processed-track line, or null when it (or one of its words) is malformed. */
+function mapLine(line: Record<string, unknown>): ServerLine | null {
+  if (!isMs(line['start_ms']) || !isMs(line['end_ms']) || typeof line['text'] !== 'string') {
+    return null;
+  }
+  const mapped: ServerLine = {
+    start_ms: line['start_ms'],
+    end_ms: line['end_ms'],
+    text: line['text'],
+  };
+  if (line['adlib'] === true) mapped.adlib = true;
+  // Only alongside words, exactly as the schema states it: the flag says
+  // "these word timings were rescued, not deleted", so without words there
+  // is nothing for it to qualify and a stray flag would de-emphasise a line
+  // for no reason the user could see.
+  if (line['uncertain'] === true && Array.isArray(line['words']) && line['words'].length > 0) {
+    mapped.uncertain = true;
+  }
+  if (Array.isArray(line['words']) && line['words'].length > 0) {
+    const words: ServerWord[] = [];
+    for (const word of line['words'] as unknown[]) {
+      if (!isRecord(word) || !isMs(word['start_ms']) || !isMs(word['end_ms'])) return null;
+      if (typeof word['text'] !== 'string') return null;
+      words.push({ start_ms: word['start_ms'], end_ms: word['end_ms'], text: word['text'] });
+    }
+    mapped.words = words;
+  }
+  return mapped;
+}
+
+/** Enrichment blocks ride along only when sane; garbage leaves them absent. */
+function addEnrichment(
+  payload: ServerLyricsFound,
+  d: Record<string, unknown>,
+  alignment: Record<string, unknown> | undefined,
+): void {
+  if (typeof d['palette'] === 'object' && d['palette'] !== null) {
+    payload.palette = d['palette'] as ServerPalette;
+  }
+  if (typeof d['beats'] === 'object' && d['beats'] !== null) {
+    payload.beats = d['beats'] as ServerBeats;
+  }
+  const fx = mapFx(d['fx'], payload.sync);
+  if (fx) payload.fx = fx;
+  const energy = mapEnergy(d['energy']);
+  if (energy) payload.energy = energy;
+  const sections = mapSections(d['sections']);
+  if (sections) payload.sections = sections;
+  const trackMeta =
+    typeof d['track'] === 'object' && d['track'] !== null
+      ? (d['track'] as Record<string, unknown>)
+      : null;
+  const measured = trackMeta?.['duration_ms'];
+  if (isMs(measured) && measured > 0) payload.trackDurationMs = measured;
+  // Nightcore provenance (Faz 6.5 P5): only a sane positive factor rides —
+  // enrichment tolerance, absent on garbage like everything above.
+  const speed = alignment?.['speed_factor'];
+  if (typeof speed === 'number' && Number.isFinite(speed) && speed > 0) {
+    payload.alignment = { speed_factor: speed };
+  }
+}
+
+/**
+ * Map a processed-track.v1 document onto the IPC payload.
+ * Returns null for anything malformed — the caller treats that as an error
+ * and does NOT cache it (a bad document must not wedge a track forever).
+ */
+export function mapDocument(doc: unknown): ServerLyricsFound | null {
+  if (typeof doc !== 'object' || doc === null) return null;
+  const d = doc as Record<string, unknown>;
+  if (d['schema_version'] !== 1) return null;
+  const sync = d['sync'];
+  if (sync !== 'word' && sync !== 'line') return null;
+  const alignment = d['alignment'] as Record<string, unknown> | undefined;
+  const quality = typeof alignment?.['quality_score'] === 'number' ? alignment['quality_score'] : 0;
+  if (!Array.isArray(d['lines'])) return null;
+
+  const lines: ServerLine[] = [];
+  for (const raw of d['lines'] as unknown[]) {
+    const mapped = isRecord(raw) ? mapLine(raw) : null;
+    if (mapped === null) return null;
+    lines.push(mapped);
+  }
+
+  let effectiveSync: 'word' | 'line' = sync;
+  let effectiveLines = lines;
+  if (sync === 'word' && quality < QUALITY_GATE) {
+    // Low-confidence word timings read as jitter — degrade to line mode by
+    // STRIPPING the words (never blended, single decision point). `uncertain`
+    // goes with them: it qualifies word timings that no longer exist, and a
+    // line-mode document has no per-line confidence story to tell — every
+    // line came off the same anchor.
+    effectiveSync = 'line';
+    effectiveLines = lines.map(({ words: _words, uncertain: _uncertain, ...rest }) => rest);
+  }
+
+  const payload: ServerLyricsFound = {
+    found: true,
+    source: 'kashi-server',
+    sync: effectiveSync,
+    qualityScore: quality,
+    lines: effectiveLines,
+  };
+  addEnrichment(payload, d, alignment);
+  return payload;
+}
+
+/** Tolerant energy parse — enrichment like beats; bad shape → absent. */
+export function mapEnergy(raw: unknown): EnergyData | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const e = raw as Record<string, unknown>;
+  const rate = e['rate_hz'];
+  if (!Number.isInteger(rate) || (rate as number) < 1 || (rate as number) > 50) return undefined;
+  if (!Array.isArray(e['values']) || e['values'].length === 0) return undefined;
+  const values: number[] = [];
+  for (const v of e['values'] as unknown[]) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+    values.push(Math.min(100, Math.max(0, Math.round(v))));
+  }
+  return { rate_hz: rate as number, values };
+}
+
+/** Tolerant sections parse — bad ENTRIES drop, empty → absent. */
+export function mapSections(raw: unknown): SectionData[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: SectionData[] = [];
+  for (const entry of raw as unknown[]) {
+    if (out.length >= 64) break;
+    const s = entry as Record<string, unknown>;
+    if (
+      typeof s === 'object' &&
+      s !== null &&
+      typeof s['type'] === 'string' &&
+      s['type'] !== '' &&
+      Number.isInteger(s['start_ms']) &&
+      Number.isInteger(s['end_ms']) &&
+      (s['start_ms'] as number) >= 0 &&
+      (s['end_ms'] as number) > (s['start_ms'] as number)
+    ) {
+      out.push({ type: s['type'], start_ms: s['start_ms'] as number, end_ms: s['end_ms'] as number });
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Tolerant fx parse (Faz 6): bad ENTRIES are dropped, never the document —
+ * fx is enrichment exactly like palette/beats. Word tags are meaningless
+ * after the quality gate stripped words (line mode), so they are only kept
+ * on word-sync payloads; line theme tags survive either way. Defensive caps
+ * mirror the server's own (60 words / 24 lines) against a hostile server.
+ */
+/** fx tags become CSS class tokens and FX_ICON_PATHS keys — gate the
+ * charset (lowercase kebab) so a hostile/buggy server can neither throw
+ * InvalidCharacterError in classList nor probe prototype keys. */
+const FX_TAG_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/; // leading alnum: kills __proto__-style keys
+
+export function mapFx(raw: unknown, sync: 'word' | 'line'): FxData | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const f = raw as Record<string, unknown>;
+  if (typeof f['lexicon'] !== 'string' || typeof f['engine'] !== 'string') return undefined;
+  const out: FxData = { lexicon: f['lexicon'], engine: f['engine'] };
+  // The bit that says "the server already chose which words fire". Only a
+  // non-empty string counts — anything else leaves the renderer on its legacy
+  // one-per-line rule, which is the safe direction to be wrong in.
+  if (typeof f['select'] === 'string' && f['select'].length > 0) out.select = f['select'];
+  if (sync === 'word' && Array.isArray(f['words'])) {
+    const words = mapFxWords(f['words'] as unknown[]);
+    if (words.length > 0) out.words = words;
+  }
+  if (Array.isArray(f['lines'])) {
+    const lineTags = mapFxLines(f['lines'] as unknown[]);
+    if (lineTags.length > 0) out.lines = lineTags;
+  }
+  return out.words || out.lines ? out : undefined;
+}
+
+/** Word tags, capped at 60; malformed entries dropped. */
+function mapFxWords(entries: unknown[]): FxWordTag[] {
+  const words: FxWordTag[] = [];
+  for (const raw of entries) {
+    if (words.length >= 60) break;
+    if (!isRecord(raw)) continue;
+    const t = raw;
+    if (
+      Number.isInteger(t['line']) &&
+      Number.isInteger(t['word']) &&
+      (t['line'] as number) >= 0 &&
+      (t['word'] as number) >= 0 &&
+      typeof t['tag'] === 'string' &&
+      FX_TAG_RE.test(t['tag']) &&
+      typeof t['intensity'] === 'number' &&
+      Number.isFinite(t['intensity'])
+    ) {
+      words.push({
+        line: t['line'] as number,
+        word: t['word'] as number,
+        tag: t['tag'],
+        intensity: Math.min(1, Math.max(0, t['intensity'])),
+      });
+    }
+  }
+  return words;
+}
+
+/** Line theme tags, capped at 24; malformed entries dropped. */
+function mapFxLines(entries: unknown[]): FxLineTag[] {
+  const lineTags: FxLineTag[] = [];
+  for (const raw of entries) {
+    if (lineTags.length >= 24) break;
+    if (!isRecord(raw)) continue;
+    const t = raw;
+    if (
+      Number.isInteger(t['line']) &&
+      (t['line'] as number) >= 0 &&
+      typeof t['tag'] === 'string' &&
+      FX_TAG_RE.test(t['tag'])
+    ) {
+      lineTags.push({ line: t['line'] as number, tag: t['tag'] });
+    }
+  }
+  return lineTags;
+}

@@ -21,9 +21,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { buildFxIndex, MAX_FX_PER_LINE } from '../renderer/src/effects-logic.js';
+import { buildFxIndex, MAX_FX_PER_LINE } from '@kashi/view';
 import { KashiServerClient } from './kashi-server.js';
-import type { FxData, LyricLine } from '../shared/lyrics.js';
+import type { FxData, LyricLine } from '@kashi/view/lyrics';
 
 const LIVE_URL = process.env['KASHI_LIVE_URL'];
 const LIVE_KEY = process.env['KASHI_LIVE_KEY'];

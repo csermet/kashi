@@ -25,7 +25,7 @@ import {
   DEFAULT_THEME_SCOPE,
   parseEffectLevel,
   parseThemeScope,
-} from '../shared/effect-level.js';
+} from '@kashi/view/effect-level';
 import { BOX_ZONE, WINDOW_HEIGHT, WINDOW_WIDTH } from '../shared/box-zone.js';
 import { EXPECTED_EXTENSION, KASHI_VERSION } from '../shared/version.js';
 import { EnqueueGate } from './enqueue-gate.js';

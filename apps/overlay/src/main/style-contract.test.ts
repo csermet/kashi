@@ -10,16 +10,14 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { BOX_CHROME, BOX_SCALES, EDGE_FADE_PX } from '@kashi/view';
 import {
-  BOX_CHROME,
-  BOX_SCALES,
   BOX_ZONE,
   BOX_ZONE_PRESETS,
   boxZoneFor,
   WINDOW_HEIGHT,
   WINDOW_WIDTH,
 } from '../shared/box-zone.js';
-import { EDGE_FADE_PX } from '../renderer/src/fx-particles-logic.js';
 
 const css = readFileSync(
   fileURLToPath(new URL('../renderer/src/style.css', import.meta.url)),
@@ -170,10 +168,8 @@ describe('style contract: every fx archetype is renderable (Faz 7 P2)', () => {
     // atlas and the physics have to agree. A tag that is not in the lexicon
     // would never fire; a shape the atlas cannot draw would silently emit
     // nothing at all.
-    const { FX_ARCHETYPES, FX_BASE_COLORS, resolveFxProfile } = await import(
-      '../renderer/src/effects-logic.js'
-    );
-    const { PARTICLE_SHAPES } = await import('../renderer/src/fx-textures.js');
+    const { FX_ARCHETYPES, FX_BASE_COLORS, resolveFxProfile } = await import('@kashi/view');
+    const { PARTICLE_SHAPES } = await import('@kashi/view');
 
     for (const [tag, entry] of FX_ARCHETYPES) {
       expect(FX_BASE_COLORS, `${tag} is not a lexicon category`).toHaveProperty(tag);
@@ -275,7 +271,7 @@ describe('style contract: a rescued line is softened, never removed (Faz 8.1)', 
 
 describe('style contract: particle alphas have one source (Faz 7 P8b)', () => {
   const textures = readFileSync(
-    fileURLToPath(new URL('../renderer/src/fx-textures.ts', import.meta.url)),
+    fileURLToPath(new URL('../../../../packages/view/src/fx-textures.ts', import.meta.url)),
     'utf8',
   );
 
