@@ -629,6 +629,21 @@ order above against pre-registered gates (working files `surum-zamanlama/`).
   need to refresh everything each time); the seven remaining vetoed songs, Gimme More, the six
   unmeasured nightcore documents and the three hand-repaired songs stay as they are. The whole
   archive waits for the refresh that needs no download.
+- **Rolled out and refreshed the same evening.** Both workers logged `ready: pipeline 2.34.0,
+  code-default configuration` (the cluster worker and the GPU helper built from the tag). The
+  owner's import of the 2026-11-10 repairs ran first: three `song_overrides` rows, and each of the
+  three songs rebuilt on 2.34.0 under its override (`lyrics_source: caller`, speed factors 1.0662 /
+  1.1289 / 1.1504, every line worded, `document_under_override` true) — so the hand-repaired songs
+  did not stay as they were after all; the repair is now what a reprocess reproduces. Then 36
+  songs: the pilot's 17 and the hold-out's 19 that are neither vetoed nor nightcore, all 36 on
+  2.34.0, no job failed (two downloads answered 403 once and passed on the retry). Documents
+  before (2.31.0) → after, numbers only: words whose successor starts within 120 ms 884 → 694
+  (share 0.0709 → 0.0555; fewer on 30 songs, more on 1, by one word), 0 ms words 60 → 23,
+  wordless lines 10 → 1, the one word starting before its predecessor gone, lines ending past the
+  next line's start 9 → 6; no line count and no lyrics record changed. Of 1 925 line starts 75
+  moved more than 500 ms, 19 of them the two carries (GOSSIP's lines 25-37 about 19 s earlier,
+  Toz Pembe's opening 20.1 s later: the two moves the owner preferred blind). The first finished
+  documents were read before the feed went on. Working files `yenileme-2.34/`.
 
 ## Lines of work and order
 

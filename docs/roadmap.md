@@ -62,8 +62,9 @@ B.
 2.32.0 (A), then 0.37.0 / 2.33.0 (B's code defaults, version-ordered persist guard and shipped-mode
 bench; C's per-song overrides) with no document change. The timing release 0.38.0 / pipeline 2.34.0
 (a pile guard on the 1 200 ms vote, the sheet shift carrying the lines it left behind, the density
-drop removed, two small visible fixes) is measured and tagged; it refreshes the pilot and hold-out
-songs only. Timing changes are now accepted in a fixed order: archive rig with a per-song veto →
+drop removed, two small visible fixes) is measured, tagged and live since that evening; it
+refreshed the pilot and hold-out songs only (36 documents, plus the three hand-repaired songs
+rebuilt under their stored overrides); the rest of the archive keeps its 2.31.0 (or older) documents. Timing changes are now accepted in a fixed order: archive rig with a per-song veto →
 human truth in shipped mode → at most eight blind clips → reviewer → tag
 (`toptan-gozden-gecirme-2026-11.md`, "The second pass"). On branches, waiting for the owner's look
 on a real Windows window: `client-foundations` (held-note sweep, golden frames, latency tools) and
