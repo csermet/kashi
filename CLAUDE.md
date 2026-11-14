@@ -83,7 +83,10 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   after a raw-SQL claim, refresh ORM objects (identity map is stale).
 - Turkish dotless `ı` does not decompose under NFKD. `ctc_forced_aligner` emissions carry a
   `<star>` column: drop it before any argmax.
-- The HF cache keeps every model revision (budget ~2× model size); worker peak memory is in
-  source separation, not alignment.
+- The HF cache's second copy of the English and Turkish aligners (budget ~2× model size) is
+  `refs/pr/N`: safetensors that transformers' background auto-conversion downloads for .bin-only
+  repos, never loaded. Since 2.33.0 aligners load from pinned commits (`config.ALIGNER_REVISIONS`)
+  and the worker sets `DISABLE_SAFETENSORS_CONVERSION=1`. Worker peak memory is in source
+  separation, not alignment.
 
 Project agents: `.claude/agents/kashi-reviewer.md`, `.claude/agents/ytm-scout.md`.

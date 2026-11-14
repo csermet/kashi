@@ -91,3 +91,19 @@ def test_anything_else_still_ends_the_process():
     with pytest.raises(RuntimeError):
         serve(script.iteration, script.should_stop, script.sleep)
     assert script.slept == []
+
+
+def test_the_worker_switches_safetensors_auto_conversion_off_unless_told_otherwise(
+        monkeypatch):
+    import os
+
+    from kashi_server.worker import main
+
+    monkeypatch.delenv("DISABLE_SAFETENSORS_CONVERSION", raising=False)
+    monkeypatch.delenv("HF_HOME", raising=False)
+    main._environment_defaults()
+    assert os.environ["DISABLE_SAFETENSORS_CONVERSION"] == "1"
+    assert os.environ["HF_HOME"] == str(main.settings.model_cache_dir)
+    monkeypatch.setenv("DISABLE_SAFETENSORS_CONVERSION", "0")  # an operator's choice stays
+    main._environment_defaults()
+    assert os.environ["DISABLE_SAFETENSORS_CONVERSION"] == "0"

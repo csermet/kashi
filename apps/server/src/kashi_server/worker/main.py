@@ -117,11 +117,25 @@ def _config_note() -> str:
     return f"env overrides {', '.join(overridden)} (not what the version names)"
 
 
+def _environment_defaults() -> None:
+    """Process environment the model loaders read; an operator's value wins.
+
+    DISABLE_SAFETENSORS_CONVERSION (2.33.0): for a checkpoint that ships only
+    pytorch_model.bin (the English and Turkish aligners), transformers starts a
+    background thread on every load that asks the hub for a safetensors
+    conversion and downloads its result (refs/pr/N) into the model cache: the
+    "two revisions, ~2x the model size" of the HF cache trap, never what is
+    loaded. Measured on the bench image, 2026-11-14: the thread starts without
+    the variable and does not with it."""
+    os.environ.setdefault("HF_HOME", str(settings.model_cache_dir))
+    os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
+
+
 def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    os.environ.setdefault("HF_HOME", str(settings.model_cache_dir))
+    _environment_defaults()
 
     _warm_up()
     sweep_orphans(settings.data_dir)
