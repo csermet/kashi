@@ -768,5 +768,17 @@
 # 10/38 -> 11/42. Owner-labelled moments: the four heard-fine ones the vote
 # moves past the threshold, the owner preferred blind 4 of 4 on the new
 # side; heard-bad fixed? 8, worse? 2 (both the vote's).
-PIPELINE_VERSION = "2.32.0"
+# 2.32.1: LRC syntax never reaches the screen as text. lrclib record 1009665
+# grew enhanced-LRC word tags ("<00:18.89>word") in 2026-11 and the live
+# document showed them; the tags (and a square stamp inside a line) are now
+# stripped, never read — the line keeps its own stamp — and a tag-only line
+# drops like an empty one. LRC ID tags ("[ar:...]", "[offset:...]") no longer
+# become stampless lines, and a leading stamp the overlay always read ("[1:02.50]",
+# "[01:02]") anchors on the server too: one grammar for both twins, pinned by
+# shared vectors (packages/schemas/vectors/lrc-lines.json). Sizing: 1 of 306
+# archive records carries word tags, 1 an ID tag; a seeded 5 000-record mirror
+# sample 0 word tags, 9 with ID tags (0.18 %), 1 with one-digit minutes. On the
+# 306 records the parse is identical for 304; the other two differ only by the
+# stripped tags (58 lines) and the dropped ID-tag line.
+PIPELINE_VERSION = "2.32.1"
 PIPELINE_MAJOR = 2

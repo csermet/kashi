@@ -170,6 +170,12 @@ const NEGATIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * exactly the state the 0.27.3 rung needs to escape.
  *
  * 3: degenerate records are skipped and the ladder moves on (LyricFix P4).
+ *
+ * Not bumped for the inline-tag strip (2026-11-14): it changes how a record's
+ * lines read, not which rungs run, and no stored miss depends on it — a miss
+ * is cached only when no record was rejected, and the strip can only change a
+ * verdict through the record gate. Stored hits with tags are re-asked instead
+ * (cachedAnswer).
  */
 const LOOKUP_LADDER_VERSION = 3;
 const REQUEST_TIMEOUT_MS = 12_000; // field data: cold lrclib responses can exceed 8s
@@ -190,7 +196,53 @@ const MIN_WORDS_PER_MINUTE = 8;
 /** Below a minute the rate is too noisy to judge (a short intro edit). */
 const WORDS_PER_MINUTE_MIN_DURATION_S = 60;
 const WORD = /[\p{L}\p{N}_]+/gu;
-const LRC_STAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+
+/**
+ * LRC syntax, ONE grammar on both twins (_TIMESTAMP, _INLINE_TAG_RUN and
+ * _ID_TAG_LINE in the server's pipeline/lrclib.py); the shared cases both test
+ * suites run are packages/schemas/vectors/lrc-lines.json. A stamp is [m:ss],
+ * [mm:ss.xx] or [mm:ss.xxx] (":" may stand for "."); a line opens with one or
+ * more of them (several = the line repeats at each).
+ */
+const LEADING_STAMP = /^\s*\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/;
+/**
+ * Time tags INSIDE a line's text: enhanced-LRC word tags "<mm:ss.xx>" before
+ * each word or syllable (lrclib record 1009665 since 2026-11; they reached the
+ * screen as text), and a square stamp after text (it used to cut the line down
+ * to the words after it). Stripped, never read: the line keeps its own stamp.
+ * A run of tags is one unit: with whitespace in or around it, it leaves one
+ * space (a word boundary); glued between letters, nothing (a syllable tag
+ * inside a word). The (?<!\s) lookbehind lets a run start only at the
+ * beginning of a whitespace run, so a long blank is scanned once.
+ */
+const INLINE_TAG = String.raw`(?:<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>|\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])`;
+const INLINE_TAG_RUN = new RegExp(String.raw`(?:(?<!\s)\s+)?${INLINE_TAG}(?:\s*${INLINE_TAG})*\s*`, 'g');
+/** A whole line that is an LRC ID tag ("[ar:Artist]", "[offset:+500]"): metadata, not lyrics. */
+const ID_TAG_LINE = /^\s*\[(?:ti|ar|al|au|lr|by|re|ve|tool|length|offset|#)\s*:[^\]]*\]\s*$/i;
+
+/** A line's text without its inline time tags, trimmed (untagged text is only trimmed). */
+export function stripInlineTags(text: string): string {
+  return text.replace(INLINE_TAG_RUN, (run) => (/\s/.test(run) ? ' ' : '')).trim();
+}
+
+/**
+ * One LRC line: its leading stamps in ms (none for a stampless line) and its
+ * text, or null when no lyric text is left (an empty or tag-only line, an ID
+ * tag). Twin of parse_lrc_line in the server's pipeline/lrclib.py.
+ */
+export function parseLrcLine(raw: string): { stamps: number[]; text: string } | null {
+  if (ID_TAG_LINE.test(raw)) return null;
+  const stamps: number[] = [];
+  let rest = raw;
+  for (let m = LEADING_STAMP.exec(rest); m; m = LEADING_STAMP.exec(rest)) {
+    // A fraction is decimal: "5" = 500 ms, "50" = 500 ms, "505" = 505 ms.
+    const fractionMs = Number((m[3] ?? '').padEnd(3, '0'));
+    stamps.push((Number(m[1]) * 60 + Number(m[2])) * 1000 + fractionMs);
+    rest = rest.slice(m[0].length);
+  }
+  const text = stripInlineTags(rest);
+  return text ? { stamps, text } : null;
+}
 
 /**
  * True for stamped lyric texts too thin to be a song: fewer than
@@ -209,11 +261,8 @@ export function isDegenerateLines(texts: string[], durationS: number | null): bo
 export function isDegenerateSynced(lrc: string, durationS: number | null): boolean {
   const texts: string[] = [];
   for (const rawLine of lrc.split(/\r?\n/)) {
-    const matches = [...rawLine.matchAll(LRC_STAMP)];
-    const last = matches.at(-1);
-    if (!last) continue;
-    const text = rawLine.slice((last.index ?? 0) + last[0].length).trim();
-    if (text) texts.push(text);
+    const line = parseLrcLine(rawLine);
+    if (line && line.stamps.length > 0) texts.push(line.text);
   }
   return isDegenerateLines(texts, durationS);
 }
@@ -280,8 +329,12 @@ export class LrclibClient {
     if (cached.found) {
       // Positives are kept forever, so one stored before the record gate
       // existed would show "probe" forever: a degenerate one is asked again.
+      // So is one stored before inline time tags were stripped (it would show
+      // "<00:18.89>" forever); its raw LRC is gone, so it cannot be re-parsed.
       const durationS = cached.recordDurationMs == null ? null : cached.recordDurationMs / 1000;
-      if (isDegenerateLines(cached.lines.map((line) => line.text), durationS)) return null;
+      const texts = cached.lines.map((line) => line.text);
+      if (isDegenerateLines(texts, durationS)) return null;
+      if (texts.some((text) => stripInlineTags(text) !== text)) return null;
       return {
         found: true,
         source: 'lrclib',
@@ -556,31 +609,21 @@ export function splitArtists(artist: string): string[] {
 
 /**
  * Parse LRC text into ms-integer lines. Supports multiple timestamps per line
- * ("[00:12.34][01:02.50]text"). end_ms = next line's start; the last line gets
- * min(start + 5 s, track duration) when the duration is known.
+ * ("[00:12.34][01:02.50]text") and strips inline time tags (parseLrcLine).
+ * end_ms = next line's start; the last line gets min(start + 5 s, track
+ * duration) when the duration is known.
  *
  * Known limitation: "[hh:mm:ss]" (3-field hour format, seen on 1 h+ mixes) is
  * read as mm:ss:frac. Rare enough in LRCLIB data that we accept it for now.
  */
 export function parseLrc(lrc: string, durationMs?: number): LyricLine[] {
   const stamped: Array<{ start_ms: number; text: string }> = [];
-  const timestamp = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
 
   for (const rawLine of lrc.split(/\r?\n/)) {
-    const matches = [...rawLine.matchAll(timestamp)];
-    if (matches.length === 0) continue;
-    const lastMatch = matches.at(-1);
-    if (!lastMatch) continue;
-    const text = rawLine.slice((lastMatch.index ?? 0) + lastMatch[0].length).trim();
-    if (!text) continue;
-
-    for (const m of matches) {
-      const minutes = Number(m[1]);
-      const seconds = Number(m[2]);
-      const fractionRaw = m[3] ?? '0';
-      const fractionMs = Math.round(Number(`0.${fractionRaw}`) * 1000);
-      stamped.push({ start_ms: (minutes * 60 + seconds) * 1000 + fractionMs, text });
-    }
+    // A stampless line has no time to show at: skipped (the server aligns it).
+    const line = parseLrcLine(rawLine);
+    if (!line) continue;
+    for (const start_ms of line.stamps) stamped.push({ start_ms, text: line.text });
   }
 
   stamped.sort((a, b) => a.start_ms - b.start_ms);

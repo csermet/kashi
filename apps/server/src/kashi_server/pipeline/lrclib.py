@@ -60,7 +60,29 @@ SEARCH_DURATION_TOLERANCE_S = 3
 # ANCHOR_CLOCK_TOLERANCE_S — a contract test pins the two together.
 DIFFERENT_EDIT_TOLERANCE_S = 5.0
 _SEARCH_PATH = "/api/search"
-_TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
+# LRC syntax, ONE grammar on both twins (the overlay's lrclib.ts reads the same
+# shapes); packages/schemas/vectors/lrc-lines.json holds the shared cases both
+# test suites run. A stamp is [m:ss], [mm:ss.xx] or [mm:ss.xxx] (":" may stand
+# for "."); a line opens with one or more of them (several = the line repeats).
+_STAMP = r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]"
+_TIMESTAMP = re.compile(r"^\s*" + _STAMP + r"\s*")
+# Time tags INSIDE a line's text (pipeline 2.32.1): enhanced-LRC word tags
+# "<mm:ss.xx>" before each word or syllable (lrclib record 1009665 since
+# 2026-11; they reached the screen as text), and a square stamp after text.
+# They are stripped, never read: the line keeps its own stamp, and lrclib's
+# word timing measured less accurate than the aligner's (olu-fikirler.md, the
+# referee row). A run of tags is one unit: with whitespace in or around it, it
+# leaves one space (a word boundary); glued between letters, nothing (a
+# syllable tag inside a word). The (?<!\s) lookbehind lets a run start only at
+# the beginning of a whitespace run (linear on long blanks, like _TOPIC_SUFFIX).
+_INLINE_TAG = r"(?:<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>|\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])"
+_INLINE_TAG_RUN = re.compile(r"(?:(?<!\s)\s+)?" + _INLINE_TAG + r"(?:\s*" + _INLINE_TAG + r")*\s*")
+# A whole line that is an LRC ID tag ("[ar:Artist]", "[offset:+500]"): metadata,
+# not lyrics. The overlay never showed one (no stamp); the server used to keep
+# it as a stampless line. The offset is not applied (lrclib ignores it too).
+_ID_TAG_LINE = re.compile(
+    r"^\s*\[(?:ti|ar|al|au|lr|by|re|ve|tool|length|offset|#)\s*:[^\]]*\]\s*$", re.IGNORECASE
+)
 # The (?<!\s) lookbehinds below only let a match START at the beginning of a
 # whitespace run: same matches (fuzz-verified), but a long run that never
 # completes a separator is scanned once instead of once per position.
@@ -309,27 +331,46 @@ def _client(
     )
 
 
+def strip_inline_tags(text: str) -> str:
+    """A line's text without its inline time tags (`_INLINE_TAG_RUN`), trimmed.
+    Text without a tag comes back only trimmed, inner whitespace untouched."""
+    return _INLINE_TAG_RUN.sub(
+        lambda m: " " if any(ch.isspace() for ch in m.group(0)) else "", text
+    ).strip()
+
+
+def parse_lrc_line(raw: str) -> tuple[list[int], str] | None:
+    """One LRC line: its leading stamps in ms (none for a stampless line) and
+    its text, or None when no lyric text is left (an empty or tag-only line, an
+    ID tag). Twin of parseLrcLine in the overlay's lrclib.ts: both run the
+    shared vectors in packages/schemas/vectors/lrc-lines.json."""
+    if _ID_TAG_LINE.match(raw):
+        return None
+    rest = raw
+    stamps: list[int] = []
+    while (match := _TIMESTAMP.match(rest)) is not None:
+        mm, ss, frac = match.groups()
+        # A fraction is decimal: "5" = 500 ms, "50" = 500 ms, "505" = 505 ms.
+        stamps.append(int(mm) * 60_000 + int(ss) * 1_000 + int((frac or "").ljust(3, "0")))
+        rest = rest[match.end() :]
+    text = strip_inline_tags(rest)
+    return (stamps, text) if text else None
+
+
 def _parse_synced(synced: str) -> list[tuple[int | None, str]]:
     """One (start_ms, text) entry per non-empty lyric line.
 
     Strips EVERY leading [mm:ss.xx] stamp (multi-stamp LRC lines repeat one text
-    at several times; the first stamp wins, none may leak into the text). Empty
-    lines drop time and text together, so the result stays parallel to the
-    line_texts the aligner sees.
+    at several times; the first stamp wins, none may leak into the text) and
+    every inline time tag. Empty and tag-only lines drop time and text
+    together, so the result stays parallel to the line_texts the aligner sees.
     """
     entries: list[tuple[int | None, str]] = []
     for raw in synced.splitlines():
-        rest = raw
-        start_ms: int | None = None
-        while (match := _TIMESTAMP.match(rest)) is not None:
-            if start_ms is None:
-                mm, ss, frac = match.groups()
-                frac_ms = int(frac) if len(frac) == 3 else int(frac) * 10
-                start_ms = int(mm) * 60_000 + int(ss) * 1_000 + frac_ms
-            rest = rest[match.end() :]
-        text = rest.strip()
-        if text:
-            entries.append((start_ms, text))
+        parsed = parse_lrc_line(raw)
+        if parsed is not None:
+            stamps, text = parsed
+            entries.append((stamps[0] if stamps else None, text))
     return entries
 
 
