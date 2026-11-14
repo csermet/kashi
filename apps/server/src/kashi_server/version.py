@@ -789,10 +789,22 @@
 # repository's moving main; each pin is that repository's main head on
 # 2026-11-13, i.e. what a worker (re)started online loaded already.
 # 2.34.0: the timing release (whole-project review, steps C.2 first half and
-# C.4, the vote-pile guard and two visible sheet defects; each heard blind by
-# the owner). Five changes, each its own switch or rule; 2.32.1 was each
+# C.4, the vote-pile guard and two visible sheet defects; (1)-(3) heard blind
+# by the owner). Five changes, each its own switch or rule; 2.32.1 was each
 # branch's working number and never shipped (the persist guard orders by
-# version, so the release sits above 2.33.0).
+# version, so the release sits above 2.33.0). Together, measured in the order
+# the review set (gates pre-registered): archive rig, 287 songs, against
+# 2.32.0 (= 2.33.0) documents: words in new 0 ms runs (vs 2.31.0) 274 -> 49,
+# short-dwell share 0.0607 -> 0.0508, rushed runs 4 190 -> 3 554, bunched
+# 111 -> 71, worded lines 15 677 -> 15 792 (wordless 256 -> 140), voice
+# witness 0.308 -> 0.311; 9 songs carry a new moment past the per-song veto
+# (6 piles of 4-5 words, 2 lines moved > 1.5 s from a witness by the carry,
+# 1 one-word line left plain). Human truth, shipped mode, against 2.33.0:
+# eng20 +-400 PCO@0.1 0.8434 -> 0.8420, @0.3 0.9520 -> 0.9523, rushed 0.0272
+# -> 0.0253; all 79 +-400 @0.1 0.9016 -> 0.9021, @0.3 0.9683 -> 0.9693, rushed
+# 0.0358 -> 0.0282, line starts 0.0364 both; a whole sheet +3 s late (all 79)
+# @0.1 0.6459 -> 0.8461, line starts 0.3696 -> 0.0982, timed lines outside the
+# moved section late 1 002 of 1 027 -> 217 of 1 222.
 # (1) The whole-track vote keeps the word order and the windows' spacing
 # (windows.whole_track_vote `keep_order`, align `vote_order`; off = 2.32.0): a
 # word is refused the whole-track time when it would start at or after a next
