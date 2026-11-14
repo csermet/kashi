@@ -199,6 +199,22 @@ def test_a_named_model_keeps_the_languages_offsets_unless_they_are_zeroed(live_s
     assert resolve_aligner("eng").offset_by_initial is None
 
 
+def test_onsets_are_remembered_per_audio_content(tmp_path):
+    calls: list[str] = []
+
+    def detect(wav):
+        calls.append(Path(wav).name)
+        return [10, 20] if Path(wav).read_bytes() == b"a" else None
+
+    cached = run._cached_onsets(detect, tmp_path / "cache")
+    (tmp_path / "x.wav").write_bytes(b"a")
+    (tmp_path / "y.wav").write_bytes(b"a")  # same content, another path
+    (tmp_path / "z.wav").write_bytes(b"b")
+    assert [cached(tmp_path / n) for n in ("x.wav", "y.wav", "z.wav", "z.wav")] == [
+        [10, 20], [10, 20], None, None]
+    assert calls == ["x.wav", "z.wav"]
+
+
 def test_density_drop_off_switches_exactly_that_rule_off(live_settings):
     from kashi_server.pipeline import line_qa
 

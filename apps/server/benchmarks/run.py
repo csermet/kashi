@@ -1059,6 +1059,10 @@ def _configure_shipped(args) -> None:
     from kashi_server.config import settings
 
     settings.windowed_alignment = args.windowed
+    if args.onset_cache:
+        from kashi_server.worker import process
+
+        process.detect_onsets = _cached_onsets(process.detect_onsets, Path(args.onset_cache))
     if args.no_density_drop:
         # The review's question (C.4): should a doubtful line light or stay
         # plain? Line QA's border-case density drop, and only it, is off.
@@ -1085,6 +1089,25 @@ def _configure_shipped(args) -> None:
         settings.align_romanize = args.align_romanize
     if args.align_offset_ms is not None:
         settings.align_offset_ms = args.align_offset_ms
+
+
+def _cached_onsets(detect, cache_dir: Path):
+    """`detect_onsets` remembered per audio CONTENT (sha256 of the wav): the
+    onsets of a stem do not depend on the sheet, so the arms of one sweep share
+    them, and librosa's ~10 s per song stops holding the GPU lock."""
+    import hashlib
+
+    def cached(wav: Path):
+        key = hashlib.sha256(Path(wav).read_bytes()).hexdigest()
+        hit = cache_dir / f"{key}.json"
+        if hit.exists():
+            return json.loads(hit.read_text())
+        onsets = detect(wav)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        hit.write_text(json.dumps(onsets))
+        return onsets
+
+    return cached
 
 
 def _offset_source(args) -> str:
@@ -1229,6 +1252,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "(an lrclib record on another clock; the sheet shift's territory "
             "beyond 1 s)"
         ),
+    )
+    parser.add_argument(
+        "--onset-cache",
+        help="shipped mode: a directory remembering line QA's onsets per audio content, "
+        "shared by the arms of a sweep (the result does not change; the CPU pass goes)",
     )
     parser.add_argument(
         "--no-density-drop",
