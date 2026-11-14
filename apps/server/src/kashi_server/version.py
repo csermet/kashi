@@ -768,5 +768,30 @@
 # 10/38 -> 11/42. Owner-labelled moments: the four heard-fine ones the vote
 # moves past the threshold, the owner preferred blind 4 of 4 on the new
 # side; heard-bad fixed? 8, worse? 2 (both the vote's).
-PIPELINE_VERSION = "2.32.0"
+# 2.32.1: the sheet shift carries the lines it leaves behind (whole-project
+# review, step C.2, first half). A section moved later never overtakes the
+# lines before it, one moved earlier never the lines after it, so those
+# stayed at the old clock: Toz Pembe's two opening "Ah-ah" lines (too short
+# to anchor) lit 19 s before the voice; GOSSIP's middle and end (no unique
+# line from line 25 on) stayed 19 s late. A gap next to a moved section that
+# still holds such a line is decided again (sheet_shift._adopt_left_behind):
+# its lines take the offset of the side they belong to, by the order of the
+# stamps first, then where the ear hears each line (near its stamp moved by
+# one side's offset or by the other's), then position. Injected errors on
+# JamendoLyrics (79 songs, bars pre-registered): of the left-behind lines
+# > 1 s from the human stamp, 6 094 of 6 124 now within 1 s (global and verse
+# trials); changed lines ending farther from it 12 of 6 106; next to a moved
+# verse 11 made > 1 s off against 34 brought back; healthy sheets 0 of 79
+# change; the shift's detection and offset error unchanged; windows planned
+# on 938 of 949 moved trials (908, none lost). Without the ear's vote the
+# rule failed its verse bar (61 against 34). Also: a re-derived ad-lib line
+# ends a breath before the next line instead of past its start
+# (line_qa._end_before_next). The 39 pilot / hold-out songs through the
+# audit harness against 2.32.0: 37 identical; Toz Pembe line 0 0.33 ->
+# 20.43 s (the owner: sung at 0:20), line 1 25.18 -> 24.00 s (voice
+# 23.7-25.8 s); GOSSIP lines 25-37 17.1-19.5 s earlier, onto the ear;
+# audit.score pilot 83/683 -> 80/689, hold-out 60/534 -> 59/533, worded and
+# wordless lines unchanged. One line worse: GOSSIP's stampless line 38 rides
+# in line 37's moved window and now starts 6.8 s early (was 3.7 s late).
+PIPELINE_VERSION = "2.32.1"
 PIPELINE_MAJOR = 2
