@@ -106,6 +106,56 @@ def _sleep_unless_stopped(
         remaining -= step
 
 
+def _pause(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def wait_for_schema(
+    check: Callable[[], str | None],
+    should_stop: Callable[[], bool],
+    sleep: Callable[[float], None] | None = None,
+) -> bool:
+    """Block until `check()` finds the database at this code's schema (None).
+    True when it is, False when told to stop first.
+
+    Release 0.37.0: only the API runs the migration, and a worker that claimed
+    jobs before it would fail each finished one permanently (the persist path
+    reads a table the database does not have yet). Waiting, not exiting: a
+    crash loop would reload every model per restart, as a lost database did
+    (serve). The same backoff as a lost database, which is waited out here too.
+    """
+    pause = sleep or _pause
+    failures = 0
+    while not should_stop():
+        try:
+            gap = check()
+            reason = (
+                None
+                if gap is None
+                else f"database schema behind this worker: {gap} "
+                "(the migration runs in the API deployment)"
+            )
+        except OperationalError as exc:
+            reason = f"database unavailable ({str(exc.orig or exc).splitlines()[0]})"
+        if reason is None:
+            if failures:
+                logger.info("database schema ready after %d check(s)", failures + 1)
+            return True
+        failures += 1
+        delay = db_retry_delay_s(failures)
+        logger.warning("not claiming jobs: %s - check %d again in %.0fs", reason, failures, delay)
+        _sleep_unless_stopped(delay, should_stop, pause)
+    return False
+
+
+def _schema_gap() -> str | None:
+    from kashi_server.db.engine import engine
+    from kashi_server.db.schema import schema_gap
+
+    with engine.connect() as conn:
+        return schema_gap(conn)
+
+
 def _config_note() -> str:
     """Since 2.33.0 the code defaults are the production pipeline, so the version
     names it only while no pipeline setting is overridden from the environment."""
@@ -133,6 +183,26 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     _warm_up()
     sweep_orphans(settings.data_dir)
     start_http_server(settings.metrics_port)
+
+    stopping = {"flag": False}
+    last_telemetry_sweep: float | None = None
+
+    def should_stop() -> bool:
+        return stopping["flag"]
+
+    def _graceful(signum, _frame):
+        logger.info("signal %s: finishing the current job, then exiting", signum)
+        stopping["flag"] = True
+
+    signal.signal(signal.SIGTERM, _graceful)
+    signal.signal(signal.SIGINT, _graceful)
+
+    # Before the ready line and the first claim (0.37.0): a worker that rolled
+    # ahead of the API's migration waits for it instead of failing jobs.
+    if not wait_for_schema(_schema_gap, should_stop):
+        logger.info("worker stopped")
+        return
+
     from kashi_server.version import PIPELINE_VERSION
 
     # Two workers can share the queue (Faz 9.3): the first line to check is
@@ -148,19 +218,6 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
 
     from kashi_server.db.engine import SessionLocal
     from kashi_server.worker.process import HeartbeatThread, process_job
-
-    stopping = {"flag": False}
-    last_telemetry_sweep: float | None = None
-
-    def should_stop() -> bool:
-        return stopping["flag"]
-
-    def _graceful(signum, _frame):
-        logger.info("signal %s: finishing the current job, then exiting", signum)
-        stopping["flag"] = True
-
-    signal.signal(signal.SIGTERM, _graceful)
-    signal.signal(signal.SIGINT, _graceful)
 
     def iteration() -> None:
         nonlocal last_telemetry_sweep
