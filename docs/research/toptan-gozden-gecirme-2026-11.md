@@ -461,7 +461,8 @@ Server 0.37.0, pipeline 2.33.0: `song-overrides` (C.1) and `measure-what-ships` 
 
 ## Step C.2, first half: the sheet shift carries the lines it leaves behind (2026-11-14)
 
-Branch `sheet-shift-carry` (pipeline 2.32.1, server version unchanged, not merged, not tagged).
+Branch `sheet-shift-carry` (measured as pipeline 2.32.1 on its own; merged into the timing release
+2.34.0 below, where it was renumbered).
 Working files, the pre-registration and every score: `~/Documents/krediler/kashi-gozden-gecirme/c2-tasima/`.
 The defect is the adversarial verification's claim 10a: Toz Pembe's record is 19.3 s early, the
 shift moved lines 2-29 and left the two opening "Ah-ah" lines (too short to anchor, before the
@@ -535,6 +536,99 @@ section) at their stamps, so the first line lit 19 s before the voice and crawle
 - **Gate and bench.** pytest 1 180 passed (DB tests against a throwaway Postgres 17; the one skip is
   the alignment smoke test), ruff, pyright and check-versions clean. No human-truth bench run: the
   bench runs neither the sheet shift nor line QA, so it cannot see this change.
+
+## The second pass and the new acceptance order (2026-11-14)
+
+A deeper critical re-reading of this review (working file `derin-analiz/elestirel-okuma.md`,
+outside the repository) and an archive-wide run changed three things.
+
+- **2.32.0 shipped in the wrong order.** It went live at 03:01, the archive measurement finished at
+  04:01. On 287 archive songs (local 2.31.0 against local 2.32.0 on the same stems; the local run
+  reproduces production, 99.82 % of words within 20 ms) the 1 200 ms vote improves the averages
+  (short-dwell share 0.0633 → 0.0607, noticeable lines 0.155 → 0.124, 111 songs better / 23 worse)
+  and at the same time makes 274 words sit in NEW 0 ms runs across 62 songs: several words lit at one
+  instant, the look the owner minds most. The bench could not show it (on JamendoLyrics the vote
+  removes more such words than it makes), and the four owner clips were of other moments. The
+  mechanism, traced on all 62 songs: not the whole-track pass cramming words into one frame (as
+  first written in the night log) but an ORDER violation — the vote moves some words of a phrase to
+  the later whole-track time, a neighbour stays on its window time, and the seam pass then squeezes
+  the rest onto the voted word (229 of the 274 words); V3 cannot see most of it (its no-gain guard,
+  its three-word minimum, and it only knows `edges` starts).
+- **Acceptance for timing changes, from now on, in this order:** (1) the archive rig (287 songs
+  with cached emissions on the desktop; a post-emission arm costs about a second a song) with
+  aggregate bars AND a per-song veto on the worst new moment; (2) human truth with the bench in
+  shipped mode, as an accuracy guard only; (3) at most eight blind clips for the owner, drawn by a
+  rule written beforehand; (4) the project reviewer on the merge; (5) the tag. Gates are written and
+  hashed before any number.
+- **Corrections to this review's own claims.** "About one fresh song in twenty sits on a wrong
+  sheet" does not hold: two of the three songs are healthy by the archive rig's score and the third
+  is a loop; the measured number is 8 of 278 records with a shifted section, 7 of which the sheet
+  shift already finds. The lead clips (0-300 ms indistinguishable to the owner) make a chain-latency
+  measurement a low priority, not a next step. Every archive refresh re-downloads ~280 songs from
+  YouTube: a refresh from the stored stems (no download) is a missing step, ahead of further timing
+  work. Flags left for the owner: 46 tracked bench result files carry lyrics word by word (14
+  commercial songs; kept for now by his decision, no new ones are added); the non-commercial MMS
+  model still serves the languages without their own aligner (42 archive songs).
+
+A second deep pass designed the layer behind the vote guard (working file
+`derin-analiz/yanlis-yerlesen-satirlar.md`): on human truth the pipeline-only rushed pairs split into
+marginal ones (72 of 154), all-interjection lines that production already spreads (34) and 48 hard
+cases, two thirds of them ordinary words; the model is lost where it hears no letters (9 % of
+English words leave no letter in the emissions and carry 61 % of the noticeable misses); a word's
+sung duration is poorly predicted from text (R² 0.19 leave-one-song-out), so a prior can be a floor
+and a tie-breaker, not a point estimate; a blind 120 ms floor inside the line removes the
+pipeline-only rushes at 0.002 of PCO@0.1. Its recommendation — a word-duration term in the decoder,
+re-decoding only the violated region between two pinned words, byte-identical at weight 0, with a
+first experiment and seven pre-stated bars — is not started.
+
+## Timing release 2.34.0 measured (2026-11-14)
+
+`visible-sheet-fixes`, `sheet-shift-carry` and `vote-pile-guard` (candidate A2: the vote refuses a
+time that would put a word at or past a neighbour kept on its window time, or squeeze a pair the
+windows kept ≥ 120 ms apart) merged on server 0.37.0, line QA's density drop removed (the rule
+that emptied the unflagged lines within two lines of a flagged one; flags, snaps and the arbiter
+stay, `alignment.qa.density_dropped` is always 0), pipeline 2.34.0, server 0.38.0. Measured in the
+order above against pre-registered gates (working files `surum-zamanlama/`).
+
+- **Proof.** The new code equals the harness arm "merged branches + density drop off" document for
+  document on the 39 pilot / hold-out songs; a one-line mutation changes 4 documents and fails 4 unit
+  tests. Server gate green (1 496 passed, 278 DB-backed against Postgres 17), TS path green in CI
+  order.
+- **Archive rig, 287 songs, against 2.32.0 (= 2.33.0):** words in new 0 ms runs (vs 2.31.0) 274 →
+  49, short-dwell share 0.0607 → 0.0508, rushed runs 4 190 → 3 554, bunched 111 → 71, worded lines
+  15 677 → 15 792 (wordless 256 → 140), voice witness 0.308 → 0.311, re-lit lines lit badly 11 of 114;
+  every bar passes. Per-song veto (a new run of ≥ 4 words within 60 ms, a line start > 1.5 s farther
+  from a witness, a line losing its words): 9 songs — six piles of 4-5 words (identical in the A2 +
+  density-off arm), two carry moves (GOSSIP line 36, 19.5 s from the voice witness; Bubblegum Bitch
+  line 38, 2.3 s from the ear), one one-word line left plain (Wide Awake). The same veto on 2.31.0 →
+  2.32.0 would have stopped 23 songs.
+- **Human truth, shipped mode, against 2.33.0:** eng20 ±400 PCO@0.1 0.8434 → 0.8420 (timed) /
+  0.8412 → 0.8413 (all), @0.3 0.9520 → 0.9523, line starts 0.0549 both, pipeline-only rushed 0.0272
+  → 0.0253; all 79 ±400 @0.1 0.9016 → 0.9021 / 0.8994 → 0.9017, @0.3 0.9683 → 0.9693, line starts
+  0.0364 both, rushed 0.0358 → 0.0282; a whole sheet 3 s late (all 79) @0.1 0.6459 → 0.8461, line
+  starts 0.3696 → 0.0982, timed lines outside the moved section late 1 002 of 1 027 → 217 of 1 222.
+- **The owner's ear, three blind rounds the same day.** (i) The parts on their own (ten clips):
+  the carry preferred on both clips (Toz Pembe's opening now at 20.4 s, where he had said it is
+  sung; GOSSIP's middle on the voice, with one stampless line 6.8 s early that he also saw); a
+  doubtful line lit rather than plain on all three moments he had flagged (Öp, Gentleman,
+  BATIDAO); the vote guard 2 clear + 1 weak against 1 (Gimme More 1:33), one "both bad, the text
+  does not match". (ii) The build (eight clips drawn by rule: the worst new moment of four vetoed
+  songs, Gimme More, the three largest short-dwell gains): the candidate on 3 clear + 1 weak, the
+  old document on 2 (Gimme More again; Give It Up To Me), neither on 2. The pre-stated rule (no
+  ship if the old row wins 2 of the first four or 3 of the eight) is not tripped. On the two
+  vetoed songs whose veto came from a witness (GOSSIP, Bubblegum Bitch) he clearly prefers the
+  candidate, so those two vetoes are lifted; and two of the three "largest fluency gain" clips were
+  not heard as gains — the short-dwell measure does not predict his preference clip by clip.
+- **Reviewer pass on the merge:** nothing blocking. Known and left for a later release, each rare
+  and without an archive case: a refused ad-lib snap whose deviation exceeds 2 500 ms falls into the
+  drift flag and loses its word; a line can still end past the next line's start when that next
+  line is moved earlier afterwards; the tag grammar of the two twins differs on non-ASCII digits and
+  a leading BOM; a carried tail stamp has no upper bound at the end of the audio. The overlay half
+  of the tag fix ships only with an overlay release.
+- **Shipped as** server 0.38.0. Refresh: the 20 pilot and 20 hold-out songs only (the owner: no
+  need to refresh everything each time); the seven remaining vetoed songs, Gimme More, the six
+  unmeasured nightcore documents and the three hand-repaired songs stay as they are. The whole
+  archive waits for the refresh that needs no download.
 
 ## Lines of work and order
 

@@ -58,6 +58,20 @@ at once.
 9.5 (Turkish parity) follows D's first step; 9.7 (plain lyrics) follows C; 11 (hardening) is partly
 B.
 
+**State on 2026-11-14 (evening).** A, B and the first part of C are live: server 0.36.0 / pipeline
+2.32.0 (A), then 0.37.0 / 2.33.0 (B's code defaults, version-ordered persist guard and shipped-mode
+bench; C's per-song overrides) with no document change. The timing release 0.38.0 / pipeline 2.34.0
+(a pile guard on the 1 200 ms vote, the sheet shift carrying the lines it left behind, the density
+drop removed, two small visible fixes) is measured and tagged; it refreshes the pilot and hold-out
+songs only. Timing changes are now accepted in a fixed order: archive rig with a per-song veto →
+human truth in shipped mode → at most eight blind clips → reviewer → tag
+(`toptan-gozden-gecirme-2026-11.md`, "The second pass"). On branches, waiting for the owner's look
+on a real Windows window: `client-foundations` (held-note sweep, golden frames, latency tools) and
+`client-shared-view` (fewer knobs, the renderer as `packages/view`). Next, in the order the owner
+left to the session: (1) an archive refresh from stored stems, without downloading; (2) the client
+branches and the Android probe; (3) the duration-term experiment for words the model cannot place.
+D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
+
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
 of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).
