@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@kashi/protocol": "workspace:*",
     "@kashi/schemas": "workspace:*",
     "@vitest/coverage-v8": "4.1.11",
     "pixi.js": "8.19.0",

@@ -30,12 +30,12 @@ body {
   height: 100%;
   display: grid;
   place-items: center;
-  /* 0.15.0 window geometry (Faz 6.7 P4): the box keeps its 560×180 zone and
-     the window pads AROUND it, so effects have room on every side — the top
-     is a runway for anything that falls, the bottom is where it fades out
-     (0.9.0 had no bottom margin at all, which is why particles had nowhere
-     to die). Must match BOX_ZONE in src/main/index.ts. */
-  padding: 160px 120px 120px;
+  /* The host's geometry: where the box's zone sits in the window. The
+     desktop pads its 800×460 window around the zone (shared/box-zone.ts
+     geometryVars) so effects have room on every side — the top is a runway
+     for anything that falls, the bottom is where it fades out. A host that
+     sets nothing gets the whole root as the zone. */
+  padding: var(--kashi-stage-padding, 0);
   box-sizing: border-box;
 }
 

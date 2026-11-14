@@ -55,3 +55,18 @@ export const BOX_ZONE: BoxRect = BOX_ZONE_PRESETS.medium;
 export function boxZoneFor(scale: string | undefined): BoxRect {
   return BOX_ZONE_PRESETS[(scale ?? '') as BoxScale] ?? BOX_ZONE;
 }
+
+/**
+ * The geometry the desktop host hands the view for a box size, as the CSS
+ * variables the view's stylesheet reads: the stage padding that places the
+ * zone inside the fixed window, and the wrap width — the box is content-sized
+ * within its zone, and 60px is the gutter the shipped 560px zone left around
+ * a 500px box.
+ */
+export function geometryVars(scale: string | undefined): Record<string, string> {
+  const zone = boxZoneFor(scale);
+  return {
+    '--kashi-box-max-width': `${zone.width - 60}px`,
+    '--kashi-stage-padding': `${zone.y}px ${zone.x}px ${WINDOW_HEIGHT - zone.y - zone.height}px`,
+  };
+}

@@ -109,6 +109,9 @@ importers:
 
   packages/view:
     devDependencies:
+      '@kashi/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@kashi/schemas':
         specifier: workspace:*
         version: link:../schemas

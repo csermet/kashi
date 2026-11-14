@@ -13,18 +13,8 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <div id="stage">
-      <div id="lyric-box">
-        <div class="lyric dim" id="lyric-line">Kashi</div>
-        <div id="search-line" hidden>
-          <span class="search-label">lyrics</span>
-          <span class="dot"></span>
-          <span class="dot"></span>
-          <span class="dot"></span>
-        </div>
-        <div id="offset-flash" aria-hidden="true"></div>
-      </div>
-    </div>
+    <!-- The shared view (@kashi/view) builds its own DOM in <body>;
+         src/main.ts is the desktop host that mounts it. -->
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

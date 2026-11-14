@@ -15,6 +15,7 @@ import {
   BOX_ZONE,
   BOX_ZONE_PRESETS,
   boxZoneFor,
+  geometryVars,
   WINDOW_HEIGHT,
   WINDOW_WIDTH,
 } from '../shared/box-zone.js';
@@ -73,20 +74,26 @@ describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
 });
 
 describe('style contract: the box zone matches the window (Faz 6.7 P4 / Faz 7 P3)', () => {
-  it('#stage padding is exactly the margin the DEFAULT zone leaves around the box', () => {
-    // Two files have to agree or the box drifts from where main thinks it is:
-    // main hit-tests and migrates positions against BOX_ZONE, the renderer
-    // lays the box out with padding. This nails them together. The stylesheet
-    // states the DEFAULT geometry; the other scales are applied at runtime.
-    const padding = css.match(/#stage \{[^}]*padding: (\d+)px (\d+)px (\d+)px;/);
-    expect(padding, '#stage padding').not.toBeNull();
-    const [top, side, bottom] = padding!.slice(1).map(Number) as [number, number, number];
-
-    expect({ top, side, bottom }).toEqual({
-      top: BOX_ZONE.y,
-      side: BOX_ZONE.x,
-      bottom: WINDOW_HEIGHT - BOX_ZONE.y - BOX_ZONE.height,
-    });
+  it('the stage is padded by the host geometry, and that geometry IS the zone', () => {
+    // main hit-tests and migrates positions against BOX_ZONE; the renderer lays
+    // the box out with the stage padding the host derives from the same zone
+    // (geometryVars). Until client review E.4 the stylesheet carried its own
+    // copy of the default padding; now it only reads the variable.
+    expect(css).toMatch(/#stage \{[^}]*padding: var\(--kashi-stage-padding, 0\);/);
+    for (const scale of BOX_SCALES) {
+      const zone = BOX_ZONE_PRESETS[scale];
+      const vars = geometryVars(scale);
+      const [top, side, bottom] = (vars['--kashi-stage-padding'] ?? '')
+        .split(' ')
+        .map((v) => Number.parseFloat(v));
+      expect({ top, side, bottom }, scale).toEqual({
+        top: zone.y,
+        side: zone.x,
+        bottom: WINDOW_HEIGHT - zone.y - zone.height,
+      });
+      expect(vars['--kashi-box-max-width'], scale).toBe(`${zone.width - 60}px`);
+    }
+    expect(geometryVars(undefined)).toEqual(geometryVars('medium'));
     expect(BOX_ZONE.x * 2 + BOX_ZONE.width).toBe(WINDOW_WIDTH); // horizontally centered
   });
 
@@ -186,7 +193,7 @@ describe('style contract: every fx archetype is renderable (Faz 7 P2)', () => {
 
 describe('style contract: an untimed line wears the theme (Faz 7 P8b)', () => {
   const mainSource = readFileSync(
-    fileURLToPath(new URL('../renderer/src/main.ts', import.meta.url)),
+    fileURLToPath(new URL('../../../../packages/view/src/lyrics-view.ts', import.meta.url)),
     'utf8',
   );
 
@@ -219,7 +226,7 @@ describe('style contract: an untimed line wears the theme (Faz 7 P8b)', () => {
 
 describe('style contract: a rescued line is softened, never removed (Faz 8.1)', () => {
   const mainSource = readFileSync(
-    fileURLToPath(new URL('../renderer/src/main.ts', import.meta.url)),
+    fileURLToPath(new URL('../../../../packages/view/src/lyrics-view.ts', import.meta.url)),
     'utf8',
   );
 
