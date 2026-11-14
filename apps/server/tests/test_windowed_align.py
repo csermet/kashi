@@ -388,10 +388,11 @@ def _starts(rows):
     ids=["tie-refused", "1ms-before-taken"],
 )
 def test_whole_vote_refuses_a_time_at_or_after_a_kept_next_word(b_whole, taken):
-    # "a" is kept (its whole time 2.5 s off); "b" votes, "c" keeps 2.0 (its whole
-    # time 1.3 s off). b's taken time is b_whole - 0.07: at c's start it would
-    # pile on it (refused), 1 ms before it it keeps the order (taken).
-    results = [_row("a", 1.0), _row("b", 1.2), _row("c", 2.0)]
+    # "a" is kept (its whole time 2.5 s off); "b" (window 1.95) votes, "c" keeps
+    # 2.0 (its whole time 1.3 s off). b's taken time is b_whole - 0.07: at c's
+    # start it would pile on it (refused), 1 ms before it it keeps the order
+    # (taken: the windows had b and c 50 ms apart, so no spacing is lost).
+    results = [_row("a", 1.0), _row("b", 1.95), _row("c", 2.0)]
     whole = [_row("a", 3.57), _row("b", b_whole), _row("c", 3.37)]
     out, n, paired = whole_track_vote(results, whole, 1200, edges_lead_ms=70)
     assert paired and n == int(taken)
@@ -406,12 +407,43 @@ def test_whole_vote_refuses_a_time_at_or_after_a_kept_next_word(b_whole, taken):
     ids=["tie-refused", "1ms-after-taken"],
 )
 def test_whole_vote_refuses_a_time_at_or_before_a_kept_previous_word(b_whole, taken):
-    # "a" keeps 1.0 (whole 2.5 s off); "b" at 2.0 votes back to b_whole - 0.07.
-    results = [_row("a", 1.0), _row("b", 2.0), _row("c", 3.0)]
+    # "a" keeps 1.0 (whole 2.5 s off); "b" at 1.05 votes to b_whole - 0.07.
+    results = [_row("a", 1.0), _row("b", 1.05), _row("c", 3.0)]
     whole = [_row("a", 3.57), _row("b", b_whole), _row("c", 4.57)]
     out, n, _ = whole_track_vote(results, whole, 1200, edges_lead_ms=70)
     assert n == int(taken)
     assert out[1].get("star") == ("whole" if taken else None)
+
+
+@pytest.mark.parametrize(
+    ("c_start", "b_whole", "taken"),
+    [
+        (2.0, 1.880, True),   # gap 120 to c, windows 800 apart: apart enough, taken
+        (2.0, 1.881, False),  # gap 119, windows 800 apart: squeezed, refused
+        (1.319, 1.31, True),  # gap 9, but the windows had b and c only 119 apart: taken
+        (1.32, 1.31, False),  # gap 10, windows exactly 120 apart: refused
+    ],
+    ids=["gap120", "gap119", "window119", "window120"],
+)
+def test_whole_vote_refuses_a_time_that_squeezes_a_pair_the_windows_kept_apart(
+    c_start, b_whole, taken
+):
+    # "b" (window 1.2) votes, "c" keeps its window time (whole 2.5 s off).
+    results = [_row("a", 0.2), _row("b", 1.2), _row("c", c_start)]
+    whole = [_row("a", 3.0), _row("b", b_whole + 0.07), _row("c", c_start + 2.57)]
+    out, n, _ = whole_track_vote(results, whole, 1200, edges_lead_ms=70)
+    assert n == int(taken)
+    assert out[1].get("star") == ("whole" if taken else None)
+
+
+def test_whole_vote_refuses_both_words_of_a_pair_the_whole_track_squeezes():
+    # Boss Bitch 1:50 in miniature: the windows space b and c 300 ms apart, the
+    # whole track puts both later and 60 ms apart; both keep their window times.
+    results = [_row("a", 1.0), _row("b", 1.5), _row("c", 1.8), _row("d", 3.0)]
+    whole = [_row("a", 1.0), _row("b", 2.3), _row("c", 2.36), _row("d", 3.0)]
+    out, n, _ = whole_track_vote(results, whole, 1200)
+    assert _starts(out) == [(1000, "whole"), (1500, None), (1800, None), (3000, "whole")]
+    assert n == 2
 
 
 def test_whole_vote_order_refusals_cascade_back_through_a_drifting_phrase():

@@ -594,8 +594,8 @@ HYBRID_T_MS = 400
 WHOLE_VOTE_DEFAULT = True
 WHOLE_VOTE_T_MS = 1200
 
-#: 2.32.1: the vote keeps the word order (windows.whole_track_vote,
-#: `keep_order`). Off reproduces 2.32.0.
+#: 2.32.1: the vote keeps the word order and the windows' spacing
+#: (windows.whole_track_vote, `keep_order`). Off reproduces 2.32.0.
 VOTE_ORDER_DEFAULT = True
 
 #: Timing v3, V3 (2.30.0): after the hybrid and the vote, a run of 3+ words
