@@ -1,0 +1,121 @@
+{
+  "$comment": [
+    "Shared LRC parsing vectors. Both twins must agree on every case: the server",
+    "(apps/server/src/kashi_server/pipeline/lrclib.py: parse_lrc_line, _extract) in",
+    "apps/server/tests/test_lrc_vectors.py, and the overlay (apps/overlay/src/main/lrclib.ts:",
+    "parseLrcLine, isDegenerateSynced, parseLrc) in apps/overlay/src/main/lrc-vectors.test.ts.",
+    "INVENTED words only: never paste a real lyric line here.",
+    "lines[]: raw -> stamps_ms (leading stamps, in order) and text; text null = the line is",
+    "dropped (empty, tag-only, ID tag). A stampless line with text is kept by the server",
+    "(start None) and skipped by the overlay (no time to show it at).",
+    "records[]: a whole syncedLyrics text and its duration -> degenerate (the record gate) and,",
+    "when usable, the stamped lines in order (single-stamp lines only, so both twins read the",
+    "same list)."
+  ],
+  "lines": [
+    { "case": "plain stamped line", "raw": "[00:12.34]Lorem ipsum dolor", "stamps_ms": [12340], "text": "Lorem ipsum dolor" },
+    { "case": "enhanced LRC: a word tag glued before each word, spaces between (the record 1009665 shape)", "raw": "[00:18.00] <00:18.89>Velo <00:19.25>tarin <00:19.80>mox", "stamps_ms": [18000], "text": "Velo tarin mox" },
+    { "case": "enhanced LRC: tags before apostrophe, hyphen and parenthesised words", "raw": "[00:30.00] <00:30.10>Velo-velo, <00:30.50>ka'ri <00:31.00>(mox-mox, <00:31.40>dun)", "stamps_ms": [30000], "text": "Velo-velo, ka'ri (mox-mox, dun)" },
+    { "case": "enhanced LRC: a closing tag at the line end", "raw": "[00:20.00]<00:20.00>Velo <00:20.50>tarin <00:21.30>", "stamps_ms": [20000], "text": "Velo tarin" },
+    { "case": "enhanced LRC: A2 spacing, a tag between every word with spaces on both sides", "raw": "[00:22.00] <00:22.00> Velo <00:22.40> tarin <00:23.10>", "stamps_ms": [22000], "text": "Velo tarin" },
+    { "case": "enhanced LRC: syllable tags inside a word join it back", "raw": "[00:24.00]<00:24.00>Ve<00:24.20>lo <00:24.50>ta<00:24.70>rin", "stamps_ms": [24000], "text": "Velo tarin" },
+    { "case": "enhanced LRC: consecutive tags and a double space collapse to one space", "raw": "[00:26.00]<00:26.00> <00:26.10>Velo  <00:26.40><00:26.50>tarin", "stamps_ms": [26000], "text": "Velo tarin" },
+    { "case": "enhanced LRC: three-digit and missing fractions in a tag", "raw": "[00:27.00]<00:27.005>Velo <00:28>tarin", "stamps_ms": [27000], "text": "Velo tarin" },
+    { "case": "tag-only line is dropped like an empty one", "raw": "[00:28.00]<00:28.00> <00:29.00>", "stamps_ms": [28000], "text": null },
+    { "case": "tag-only line without spaces is dropped", "raw": "[00:28.50]<00:28.50>", "stamps_ms": [28500], "text": null },
+    { "case": "square stamps repeated inside a line are word tags, not repeats", "raw": "[00:32.00]Velo [00:32.40]tarin [00:32.90]mox", "stamps_ms": [32000], "text": "Velo tarin mox" },
+    { "case": "a square stamp at the line end", "raw": "[00:34.00]Velo tarin [00:35.20]", "stamps_ms": [34000], "text": "Velo tarin" },
+    { "case": "leading multi-stamp repeat", "raw": "[00:40.00][01:20.00]Velo tarin", "stamps_ms": [40000, 80000], "text": "Velo tarin" },
+    { "case": "leading multi-stamp repeat with spaces between the stamps", "raw": "[00:40.00] [01:20.00] Velo tarin", "stamps_ms": [40000, 80000], "text": "Velo tarin" },
+    { "case": "leading multi-stamp repeat with word tags", "raw": "[00:42.00][01:22.00]<00:42.00>Velo <00:42.50>tarin", "stamps_ms": [42000, 82000], "text": "Velo tarin" },
+    { "case": "three-digit fraction", "raw": "[01:02.345]Velo", "stamps_ms": [62345], "text": "Velo" },
+    { "case": "colon before the fraction reads as mm:ss:xx", "raw": "[01:02:34]Velo", "stamps_ms": [62340], "text": "Velo" },
+    { "case": "no fraction", "raw": "[01:02]Velo", "stamps_ms": [62000], "text": "Velo" },
+    { "case": "one-digit minute (seen on lrclib, the server used to miss it)", "raw": "[1:02.50]Velo", "stamps_ms": [62500], "text": "Velo" },
+    { "case": "one-digit fraction is tenths", "raw": "[00:05.5]Velo", "stamps_ms": [5500], "text": "Velo" },
+    { "case": "two-digit fraction is hundredths", "raw": "[00:05.07]Velo", "stamps_ms": [5070], "text": "Velo" },
+    { "case": "whitespace around the stamp; untagged inner whitespace is left alone", "raw": "  [00:06.00]  Velo   tarin  ", "stamps_ms": [6000], "text": "Velo   tarin" },
+    { "case": "empty stamped line", "raw": "[00:07.00]", "stamps_ms": [7000], "text": null },
+    { "case": "blank stamped line", "raw": "[00:07.50]   ", "stamps_ms": [7500], "text": null },
+    { "case": "empty raw line", "raw": "", "stamps_ms": [], "text": null },
+    { "case": "ID tag: artist", "raw": "[ar:Invented Artist]", "stamps_ms": [], "text": null },
+    { "case": "ID tag: title with a space after the colon", "raw": "[ti: Invented Title]", "stamps_ms": [], "text": null },
+    { "case": "ID tag: album", "raw": "[al:Invented Album]", "stamps_ms": [], "text": null },
+    { "case": "ID tag: offset is dropped, not applied", "raw": "[offset:-500]", "stamps_ms": [], "text": null },
+    { "case": "ID tag: length", "raw": "[length: 03:25]", "stamps_ms": [], "text": null },
+    { "case": "ID tag: by, upper case", "raw": "[BY:someone]", "stamps_ms": [], "text": null },
+    { "case": "ID tag: comment", "raw": "[#: a note]", "stamps_ms": [], "text": null },
+    { "case": "a section label is not an ID tag: kept as a stampless line", "raw": "[Chorus]", "stamps_ms": [], "text": "[Chorus]" },
+    { "case": "a credit label with a colon is not an ID tag", "raw": "[Intro: Velo]", "stamps_ms": [], "text": "[Intro: Velo]" },
+    { "case": "a stamped section label stays text", "raw": "[00:50.00][Chorus]", "stamps_ms": [50000], "text": "[Chorus]" },
+    { "case": "stampless lyric line", "raw": "Velo tarin", "stamps_ms": [], "text": "Velo tarin" },
+    { "case": "near miss kept: heart", "raw": "[00:44.00]Velo <3 tarin", "stamps_ms": [44000], "text": "Velo <3 tarin" },
+    { "case": "near miss kept: an angle-bracketed word", "raw": "[00:45.00]<velo> tarin", "stamps_ms": [45000], "text": "<velo> tarin" },
+    { "case": "near miss kept: a clock time in the words", "raw": "[00:46.00]Velo at 12:30 tonight", "stamps_ms": [46000], "text": "Velo at 12:30 tonight" },
+    { "case": "near miss kept: an unclosed tag", "raw": "[00:47.00]Velo <00:12 tarin", "stamps_ms": [47000], "text": "Velo <00:12 tarin" },
+    { "case": "near miss kept: a parenthesised time", "raw": "[00:48.00]Velo (00:12) tarin", "stamps_ms": [48000], "text": "Velo (00:12) tarin" },
+    { "case": "near miss kept: a repeat mark", "raw": "[00:49.00]Velo [x2]", "stamps_ms": [49000], "text": "Velo [x2]" },
+    { "case": "near miss kept: a four-digit fraction is not a tag", "raw": "[00:49.50]Velo <00:49.5000>", "stamps_ms": [49500], "text": "Velo <00:49.5000>" },
+    { "case": "a duet label is a word, not a construct: kept", "raw": "[00:52.00]Him: velo tarin", "stamps_ms": [52000], "text": "Him: velo tarin" },
+    { "case": "a voice label is kept too (not seen in lrclib data)", "raw": "[00:53.00]v1: velo tarin", "stamps_ms": [53000], "text": "v1: velo tarin" },
+    { "case": "a tagged line that leaves one letter keeps it", "raw": "[00:54.00]<00:54.00>O <00:54.40>", "stamps_ms": [54000], "text": "O" }
+  ],
+  "records": [
+    {
+      "case": "a tagged record reads like its untagged twin",
+      "synced": "[00:10.00]<00:10.00>Velo <00:10.40>tarin\n[00:12.00]<00:12.00>Mox <00:12.30>dun <00:12.80>\n[00:14.00] <00:14.00>Ka'ri <00:14.50>(velo)\n[00:16.00]<00:16.00>Ve<00:16.20>lo <00:16.50>mox",
+      "duration_s": null,
+      "degenerate": false,
+      "texts": ["Velo tarin", "Mox dun", "Ka'ri (velo)", "Velo mox"],
+      "starts_ms": [10000, 12000, 14000, 16000]
+    },
+    {
+      "case": "tag-only lines drop like empty ones: 3 lyric lines left is degenerate",
+      "synced": "[00:10.00]<00:10.00>Velo\n[00:11.00]<00:11.00>\n[00:12.00]<00:12.00>Tarin\n[00:13.00]<00:13.00> <00:13.50>\n[00:14.00]<00:14.00>Mox",
+      "duration_s": null,
+      "degenerate": true,
+      "texts": null,
+      "starts_ms": null
+    },
+    {
+      "case": "tag-only lines drop like empty ones: 4 lyric lines left is usable",
+      "synced": "[00:10.00]<00:10.00>Velo\n[00:11.00]<00:11.00>\n[00:12.00]<00:12.00>Tarin\n[00:14.00]<00:14.00>Mox\n[00:16.00]<00:16.00>Dun",
+      "duration_s": null,
+      "degenerate": false,
+      "texts": ["Velo", "Tarin", "Mox", "Dun"],
+      "starts_ms": [10000, 12000, 14000, 16000]
+    },
+    {
+      "case": "tags are not words: 8 stripped words in a 60 s record sit exactly on the floor",
+      "synced": "[00:10.00]<00:10.00>Velo <00:10.50>tarin\n[00:20.00]<00:20.00>Mox <00:20.50>dun\n[00:30.00]<00:30.00>Ka <00:30.50>ri\n[00:40.00]<00:40.00>Ve <00:40.50>lo",
+      "duration_s": 60,
+      "degenerate": false,
+      "texts": ["Velo tarin", "Mox dun", "Ka ri", "Ve lo"],
+      "starts_ms": [10000, 20000, 30000, 40000]
+    },
+    {
+      "case": "tags are not words: 7 stripped words in a 60 s record are under the floor (read as text, its 7 tags would add 21)",
+      "synced": "[00:10.00]<00:10.00>Velo <00:10.50>tarin\n[00:20.00]<00:20.00>Mox <00:20.50>dun\n[00:30.00]<00:30.00>Ka <00:30.50>ri\n[00:40.00]<00:40.00>Velo",
+      "duration_s": 60,
+      "degenerate": true,
+      "texts": null,
+      "starts_ms": null
+    },
+    {
+      "case": "near misses are not stripped, so their lines keep the record usable",
+      "synced": "[00:10.00]<3\n[00:20.00]<velo>\n[00:30.00]Mox at 12:30\n[00:40.00]Dun [x2]",
+      "duration_s": null,
+      "degenerate": false,
+      "texts": ["<3", "<velo>", "Mox at 12:30", "Dun [x2]"],
+      "starts_ms": [10000, 20000, 30000, 40000]
+    },
+    {
+      "case": "ID tags above the lyrics are neither lines nor words",
+      "synced": "[ar:Invented Artist]\n[ti:Invented Title]\n[offset:+500]\n[00:10.00]Velo\n[00:12.00]Tarin\n[00:14.00]Mox\n[00:16.00]Dun",
+      "duration_s": null,
+      "degenerate": false,
+      "texts": ["Velo", "Tarin", "Mox", "Dun"],
+      "starts_ms": [10000, 12000, 14000, 16000]
+    }
+  ]
+}

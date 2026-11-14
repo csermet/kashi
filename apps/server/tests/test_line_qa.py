@@ -500,6 +500,183 @@ def test_lexical_line_never_adlib_shifts():
     assert outcome.adlib_shifted == []
 
 
+# --- 2.32.1: the ad-lib snap never carries a line over a neighbour ------------
+
+
+def _snap_case(
+    adlib: tuple[int, int],
+    words: list[tuple[int, int, str]],
+    ref: int,
+    *,
+    next_start: int = 14_500,
+    prev: tuple[int, int] = (0, 3_000),
+):
+    """prev lexical line, the ad-lib line (aligner times), the next lexical line
+    at `next_start`, a closing line; every other line sits on its stamp, so the
+    median offset is 0 and the ad-lib's anchor is `ref` itself."""
+    texts = [
+        "real lyric line here",
+        "Ooh-ooh, ooh",
+        "another real lyric line",
+        "closing real lyric line",
+    ]
+    if len(words) == 1:
+        texts[1] = "Ooh"
+    lines = [
+        LineTiming(prev[0], prev[1], texts[0], 0.5),
+        LineTiming(adlib[0], adlib[1], texts[1], 0.5),
+        LineTiming(next_start, next_start + 3_000, texts[2], 0.5),
+        LineTiming(30_000, 33_000, texts[3], 0.5),
+    ]
+    chunks = [
+        [AlignedWord(prev[0], prev[1], "w", 0.5)],
+        [AlignedWord(s, e, t, 0.5) for s, e, t in words],
+        [AlignedWord(next_start, next_start + 3_000, "w", 0.5)],
+        [AlignedWord(30_000, 33_000, "w", 0.5)],
+    ]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=chunks, quality_score=0.8, windowed=True
+    )
+    return apply_line_qa(result, texts, [prev[0], ref, next_start, 30_000])
+
+
+def _assert_in_order(outcome) -> None:
+    lines = outcome.result.lines
+    for a, b in zip(lines, lines[1:], strict=False):
+        assert a.start_ms < b.start_ms
+        assert a.end_ms <= b.start_ms
+    for line, chunk in zip(lines, outcome.result.words_per_line, strict=True):
+        for w in chunk:
+            assert line.start_ms <= w.start_ms <= w.end_ms <= line.end_ms
+
+
+def test_adlib_snap_stops_the_block_at_the_next_line():
+    """The archive shape (2.31.0: 18 line pairs in 12 documents; hQ1yOyUdtEg
+    L39 -945 ms, z55_aDeDykk L30 -750 ms): the aligner held the hook up to the
+    next line, the anchor says it starts 1 s later, and the block shift carried
+    its end 500 ms past the next line's start. The start stays on the anchor;
+    the end stops at the next line and the words are spread over what is left."""
+    outcome = _snap_case(
+        (10_000, 14_000), [(10_000, 12_000, "Ooh-ooh,"), (12_100, 14_000, "ooh")], ref=11_000
+    )
+    assert outcome.adlib_shifted == [1]
+    hook = outcome.result.lines[1]
+    assert (hook.start_ms, hook.end_ms) == (11_000, 14_500)
+    ws = outcome.result.words_per_line[1]
+    assert (ws[0].start_ms, ws[-1].end_ms) == (11_000, 14_500)
+    _assert_in_order(outcome)
+
+
+def test_adlib_snap_cuts_a_single_word_at_the_next_line():
+    """One word is not re-derived, so the cut itself must hold the word."""
+    outcome = _snap_case((12_000, 13_600), [(12_000, 13_600, "Ooh")], ref=13_000)
+    assert outcome.adlib_shifted == [1]
+    assert outcome.result.words_per_line[1][0].end_ms == 14_500
+    _assert_in_order(outcome)
+
+
+def test_adlib_snap_end_exactly_on_the_next_start_is_not_a_crossing():
+    """Boundary: a shifted end that touches the next start is kept as is, even
+    with too little room to re-derive two words (300 ms); one millisecond more
+    is a crossing, and 300 ms is too little to spread two words over, so that
+    snap is refused."""
+    words = [(12_000, 12_100, "Ooh-ooh,"), (12_150, 12_300, "ooh")]
+    touching = _snap_case((12_000, 12_300), words, ref=14_200)
+    assert touching.adlib_shifted == [1]
+    assert (touching.result.lines[1].start_ms, touching.result.lines[1].end_ms) == (14_200, 14_500)
+    assert touching.result.words_per_line[1][-1].end_ms == 14_500
+
+    words[-1] = (12_150, 12_301, "ooh")
+    crossing = _snap_case((12_000, 12_301), words, ref=14_200)
+    assert crossing.adlib_shifted == []
+    assert (crossing.result.lines[1].start_ms, crossing.result.lines[1].end_ms) == (12_000, 12_301)
+    _assert_in_order(crossing)
+
+
+def test_adlib_snap_cuts_a_single_word_however_little_room_is_left():
+    """The one archive case with little room (P62cGJab9u4 L53: 270 ms before
+    the next line; the voice witness put the anchored start +151 ms from the
+    voice): a single word is cut short, not sent back to the aligner's time."""
+    outcome = _snap_case((12_000, 12_720), [(12_000, 12_720, "Ooh")], ref=14_240)
+    assert outcome.adlib_shifted == [1]
+    hook = outcome.result.lines[1]
+    assert (hook.start_ms, hook.end_ms) == (14_240, 14_500)
+    assert outcome.result.words_per_line[1][0].end_ms == 14_500
+    _assert_in_order(outcome)
+
+
+def test_adlib_snap_needs_the_rederive_minimum_before_the_next_line():
+    """Boundary: exactly ADLIB_REDERIVE_MIN_SPAN_MS (500) of room snaps and
+    cuts; 499 refuses, and the line keeps the aligner's time (2 s from its
+    stamp, under the drift flag, so nothing else moves it)."""
+    words = [(12_000, 12_800, "Ooh-ooh,"), (12_900, 13_600, "ooh")]
+    room_500 = _snap_case((12_000, 13_600), words, ref=14_000)
+    assert room_500.adlib_shifted == [1]
+    assert (room_500.result.lines[1].start_ms, room_500.result.lines[1].end_ms) == (14_000, 14_500)
+    assert room_500.result.words_per_line[1][-1].end_ms == 14_500
+    _assert_in_order(room_500)
+
+    room_499 = _snap_case((12_000, 13_600), words, ref=14_001)
+    assert room_499.adlib_shifted == []
+    assert room_499.flagged == []
+    assert room_499.result.lines[1].start_ms == 12_000
+    _assert_in_order(room_499)
+
+
+def test_adlib_snap_never_starts_a_line_after_the_following_one():
+    """The order defect itself: an anchor past the next line's start used to
+    put the hook AFTER its successor, and the monotonic clamp then lifted the
+    successor's start off its own first word. Refused: no room at all."""
+    outcome = _snap_case((12_400, 12_700), [(12_400, 12_700, "Ooh")], ref=14_600)
+    assert outcome.adlib_shifted == []
+    assert outcome.result.lines[2].start_ms == 14_500
+    assert outcome.result.words_per_line[2][0].start_ms == 14_500
+    _assert_in_order(outcome)
+
+
+def test_adlib_snap_of_a_zero_span_line_onto_the_next_start_is_refused():
+    outcome = _snap_case((12_500, 12_500), [(12_500, 12_500, "Ooh")], ref=14_500)
+    assert outcome.adlib_shifted == []
+
+
+def test_adlib_snap_never_starts_a_line_at_or_before_the_previous_one():
+    """Boundary on the other side: a snap onto the previous line's start is
+    refused; one millisecond after it is allowed (the start order is what the
+    rule keeps; an overlap with the previous line's END is left as it was)."""
+    words = [(5_000, 5_150, "Ooh-ooh,"), (5_200, 5_300, "ooh")]
+    onto = _snap_case((5_000, 5_300), words, ref=3_000, prev=(3_000, 4_000))
+    assert onto.adlib_shifted == []
+    assert onto.result.lines[1].start_ms == 5_000
+
+    after = _snap_case((5_000, 5_300), words, ref=3_001, prev=(3_000, 4_000))
+    assert after.adlib_shifted == [1]
+    assert after.result.lines[1].start_ms == 3_001
+
+
+def test_consecutive_hooks_check_the_previous_one_where_it_now_stands():
+    """Two hooks in a row: the first snaps 1 s later onto 11 s; the second's
+    anchor is that same 11 s. Measured against the first hook's ALIGNER start
+    (10 s) it would pass; against where the first now stands it ties, and a
+    tie is refused."""
+    lines = [
+        LineTiming(0, 3_000, "real lyric line here", 0.5),
+        LineTiming(10_000, 10_400, "Ooh", 0.5),
+        LineTiming(12_000, 12_400, "Ooh", 0.5),
+        LineTiming(14_500, 17_500, "another real lyric line", 0.5),
+        LineTiming(30_000, 33_000, "closing real lyric line", 0.5),
+    ]
+    chunks = [[AlignedWord(line.start_ms, line.end_ms, "w", 0.5)] for line in lines]
+    result = AlignResult(
+        sync="word", lines=lines, words_per_line=chunks, quality_score=0.8, windowed=True
+    )
+    outcome = apply_line_qa(
+        result, [line.text for line in lines], [0, 11_000, 11_000, 14_500, 30_000]
+    )
+    assert outcome.adlib_shifted == [1]
+    assert outcome.result.lines[1].start_ms == 11_000
+    assert outcome.result.lines[2].start_ms == 12_000
+
+
 def test_adlib_rederive_spreads_words_by_char_length_on_the_clean_path():
     """Faz 4: even a well-anchored ad-lib line gets its INNER word spans
     redistributed — CTC packs sustained hooks unreliably (NonLexical is the

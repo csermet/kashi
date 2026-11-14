@@ -74,6 +74,27 @@ def test_multi_stamp_lrc_line_uses_first_stamp_and_clean_text():
     assert lyrics.synced_starts_ms == [10_000]
 
 
+def test_enhanced_lrc_word_tags_never_reach_the_aligned_text():
+    """Pipeline 2.32.1. lrclib record 1009665 grew enhanced-LRC word tags in
+    2026-11 and the live document showed them as text. The tags are stripped;
+    the line keeps its own stamp; a tag-only line drops like an empty one; an
+    ID tag above the lyrics is not a line. (Invented words.)"""
+
+    def handler(request):
+        synced = (
+            "[ar:Invented Artist]\n"
+            "[00:18.00] <00:18.89>Velo <00:19.25>tarin <00:19.80>\n"
+            "[00:20.00]<00:20.00> <00:20.50>\n"
+            "[00:21.00] <00:21.10>Ve<00:21.30>lo <00:21.60>mox"
+        )
+        return httpx.Response(200, json={"id": 1009665, "syncedLyrics": synced})
+
+    lyrics = _fetch(handler)
+    assert lyrics.line_texts == ["Velo tarin", "Velo mox"]
+    assert lyrics.synced_starts_ms == [18_000, 21_000]
+    assert lyrics.full_text == "Velo tarin Velo mox"
+
+
 def test_plain_lyrics_have_no_synced_starts():
     def handler(request):
         return httpx.Response(200, json={"id": 1, "plainLyrics": "one\ntwo"})
