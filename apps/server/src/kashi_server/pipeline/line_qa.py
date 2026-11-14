@@ -731,7 +731,12 @@ def _shift_adlibs(
 ) -> tuple[AlignResult, list[int]]:
     """Move nonlexical lines (and their words, as a block) onto their lrclib
     anchor when the aligner strayed past ADLIB_SNAP_THRESHOLD_MS. The anchor
-    stays on the aligner's clock (ref + offset) like every other snap."""
+    stays on the aligner's clock (ref + offset) like every other snap.
+
+    The block never passes a neighbour (2.32.1): its end stops at the next
+    line's start, and the snap is refused when the start would not fall
+    between the previous line's start and the next line's, or when a hook of
+    several words would be left too little span to spread them (`_snap_end`)."""
     lines = list(result.lines)
     words = [list(chunk) for chunk in result.words_per_line]
     shifted: list[int] = []
@@ -742,13 +747,27 @@ def _shift_adlibs(
         if abs(delta) <= ADLIB_SNAP_THRESHOLD_MS:
             continue
         start = max(0, line.start_ms + delta)
-        lines[i] = replace(line, start_ms=start, end_ms=max(start, line.end_ms + delta))
+        end = _snap_end(
+            lines, i, start, max(start, line.end_ms + delta), len(_line_words(words, i))
+        )
+        if end is None:
+            logger.info(
+                "line QA adlib shift refused: line %d %r %+dms would pass a neighbour",
+                i,
+                line.text[:40],
+                delta,
+            )
+            continue
+        lines[i] = replace(line, start_ms=start, end_ms=end)
         if i < len(words) and words[i]:
+            # Word ends stop where the line does. A hook of two or more words
+            # is re-derived over the line's span at the end of QA anyway
+            # (`_snap_end` guarantees it the span); this cut holds a single word.
             words[i] = [
                 replace(
                     w,
                     start_ms=max(0, w.start_ms + delta),
-                    end_ms=max(0, w.start_ms + delta, w.end_ms + delta),
+                    end_ms=min(end, max(0, w.start_ms + delta, w.end_ms + delta)),
                 )
                 for w in words[i]
             ]
@@ -762,6 +781,44 @@ def _shift_adlibs(
     if not shifted:
         return result, []
     return replace(result, lines=lines, words_per_line=words), shifted
+
+
+def _snap_end(lines: list[LineTiming], i: int, start: int, end: int, n_words: int) -> int | None:
+    """Where ad-lib line ``i`` (``n_words`` words), snapped to ``start``, may
+    end; None = refuse the snap (the line keeps the aligner's time). Pure.
+
+    The block shift keeps the aligner's span, and a hook the aligner held up
+    to the next line ran PAST it once moved later: the 2.31.0 archive has 18
+    such pairs in 12 of 307 documents (largest 1.19 s), its words still
+    sweeping after the next line began. The anchored START is the evidence
+    the snap exists for; the shifted end is not, and the next line's start is
+    the bound the ad-lib hold already holds a hook against, so the end stops
+    there (an end that only touches it is left as it was). Refused:
+
+    - a start at or before the previous line's, or at or past the next line's:
+      the lines would go out of order (and line QA's monotonic clamp would
+      then lift the next line off its own words);
+    - a hook of ADLIB_REDERIVE_MIN_WORDS or more that the cut would leave less
+      than ADLIB_REDERIVE_MIN_SPAN_MS: too short to re-derive, its words would
+      pile up at the cut. A single word just becomes short (the one archive
+      case, 270 ms of room: the voice witness put the anchored start 151 ms
+      from the voice, so refusing it would undo a right snap).
+
+    ``lines`` holds the snaps made so far, so the previous line is where it
+    now stands; the next one is still the aligner's."""
+    if i > 0 and start <= lines[i - 1].start_ms:
+        return None
+    if i + 1 < len(lines):
+        next_start = lines[i + 1].start_ms
+        if start >= next_start:
+            return None
+        if end > next_start:
+            if n_words >= ADLIB_REDERIVE_MIN_WORDS and (
+                next_start - start < ADLIB_REDERIVE_MIN_SPAN_MS
+            ):
+                return None
+            return next_start
+    return end
 
 
 def _border_case_drops(

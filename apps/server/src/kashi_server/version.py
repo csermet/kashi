@@ -780,5 +780,15 @@
 # sample 0 word tags, 9 with ID tags (0.18 %), 1 with one-digit minutes. On the
 # 306 records the parse is identical for 304; the other two differ only by the
 # stripped tags (58 lines) and the dropped ID-tag line.
+# Also in 2.32.1: the ad-lib snap never carries a line over a neighbour. Its
+# block shift kept the aligner's span, so a hook moved later onto its stamp
+# ran past the next line's start (2.31.0 archive: 18 line pairs in 12 of 307
+# documents, up to 1.19 s; no line starts were out of order). The snapped end
+# now stops at the next line's start; the snap is refused when the start would
+# not fall between the previous and the next line's starts, or when a hook of
+# two or more words would keep under 500 ms (the re-derivation's minimum).
+# Not touched: a hook snapped EARLIER into the previous line's tail (16 pairs
+# in 11 documents). Harness, 39 songs against 2.32.0: 2 change (one hook's end
+# cut 1.25 s, one 1-word hook cut to 260 ms), 37 byte-identical.
 PIPELINE_VERSION = "2.32.1"
 PIPELINE_MAJOR = 2
