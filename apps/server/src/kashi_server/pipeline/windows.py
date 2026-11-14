@@ -376,7 +376,8 @@ def hybrid_star_words(
 
 
 def whole_track_vote(
-    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0
+    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0,
+    *, keep_order: bool = True,
 ) -> tuple[list[dict], int, bool]:
     """A third vote from the whole track (Faz 9 round 5, "Third vote").
 
@@ -393,6 +394,15 @@ def whole_track_vote(
     the whole track joins every line, windows join only their own). A
     different word count or text means the two streams cannot be paired, and
     nothing changes. Returns (rows, words taken, paired).
+
+    `keep_order` (2.32.1): a word is refused the whole-track time when that
+    time would start it at or after the next word, or at or before the
+    previous word, where that neighbour keeps its windowed time; refusals
+    repeat until none is left (`_order_refusals`). Where the whole-track pass
+    drifts late over a phrase, a 1 200 ms vote takes some of its words and not
+    the next ones, and the seam pass after the vote clamped the kept words
+    onto the voted one: 229 of the 274 words in new 0 ms runs on the 2.32.0
+    archive (vote-pile-guard, 2026-11-14). False reproduces 2.32.0.
     """
     mine = [i for i, row in enumerate(results) if _is_word(row)]
     theirs = [row for row in whole if _is_word(row)]
@@ -401,11 +411,21 @@ def whole_track_vote(
     ):
         return results, 0, False
     back_s = edges_lead_ms / 1000
+    voted = [
+        abs(_start_ms(w) - (_start_ms(results[i]) + edges_lead_ms)) <= t_ms
+        for i, w in zip(mine, theirs, strict=True)
+    ]
+    if keep_order:
+        voted = _order_refusals(
+            voted,
+            [_start_ms(results[i]) for i in mine],
+            [round((float(w["start"]) - back_s) * 1000) for w in theirs],
+        )
     out = list(results)
     taken = 0
-    for i, w in zip(mine, theirs, strict=True):
+    for i, w, vote in zip(mine, theirs, voted, strict=True):
         row = out[i]
-        if abs(_start_ms(w) - (_start_ms(row) + edges_lead_ms)) <= t_ms:
+        if vote:
             out[i] = {
                 **row,
                 "start": float(w["start"]) - back_s,
@@ -416,6 +436,28 @@ def whole_track_vote(
             }
             taken += 1
     return out, taken, True
+
+
+def _order_refusals(voted: list[bool], kept_ms: list[int], taken_ms: list[int]) -> list[bool]:
+    """The vote's order guard (2.32.1): `voted` with every word refused whose
+    taken start (`taken_ms`) would not lie strictly between the starts of its
+    neighbours that keep their windowed time (`kept_ms`). A refusal makes the
+    word a kept neighbour itself, so the check repeats until nothing changes.
+    Voted neighbours need no check: the whole-track pass is one path, its
+    starts never go backwards."""
+    voted = list(voted)
+    changed = True
+    while changed:
+        changed = False
+        for n, vote in enumerate(voted):
+            if not vote:
+                continue
+            nxt = n + 1 < len(voted) and not voted[n + 1] and taken_ms[n] >= kept_ms[n + 1]
+            prv = n > 0 and not voted[n - 1] and taken_ms[n] <= kept_ms[n - 1]
+            if nxt or prv:
+                voted[n] = False
+                changed = True
+    return voted
 
 
 def unpile_starts(

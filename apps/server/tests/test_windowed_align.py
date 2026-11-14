@@ -378,6 +378,67 @@ def test_whole_vote_skips_streams_it_cannot_pair(whole):
     assert (out, taken, paired) == (results, 0, False)
 
 
+def _starts(rows):
+    return [(round(r["start"] * 1000), r.get("star")) for r in rows]
+
+
+@pytest.mark.parametrize(
+    ("b_whole", "taken"),
+    [(2.07 + 0.0, False), (2.07 - 0.001, True)],
+    ids=["tie-refused", "1ms-before-taken"],
+)
+def test_whole_vote_refuses_a_time_at_or_after_a_kept_next_word(b_whole, taken):
+    # "a" is kept (its whole time 2.5 s off); "b" votes, "c" keeps 2.0 (its whole
+    # time 1.3 s off). b's taken time is b_whole - 0.07: at c's start it would
+    # pile on it (refused), 1 ms before it it keeps the order (taken).
+    results = [_row("a", 1.0), _row("b", 1.2), _row("c", 2.0)]
+    whole = [_row("a", 3.57), _row("b", b_whole), _row("c", 3.37)]
+    out, n, paired = whole_track_vote(results, whole, 1200, edges_lead_ms=70)
+    assert paired and n == int(taken)
+    assert out[1].get("star") == ("whole" if taken else None)
+    if not taken:
+        assert out == results  # a refused word keeps its row untouched
+
+
+@pytest.mark.parametrize(
+    ("b_whole", "taken"),
+    [(1.07, False), (1.071, True)],
+    ids=["tie-refused", "1ms-after-taken"],
+)
+def test_whole_vote_refuses_a_time_at_or_before_a_kept_previous_word(b_whole, taken):
+    # "a" keeps 1.0 (whole 2.5 s off); "b" at 2.0 votes back to b_whole - 0.07.
+    results = [_row("a", 1.0), _row("b", 2.0), _row("c", 3.0)]
+    whole = [_row("a", 3.57), _row("b", b_whole), _row("c", 4.57)]
+    out, n, _ = whole_track_vote(results, whole, 1200, edges_lead_ms=70)
+    assert n == int(taken)
+    assert out[1].get("star") == ("whole" if taken else None)
+
+
+def test_whole_vote_order_refusals_cascade_back_through_a_drifting_phrase():
+    # DJ Turn It Up 0:30 in miniature: the whole track drifts late by 1.1-1.3 s.
+    # w0 agrees (taken), w1-w3 are within 1 200 ms and taken, w4 is 1.3 s off
+    # and kept. w3's time passes w4 -> refused; then w2 passes w3's kept time,
+    # and so on back to w1. w0's time stays before w1's kept time: taken.
+    results = [_row(f"w{k}", s) for k, s in enumerate([1.0, 1.4, 1.8, 2.2, 2.6])]
+    whole = [_row(f"w{k}", s) for k, s in enumerate([1.05, 2.5, 2.9, 3.3, 3.9])]
+    out, n, _ = whole_track_vote(results, whole, 1200)
+    assert n == 1
+    assert _starts(out) == [(1050, "whole"), (1400, None), (1800, None), (2200, None), (2600, None)]
+    old, n_old, _ = whole_track_vote(results, whole, 1200, keep_order=False)
+    assert n_old == 4  # 2.32.0 took w0-w3 and left w4 behind w3's 3.3 s
+
+
+def test_whole_vote_order_guard_changes_nothing_where_the_order_holds():
+    # A whole line moved later as a block (every word within T, the next line
+    # kept and still after it): byte-identical with and without the guard.
+    results = [_row(f"w{k}", s) for k, s in enumerate([1.0, 1.4, 1.8, 4.0, 4.4])]
+    whole = [_row(f"w{k}", s) for k, s in enumerate([1.9, 2.3, 2.7, 6.0, 6.5])]
+    new = whole_track_vote(results, whole, 1200, edges_lead_ms=70)
+    old = whole_track_vote(results, whole, 1200, edges_lead_ms=70, keep_order=False)
+    assert new == old
+    assert new[1] == 3
+
+
 def test_whole_vote_pairs_words_not_blank_segments():
     # A Japanese job splits per character: the whole track joins every line
     # with a space (a blank segment of its own), a window only its own lines.
@@ -483,23 +544,37 @@ def test_an_edges_word_yields_to_a_segment_word_on_one_clock(monkeypatch, tmp_pa
     assert four.start_ms == 6_150
 
 
-def test_whole_vote_takes_agreeing_words_and_reclamps_seams(monkeypatch, tmp_path):
+def _vote_seams_case(monkeypatch, tmp_path, **kwargs):
     # Edges everywhere (segment far off). Windowed starts after the lead: one
     # 1.22, two 2.72, three 6.20 (yielded to 6.13 raw), four 6.22. At the
     # shipped T (1 200 ms since 2.32.0) the whole track says one 2.42 (1 200:
-    # taken), two 3.921 (1 201: not), four 5.02 (-1 200: taken — but that lands
-    # before "three", so the second seam pass clamps it).
+    # taken), two 3.921 (1 201: not), four 5.02 (-1 200: within T, but it lands
+    # before "three", which keeps its windowed time).
     far = [FAR, FAR, FAR, FAR]
     windowed = [1.15, 2.65, 6.13, 6.15, 7.15, 8.65, 11.15, 12.15, 13.65, 16.15, 17.15, 18.65]
     whole = [s + 2.0 for s in windowed]
     whole[0], whole[1], whole[3] = 2.42, 3.921, 5.02
-    result, seen = run_hybrid(monkeypatch, tmp_path, far, whole=whole, whole_vote=True)
+    result, seen = run_hybrid(monkeypatch, tmp_path, far, whole=whole, whole_vote=True, **kwargs)
     assert seen["lengths"] == [TOTAL_S * 16_000]
     assert seen["vote"] == [("segment", True)]  # whole-track stars, the exact clock
     one, two, three = result.words_per_line[0]
     four = result.words_per_line[1][0]
     assert (one.source, one.start_ms) == ("whole", 2_420)
     assert (two.source, two.start_ms) == ("edges", 2_720)
+    return three, four
+
+
+def test_whole_vote_refuses_a_word_it_would_put_before_a_kept_one(monkeypatch, tmp_path):
+    # 2.32.1: "four" would land before "three"; the vote refuses it and it keeps
+    # its windowed time instead of being clamped onto "three" (0 ms).
+    three, four = _vote_seams_case(monkeypatch, tmp_path)
+    assert (three.source, three.start_ms) == ("edges", 6_200)
+    assert (four.source, four.start_ms) == ("edges", 6_220)
+
+
+def test_whole_vote_without_the_order_guard_reclamps_seams(monkeypatch, tmp_path):
+    # 2.32.0 (vote_order=False): "four" takes 5.02 and the second seam pass clamps it.
+    three, four = _vote_seams_case(monkeypatch, tmp_path, vote_order=False)
     assert four.source == "whole"
     assert four.start_ms == three.start_ms == 6_200
     assert four.start_ms - four.shift_ms == 6_130  # clamped on the raw clock, not 5.75

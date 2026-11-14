@@ -594,6 +594,10 @@ HYBRID_T_MS = 400
 WHOLE_VOTE_DEFAULT = True
 WHOLE_VOTE_T_MS = 1200
 
+#: 2.32.1: the vote keeps the word order (windows.whole_track_vote,
+#: `keep_order`). Off reproduces 2.32.0.
+VOTE_ORDER_DEFAULT = True
+
 #: Timing v3, V3 (2.30.0): after the hybrid and the vote, a run of 3+ words
 #: starting within 60 ms that they made takes the `edges` starts back
 #: (windows.unpile_starts). Off reproduces 2.29.1.
@@ -1089,6 +1093,7 @@ def align(
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
     unpile: bool = UNPILE_DEFAULT,
     line_region_ms: int | None = LINE_REGION_DEFAULT,
+    vote_order: bool = VOTE_ORDER_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -1111,7 +1116,10 @@ def align(
     `unpile` (2.30.0) then gives a piled run they made its `edges` starts
     (windows.unpile_starts). `line_region_ms` (2.31.0) holds each line of a
     window with two or more stamps within that many ms of its own stamp,
-    inside both window passes (windows.line_regions); None switches it off."""
+    inside both window passes (windows.line_regions); None switches it off.
+    `vote_order` (2.32.1) refuses a whole-track time that would put a word out
+    of order with a neighbour keeping its windowed time (whole_track_vote's
+    `keep_order`); False reproduces 2.32.0."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -1185,7 +1193,9 @@ def align(
                 model, tokenizer, audio, align_texts, language, "segment",
                 romanize=romanize, exact_stride=exact_stride,
             )
-            results, _taken, paired = whole_track_vote(results, whole, whole_vote_t_ms, lead_ms)
+            results, _taken, paired = whole_track_vote(
+                results, whole, whole_vote_t_ms, lead_ms, keep_order=vote_order
+            )
             if not paired:
                 vote_note = " (skipped: the whole-track pass found other words)"
             # The voted times were never seam-clamped; restore monotonicity.
