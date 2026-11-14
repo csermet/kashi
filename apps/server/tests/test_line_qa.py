@@ -869,10 +869,12 @@ def test_the_hold_never_shortens_a_line():
     assert out.lines[0].end_ms == 71_690
 
 
-def test_a_line_running_into_the_next_one_is_left_to_the_clamp():
-    """Overlaps are the monotonic clamp's business, not the hold's."""
+def test_a_line_running_into_the_next_one_ends_a_breath_before_it():
+    """Not the hold's business (it only lengthens), and the monotonic clamp
+    only orders starts: until 2.32.1 the overlap stayed and the words were
+    spread over the next line's audio. Now the line ends a breath before it."""
     out, _ = rederive_adlib_words(_adlib_pair(72_500, 72_380))
-    assert out.lines[0].end_ms == 72_500
+    assert out.lines[0].end_ms == 72_380 - 60
 
 
 def test_lexical_lines_are_never_held():
@@ -978,6 +980,29 @@ def test_a_runaway_with_no_room_before_the_next_line_is_left_as_it_was():
     assert (out.lines[0].start_ms, out.lines[0].end_ms) == (1_000, 20_000)
     assert [(w.start_ms, w.end_ms) for w in out.words_per_line[0]] == [
         (1_000, 10_500), (10_500, 20_000)]
+
+
+# --- 2.32.1: a re-derived line ends before the next line starts ----------------
+
+
+@pytest.mark.parametrize(("past", "end"), [(0, 6_000), (1, 5_940)])
+def test_a_rederived_line_never_ends_past_the_next_start(past, end):
+    # 'Ah-ah, ah-ah' at 1 000-6 000+past, the next line at 6 000: an end on the next start
+    # stays; one ms past it ends a breath (60 ms) before it, the words spread over that.
+    out, changed = rederive_adlib_words(_runaway(1_000, 6_000 + past, 6_000))
+    assert changed == [0]
+    assert out.lines[0].end_ms == end
+    half = 1_000 + round((end - 1_000) * 4 / 8)  # _respread's own rounding, 4 of 8 letters
+    assert [(w.start_ms, w.end_ms) for w in out.words_per_line[0]] == [(1_000, half), (half, end)]
+    assert out.lines[1] == _runaway(1_000, 6_000, 6_000).lines[1]
+
+
+@pytest.mark.parametrize(("next_start", "kept"), [(1_560, False), (1_559, True)])
+def test_no_room_before_the_next_line_leaves_the_end(next_start, kept):
+    # The clamped span would be next_start - 60 - 1 000: 500 ms (the rederive's minimum) is
+    # enough, 499 is not and the line keeps its end as before.
+    out, _ = rederive_adlib_words(_runaway(1_000, 3_000, next_start))
+    assert out.lines[0].end_ms == (3_000 if kept else 1_500)
 
 
 # --- 2.29.1: held ends come back after line QA ---------------------------------
