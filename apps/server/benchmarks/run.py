@@ -383,7 +383,9 @@ def _shipped_facts(song, reviewed) -> dict:
             "offset_ms": qa.offset_ms,
             "degraded_to_line": qa.degraded_to_line,
             "flagged": qa.flagged,
-            "density_dropped": qa.density_dropped,
+            # The density drop is gone (2.34.0); the key stays, always empty,
+            # so result files keep one shape.
+            "density_dropped": [],
             # Flagged lines the arbiter did not rescue lose their words (a
             # document degraded to line sync loses all of them instead).
             "arbiter_dropped": [] if qa.degraded_to_line else [
@@ -1015,8 +1017,8 @@ def _finalize_args(args: argparse.Namespace) -> argparse.Namespace:
     """Defaults that depend on the mode, and what makes a shipped run differ
     from the worker (`args.deviations`, written to the result meta)."""
     if args.legacy:
-        if args.no_density_drop or args.no_sheet_shift:
-            raise SystemExit("--no-density-drop / --no-sheet-shift need the shipped mode "
+        if args.no_sheet_shift:
+            raise SystemExit("--no-sheet-shift needs the shipped mode "
                              "(legacy runs neither line QA nor the sheet shift)")
         args.windowed = bool(args.windowed)
         args.separation = args.separation or "full-mix"
@@ -1061,8 +1063,6 @@ def _finalize_args(args: argparse.Namespace) -> argparse.Namespace:
                         ("--align-offset-by-initial", args.align_offset_by_initial)):
         if value is not None:
             deviations.append(f"{flag} {value}")
-    if args.no_density_drop:
-        deviations.append("line QA density drop off")
     if args.no_sheet_shift:
         deviations.append("sheet shift off")
     args.deviations = deviations
@@ -1085,12 +1085,6 @@ def _configure_shipped(args) -> None:
         from kashi_server.worker import process
 
         process.detect_onsets = _cached_onsets(process.detect_onsets, Path(args.onset_cache))
-    if args.no_density_drop:
-        # The review's question (C.4): should a doubtful line light or stay
-        # plain? Line QA's border-case density drop, and only it, is off.
-        from kashi_server.pipeline import line_qa
-
-        line_qa._border_case_drops = lambda result, refs, flagged: set()
     if args.no_sheet_shift:
         # Isolates the sheet shift (2.29.1) at large stamp errors: the stamps
         # reach the windows and line QA as the sheet gives them.
@@ -1293,12 +1287,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "isolate what it does at large stamp errors)",
     )
     parser.add_argument(
-        "--no-density-drop",
-        action="store_true",
-        help="shipped mode: line QA keeps the words of the lines its border-case density "
-        "drop would empty (review C.4: should a doubtful line light or stay plain?)",
-    )
-    parser.add_argument(
         "--line-postprocess",
         choices=("none", "soft-median", "soft-pl"),
         default="none",
@@ -1461,8 +1449,7 @@ def _config_name(args) -> str:
     if args.stamp_offset_ms:
         config_name += f"-off{args.stamp_offset_ms}"
     if not args.legacy:
-        config_name = ("shipped-" + config_name + ("-nodensity" if args.no_density_drop else "")
-                       + ("-noshift" if args.no_sheet_shift else ""))
+        config_name = "shipped-" + config_name + ("-noshift" if args.no_sheet_shift else "")
     return config_name
 
 
@@ -1521,7 +1508,6 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         # shipped mode always hands the pipeline the sheet (line QA reads it).
         "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed or not args.legacy else None,
         "stamp_offset_ms": args.stamp_offset_ms,
-        "density_drop": None if args.legacy else not args.no_density_drop,
         "sheet_shift": None if args.legacy else not args.no_sheet_shift,
         "exact_stride": args.exact_stride,
         "windowed_lead_ms": WINDOWED_LEAD_MS if args.exact_stride and args.windowed else 0,

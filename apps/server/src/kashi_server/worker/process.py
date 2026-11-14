@@ -114,10 +114,6 @@ LINE_QA_SNAPPED_LINES = Counter(
     "kashi_line_qa_snapped_lines_total",
     "Lines snapped to lrclib reference times by line QA",
 )
-LINE_QA_DENSITY_DROPPED_LINES = Counter(
-    "kashi_line_qa_density_dropped_lines_total",
-    "Neighbour lines whose words were dropped by the border-case gate (QA v2)",
-)
 LINE_QA_ADLIB_SHIFTED_LINES = Counter(
     "kashi_line_qa_adlib_shifted_lines_total",
     "Nonlexical lines block-shifted onto their lrclib anchor",
@@ -1165,7 +1161,6 @@ def _record_line_qa(job: Job, qa: LineQAOutcome) -> None:
     LINE_QA_DOCS.labels(qa_outcome).inc()
     if not qa.degraded_to_line:
         LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
-        LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
     LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
     LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
 

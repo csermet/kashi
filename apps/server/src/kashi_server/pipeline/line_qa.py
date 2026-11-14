@@ -58,29 +58,13 @@ MAX_FLAGGED_FRACTION = 0.5
 # under DRIFT_THRESHOLD_MS, because a spread that wide would have flagged the
 # lines individually rather than looked like one shift.
 OFFSET_TRUST_MAD_MS = 1500
-# QA v2 border-case gate (field case: TiK ToK line 10 "fast flow then stall").
-# A lock loss rarely ends EXACTLY at the flagged lines: their neighbours often
-# carry damaged word timings that stayed just under the drift threshold. Both
-# signals below therefore apply ONLY within this radius of a flagged line —
-# a document with no flags never enters the gate (no instrumental-tail false
-# positives).
-NEIGHBOR_RADIUS = 2
-# Signal A: words covering less than this fraction of the line's lrclib
-# reference duration are compressed garbage (CTC dumped them at the window
-# start). Denominator is the REFERENCE duration — the aligner's own line
-# duration is derived from the same words and would always ratio to ~1.
-MIN_WORD_DENSITY = 0.30
-# When the NEXT stamp is far away, the reference "duration" is mostly an
-# instrumental gap, not sung time — the density ratio says nothing there, so
-# signal A only fires on plausibly line-sized reference windows.
-MAX_PLAUSIBLE_LINE_MS = 10_000
-# ...and only on lines with enough words to measure: a one-word exclamation
-# legitimately covers a sliver of its window (reviewer catch).
-MIN_DENSITY_WORDS = 3
-# Signal B: a zero score next to a lock loss is corroborating evidence. Score
-# alone is deliberately NOT a signal (good lines can score 0.00); adjacency is
-# what makes it meaningful.
-NEIGHBOR_SCORE_FLOOR = 0.01
+# The QA v2 border-case "density drop" (the words of unflagged lines within two
+# lines of a flagged one were dropped when their score was under 0.01 or they
+# covered under 30 % of their stamp window) was removed in 2.34.0: on the
+# 287-song archive rig it left 256 lines wordless where 141 remain without it,
+# and 106 of the 116 re-lit lines are lit acceptably (vote-pile-guard notes,
+# section 12; review step C.4). `density_dropped` stays in the document's
+# `alignment.qa`, always 0, so the schema and its readers do not change.
 # Ad-lib/nonlexical lines ("Oh-ooh, whoa-oh"): CTC is systematically late on
 # them (field: +1-2.5 s; NonLexical songs are the worst benchmark class) while
 # the lrclib stamp is human-timed on exactly that hook. Above this deviation
@@ -185,7 +169,6 @@ class LineQAOutcome:
     flagged: list[int]  # indexes into result.lines that were snapped
     offset_ms: int  # median (aligner - lrclib) offset that was compensated
     degraded_to_line: bool
-    density_dropped: list[int] = field(default_factory=list)  # neighbours that lost words
     adlib_shifted: list[int] = field(default_factory=list)  # block-shifted onto their anchors
     adlib_rederived: list[int] = field(default_factory=list)  # word spans redistributed
     # Lines the drift threshold flagged but the audio vouched for: their words
@@ -206,10 +189,10 @@ def _next_start(lines: list[LineTiming], i: int) -> int | None:
 def restore_held_ends(result: AlignResult) -> tuple[AlignResult, int]:
     """Give back what the hybrid stars and the vote cut off word ends (2.29.1).
 
-    Runs AFTER line QA: QA reads ends as bounds (the density drop's coverage,
-    the arbiter's span coverage, the ad-lib hold's gap) and was tuned on the
-    cut ends. A word grows by at most its `held_ms`, never past the next word's
-    start (the next line's first word for a line's last word) nor past the
+    Runs AFTER line QA: QA reads ends as bounds (the arbiter's span coverage,
+    the ad-lib hold's gap) and was tuned on the cut ends. A word grows by at
+    most its `held_ms`, never past the next word's start (the next line's
+    first word for a line's last word) nor past the
     TRIM_* cap at the document's median ms per character. Only ever LENGTHENS
     an end; ad-lib lines are exempt (their spans belong to
     `rederive_adlib_words`). Returns (result, words lengthened)."""
@@ -277,7 +260,7 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
     The span itself is bounded too (2.32.0, `_cap_runaway`): past
     ADLIB_REDERIVE_MAX_SPAN_MS the words go over ADLIB_REDERIVE_RUNAWAY_SPAN_MS
     instead of crawling across the whole of it. And it ends before the next
-    line starts (2.32.1, `_end_before_next`).
+    line starts (2.34.0, `_end_before_next`).
     """
     if result.sync != "word":
         return result, []
@@ -343,7 +326,7 @@ def _cap_runaway(line: LineTiming, next_start: int | None) -> LineTiming:
 
 
 def _end_before_next(line: LineTiming, next_start: int | None) -> LineTiming:
-    """2.32.1: a line about to be re-derived may not end past the next line's
+    """2.34.0: a line about to be re-derived may not end past the next line's
     start; it ends a breath before it, as a held one does. The ad-lib snap
     moves a line and its end as a block, and the re-derivation then spread the
     words over audio the next line already owns: the overlay hands the screen
@@ -539,18 +522,15 @@ def apply_line_qa(
 
     flagged_set = set(flagged)
     lines = _snap_flagged_lines(result, refs, flagged_set, offset_ms)
-    density_dropped = _border_case_drops(result, refs, flagged_set)
-    words_per_line, uncertain = _rescue_or_drop_words(
-        result, lines, flagged_set, density_dropped, onset_ms
-    )
+    words_per_line, uncertain = _rescue_or_drop_words(result, lines, flagged_set, onset_ms)
 
-    _log_snaps_and_drops(result, lines, flagged, density_dropped)
+    _log_snaps(result, lines, flagged)
 
     surviving_probs = [w.prob for chunk in words_per_line for w in chunk]
-    if not surviving_probs:  # flag + border drops emptied every word-bearing line
+    if not surviving_probs:  # arbiter drops emptied every word-bearing line
         return _degrade_to_line(result, refs, flagged, offset_ms, deviations)
 
-    score, basis = _quality(result, refs, flagged_set | density_dropped, surviving_probs)
+    score, basis = _quality(result, refs, flagged_set, surviving_probs)
     snapped = AlignResult(
         sync="word",
         lines=lines,
@@ -566,7 +546,6 @@ def apply_line_qa(
         flagged=flagged,
         offset_ms=offset_ms,
         degraded_to_line=False,
-        density_dropped=sorted(density_dropped),
         uncertain=uncertain,
         adlib_shifted=adlib_shifted,
         adlib_rederived=rederived,
@@ -653,7 +632,6 @@ def _rescue_or_drop_words(
     result: AlignResult,
     lines: list[LineTiming],
     flagged_set: set[int],
-    density_dropped: set[int],
     onset_ms: list[int] | None,
 ) -> tuple[list[list], list[int]]:
     # The anchor proposes, the audio disposes (Faz 8 B4). A flagged line used
@@ -665,9 +643,6 @@ def _rescue_or_drop_words(
     words_per_line: list[list] = []
     uncertain: list[int] = []
     for i, words in enumerate(result.words_per_line):
-        if i in density_dropped:
-            words_per_line.append([])
-            continue
         if i not in flagged_set:
             words_per_line.append(words)
             continue
@@ -692,9 +667,7 @@ def _rescue_or_drop_words(
     return words_per_line, uncertain
 
 
-def _log_snaps_and_drops(
-    result: AlignResult, lines: list[LineTiming], flagged: list[int], density_dropped: set[int]
-) -> None:
+def _log_snaps(result: AlignResult, lines: list[LineTiming], flagged: list[int]) -> None:
     for i in flagged:
         logger.info(
             "line QA snap: line %d %r start %dms -> %dms (score %.3f)",
@@ -702,13 +675,6 @@ def _log_snaps_and_drops(
             result.lines[i].text[:40],
             result.lines[i].start_ms,
             lines[i].start_ms,
-            result.lines[i].score,
-        )
-    for i in sorted(density_dropped):
-        logger.info(
-            "line QA border drop: line %d %r (score %.3f)",
-            i,
-            result.lines[i].text[:40],
             result.lines[i].score,
         )
 
@@ -754,7 +720,7 @@ def _shift_adlibs(
     anchor when the aligner strayed past ADLIB_SNAP_THRESHOLD_MS. The anchor
     stays on the aligner's clock (ref + offset) like every other snap.
 
-    The block never passes a neighbour (2.32.1): its end stops at the next
+    The block never passes a neighbour (2.34.0): its end stops at the next
     line's start, and the snap is refused when the start would not fall
     between the previous line's start and the next line's, or when a hook of
     several words would be left too little span to spread them (`_snap_end`)."""
@@ -840,42 +806,3 @@ def _snap_end(lines: list[LineTiming], i: int, start: int, end: int, n_words: in
                 return None
             return next_start
     return end
-
-
-def _border_case_drops(
-    result: AlignResult,
-    refs: list[int | None],
-    flagged: set[int],
-) -> set[int]:
-    """Word drops for damaged NEIGHBOURS of a lock loss (QA v2, field case:
-    a line whose drift stayed just under the threshold but whose word timings
-    are garbage — "fast flow then stall"). Runs only around flagged lines."""
-    neighborhood = {
-        j
-        for i in flagged
-        for j in range(i - NEIGHBOR_RADIUS, i + NEIGHBOR_RADIUS + 1)
-        if 0 <= j < len(result.lines) and j not in flagged
-    }
-    drops: set[int] = set()
-    for i in sorted(neighborhood):
-        words = _line_words(result.words_per_line, i)
-        if not words:
-            continue
-        # Signal B: zero score right next to a lock loss (no stamp needed —
-        # it reads only the aligner's own confidence).
-        if result.lines[i].score < NEIGHBOR_SCORE_FLOOR or _compressed_words(words, refs, i):
-            drops.add(i)
-    return drops
-
-
-def _compressed_words(words: list[AlignedWord], refs: list[int | None], i: int) -> bool:
-    """Signal A: words compressed into a fraction of the lrclib reference
-    duration (needs this line's stamp AND the next one's)."""
-    ref = refs[i]
-    next_ref = refs[i + 1] if i + 1 < len(refs) else None
-    if len(words) < MIN_DENSITY_WORDS:
-        return False
-    if ref is None or next_ref is None or not 0 < next_ref - ref <= MAX_PLAUSIBLE_LINE_MS:
-        return False
-    coverage = (words[-1].end_ms - words[0].start_ms) / (next_ref - ref)
-    return coverage < MIN_WORD_DENSITY

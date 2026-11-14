@@ -218,11 +218,12 @@ def _track_block(job: Job, hints: dict, duration_ms: int | None) -> dict:
 def _qa_counts(qa: LineQAOutcome) -> dict:
     return {
             "flagged": len(qa.flagged),
-            "density_dropped": len(qa.density_dropped),
+            # The density drop was removed in 2.34.0, the nudge, the response
+            # shift and the end trim in 2.32.0 (line_qa.DRIFT_THRESHOLD_MS);
+            # their counters stay in the document, always 0, so the schema and
+            # its readers do not change.
+            "density_dropped": 0,
             "adlib_shifted": len(qa.adlib_shifted),
-            # The nudge, the response shift and the end trim were removed in
-            # 2.32.0 (line_qa.DRIFT_THRESHOLD_MS); their counters stay in the
-            # document, always 0, so the schema and its readers do not change.
             "nudged": 0,
             "adlib_rederived": len(qa.adlib_rederived),
             "response_shifted": 0,

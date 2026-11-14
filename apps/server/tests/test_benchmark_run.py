@@ -149,12 +149,10 @@ def live_settings(monkeypatch):
     from helpers import settings_from
 
     from kashi_server.config import PIPELINE_FIELDS, settings
-    from kashi_server.pipeline import line_qa
 
     bare = settings_from(monkeypatch, {})
     for name in PIPELINE_FIELDS:
         monkeypatch.setattr(settings, name, getattr(bare, name))
-    monkeypatch.setattr(line_qa, "_border_case_drops", line_qa._border_case_drops)
     from kashi_server.worker import process
 
     for name in ("_shift_sheet", "detect_onsets"):
@@ -183,13 +181,13 @@ def test_the_legacy_defaults_are_the_old_benchs(live_settings):
 def test_a_shipped_run_names_every_way_it_differs_from_the_worker(live_settings):
     args = run._finalize_args(run._parse_args([
         "--whole-vote-t-ms", "400", "--line-region-ms", "0", "--separation", "kim-melband",
-        "--no-density-drop", "--align-offset-ms", "0",
+        "--align-offset-ms", "0",
     ]))
     assert args.align_kwargs == {"whole_vote_t_ms": 400, "line_region_ms": None}
     assert args.deviations == [
         "separation kim-melband (production: kim-base)",
         "align whole_vote_t_ms=400", "align line_region_ms=None",
-        "--align-offset-ms 0", "line QA density drop off",
+        "--align-offset-ms 0",
     ]
 
 
@@ -200,10 +198,9 @@ def test_the_shipped_mode_refuses_what_production_does_not_run(live_settings, ar
         run._finalize_args(run._parse_args(argv))
 
 
-@pytest.mark.parametrize("flag", ["--no-density-drop", "--no-sheet-shift"])
-def test_switching_a_shipped_step_off_needs_the_shipped_mode(live_settings, flag):
+def test_switching_a_shipped_step_off_needs_the_shipped_mode(live_settings):
     with pytest.raises(SystemExit):
-        run._finalize_args(run._parse_args(["--legacy", flag]))
+        run._finalize_args(run._parse_args(["--legacy", "--no-sheet-shift"]))
 
 
 def test_sheet_shift_off_leaves_the_stamps_and_says_so(live_settings):
@@ -251,13 +248,6 @@ def test_onsets_are_remembered_per_audio_content(tmp_path):
     assert [cached(tmp_path / n) for n in ("x.wav", "y.wav", "z.wav", "z.wav")] == [
         [10, 20], [10, 20], None, None]
     assert calls == ["x.wav", "z.wav"]
-
-
-def test_density_drop_off_switches_exactly_that_rule_off(live_settings):
-    from kashi_server.pipeline import line_qa
-
-    run._configure_shipped(run._finalize_args(run._parse_args(["--no-density-drop"])))
-    assert line_qa._border_case_drops(None, [], {1}) == set()
 
 
 # --- shipped mode, end to end on a synthetic song (the run_local stand-in) -----

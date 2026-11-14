@@ -338,7 +338,6 @@ def test_qa_provenance_block_and_words_derived_flag():
         flagged=[1],
         offset_ms=-120,
         degraded_to_line=False,
-        density_dropped=[],
         adlib_shifted=[],
         adlib_rederived=[0],
     )
@@ -348,6 +347,7 @@ def test_qa_provenance_block_and_words_derived_flag():
     validate_document(doc)
     assert doc["alignment"]["qa"] == {
         "flagged": 1,
+        # 2.34.0 removed the density drop; its counter stays, always 0.
         "density_dropped": 0,
         "adlib_shifted": 0,
         "adlib_rederived": 1,

@@ -61,8 +61,8 @@ restore, and `--align-model` silently bypassed the production offset table.
   makes the run differ from the worker; `meta.aligners` what each language ran
   with (checkpoint, romanize, offsets, pinned revision). `--align-model` swaps
   the checkpoint but keeps each language's offsets (zero them explicitly:
-  `--align-offset-ms 0 --align-offset-by-initial none`). `--no-density-drop`
-  switches line QA's border-case density drop off (review C.4).
+  `--align-offset-ms 0 --align-offset-by-initial none`). (`--no-density-drop`
+  is gone with the rule it switched off, pipeline 2.34.0.)
 - **`--legacy`:** the old bench, flags and defaults unchanged (full mix,
   mixback 0.15, not windowed, the private trim on, `--align-model` bypassing the
   table). Every result file before 2026-11-14 is a legacy run; the same flags
