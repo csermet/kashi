@@ -93,6 +93,14 @@ class ReprocessRequest(BaseModel):
     options: ReprocessOptions = ReprocessOptions()
 
 
+class ReprocessResponse(IngestResponse):
+    # Whether the returned job applies the song's CURRENT override whole (its
+    # options were merged at enqueue). False when a live job that predates the
+    # override (or carries other content, or had part of it displaced) answered
+    # instead of a new one; None when the song has no override to apply.
+    song_override_applied: bool | None = None
+
+
 class JobOut(BaseModel):
     id: uuid.UUID
     status: str

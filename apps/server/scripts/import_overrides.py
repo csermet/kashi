@@ -11,7 +11,12 @@ Each entry becomes `PUT /v1/admin/overrides/<type>/<id>`. Accepted keys: `id`
 `plain_only`, `note`; any other key stops the run before anything is sent.
 With `--reprocess` each stored override is applied at once by a reprocess with
 NO options (exactly what the archive feeder sends), so the stored document is
-rebuilt under it and from then on protected by the persist guard.
+rebuilt under it and from then on protected by the persist guard. A job that
+is already live for the song answers that reprocess instead of a new one, and
+such a job was enqueued before the override and does not carry it: each line
+says `"job_carries_override"` true, false (that id needs another `--reprocess`
+once its live job has finished; the run exits 1) or "unknown" (an API older
+than 0.37.0 does not say).
 
 Nothing secret or lyrical is printed: the admin key is read from the
 ADMIN_API_KEY environment variable, and output lines carry ids, statuses,
@@ -142,6 +147,15 @@ def run(
             line["reprocess"] = status
             if status == 202 and isinstance(answer, dict):
                 line["job"] = answer.get("job_id")
+                # true / false / null (the song's override acts on nothing,
+                # e.g. plain_only alone) / "unknown" (an API before 0.37.0)
+                carried = answer.get("song_override_applied", "unknown")
+                line["job_carries_override"] = carried
+                if carried is False:
+                    # A live job answered: the stored document is NOT being
+                    # rebuilt under the override now.
+                    failures += 1
+                    line["next"] = "reprocess this id again once its live job has finished"
             else:
                 failures += 1
         print(json.dumps(line), file=out)

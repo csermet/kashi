@@ -178,3 +178,85 @@ def test_api_refusals_are_reported_without_echoing_input(client, tmp_path):
     line = json.loads(out.getvalue())
     assert line["put"] == 422
     assert "x" * 50 not in out.getvalue()
+
+
+# --- release 0.37.0 review: does the job that answered carry the override? ----
+
+
+def test_a_live_job_without_the_override_is_reported_and_fails_the_run(
+    client, db_session, tmp_path
+):
+    """enqueue_reprocess returns a LIVE job when one exists; such a job was
+    enqueued before the override and runs without it. The importer must not
+    print it as the rebuild."""
+    from kashi_server import queue
+
+    live, _ = queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="synthNc0002",
+        pipeline_major=2,
+        hints={"title": "Nightcore - Song", "artist": "Chan"},
+        options={},
+        requested_by=None,
+    )
+    db_session.commit()
+    out = io.StringIO()
+    code = importer.main(
+        [_payload_file(tmp_path, PAYLOAD[1:2]), "--reprocess"], out=out, send=_client_sender(client)
+    )
+    line = json.loads(out.getvalue())
+    assert (line["put"], line["reprocess"], line["job"]) == (201, 202, str(live.id))
+    assert line["job_carries_override"] is False
+    assert "again" in line["next"]
+    assert code == 1
+
+    # Once the live job is done, the next --reprocess makes a job that carries it.
+    db_session.execute(text("UPDATE jobs SET status = 'completed'"))
+    db_session.commit()
+    out = io.StringIO()
+    code = importer.main(
+        [_payload_file(tmp_path, PAYLOAD[1:2]), "--reprocess"], out=out, send=_client_sender(client)
+    )
+    line = json.loads(out.getvalue())
+    assert line["job"] != str(live.id)
+    assert line["job_carries_override"] is True and "next" not in line
+    assert code == 0
+
+
+def test_the_reprocess_answer_is_null_for_a_song_without_an_override(client, db_session):
+    from kashi_server import queue
+
+    queue.enqueue(
+        db_session,
+        source_type="youtube",
+        source_id="noOverride1",
+        pipeline_major=2,
+        hints={"title": "T", "artist": "A"},
+        options={},
+        requested_by=None,
+    )
+    db_session.execute(text("UPDATE jobs SET status = 'completed'"))
+    db_session.commit()
+    resp = client.post(
+        "/v1/admin/reprocess",
+        json={"source": {"type": "youtube", "id": "noOverride1"}},
+        headers={"Authorization": f"Bearer {TEST_ADMIN_KEY}"},
+    )
+    assert resp.status_code == 202 and resp.json()["song_override_applied"] is None
+
+
+def test_an_api_that_does_not_say_is_reported_as_unknown(tmp_path):
+    """An API before 0.37.0 answers without the field: the line says so."""
+
+    def old_api(method, path, body):
+        if method == "PUT":
+            return 201, {}
+        return 202, {"job_id": "00000000-0000-0000-0000-000000000001", "status": "queued"}
+
+    out = io.StringIO()
+    code = importer.main(
+        [_payload_file(tmp_path, PAYLOAD[:1]), "--reprocess"], out=out, send=old_api
+    )
+    line = json.loads(out.getvalue())
+    assert line["job_carries_override"] == "unknown" and code == 0
