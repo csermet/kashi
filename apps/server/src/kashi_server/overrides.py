@@ -148,6 +148,14 @@ def applied_fingerprint(options: dict[str, Any] | None) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def carries(options: dict[str, Any] | None, row: Any) -> bool:
+    """True when a job with these options applies the row's CURRENT acted-on
+    content whole (the persist guard's "applied"; the admin reprocess reports
+    it). `row`: a SongOverride or a raw-SQL row with the same column names."""
+    fields = acted_fields(row)
+    return bool(fields) and applied_fingerprint(options) == fingerprint(fields)
+
+
 def _sheet_offset(options: dict[str, Any]) -> int:
     value = options.get(SHEET_OFFSET_KEY)
     if isinstance(value, int) and not isinstance(value, bool):

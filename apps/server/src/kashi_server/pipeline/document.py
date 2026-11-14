@@ -413,22 +413,29 @@ _OVERRIDE_APPLIED_SQL = sa_text(
 )
 
 
-def _override_verdict(s: Session, job: Job, existing) -> tuple[bool, bool]:
+def _lock_override(s: Session, job: Job):
+    """The song's override row, locked until this transaction ends, or None.
+
+    Taken BEFORE the stored document is read: a second writer of the same
+    song waits here, then reads what the first one committed, so for a song
+    with an override row the lock is a per-song mutex (release 0.37.0
+    review). A song without a row locks nothing: its two writers can still
+    cross, exactly as before C.1."""
+    return s.execute(
+        _OVERRIDE_SQL, {"source_type": job.source_type, "source_id": job.source_id}
+    ).first()
+
+
+def _override_verdict(override, job: Job, existing) -> tuple[bool, bool]:
     """(applied, built_under) for the song's override row (see persist).
 
     applied: this job carries the marker of the override's CURRENT acted-on
     content, nothing displaced by request options. built_under: the stored
     document is the one a run that applied this content persisted. No row:
     (False, False), and persist decides exactly as it did before C.1."""
-    override = s.execute(
-        _OVERRIDE_SQL, {"source_type": job.source_type, "source_id": job.source_id}
-    ).first()
     if override is None:
         return False, False
-    fields = overrides.acted_fields(override)
-    applied = bool(fields) and overrides.applied_fingerprint(
-        job.options
-    ) == overrides.fingerprint(fields)
+    applied = overrides.carries(job.options, override)
     built_under = (
         existing is not None
         and override.applied_etag is not None
@@ -465,11 +472,12 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     """
     validate_document(doc)
     etag = compute_etag(doc)
+    override = _lock_override(s, job)  # first: see _lock_override
     existing = s.execute(
         _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
     ).first()
     forced = bool((job.options or {}).get("force_persist"))
-    applied, built_under = _override_verdict(s, job, existing)
+    applied, built_under = _override_verdict(override, job, existing)
     # Version order: outside G1 and G2, so applying the song's override never
     # lets an older image replace a newer document.
     if existing is not None and not forced:
