@@ -46,7 +46,7 @@ export const DEFAULT_BOX_ALPHA = 0.1;
 
 /**
  * The user's lyric timing offset, ms on top of the invisible BASE_LEAD_MS
- * (shared/timing-offset.ts): positive = lyrics fire EARLIER (karaoke UX
+ * (@kashi/view/timing-offset): positive = lyrics fire EARLIER (karaoke UX
  * convention — perception lags the ear by ~100 ms; Caner: "hafif geç
  * hissettiriyor", 2026-07-12). 0 = the base alone. Applied in the renderer
  * frame loop; per-song data never changes.

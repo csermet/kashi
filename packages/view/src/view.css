@@ -1,7 +1,10 @@
 /*
- * Overlay styles. NOTE: no -webkit-app-region anywhere — drag regions swallow
- * ALL mouse events, which breaks hover detection and click-through toggling.
- * Dragging is implemented manually (mousedown → IPC → cursor-follow).
+ * The lyrics view's stylesheet (@kashi/view, client review E.4): everything
+ * the view draws, for every host. A host adds its own sheet after this one
+ * (the desktop's: apps/overlay/src/renderer/src/desktop.css) and supplies its
+ * geometry as variables (--kashi-stage-padding, --kashi-box-max-width).
+ * Level, theme and nightcore classes sit on <body>: the view owns its
+ * document.
  */
 :root {
   /* Box background opacity — driven by settings (tray presets / Ctrl+scroll). */
@@ -59,12 +62,7 @@ body {
      the two never fight (Faz 4 contract). */
   background: rgba(var(--kashi-bg-rgb, 8, 10, 18), var(--kashi-box-alpha, 0.1));
   text-align: center;
-  cursor: grab;
   transition: background-color 0.15s;
-}
-
-#lyric-box:active {
-  cursor: grabbing;
 }
 
 #lyric-box.hidden {

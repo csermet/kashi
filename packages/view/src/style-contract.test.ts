@@ -4,26 +4,16 @@
  * full render pixel-identical to the pre-hype look by construction, and this
  * test keeps that construction honest as the hype section grows.
  *
- * Lives main-side only because reading a file needs node typings; the
- * renderer TS program stays browser-pure (tsconfig.web.json has no node).
+ * The view's stylesheet and sources are read as text through vite's `?raw`
+ * import, so the package's tests need no Node typings (moved here from the
+ * overlay's main process with the stylesheet, client review E.4; the desktop
+ * window's geometry contracts stayed there, geometry.test.ts).
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BOX_CHROME, BOX_SCALES, EDGE_FADE_PX } from '@kashi/view';
-import {
-  BOX_ZONE,
-  BOX_ZONE_PRESETS,
-  boxZoneFor,
-  geometryVars,
-  WINDOW_HEIGHT,
-  WINDOW_WIDTH,
-} from '../shared/box-zone.js';
-
-const css = readFileSync(
-  fileURLToPath(new URL('../renderer/src/style.css', import.meta.url)),
-  'utf8',
-);
+import { BOX_CHROME } from './box-scale.js';
+import textures from './fx-textures.ts?raw';
+import mainSource from './lyrics-view.ts?raw';
+import css from './view.css?raw';
 
 /** Selector lines only: strip comments, keep lines opening/continuing rules. */
 function selectorLines(source: string): string[] {
@@ -73,60 +63,13 @@ describe('style contract: nightcore stays hype-scoped (Faz 6.5 P5)', () => {
   });
 });
 
-describe('style contract: the box zone matches the window (Faz 6.7 P4 / Faz 7 P3)', () => {
-  it('the stage is padded by the host geometry, and that geometry IS the zone', () => {
-    // main hit-tests and migrates positions against BOX_ZONE; the renderer lays
-    // the box out with the stage padding the host derives from the same zone
-    // (geometryVars). Until client review E.4 the stylesheet carried its own
-    // copy of the default padding; now it only reads the variable.
+describe('style contract: the host geometry and the box chrome (Faz 6.7 P4 / Faz 7 P3)', () => {
+  it('the stage is padded by the host geometry variable, nothing of its own', () => {
+    // Until client review E.4 the stylesheet carried its own copy of the
+    // desktop's default padding; a host now supplies it (the desktop's
+    // geometryVars, pinned to its box zones in apps/overlay geometry.test.ts).
     expect(css).toMatch(/#stage \{[^}]*padding: var\(--kashi-stage-padding, 0\);/);
-    for (const scale of BOX_SCALES) {
-      const zone = BOX_ZONE_PRESETS[scale];
-      const vars = geometryVars(scale);
-      const [top, side, bottom] = (vars['--kashi-stage-padding'] ?? '')
-        .split(' ')
-        .map((v) => Number.parseFloat(v));
-      expect({ top, side, bottom }, scale).toEqual({
-        top: zone.y,
-        side: zone.x,
-        bottom: WINDOW_HEIGHT - zone.y - zone.height,
-      });
-      expect(vars['--kashi-box-max-width'], scale).toBe(`${zone.width - 60}px`);
-    }
-    expect(geometryVars(undefined)).toEqual(geometryVars('medium'));
-    expect(BOX_ZONE.x * 2 + BOX_ZONE.width).toBe(WINDOW_WIDTH); // horizontally centered
-  });
-
-  it('every box scale stays centred, inside the window, with room to fade', () => {
-    // A box the user can resize must not push particles against the window
-    // edge: below EDGE_FADE_PX of margin they would be cut off mid-flight
-    // instead of fading, which is exactly the visible boundary Caner ruled out.
-    const centre = { x: BOX_ZONE.x + BOX_ZONE.width / 2, y: BOX_ZONE.y + BOX_ZONE.height / 2 };
-    for (const scale of BOX_SCALES) {
-      const zone = BOX_ZONE_PRESETS[scale];
-      expect(zone.x * 2 + zone.width, `${scale} not centred horizontally`).toBe(WINDOW_WIDTH);
-      expect(
-        { x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 },
-        `${scale} moved the centre`,
-      ).toEqual(centre);
-      const margins = [
-        zone.x,
-        zone.y,
-        WINDOW_WIDTH - zone.x - zone.width,
-        WINDOW_HEIGHT - zone.y - zone.height,
-      ];
-      for (const margin of margins) {
-        expect(margin, `${scale} leaves only ${margin}px of margin`).toBeGreaterThanOrEqual(
-          EDGE_FADE_PX,
-        );
-      }
-    }
-  });
-
-  it('the default scale IS the shipped zone — an untouched install cannot move', () => {
-    expect(boxZoneFor('medium')).toEqual(BOX_ZONE);
-    expect(boxZoneFor(undefined)).toEqual(BOX_ZONE);
-    expect(boxZoneFor('not-a-scale')).toEqual(BOX_ZONE);
+    expect(css).toMatch(/#lyric-box \{[^}]*max-width: var\(--kashi-box-max-width, 500px\);/);
   });
 
   it("the stylesheet's chrome fallbacks ARE medium's chrome — default look pinned", () => {
@@ -175,8 +118,8 @@ describe('style contract: every fx archetype is renderable (Faz 7 P2)', () => {
     // atlas and the physics have to agree. A tag that is not in the lexicon
     // would never fire; a shape the atlas cannot draw would silently emit
     // nothing at all.
-    const { FX_ARCHETYPES, FX_BASE_COLORS, resolveFxProfile } = await import('@kashi/view');
-    const { PARTICLE_SHAPES } = await import('@kashi/view');
+    const { FX_ARCHETYPES, FX_BASE_COLORS, resolveFxProfile } = await import('./effects-logic.js');
+    const { PARTICLE_SHAPES } = await import('./fx-textures.js');
 
     for (const [tag, entry] of FX_ARCHETYPES) {
       expect(FX_BASE_COLORS, `${tag} is not a lexicon category`).toHaveProperty(tag);
@@ -192,11 +135,6 @@ describe('style contract: every fx archetype is renderable (Faz 7 P2)', () => {
 });
 
 describe('style contract: an untimed line wears the theme (Faz 7 P8b)', () => {
-  const mainSource = readFileSync(
-    fileURLToPath(new URL('../../../../packages/view/src/lyrics-view.ts', import.meta.url)),
-    'utf8',
-  );
-
   it('the plain class is decided by the view, never by the span cache', () => {
     // The regression this locks: `wordSpans` describes the line painted LAST
     // time — it is cleared further down the same function and rebuilt later in
@@ -225,11 +163,6 @@ describe('style contract: an untimed line wears the theme (Faz 7 P8b)', () => {
 });
 
 describe('style contract: a rescued line is softened, never removed (Faz 8.1)', () => {
-  const mainSource = readFileSync(
-    fileURLToPath(new URL('../../../../packages/view/src/lyrics-view.ts', import.meta.url)),
-    'utf8',
-  );
-
   it('the flag reaches a pixel at all', () => {
     // The whole defect this closes: the server has written lines[].uncertain
     // since pipeline 2.19.0 and no client read it, so the arbiter's verdict
@@ -277,11 +210,6 @@ describe('style contract: a rescued line is softened, never removed (Faz 8.1)', 
 });
 
 describe('style contract: particle alphas have one source (Faz 7 P8b)', () => {
-  const textures = readFileSync(
-    fileURLToPath(new URL('../../../../packages/view/src/fx-textures.ts', import.meta.url)),
-    'utf8',
-  );
-
   it('the painters draw the declared peak, not a copy of it', () => {
     // The visibility guard in fx-particles-logic.test.ts multiplies each
     // archetype's band by its texture's peak alpha. That only means anything
