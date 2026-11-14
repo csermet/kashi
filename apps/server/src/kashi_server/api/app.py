@@ -29,6 +29,7 @@ from kashi_server.api.routers import (
 from kashi_server.auth import hash_key, looks_like_key
 from kashi_server.config import settings
 from kashi_server.db.models import ApiKey
+from kashi_server.version import PIPELINE_VERSION
 
 BOOTSTRAP_KEY_NAME = "bootstrap-admin"
 logger = logging.getLogger(__name__)
@@ -96,7 +97,10 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
+        # `pipeline_version` (additive, 2.33.0) is the load-bearing number: the
+        # one this image's workers stamp into documents. A worker built from
+        # another image (the GPU helper) names its own in its ready line.
+        return {"status": "ok", "version": __version__, "pipeline_version": PIPELINE_VERSION}
 
     @app.get("/v1/ready")
     def ready():

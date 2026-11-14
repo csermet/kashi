@@ -34,6 +34,9 @@ so a bug is one query away instead of a repro hunt.
   `lyrics_outcome` (source kashi-server/lrclib/none, quality, doc pipeline
   version, sync word/line, speed_factor), `position_anomaly` (slew/snap
   magnitudes — would directly catch the wrong-timing bug), `error`/`watchdog`.
+  Added 2026-11-14 (review step E.1): `clock_stats`, one per track and per
+  session — the position clock's transport-delay, dead-band, slew, snap, seek
+  and anchor counts and percentiles; numbers and a scope only, no identifier.
 - **Server side:** new `telemetry` table (session_id, ts, kind, payload
   jsonb) + retention (e.g. 30 days) + a Grafana "Field diagnostics" panel
   (which OS/version, lyric-source mix, anomaly rate per song). Pairs with

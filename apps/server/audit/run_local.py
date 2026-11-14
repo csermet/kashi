@@ -17,9 +17,11 @@ Separation is never repeated: the worker's separator call returns the cached
 worker's own ``_decode``). The aligner stage decodes it again at 16 kHz, which
 is sample-identical, so the aligner hears what prod's aligner heard.
 
-The pipeline's settings come from the environment, as in the worker: run with
-the worker's env (``ALIGN_MODELS`` above all) or the document comes from a
-different pipeline. ``--extras`` records what was in force, plus what prod
+The pipeline's settings come from the environment, as in the worker. Since
+pipeline 2.33.0 the code defaults ARE the live worker's pipeline (aligner table
+and offsets, separator, structure flag), so no env file is needed; an env value
+still overrides, and then the document comes from a different pipeline.
+``--extras`` records what was in force, plus what prod
 computes and never stores: the onsets line QA reads, each
 word's prob, lateness shift and placing pass (``AlignedWord.source``), and
 line QA's per-line lists.
@@ -322,26 +324,22 @@ def _warn_lyricsfile(lyrics: LyricsText, duration_s: float) -> None:
 
 
 def _extras(video_id: str, stem: Path, lyrics: LyricsText, result, qa, seen: dict) -> dict:
-    from kashi_server.config import settings
+    from kashi_server.config import PIPELINE_FIELDS, pipeline_value, settings
     from kashi_server.pipeline.alignment import resolve_aligner
     from kashi_server.pipeline.langid import detect_language
 
     language = detect_language(lyrics.full_text)
+    aligner = asdict(resolve_aligner(language))
     return {
         "id": video_id,
         "stem": str(stem),
         "anchors": lyrics.synced_starts_ms is not None,
         "separations": seen.get("separations", 0),
         "language": language,
-        "aligner": asdict(resolve_aligner(language)),
-        "settings": {
-            **{k: getattr(settings, k) for k in (
-                "separation_mode", "windowed_alignment", "align_model", "align_romanize",
-                "align_offset_ms", "separation_model_filename", "separation_mixback",
-                "structure_sections",
-                "fx_embeddings")},
-            "align_models": {k: v.model_dump() for k, v in settings.align_models.items()},
-        },
+        "aligner": {**aligner,
+                    "revision": settings.align_model_revisions.get(aligner["model_name"])},
+        # Every field that shapes a document (config.PIPELINE_FIELDS), as JSON.
+        "settings": {k: pipeline_value(k, getattr(settings, k)) for k in PIPELINE_FIELDS},
         "qa": None if qa is None else {
             k: getattr(qa, k) for k in (
                 "flagged", "offset_ms", "degraded_to_line", "density_dropped", "adlib_shifted",

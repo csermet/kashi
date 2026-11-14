@@ -5,11 +5,20 @@ the house convention). `schema_path` also accepts KASHI_SCHEMA_PATH, which the
 Docker image sets to the baked-in schema copy.
 """
 
+import copy
 import socket
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings
 
 
@@ -76,6 +85,46 @@ class AlignerChoice(BaseModel):
     @classmethod
     def _accept_bare_checkpoint(cls, value):
         return {"checkpoint": value} if isinstance(value, str) else value
+
+
+# The pipeline production runs, as code (pipeline 2.33.0, whole-project review step B.1; the owner
+# agreed on 2026-11-14). Until then these values lived only as env settings copied by hand into
+# gitops, the GPU helper's env file, audit/worker.env.example and the bench's flags, while the
+# defaults below named the CC-BY-NC MMS checkpoint for every language, an unlicensed separator
+# and no chorus sections: a worker started without that env ran another pipeline under the same
+# pipeline_version, and the 2026-11-12 bench round measured one by accident. Each value here is
+# the one audit/worker.env.example carried on 2026-11-14 (the gitops copy was not readable from
+# the session that moved them; the 2026-11-13 review had checked the three copies agree).
+# Changing one is a pipeline change: bump PIPELINE_VERSION with it.
+#
+# English: jonatasgrosman/wav2vec2-xls-r-1b-english (Apache-2.0, Faz 8.1) with the per-sound
+# lateness table fitted on JamendoLyrics (Faz 9 P2, refitted on the exact clock in 2.28.0).
+# Turkish: mpoyraz/wav2vec2-xls-r-300m-cv7-turkish (CC-BY-4.0), its own alphabet, no offset.
+# Every other language falls back to `align_model` (MMS, CC-BY-NC — still a licence fact).
+PRODUCTION_ALIGN_MODELS: dict[str, dict] = {
+    "eng": {
+        "checkpoint": "jonatasgrosman/wav2vec2-xls-r-1b-english",
+        "offset_ms": -50,
+        "offset_by_initial": {"vowel": -80, "fricative": -50, "plosive": -30, "sonorant": -20},
+    },
+    "tur": {"checkpoint": "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish", "romanize": False},
+}
+# Hub commits the aligner checkpoints load from (review step B.4b, 2.33.0), instead of each
+# repository's moving `main`: a fresh model volume used to load whatever `main` was that day,
+# and `alignment.method` records only the name. Each value is the repository's `main` head read
+# from the hub API (read-only) on 2026-11-13 UTC, which is also what any worker that (re)started
+# online loaded: transformers resolves `main` at every load. What the production volume holds
+# was not readable from that session. Last commits: XLS-R 1B English 2022-12-14 (README),
+# mpoyraz cv7 2022-03-23 (README), MMS 2026-04-15 ("Remove word delimiter (#4)").
+ALIGNER_REVISIONS: dict[str, str] = {
+    "jonatasgrosman/wav2vec2-xls-r-1b-english": "24ee09749bb6c198a8c90ae24e2d0b5a43efd533",
+    "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish": "708639f50559d7970f462e13ec64d3f059ca89f6",
+    "MahmoudAshraf/mms-300m-1130-forced-aligner": "49402e9577b1158620820667c218cd494cc44486",
+}
+# Kimberley Jensen's base vocal MelBand model (the bench's "kim-base"; MIT on its model card):
+# 79 songs 2026-08-09, PCO@0.3 0.909 against 0.915 for the unwa fine-tune it replaced (median MAE
+# +2 ms), which carries no licence at all (docs/research/lisans-temiz-zincir-2026-08.md).
+PRODUCTION_SEPARATION_MODEL = "vocals_mel_band_roformer.ckpt"
 
 
 class Settings(BaseSettings):
@@ -145,10 +194,11 @@ class Settings(BaseSettings):
     # run WITHOUT --windowed. MMS measured best within 30 ms of 0 there in all
     # four JamendoLyrics languages, so it ships with none.
     align_offset_ms: int = Field(default=0, ge=-500, le=500)
-    # PER-LANGUAGE routing over the three fields above (Faz 8.1, Faz 9 P1). Empty by
-    # default: with no entry for a job's language, `align_model` /
-    # `align_romanize` answer exactly as they did before, so every existing
-    # measurement stays valid.
+    # PER-LANGUAGE routing over the three fields above (Faz 8.1, Faz 9 P1). With
+    # no entry for a job's language, `align_model` / `align_romanize` answer.
+    # The default is the production table (PRODUCTION_ALIGN_MODELS, since 2.33.0;
+    # empty before). An env value replaces the whole table; ALIGN_MODELS={}
+    # gives back the single-model behaviour every pre-Faz-8.1 measurement used.
     #
     # It exists because the licence-clean chain is no longer ONE checkpoint.
     # Faz 8.1 measured a permissive replacement per language and they are
@@ -168,11 +218,23 @@ class Settings(BaseSettings):
     # Operational note: the worker caches models by name, so a mixed-language
     # queue holds every configured checkpoint in memory at once.
     # Detail: docs/research/lisans-temiz-zincir-2026-08.md
-    align_models: dict[str, AlignerChoice] = {}
+    align_models: dict[str, AlignerChoice] = Field(
+        default_factory=lambda: copy.deepcopy(PRODUCTION_ALIGN_MODELS), validate_default=True
+    )
+    # Checkpoint name -> hub revision (commit, tag or branch) its weights load
+    # from (ALIGNER_REVISIONS above). A checkpoint not listed loads the hub's
+    # `main`, unpinned, and the load log line says so (a bench bake-off of a new
+    # model). An env value replaces the whole table, e.g.
+    #   ALIGN_MODEL_REVISIONS='{"jonatasgrosman/wav2vec2-xls-r-1b-english":"main"}'
+    align_model_revisions: dict[str, str] = Field(
+        default_factory=lambda: dict(ALIGNER_REVISIONS)
+    )
     # audio-separator registry filename. Kim MelBand: best measured PCO/MAE of
     # all candidates at ~2.1x realtime on the worker (BS-RoFormer quality at a
-    # third of its cost); higher-SDR models measured WORSE for alignment.
-    separation_model_filename: str = "mel_band_roformer_kim_ft_unwa.ckpt"
+    # third of its cost); higher-SDR models measured WORSE for alignment. The
+    # licence-clean base model since 2.33.0 in code (production ran it from env
+    # before); "mel_band_roformer_kim_ft_unwa.ckpt" was the default until then.
+    separation_model_filename: str = PRODUCTION_SEPARATION_MODEL
     # Fraction of the ORIGINAL mix folded back into the vocal stem. Measured
     # HARMFUL on average (dilutes the clean-vocal advantage; ~10x MedAE) —
     # kept only as an escape hatch. 0 disables the pass.
@@ -241,9 +303,9 @@ class Settings(BaseSettings):
     fx_embeddings: bool = False
     # Structure v2 (Faz 6.5 P6): librosa Laplacian segmentation → "chorus"
     # sections beside the energy "high" blocks. Zero extra dependencies,
-    # deterministic; default off until the canary wave proves it in the
-    # field (BAD GIRL is the acceptance case).
-    structure_sections: bool = False
+    # deterministic. Production has run it on (env) since the canary wave (BAD
+    # GIRL was the acceptance case); the code default followed in 2.33.0.
+    structure_sections: bool = True
     # Field diagnostics (Faz 6.7 P1). Default ON, unlike the publish flags:
     # nothing arrives unless a client is configured with this server's URL and
     # one of its API keys, so the data is the operator's own by construction.
@@ -286,6 +348,87 @@ class Settings(BaseSettings):
                 raise ValueError(f"align_models has two entries for {code!r} (one is {key!r})")
             normalized[code] = choice
         return normalized
+
+
+# The fields that shape a document: two workers that agree on all of them and on
+# PIPELINE_VERSION produce the same document from the same audio and lyrics. Since
+# 2.33.0 their code defaults ARE the production pipeline, so an env value for one of
+# them makes a worker run something its pipeline_version does not name — the worker
+# says so in its ready line (`pipeline_overrides`).
+PIPELINE_FIELDS: tuple[str, ...] = (
+    "separation_mode",
+    "windowed_alignment",
+    "align_model",
+    "align_romanize",
+    "align_offset_ms",
+    "align_models",
+    "align_model_revisions",
+    "separation_model_filename",
+    "separation_mixback",
+    "nightcore_detection",
+    "lyricsfile_fast_path",
+    "fx_embeddings",
+    "structure_sections",
+)
+# Everything else: secrets, URLs, paths, limits, schedules, names. These may differ
+# between deployments without making their documents differ. Every Settings field is
+# in exactly one of the two tuples (tests/test_config_defaults.py), so a new field
+# has to be classified when it is added.
+OPERATIONAL_FIELDS: tuple[str, ...] = (
+    "database_url",
+    "admin_api_key",
+    "data_dir",
+    "model_cache_dir",
+    "lrclib_base_url",
+    "lrclib_fallback_base_url",
+    "lrclib_fallback_timeout_s",
+    "lrclib_defer_delays_s",
+    "lrclib_patience_s",
+    "lrclib_breaker_window_s",
+    "lrclib_breaker_failure_threshold",
+    "lrclib_request_gap_s",
+    "max_track_duration_s",
+    "upload_max_bytes",
+    "upload_ttl_hours",
+    "lrclib_publish_enabled",
+    "lrclib_publish_dry_run",
+    "telemetry_enabled",
+    "telemetry_retention_days",
+    "queue_depth_limit",
+    "worker_poll_interval_s",
+    "retry_delays_s",
+    "lease_ttl_s",
+    "worker_name",
+    "bgutil_pot_provider_url",
+    "metrics_port",
+    "schema_path",
+)
+
+
+def pipeline_value(name: str, value: object) -> object:
+    """A pipeline field's value in plain JSON form, for comparing configurations."""
+    adapter = TypeAdapter(Settings.model_fields[name].annotation)
+    return adapter.dump_python(adapter.validate_python(value), mode="json")
+
+
+def pipeline_defaults() -> dict[str, object]:
+    """The code default of every pipeline field, as `pipeline_value` writes it."""
+    fields = Settings.model_fields
+    return {
+        name: pipeline_value(name, fields[name].get_default(call_default_factory=True))
+        for name in PIPELINE_FIELDS
+    }
+
+
+def pipeline_overrides(current: Settings) -> list[str]:
+    """Pipeline fields whose value differs from the code default (an env override).
+    Names only: the values are not secrets, but a log line has no need for them."""
+    defaults = pipeline_defaults()
+    return [
+        name
+        for name in PIPELINE_FIELDS
+        if pipeline_value(name, getattr(current, name)) != defaults[name]
+    ]
 
 
 settings = Settings()

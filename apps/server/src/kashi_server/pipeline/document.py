@@ -318,12 +318,43 @@ REGRESSIONS_KEPT = Counter(
     "New documents refused because they regress the stored one (Faz 9)",
 )
 
+STALE_WRITES_KEPT = Counter(
+    "kashi_persist_stale_writes_kept_total",
+    "New documents refused because the stored one comes from a newer pipeline version",
+)
+
 _EXISTING_SQL = sa_text(
     """
-    SELECT document, etag, pipeline_major FROM processed_tracks
+    SELECT document, etag, pipeline_version, pipeline_major FROM processed_tracks
     WHERE source_type = :source_type AND source_id = :source_id AND schema_version = 1
     """
 )
+
+
+def version_key(version: str | None) -> tuple[int, int, int] | None:
+    """(major, minor, patch) of a pipeline version, or None for anything that is
+    not exactly three dot-separated numbers. Compared as numbers: as strings
+    "2.9.1" sorts after "2.10.0"."""
+    parts = (version or "").split(".")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return None
+    return int(parts[0]), int(parts[1]), int(parts[2])
+
+
+def stale_writer(stored_version: str | None, current_version: str) -> str | None:
+    """Why a worker running `current_version` must not overwrite a document that
+    `stored_version` made, or None when it may.
+
+    A worker image older than the stored document's is stale: the GPU helper is
+    rebuilt by hand each release, and until 2.33.0 the guard compared only the
+    MAJOR, so a 2.31 helper silently replaced 2.32 documents (review, 2026-11-13;
+    reproduced on a throwaway database). Equal versions pass (the regression
+    rules decide), and so does a version this code cannot read — refusing on an
+    unparseable string would freeze a document forever."""
+    stored, ours = version_key(stored_version), version_key(current_version)
+    if stored is None or ours is None or stored <= ours:
+        return None
+    return f"stored by pipeline {stored_version}, this worker runs {current_version}"
 
 
 def _worded_lines(doc: dict) -> int:
@@ -411,14 +442,20 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     stored one (see `regression`). Returns the etag of what is stored.
 
     A refused document still completes its job: the work ran, the result was
-    worse, and the listener keeps the better one. A new pipeline MAJOR always
-    replaces (the old one is invalidated by definition), and an admin
-    reprocess with `options.force_persist` accepts a regression on purpose.
+    worse, and the listener keeps the better one. A document stored by a NEWER
+    pipeline version is never replaced by an older worker (`stale_writer`,
+    2.33.0). A new pipeline MAJOR always replaces (the old one is invalidated by
+    definition), and an admin reprocess with `options.force_persist` accepts a
+    regression or an older pipeline on purpose.
 
-    Song overrides (C.1), first match wins after force_persist:
+    Song overrides (C.1). First match wins:
+    force_persist -> replace;
+    version order -> keep a document from a newer pipeline version, even
+    against a run that applied the song's override (an older image must not
+    win by applying it);
     G1 the stored document was built under the song's override (its etag is
     the override's `applied_etag`) and this run did not apply that override
-    whole -> keep it, whatever the major and the scores;
+    whole -> keep it, whatever the major, the version and the scores;
     G2 this run applied the override and the stored document was not built
     under it -> replace it without the major/regression checks (the owner's
     correction, compared with a document built from other inputs);
@@ -431,13 +468,21 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     existing = s.execute(
         _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
     ).first()
+    forced = bool((job.options or {}).get("force_persist"))
     applied, built_under = _override_verdict(s, job, existing)
-    if (
-        existing is not None
-        and built_under
-        and not applied
-        and not (job.options or {}).get("force_persist")
-    ):  # G1
+    # Version order: outside G1 and G2, so applying the song's override never
+    # lets an older image replace a newer document.
+    if existing is not None and not forced:
+        stale = stale_writer(existing.pipeline_version, PIPELINE_VERSION)
+        if stale is not None:
+            STALE_WRITES_KEPT.inc()
+            logger.warning(
+                "kept the stored %s:%s document: %s (a stale worker image?); "
+                "an admin reprocess with force_persist overrides",
+                job.source_type, job.source_id, stale,
+            )
+            return existing.etag
+    if existing is not None and built_under and not applied and not forced:  # G1
         OVERRIDE_BUILDS_KEPT.inc()
         logger.warning(
             "kept the stored %s:%s document: it was built under the song's override and "
@@ -448,7 +493,7 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     if (
         existing is not None
         and existing.pipeline_major >= PIPELINE_MAJOR
-        and not (job.options or {}).get("force_persist")
+        and not forced
         and not (applied and not built_under)  # G2: an override's first build
     ):
         reason = regression(existing.document, doc)

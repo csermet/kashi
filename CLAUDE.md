@@ -34,9 +34,11 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   and nobody looked.
 - DB-backed tests are **skipped** unless `DATABASE_URL` points at a throwaway Postgres 17
   (`postgresql+psycopg://USER:PASS@localhost:PORT/kashi`). A green run without it proves little.
-- `/v1/health` returns only the server version, which is cosmetic. `pipeline_version`
-  (`kashi_server/version.py`) is the load-bearing field. After a rollout, check it in each worker's
-  `ready: pipeline …` log line and in the first refreshed document.
+- The server version is cosmetic; `pipeline_version` (`kashi_server/version.py`) is the
+  load-bearing field. `/v1/health` returns both since 2.33.0 (the API image's: a worker built from
+  another image, like the GPU helper, says its own). After a rollout, check each worker's
+  `ready: pipeline …` log line (it also names any pipeline setting an env value overrides; since
+  2.33.0 the code defaults are the production pipeline) and the first refreshed document.
 - Never edit an Alembic migration that has already reached head: environments that applied it
   drift silently. Add a new migration.
 - Schema change ⇒ `pnpm --filter @kashi/schemas codegen` and commit the generated output.
@@ -81,7 +83,10 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   after a raw-SQL claim, refresh ORM objects (identity map is stale).
 - Turkish dotless `ı` does not decompose under NFKD. `ctc_forced_aligner` emissions carry a
   `<star>` column: drop it before any argmax.
-- The HF cache keeps every model revision (budget ~2× model size); worker peak memory is in
-  source separation, not alignment.
+- The HF cache's second copy of the English and Turkish aligners (budget ~2× model size) is
+  `refs/pr/N`: safetensors that transformers' background auto-conversion downloads for .bin-only
+  repos, never loaded. Since 2.33.0 aligners load from pinned commits (`config.ALIGNER_REVISIONS`)
+  and the worker sets `DISABLE_SAFETENSORS_CONVERSION=1`. Worker peak memory is in source
+  separation, not alignment.
 
 Project agents: `.claude/agents/kashi-reviewer.md`, `.claude/agents/ytm-scout.md`.

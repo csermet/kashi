@@ -369,13 +369,15 @@ def _align_stage(
     *,
     align_wav: Path | None = None,
     tempo: float = 1.0,
+    align_kwargs: dict | None = None,
 ) -> tuple[AlignResult, bool, Path]:
     """Align; optionally re-align on separated vocals when the score is low.
 
     `align_wav` skips the first decode when the caller already produced it
     (the nightcore branch decodes early for the duration sanity check);
     `tempo` carries the same slow-down into the second-pass vocal decode so
-    both passes align the same clock.
+    both passes align the same clock. `align_kwargs` reach `align()` as
+    keywords: the bench's research switches; the worker passes none.
 
     Returns the wav that WON as well, because the arbiter's onset evidence has
     to be measured on exactly the audio the surviving alignment heard — the
@@ -396,7 +398,8 @@ def _align_stage(
                 wav_s,
             )
             anchors = None
-    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors)
+    extra = align_kwargs or {}
+    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors, **extra)
 
     if (
         result.quality_score < SECOND_PASS_QUALITY_GATE
@@ -414,7 +417,7 @@ def _align_stage(
         queue.set_status(s, job, "aligning")
         s.commit()
         vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000, tempo=tempo)
-        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors)
+        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors, **extra)
         if second.quality_score > result.quality_score:
             return second, True, vocal_wav
     return result, False, wav
@@ -986,14 +989,15 @@ def _resolve_plain_lyrics(
 def _shift_sheet(
     job: Job, tmp: Path, source_audio: Path, lyrics: LyricsText, align_wav: Path | None,
     speed_factor: float,
-) -> tuple[LyricsText, Path | None]:
+) -> tuple[LyricsText, Path | None, list]:
     """Move an lrclib section the ear hears seconds away (2.29.1, sheet_shift),
     before windows are cut around the stamps and line QA trusts them. Windowed
     alignment only (the stamps' one consumer besides QA), r = 1 only. Returns
-    the lyrics and the decoded wav, which `_align_stage` then reuses."""
+    the lyrics, the decoded wav, which `_align_stage` then reuses, and the
+    sections that moved."""
     starts = lyrics.synced_starts_ms
     if not settings.windowed_alignment or starts is None or not is_original_speed(speed_factor):
-        return lyrics, align_wav
+        return lyrics, align_wav, []
     wav = align_wav or _decode(source_audio, tmp / ALIGN_WAV, rate=16000)
     tokens = heard_tokens(wav, detect_language(lyrics.full_text))
     shifted, applied = shift_sheet(lyrics.line_texts, starts, tokens)
@@ -1004,8 +1008,70 @@ def _shift_sheet(
             job.id, sec.median_ms, sec.first_line, sec.last_line, sec.anchors, sec.carried,
         )
     if not applied:
-        return lyrics, wav
-    return replace(lyrics, synced_starts_ms=shifted), wav
+        return lyrics, wav, []
+    return replace(lyrics, synced_starts_ms=shifted), wav, list(applied)
+
+
+@dataclass(frozen=True)
+class ReviewedAlignment:
+    """What `align_and_review` hands back: the result the document is built
+    from, plus what the steps before it saw (the bench scores each stage)."""
+
+    lyrics: LyricsText  # after the sheet shift: the stamps line QA judged against
+    aligned: AlignResult  # the aligner's output, before line QA
+    result: AlignResult  # after line QA and the held-end restore
+    qa: LineQAOutcome
+    restored: int  # words restore_held_ends lengthened
+    second_pass_separated: bool
+    sheet_shifts: list  # sheet_shift sections that moved
+
+
+def align_and_review(
+    s: Session,
+    job: Job,
+    tmp: Path,
+    source_audio: Path,
+    lyrics: LyricsText,
+    *,
+    align_wav: Path | None = None,
+    speed_factor: float = 1.0,
+    align_kwargs: dict | None = None,
+) -> ReviewedAlignment:
+    """The chain between chosen lyrics + audio and the document: the sheet
+    shift, alignment, line QA on the onsets of the audio that was aligned, and
+    the held-end restore. The worker runs it for every job (`_align_with_ctc`);
+    the bench (benchmarks/run.py, its default mode since 2.33.0) runs exactly
+    this against human truth, so the two cannot drift apart."""
+    lyrics, align_wav, shifts = _shift_sheet(
+        job, tmp, source_audio, lyrics, align_wav, speed_factor
+    )
+    aligned, second_pass_separated, aligned_wav = _align_stage(
+        s,
+        job,
+        tmp,
+        source_audio,
+        lyrics,
+        align_wav=align_wav,
+        tempo=1.0 / speed_factor,
+        align_kwargs=align_kwargs,
+    )
+    # The arbiter's only aligner-independent evidence (Faz 8 B4).
+    # Measured on the audio the winning alignment actually heard; a
+    # failure returns None and line QA falls back to today's rule.
+    qa = apply_line_qa(
+        aligned, lyrics.line_texts, lyrics.synced_starts_ms, detect_onsets(aligned_wav)
+    )
+    # 2.29.1: QA judged the cut ends; the words get their length back now.
+    result, restored = restore_held_ends(qa.result)
+    return ReviewedAlignment(
+        lyrics=lyrics,
+        aligned=aligned,
+        result=result,
+        qa=qa,
+        restored=restored,
+        second_pass_separated=second_pass_separated,
+        sheet_shifts=shifts,
+    )
 
 
 def _align_with_ctc(
@@ -1027,27 +1093,13 @@ def _align_with_ctc(
     )
     if plan.outcome is not None:  # the branch decoded — same cadence as before
         checkpoint(s, job)
-    lyrics = plan.lyrics
     speed_factor = plan.speed_factor
-    lyrics, align_wav = _shift_sheet(job, tmp, source_audio, lyrics, plan.align_wav, speed_factor)
-    result, second_pass_separated, aligned_wav = _align_stage(
-        s,
-        job,
-        tmp,
-        source_audio,
-        lyrics,
-        align_wav=align_wav,
-        tempo=1.0 / speed_factor,
+    reviewed = align_and_review(
+        s, job, tmp, source_audio, plan.lyrics, align_wav=plan.align_wav,
+        speed_factor=speed_factor,
     )
-    vocals_separated = second_pass_separated or separate_first
-    # The arbiter's only aligner-independent evidence (Faz 8 B4).
-    # Measured on the audio the winning alignment actually heard; a
-    # failure returns None and line QA falls back to today's rule.
-    qa = apply_line_qa(
-        result, lyrics.line_texts, lyrics.synced_starts_ms, detect_onsets(aligned_wav)
-    )
-    # 2.29.1: QA judged the cut ends; the words get their length back now.
-    result, _restored = restore_held_ends(qa.result)
+    lyrics, result, qa = reviewed.lyrics, reviewed.result, reviewed.qa
+    vocals_separated = reviewed.second_pass_separated or separate_first
     if not is_original_speed(speed_factor):
         result = _nightcore_gate(result, lyrics, speed_factor)
     _record_line_qa(job, qa)

@@ -158,11 +158,12 @@ meta (`stems/<id>.json`) must name the settings' separator: a model or mixback o
 `SEPARATION_MODEL_FILENAME` / `SEPARATION_MIXBACK` stops the run (exit 2); a stem without that
 record gets a warning.
 
-- **Settings come from the environment, as in the worker.** Pass the live worker's env with
-  `--env-file apps/server/audit/worker.env.example` (`ALIGN_MODELS` above all), or the document
-  comes from a different pipeline. **Sync that file with gitops
-  `apps/kashi-server/deployment-worker.yaml` before an acceptance run**; docker takes its values
-  literally (no quotes around the JSON). `--extras` records what was in force (settings, the
+- **Settings come from the environment, as in the worker.** Since pipeline 2.33.0 the code
+  defaults are the live worker's pipeline (aligner table with its offsets, separator, structure
+  flag; `config.PRODUCTION_ALIGN_MODELS`), so a run needs no env file; an env value still
+  overrides and then the document comes from a different pipeline. `worker.env.example` holds
+  the same values as the defaults (a test pins that) until gitops drops them; docker takes its
+  values literally (no quotes around the JSON). `--extras` records what was in force (settings, the
   resolved aligner and its offsets) and what prod computes but never stores: the onsets line QA
   reads (vocal energy too, before pipeline 2.32.0), each word's prob / lateness shift / placing
   pass (`edges`, `segment`, `whole`), line QA's per-line lists.

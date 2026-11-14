@@ -40,6 +40,41 @@ docker run --rm -v "$PWD/apps/server:/repo" -w /repo -e PYTHONPATH=/repo/src \
 weights, separator checkpoints, yt-dlp EJS cache) — first-run downloads land
 there and survive. Use the actual volume name from `docker volume ls`.
 
+### Two modes: the shipped pipeline (default) and `--legacy` (2.33.0)
+
+Until 2026-11-14 the bench measured the aligner, not the product: `align()`
+plus an end trim production dropped, no line QA, no sheet shift, no held-end
+restore, and `--align-model` silently bypassed the production offset table.
+
+- **Default (shipped):** every song goes through `process.align_and_review`,
+  the function the worker itself runs after the lyrics are chosen (sheet shift,
+  windowed alignment resolved as production resolves it, line QA on the aligned
+  audio's onsets, `restore_held_ends`). Separator, mixback and windowing default
+  to the production settings (`--separation kim-base --mixback 0 --windowed`).
+  The human line starts, seeded-jittered (`--anchor-jitter-ms`, default 400) and
+  optionally moved as a whole (`--stamp-offset-ms`), are the lrclib sheet.
+  Each song carries `stages` (`aligned` / `line_qa` / `shipped`, the same
+  metrics at each step) and `shipped` (sheet shifts, line QA's flagged /
+  density-dropped / arbiter-dropped / rescued / ad-lib lines, wordless lines,
+  restored ends). Words line QA left without a time are excluded from `pco`
+  and counted as misses in `pco_all`. `meta.deviations` lists every flag that
+  makes the run differ from the worker; `meta.aligners` what each language ran
+  with (checkpoint, romanize, offsets, pinned revision). `--align-model` swaps
+  the checkpoint but keeps each language's offsets (zero them explicitly:
+  `--align-offset-ms 0 --align-offset-by-initial none`). `--no-density-drop`
+  switches line QA's border-case density drop off (review C.4).
+- **`--legacy`:** the old bench, flags and defaults unchanged (full mix,
+  mixback 0.15, not windowed, the private trim on, `--align-model` bypassing the
+  table). Every result file before 2026-11-14 is a legacy run; the same flags
+  with `--legacy` reproduce it. Only the meta is truer now (`aligners`,
+  `alignment_model` / `align_offset_ms` from what ran).
+
+Both modes report `aggregate.fluency`: the line-start noticeable share (first
+word later than +220 ms or earlier than −330 ms against the human start; late /
+early split) and the dwell shares (non-final words lit < 120 ms for the
+pipeline and for the singing on the same pairs, and the pipeline-only share),
+plus gross errors (`benchmarks/metrics.fluency`).
+
 ### Aligner bake-off (Faz 8 P-B1/A2)
 
 `--align-model` selects the checkpoint, so comparing two aligners is a flag

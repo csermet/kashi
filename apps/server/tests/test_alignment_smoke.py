@@ -1,5 +1,6 @@
 """The one test that touches the real model. Marked slow: it needs the `align`
-extra and downloads ~1.2 GB of weights on first run."""
+extra and downloads the English production checkpoint (~3.9 GB, the code
+default since pipeline 2.33.0; MMS ~1.2 GB before) on first run."""
 
 import pytest
 
@@ -34,3 +35,16 @@ def test_align_produces_word_timings_for_both_lines():
         assert previous.start_ms <= current.start_ms
         assert previous.end_ms <= current.start_ms
     assert words[-1].end_ms <= 7_000  # the fixture is ~6 s
+
+
+def test_the_pinned_loader_still_mirrors_the_librarys():
+    """alignment._load_checkpoint repeats the library's two from_pretrained calls
+    so it can pass a hub revision (2.33.0). The library is pinned to a git
+    commit; if a bump changes its loader, this twin must follow."""
+    import inspect
+
+    from ctc_forced_aligner import load_alignment_model
+
+    source = inspect.getsource(load_alignment_model)
+    assert "AutoModelForCTC.from_pretrained(model_path, dtype=dtype).to(device).eval()" in source
+    assert "AutoTokenizer.from_pretrained(model_path, word_delimiter_token=None)" in source

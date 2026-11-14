@@ -106,11 +106,29 @@ def _sleep_unless_stopped(
         remaining -= step
 
 
+def _config_note() -> str:
+    """Since 2.33.0 the code defaults are the production pipeline, so the version
+    names it only while no pipeline setting is overridden from the environment."""
+    from kashi_server.config import pipeline_overrides
+
+    overridden = pipeline_overrides(settings)
+    if not overridden:
+        return "code-default configuration"
+    return f"env overrides {', '.join(overridden)} (not what the version names)"
+
+
+def _environment_defaults() -> None:
+    """Process environment the model loaders read; an operator's value wins.
+    (DISABLE_SAFETENSORS_CONVERSION is set where the aligners load,
+    alignment._load_checkpoint, so the bench and the audit get it too.)"""
+    os.environ.setdefault("HF_HOME", str(settings.model_cache_dir))
+
+
 def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    os.environ.setdefault("HF_HOME", str(settings.model_cache_dir))
+    _environment_defaults()
 
     _warm_up()
     sweep_orphans(settings.data_dir)
@@ -120,9 +138,10 @@ def run_forever() -> None:  # pragma: no cover - the loop; pieces are tested
     # Two workers can share the queue (Faz 9.3): the first line to check is
     # that both run the same pipeline — documents carry the version that made them.
     logger.info(
-        "worker %s ready: pipeline %s (poll %.1fs, metrics :%d)",
+        "worker %s ready: pipeline %s, %s (poll %.1fs, metrics :%d)",
         settings.worker_name,
         PIPELINE_VERSION,
+        _config_note(),
         settings.worker_poll_interval_s,
         settings.metrics_port,
     )

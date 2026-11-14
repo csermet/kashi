@@ -32,7 +32,7 @@ logger = logging.getLogger("audit.ear")
 
 HALF_WINDOW_MS = 2500
 # Checkpoint short names as they appear in alignment.method, to their HF ids
-# (gitops deployment-worker.yaml ALIGN_MODELS + the MMS default).
+# (config.PRODUCTION_ALIGN_MODELS + the MMS default).
 CHECKPOINTS = {
     "wav2vec2-xls-r-1b-english": "jonatasgrosman/wav2vec2-xls-r-1b-english",
     "wav2vec2-xls-r-300m-cv7-turkish": "mpoyraz/wav2vec2-xls-r-300m-cv7-turkish",
