@@ -82,6 +82,13 @@ def _stored(db_session) -> ProcessedTrack:
     ).one()
 
 
+def _worded(db_session) -> int:
+    """Worded lines of the STORED document: tells a persist from a refusal
+    (persist returns the stored etag on a refusal, so comparing the returned
+    etag with the stored one proves nothing)."""
+    return sum(1 for line in _stored(db_session).document["lines"] if line.get("words"))
+
+
 def _applied_etag(db_session) -> str | None:
     return db_session.execute(text("SELECT applied_etag FROM song_overrides")).scalar_one()
 
@@ -108,7 +115,7 @@ def test_an_override_build_replaces_the_automatic_document_whatever_the_scores(
     assert regression(_stored(db_session).document, new) is not None  # today: refused
     etag = persist_processed_track(db_session, job, new)
     assert etag != auto_stored
-    assert _stored(db_session).etag == etag
+    assert _stored(db_session).etag == etag and _worded(db_session) == 12
     assert _applied_etag(db_session) == etag  # B1
 
 
@@ -116,7 +123,7 @@ def test_an_override_build_replaces_a_document_from_a_newer_or_other_basis(db_se
     _set_override(db_session)
     job = _override_job(db_session)
     etag = persist_processed_track(db_session, job, _doc(job, 30, 0.2, basis="ctc-probs"))
-    assert _stored(db_session).etag == etag
+    assert etag != auto_stored and _worded(db_session) == 30
 
 
 # --- G1: an override build is kept against runs that did not apply it ---------
@@ -164,12 +171,12 @@ def test_a_run_of_older_override_content_cannot_replace_the_current_build(
 def test_force_persist_still_wins_and_ends_the_build_under_status(db_session, override_stored):
     job = _job(db_session, {"force_persist": True})
     etag = persist_processed_track(db_session, job, _doc(job, 5, 0.1))
-    assert _stored(db_session).etag == etag
+    assert etag != override_stored and _worded(db_session) == 5
     assert _applied_etag(db_session) == override_stored  # stale now: not "built under"
     # ...so the next override run is a first build again (G2), scores aside.
     job2 = _override_job(db_session)
     etag2 = persist_processed_track(db_session, job2, _doc(job2, 3, 0.05))
-    assert _stored(db_session).etag == etag2
+    assert etag2 != etag and _worded(db_session) == 3
 
 
 # --- a refresh under the same override compares like with like ---------------
@@ -182,7 +189,7 @@ def test_a_same_override_refresh_is_judged_by_the_usual_rules(db_session, overri
     assert _applied_etag(db_session) == override_stored
     better = _override_job(db_session)
     etag = persist_processed_track(db_session, better, _doc(better, 21, 0.62))
-    assert _stored(db_session).etag == etag
+    assert etag != override_stored and _worded(db_session) == 21
     assert _applied_etag(db_session) == etag
 
 
@@ -195,14 +202,14 @@ def test_a_foreign_overwrite_ends_the_build_under_status(db_session, override_st
     db_session.execute(text("UPDATE processed_tracks SET etag = 'written-by-an-old-image'"))
     job = _override_job(db_session)
     etag = persist_processed_track(db_session, job, _doc(job, 3, 0.05))
-    assert _stored(db_session).etag == etag
+    assert etag != "written-by-an-old-image" and _worded(db_session) == 3
 
 
 def test_after_a_delete_the_usual_rules_apply_again(db_session, override_stored):
     db_session.execute(text("DELETE FROM song_overrides"))
     job = _job(db_session)
     etag = persist_processed_track(db_session, job, _doc(job, 21, 0.62))
-    assert _stored(db_session).etag == etag
+    assert etag != override_stored and _worded(db_session) == 21
     job2 = _job(db_session)
     kept = persist_processed_track(db_session, job2, _doc(job2, 2, 0.62))
     assert kept == etag  # and the worded-lines rule is back
