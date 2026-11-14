@@ -144,3 +144,18 @@ def test_a_bad_checkpoint_name_stays_a_permanent_failure(load_calls, monkeypatch
     monkeypatch.setitem(sys.modules, "transformers", _transformers([], failing_load))
     with pytest.raises(OSError):
         alignment._load_model("nonexistent/model")
+
+
+def test_a_load_switches_safetensors_auto_conversion_off_unless_told_otherwise(
+        load_calls, monkeypatch):
+    """transformers reads the variable at load time; without it every load of a
+    .bin-only checkpoint starts a background conversion download (measured on
+    the bench image, 2026-11-14)."""
+    import os
+
+    monkeypatch.delenv("DISABLE_SAFETENSORS_CONVERSION", raising=False)
+    alignment._load_model("eng-model")
+    assert os.environ["DISABLE_SAFETENSORS_CONVERSION"] == "1"
+    monkeypatch.setenv("DISABLE_SAFETENSORS_CONVERSION", "0")  # an operator's choice stays
+    alignment._load_model("tur-model")
+    assert os.environ["DISABLE_SAFETENSORS_CONVERSION"] == "0"

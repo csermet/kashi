@@ -51,6 +51,7 @@ def test_a_scored_song_carries_line_starts_dwell_and_gross_errors():
         "lines": 2, "line_late": 1, "line_early": 1,  # +300 late, -400 early
         "pairs": 2, "hyp_short": 1, "truth_short": 0, "both_short": 0,  # 1300 -> 1360
         "words": 4, "gross": 0, "untimed": 0,
+        "wordless_lines": 0, "wordless_late": 0, "wordless_early": 0,
     }
     agg = run._jamendo_aggregate([{**entry, "language": "eng", "duration_s": 4.0,
                                    "align_s": 1.0}])
@@ -87,6 +88,28 @@ def test_a_wordless_line_leaves_its_words_untimed_and_is_read_at_its_start():
     f = entry["fluency"]
     assert (f["lines"], f["line_late"], f["untimed"]) == (3, 1, 2)  # line 1 shown 400 ms late
     assert f["pairs"] == 2  # the wordless line has no dwell to judge
+
+
+def test_a_song_line_qa_degraded_keeps_its_stages_and_counts_in_the_line_starts(monkeypatch):
+    """No timed word left, so no PCO: the row still carries its stages and its
+    line starts, and the aggregate's fluency and stages include it."""
+    song = _song([[(1000, 1300), (1400, 1700)], [(3000, 3200), (3300, 3600)]])
+    healthy = _result(song, [[(1000, 1300), (1400, 1700)], [(3000, 3200), (3300, 3600)]])
+    degraded = AlignResult(sync="line", lines=[LineTiming(1500, 1700, song.line_texts[0], 0.0),
+                                               LineTiming(3000, 3600, song.line_texts[1], 0.0)],
+                           words_per_line=[], quality_score=0.0)
+    monkeypatch.setattr(run, "_ship_jamendo_song", lambda args, s, entry: (
+        Path("x.wav"), 0.0, degraded, 1.0, {"aligned": healthy, "line_qa": degraded}))
+    entry = run._score_jamendo_song(_args(legacy=False), song, (100, 300), 1, 1)
+    assert "words" not in entry and entry["error"].startswith("no verified word has a time")
+    assert entry["stages"]["aligned"]["pcs"]["0.1"] == 1.0
+    assert entry["stages"]["shipped"]["untimed_words"] == 4
+    agg = run._jamendo_aggregate([entry])
+    assert agg["failed"] == ["hand"] and agg["scored"] == 0
+    starts = agg["fluency"]["line_starts"]
+    assert (starts["lines"], starts["late"], starts["wordless_lines"]) == (2, 1, 2)
+    assert agg["stages"]["aligned"]["pco"]["0.1"] == 1.0
+    assert agg["stages"]["shipped"]["pco"] is None and agg["pco_all"]["0.1"] == 0.0
 
 
 def test_a_line_whose_word_count_changed_cannot_be_paired():
@@ -352,3 +375,31 @@ def test_a_legacy_named_model_is_reported_as_bypassing_the_table(
     assert (eng["model_name"], eng["offset_ms"], eng["offset_by_initial"]) == (
         "some/model", 0, None)
     assert report["meta"]["offset_table"].startswith("none from the table")
+
+
+@pytest.mark.usefixtures("heard")
+@pytest.mark.parametrize("mode", [[], ["--legacy", "--windowed"]])
+def test_a_case_run_says_what_ran_too(live_settings, tmp_path, monkeypatch, mode):
+    """The field-case suite (real lrclib stamps) through either mode: its meta
+    names the aligner each case ran with, not the fallback."""
+    import json
+
+    stem = tmp_path / "case.wav"
+    _write_stem(stem)
+    case = datasets.KashiCase(id="synth", title="t", artist="a", youtube_id="x", lrclib_id=1,
+                              language="eng", window_s=None)
+    monkeypatch.setattr(datasets, "load_cases", lambda path: [case])
+    monkeypatch.setattr(run, "_case_reference",
+                        lambda c: list(zip(LINE_STARTS_MS, LINES, strict=True)))
+    monkeypatch.setattr(run, "_case_audio", lambda c: stem)
+    monkeypatch.setattr(run, "RESULTS_DIR", tmp_path / "results")
+    label = "cases" + str(len(mode))
+    assert run.main(["--dataset", "cases", "--separation", "full-mix", "--label", label,
+                     *mode]) == 0
+    (out,) = (tmp_path / "results").glob(f"*-{label}.json")
+    report = json.loads(out.read_text())
+    assert report["cases"]["results"][0]["aligner"]["model_name"] == (
+        "jonatasgrosman/wav2vec2-xls-r-1b-english")
+    assert report["meta"]["alignment_model"] == "jonatasgrosman/wav2vec2-xls-r-1b-english"
+    assert report["meta"]["align_offset_ms"] == -50
+    assert ("shipped" in report["cases"]["results"][0]) == (not mode)

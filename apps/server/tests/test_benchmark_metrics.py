@@ -180,12 +180,16 @@ def test_only_the_first_word_judges_its_line_and_an_unverified_one_skips_it():
 
 
 def test_a_wordless_line_is_judged_at_its_line_start_when_one_is_given():
-    from benchmarks.metrics import fluency
+    from benchmarks.metrics import fluency, fluency_summary
 
     rows = _line(0, [1000, 1500], [1000, 1400]) + _line(1, [3000, 3500], [None, None])
     assert fluency(rows).lines == 1  # nothing to read the line at
     f = fluency(rows, {1: 3400})
     assert (f.lines, f.line_late, f.untimed) == (2, 1, 2)
+    assert (f.wordless_lines, f.wordless_late, f.wordless_early) == (1, 1, 0)
+    s = fluency_summary([f])["line_starts"]
+    assert (s["wordless_lines"], s["noticeable_pooled"], s["noticeable_timed_pooled"]) == (
+        1, 0.5, 0.0)
     assert fluency(rows, {1: 3200}).line_late == 0
 
 
@@ -235,6 +239,7 @@ def test_the_summary_gives_per_song_means_beside_pooled_shares():
     assert s["line_starts"] == {
         "noticeable_per_song": round((1 / 2 + 1 / 18) / 2, 4), "noticeable_pooled": 0.1,
         "late_pooled": 0.05, "early_pooled": 0.05, "late": 1, "early": 1, "lines": 20,
+        "wordless_lines": 0, "noticeable_timed_pooled": 0.1,
     }
     assert s["dwell"] == {
         "pipeline_short_pooled": 0.1, "truth_short_pooled": 0.125, "pipeline_only_pooled": 0.075,

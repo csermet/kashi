@@ -285,15 +285,18 @@ def _score_jamendo_song(args, song, tolerances_ms: tuple[int, ...], index: int, 
         entry["signals"] = signal_probes.collect(
             result, audio, round(song.duration_hint_s * 1000), onset_ms
         )
-    if not _word_metrics(args, song, result, onset_ms, tolerances_ms, entry):
-        return entry  # no verified words: a row, but nothing to report
+    scored = _word_metrics(args, song, result, onset_ms, tolerances_ms, entry)
     if stages:
         # The same song before line QA and before the held-end restore: what
-        # each shipped step does to it on human truth.
+        # each shipped step does to it on human truth. Built before the
+        # early return below: a song line QA degraded to line sync has no
+        # timed word left, and it is exactly the song the stages must show.
         stages["shipped"] = result
         entry["stages"] = {
             name: _stage_summary(song, staged, tolerances_ms) for name, staged in stages.items()
         }
+    if not scored:
+        return entry  # no verified word with a time: a row, but no PCO to report
     _log_jamendo_song(index, total, song, entry, align_s, separate_s)
     return entry
 
@@ -698,14 +701,15 @@ def _jamendo_aggregate(rows: list[dict]) -> dict:
             "align_s_total": round(sum(r["align_s"] for r in scored), 1),
             "align_x_realtime": round(sum(r["align_s"] for r in scored) / total_audio, 3),
             "trimmed_ends_total": sum(r.get("trimmed_ends", 0) for r in scored),
-            # Line starts, dwell and gross errors (metrics.fluency_summary).
-            "fluency": _fluency_of(scored),
             "per_language": {
                 lang: {
                     "songs": len(group),
                     "word_mae_ms_mean": round(mean(r["words"]["mae_ms"] for r in group), 1),
                     "pco_0.3": round(mean(r["words"]["pcs"]["0.3"] for r in group), 4),
-                    "fluency": _fluency_of(group),
+                    **({"pco_all_0.3": round(mean(r["pco_all"]["0.3"] for r in every), 4)}
+                       if (every := [r for r in rows if r["language"] == lang
+                                     and r.get("pco_all")]) else {}),
+                    "fluency": _fluency_of([r for r in rows if r["language"] == lang]),
                 }
                 for lang in sorted({r["language"] for r in scored})
                 if (group := [r for r in scored if r["language"] == lang])
@@ -743,6 +747,11 @@ def _jamendo_aggregate(rows: list[dict]) -> dict:
                 / sum(r["duration_s"] for r in separated),
                 3,
             )
+    if any("fluency" in r for r in rows):
+        # Line starts, dwell and gross errors (metrics.fluency_summary), over
+        # every row that has them: a song line QA left without a single timed
+        # word still shows its lines (shipped mode).
+        aggregate["fluency"] = _fluency_of(rows)
     # Shipped mode: words without a time counted as misses, the stages, and
     # what the shipped steps did (over every row, failed songs included).
     with_all = [r for r in rows if r.get("pco_all")]
@@ -751,7 +760,7 @@ def _jamendo_aggregate(rows: list[dict]) -> dict:
             tol: round(mean(r["pco_all"][tol] for r in with_all), 4)
             for tol in with_all[0]["pco_all"]
         }
-    staged = [r for r in scored if "stages" in r]
+    staged = [r for r in rows if "stages" in r]  # degraded songs included
     if staged:
         aggregate["stages"] = {
             name: _stage_aggregate([r["stages"][name] for r in staged])
@@ -878,7 +887,7 @@ def _run_cases(args, _tolerances_ms: tuple[int, ...]) -> tuple[list[dict], dict]
 def _score_case(args, case) -> dict:
     entry: dict = {"id": case.id, "title": case.title, "artist": case.artist}
     try:
-        reference, separate_s, anchors, result, align_s = _align_case(args, case)
+        reference, separate_s, anchors, result, align_s = _align_case(args, case, entry)
     except Exception as exc:
         logger.exception("case %s failed", case.id)
         entry["error"] = f"{type(exc).__name__}: {exc}"
@@ -919,8 +928,9 @@ def _score_case(args, case) -> dict:
     return entry
 
 
-def _align_case(args, case):
-    """(reference, separate_s, anchors, result, align_s) — may raise."""
+def _align_case(args, case, entry: dict):
+    """(reference, separate_s, anchors, result, align_s) — may raise. Writes what
+    ran (`aligner`, and `shipped` in the shipped mode) into `entry`."""
     reference = _case_reference(case)
     line_texts = [text for _, text in reference]
     audio = _case_audio(case)
@@ -940,7 +950,13 @@ def _align_case(args, case):
             started = time.monotonic()
             reviewed = _align_and_review(case.id, Path(tmp), source, lyrics, args.align_kwargs)
             align_s = time.monotonic() - started
+        import types
+
+        facts = _shipped_facts(types.SimpleNamespace(line_texts=line_texts), reviewed)
+        entry["aligner"] = facts.pop("aligner")
+        entry["shipped"] = facts
         return reference, separate_s, None, reviewed.result, align_s
+    entry["aligner"] = _legacy_aligner(args, case.language)
     anchors = [start for start, _ in reference] if args.windowed else None
     result, align_s = _align_song(
         source, line_texts, case.language, anchors, args.align_model,
@@ -963,13 +979,16 @@ def main(argv: list[str] | None = None) -> int:
     config_name = _config_name(args)
     started = time.monotonic()
     report: dict = {"meta": _report_meta(args, config_name, tolerances_ms)}
+    ran: list[dict] = []  # every row that records its aligner, both datasets
     if args.dataset in ("jamendo", "both"):
         rows, aggregate = _run_jamendo(args, tolerances_ms)
         report["jamendo"] = {"aggregate": aggregate, "songs": rows}
-        report["meta"] |= _aligner_meta(args, rows)
+        ran += rows
     if args.dataset in ("cases", "both"):
         rows, aggregate = _run_cases(args, tolerances_ms)
         report["cases"] = {"aggregate": aggregate, "results": rows}
+        ran += rows
+    report["meta"] |= _aligner_meta(args, ran)
     report["meta"]["wall_s"] = round(time.monotonic() - started, 1)
     _write_report(report)
     return 0

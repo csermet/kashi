@@ -251,6 +251,13 @@ class Fluency:
     words: int  # verified words with a time
     gross: int  # of those, off by more than GROSS_MS
     untimed: int  # verified words without a time (wordless lines)
+    # Of `lines`, those read at a wordless line's own start (included above).
+    # Such a start is often the sheet's (a snapped or degraded line sits on its
+    # stamp + the median offset), so the bench's stamp model shows through it:
+    # read the timed share (summary) when comparing arms.
+    wordless_lines: int = 0
+    wordless_late: int = 0
+    wordless_early: int = 0
 
 
 def fluency(rows: list[WordRow], wordless_line_starts: dict[int, int] | None = None) -> Fluency:
@@ -271,7 +278,7 @@ def fluency(rows: list[WordRow], wordless_line_starts: dict[int, int] | None = N
     firsts: dict[int, WordRow] = {}
     for row in rows:
         firsts.setdefault(row.line, row)
-    late = early = judged = 0
+    late = early = judged = w_lines = w_late = w_early = 0
     for line, row in firsts.items():
         if not row.verified:
             continue
@@ -282,6 +289,10 @@ def fluency(rows: list[WordRow], wordless_line_starts: dict[int, int] | None = N
         dev = hyp - row.truth_ms
         late += dev > LINE_LATE_MS
         early += dev < LINE_EARLY_MS
+        if row.hyp_ms is None:
+            w_lines += 1
+            w_late += dev > LINE_LATE_MS
+            w_early += dev < LINE_EARLY_MS
     pairs = hyp_short = truth_short = both = 0
     for a, b in zip(rows, rows[1:], strict=False):
         if a.line != b.line or not (a.verified and b.verified):
@@ -300,6 +311,7 @@ def fluency(rows: list[WordRow], wordless_line_starts: dict[int, int] | None = N
         truth_short=truth_short, both_short=both, words=len(timed),
         gross=sum(abs(r.hyp_ms - r.truth_ms) > GROSS_MS for r in timed if r.hyp_ms is not None),
         untimed=sum(r.verified and r.hyp_ms is None for r in rows),
+        wordless_lines=w_lines, wordless_late=w_late, wordless_early=w_early,
     )
 
 
@@ -334,6 +346,12 @@ def fluency_summary(songs: list[Fluency]) -> dict:
             "late": late,
             "early": early,
             "lines": lines,
+            # The same without the lines shown wordless (read at their own start).
+            "wordless_lines": (w_lines := sum(s.wordless_lines for s in songs)),
+            "noticeable_timed_pooled": pooled(
+                late + early - sum(s.wordless_late + s.wordless_early for s in songs),
+                lines - w_lines,
+            ),
         },
         "dwell": {
             "pipeline_short_pooled": pooled(hyp_short, pairs),

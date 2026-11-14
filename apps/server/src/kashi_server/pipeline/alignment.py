@@ -233,6 +233,13 @@ def _load_checkpoint(model_name: str, *, device: str, revision: str | None) -> t
     import torch  # pyright: ignore[reportMissingImports]
     from transformers import AutoModelForCTC, AutoTokenizer  # pyright: ignore[reportMissingImports]
 
+    # For a checkpoint that ships only pytorch_model.bin (the English and
+    # Turkish aligners) transformers starts a thread on every load that asks the
+    # hub for a safetensors conversion and downloads it (refs/pr/N) into the
+    # model cache: the HF cache trap's second copy, never loaded. Measured on the
+    # bench image (transformers 5.13), 2026-11-14: the thread starts without this
+    # variable and not with it. Read at load time; an operator's value wins.
+    os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
     pinned = {"revision": revision} if revision else {}
     model = (
         AutoModelForCTC.from_pretrained(model_name, dtype=torch.float32, **pinned)
