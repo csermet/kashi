@@ -26,7 +26,7 @@ snapped GOSSIP's line 0 onto its stale stamp, 17 s late. The ear hears those
 lines at the section's offset (line 0 at -17.5 s; the 16 intro repeats one
 for one at -3.7 s).
 
-2.32.1: the lines a move leaves behind take their side's offset
+2.34.0: the lines a move leaves behind take their side's offset
 (`_adopt_left_behind`). A section moved later never overtakes the lines
 before it, and one moved earlier never overtakes the lines after it, so
 those stayed at the old clock: Toz Pembe's two opening "Ah-ah" lines (too
@@ -140,7 +140,7 @@ class Section:
     anchors: int
     median_ms: int
     carried: int = 0  # stamped neighbours the move overtook, moved along (2.30.1)
-    adopted: int = 0  # unanchored lines left behind, taken over by position (2.32.1)
+    adopted: int = 0  # unanchored lines left behind, taken over by position (2.34.0)
 
 
 def _agrees(run: list[Anchor], anchor: Anchor) -> bool:
@@ -212,7 +212,7 @@ def shift_sheet(texts: Sequence[str], starts: Sequence[int | None], tokens: Sequ
     then its first..last lines move, and with them any neighbour whose stamp
     the move overtakes (`_carry_overtaken`, 2.30.1), and then the unanchored
     lines it left behind on either side, by position (`_adopt_left_behind`,
-    2.32.1). The 2.29.1 reading that kept them ("GOSSIP's second chorus is
+    2.34.0). The 2.29.1 reading that kept them ("GOSSIP's second chorus is
     3-4 s late where its first verses are 19 s late") came from the ±8 s
     window; the whole-song ear hears every stamped line after GOSSIP's moved
     section at -19 s (2026-11-14)."""
@@ -256,7 +256,7 @@ def _inversions(stamps: Sequence[int]) -> int:
 def _adopt_left_behind(texts: Sequence[str], starts: Sequence[int | None],
                        out: list[int | None], anchors: Sequence[Anchor],
                        found: Sequence[Section], stream: str, times: Sequence[int]) -> list[int]:
-    """2.32.1: the stamped lines between found sections (and before the first,
+    """2.34.0: the stamped lines between found sections (and before the first,
     after the last) that a moved neighbour left at their old stamps take the
     offset of the side they belong to by position. Per gap (the lines strictly
     between two consecutive sections; the song start and end count as sides

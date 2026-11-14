@@ -66,7 +66,7 @@ _SEARCH_PATH = "/api/search"
 # for "."); a line opens with one or more of them (several = the line repeats).
 _STAMP = r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]"
 _TIMESTAMP = re.compile(r"^\s*" + _STAMP + r"\s*")
-# Time tags INSIDE a line's text (pipeline 2.32.1): enhanced-LRC word tags
+# Time tags INSIDE a line's text (pipeline 2.34.0): enhanced-LRC word tags
 # "<mm:ss.xx>" before each word or syllable (lrclib record 1009665 since
 # 2026-11; they reached the screen as text), and a square stamp after text.
 # They are stripped, never read: the line keeps its own stamp, and lrclib's

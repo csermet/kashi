@@ -36,7 +36,7 @@ MIN_STAMPED_FRACTION = 0.8
 # this span of the run's first. The benchmark's bunched-run rule.
 PILE_MIN_WORDS = 3
 PILE_SPAN_MS = 60
-# 2.32.1 (whole_track_vote's spacing guard): the vote may not bring two words
+# 2.34.0 (whole_track_vote's spacing guard): the vote may not bring two words
 # closer than this when their windowed starts are at least this far apart —
 # the overlay's short dwell (a word lit under 120 ms reads as a flash).
 VOTE_MIN_GAP_MS = 120
@@ -399,7 +399,7 @@ def whole_track_vote(
     different word count or text means the two streams cannot be paired, and
     nothing changes. Returns (rows, words taken, paired).
 
-    `keep_order` (2.32.1): a word is refused the whole-track time when that
+    `keep_order` (2.34.0): a word is refused the whole-track time when that
     time would start it at or after the next word, or at or before the
     previous word, where that neighbour keeps its windowed time, or would
     bring it under VOTE_MIN_GAP_MS of a neighbour the windows kept at least
@@ -447,7 +447,7 @@ def whole_track_vote(
 def _order_refusals(
     voted: list[bool], kept_ms: list[int], taken_ms: list[int], min_gap_ms: int = VOTE_MIN_GAP_MS
 ) -> list[bool]:
-    """The vote's order and spacing guard (2.32.1): `voted` with refusals, pair
+    """The vote's order and spacing guard (2.34.0): `voted` with refusals, pair
     by pair of adjacent words, each at its taken start (`taken_ms`) if voted
     and its windowed start (`kept_ms`) if not:
 

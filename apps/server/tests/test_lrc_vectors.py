@@ -1,7 +1,7 @@
 """The shared LRC vectors (packages/schemas/vectors/lrc-lines.json), server side.
 
 The overlay runs the same file in apps/overlay/src/main/lrc-vectors.test.ts, so
-the two lrclib parsers cannot drift apart on what a line says (pipeline 2.32.1:
+the two lrclib parsers cannot drift apart on what a line says (pipeline 2.34.0:
 enhanced-LRC word tags reached the screen as text on both twins).
 """
 

@@ -597,7 +597,7 @@ def _vote_seams_case(monkeypatch, tmp_path, **kwargs):
 
 
 def test_whole_vote_refuses_a_word_it_would_put_before_a_kept_one(monkeypatch, tmp_path):
-    # 2.32.1: "four" would land before "three"; the vote refuses it and it keeps
+    # 2.34.0: "four" would land before "three"; the vote refuses it and it keeps
     # its windowed time instead of being clamped onto "three" (0 ms).
     three, four = _vote_seams_case(monkeypatch, tmp_path)
     assert (three.source, three.start_ms) == ("edges", 6_200)

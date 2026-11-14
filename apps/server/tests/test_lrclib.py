@@ -75,7 +75,7 @@ def test_multi_stamp_lrc_line_uses_first_stamp_and_clean_text():
 
 
 def test_enhanced_lrc_word_tags_never_reach_the_aligned_text():
-    """Pipeline 2.32.1. lrclib record 1009665 grew enhanced-LRC word tags in
+    """Pipeline 2.34.0. lrclib record 1009665 grew enhanced-LRC word tags in
     2026-11 and the live document showed them as text. The tags are stripped;
     the line keeps its own stamp; a tag-only line drops like an empty one; an
     ID tag above the lyrics is not a line. (Invented words.)"""

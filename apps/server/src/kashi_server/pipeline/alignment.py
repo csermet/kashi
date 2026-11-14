@@ -622,7 +622,7 @@ HYBRID_T_MS = 400
 WHOLE_VOTE_DEFAULT = True
 WHOLE_VOTE_T_MS = 1200
 
-#: 2.32.1: the vote keeps the word order and the windows' spacing
+#: 2.34.0: the vote keeps the word order and the windows' spacing
 #: (windows.whole_track_vote, `keep_order`). Off reproduces 2.32.0.
 VOTE_ORDER_DEFAULT = True
 
@@ -1145,7 +1145,7 @@ def align(
     (windows.unpile_starts). `line_region_ms` (2.31.0) holds each line of a
     window with two or more stamps within that many ms of its own stamp,
     inside both window passes (windows.line_regions); None switches it off.
-    `vote_order` (2.32.1) refuses a whole-track time that would put a word out
+    `vote_order` (2.34.0) refuses a whole-track time that would put a word out
     of order with a neighbour keeping its windowed time (whole_track_vote's
     `keep_order`); False reproduces 2.32.0."""
     if seam_policy not in SEAM_POLICIES:

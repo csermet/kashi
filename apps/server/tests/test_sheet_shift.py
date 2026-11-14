@@ -64,7 +64,7 @@ def test_a_neighbour_the_move_overtakes_moves_with_it(off, past, carried):
     # ear hears every line but the first (last), whose stamp lies `past` ms
     # beyond where its neighbour moves to. A stamp the move overtakes moves
     # along, so the windows get stamps in order (`carried`); one equal to the
-    # moved stamp is in order and was left at the old clock until 2.32.1,
+    # moved stamp is in order and was left at the old clock until 2.34.0,
     # which adopts it by position with the same offset (`adopted`).
     lone, edge = (0, 1) if off > 0 else (5, 4)
     starts: list[int | None] = [t - EAR_LAG_MS + off for t in SUNG]
@@ -110,7 +110,7 @@ def _sheet(
 
 @pytest.mark.parametrize("early", [19_335, -19_335])
 def test_lines_left_before_and_after_a_moved_section_take_its_offset(early):
-    # 2.32.1. Toz Pembe (sheet 19.3 s early, section moved later): the two
+    # 2.34.0. Toz Pembe (sheet 19.3 s early, section moved later): the two
     # opening interjections sit before the section and were never carried.
     # GOSSIP (sheet late, moved earlier): the repeats after it stayed late.
     # Both sides go with the section now, the song start clamping at 0.
@@ -122,7 +122,7 @@ def test_lines_left_before_and_after_a_moved_section_take_its_offset(early):
     assert [(s.first_line, s.last_line, s.median_ms) for s in applied] == [(2, 7, early)]
     assert out == [max(0, s - EAR_LAG_MS) for s in sung]
     # The move overtakes the two lines on one side (carried since 2.30.1); the
-    # two on the other side were left at the old clock until 2.32.1.
+    # two on the other side were left at the old clock until 2.34.0.
     assert (applied[0].carried, applied[0].adopted) == (2, 2)
 
 
@@ -203,7 +203,7 @@ def test_a_gap_with_nothing_left_behind_keeps_its_stamps_even_out_of_order():
     # Lines 0-2 move 2 s earlier, lines 4-6 15 s earlier; line 3 (38 s) is
     # overtaken by the second move and carried with it (2.30.1) to 23 s,
     # before line 2's new 28 s. Nothing in the gap is left at the old clock,
-    # so 2.32.1 does not decide it again (the nearer edge would say line 2's
+    # so 2.34.0 does not decide it again (the nearer edge would say line 2's
     # side): 2.32.0's stamps stand.
     texts = [*TEXTS[:3], SHORT[0], *LONG3]
     sheet = [10_000, 20_000, 30_000, 38_000, 50_000, 60_000, 70_000]

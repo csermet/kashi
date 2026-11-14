@@ -788,5 +788,54 @@
 # (config.ALIGNER_REVISIONS, settable as align_model_revisions), not from each
 # repository's moving main; each pin is that repository's main head on
 # 2026-11-13, i.e. what a worker (re)started online loaded already.
-PIPELINE_VERSION = "2.33.0"
+# 2.34.0: the timing release (whole-project review, steps C.2 first half and
+# C.4, the vote-pile guard and two visible sheet defects; each heard blind by
+# the owner). Five changes, each its own switch or rule; 2.32.1 was each
+# branch's working number and never shipped (the persist guard orders by
+# version, so the release sits above 2.33.0).
+# (1) The whole-track vote keeps the word order and the windows' spacing
+# (windows.whole_track_vote `keep_order`, align `vote_order`; off = 2.32.0): a
+# word is refused the whole-track time when it would start at or after a next
+# word, or at or before a previous one, that keeps its window time, or would
+# sit under VOTE_MIN_GAP_MS (120) from a neighbour the windows kept >= 120 ms
+# apart; refusals repeat to a fixed point. 229 of the 274 words in new 0 ms
+# runs of the 2.32.0 archive were such inversions (the seam pass clamped the
+# kept words onto the voted one). Archive rig, 287 songs: new-run words 274 ->
+# 39, short-dwell share 0.0607 -> 0.0511, bunched runs 111 -> 72; human truth
+# all 79 PCO@0.1 0.9012 -> 0.9031, @0.3 0.9656 -> 0.9678, pipeline-only rushed
+# 0.0382 -> 0.0295.
+# (2) Line QA's density drop is gone: the unflagged lines within two lines of
+# a flagged one no longer lose their words for a score under 0.01 or words
+# covering under 30 % of the stamp window (flags, snaps and the arbiter stay;
+# `alignment.qa.density_dropped` is always 0). With (1), archive: wordless
+# lines 256 -> 141, 10 of the 116 re-lit lines lit badly; hold-out 10 -> 1
+# wordless at no measured line-start cost; on healthy +-400 ms sheets the drop
+# had emptied few lines and about half of them wrongly (step B).
+# (3) The sheet shift carries the lines it leaves behind (C.2): a gap next to
+# a moved section that still holds a line at the old clock is decided again
+# (sheet_shift._adopt_left_behind): its lines take the offset of the side they
+# belong to, by stamp order, then by where the ear hears each line, then by
+# position. Toz Pembe's two short opening "Ah-ah" lines lit 19 s before the
+# voice and GOSSIP's lines 25-37 stayed 19 s late. Injected errors on
+# JamendoLyrics (79 songs, pre-registered): left-behind lines > 1 s off 6 124
+# -> 30; next to a moved verse 11 made > 1 s off against 34 brought back;
+# healthy sheets 0 of 79 change. Known flaw: GOSSIP's stampless line 38 rides
+# in line 37's moved window and starts 6.8 s early (was 3.7 s late).
+# (4) A re-derived ad-lib line ends a breath before the next line
+# (line_qa._end_before_next), and the ad-lib snap never carries a line over a
+# neighbour (line_qa._snap_end): the snapped end stops at the next line's
+# start (2.31.0 archive: 18 pairs in 12 of 307 documents, up to 1.19 s); the
+# snap is refused when its start would not fall between the neighbours'
+# starts or a hook of two or more words would keep under 500 ms. A hook
+# snapped earlier into the previous line's tail is not touched.
+# (5) LRC syntax never reaches the screen as text, on both twins (server
+# lrclib.py, overlay lrclib.ts; shared vectors packages/schemas/vectors/
+# lrc-lines.json): enhanced-LRC word tags ("<00:18.89>") and a square stamp
+# inside a line are stripped, ID-tag lines ("[ar:]", "[offset:]") dropped
+# ("[offset:]" is not applied), one leading-stamp grammar ("[1:02.50]",
+# "[01:02]" anchor on the server too). 1 of 306 archive records carries word
+# tags (Never Gonna Give You Up), 1 an ID tag; a 5 000-record mirror sample 0
+# and 9. LOOKUP_LADDER_VERSION stays 3: no rung changed and no cached miss
+# depends on the parse.
+PIPELINE_VERSION = "2.34.0"
 PIPELINE_MAJOR = 2
