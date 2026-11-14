@@ -132,6 +132,10 @@ def live_settings(monkeypatch):
     for name in PIPELINE_FIELDS:
         monkeypatch.setattr(settings, name, getattr(bare, name))
     monkeypatch.setattr(line_qa, "_border_case_drops", line_qa._border_case_drops)
+    from kashi_server.worker import process
+
+    for name in ("_shift_sheet", "detect_onsets"):
+        monkeypatch.setattr(process, name, getattr(process, name))
     return settings
 
 
@@ -173,9 +177,20 @@ def test_the_shipped_mode_refuses_what_production_does_not_run(live_settings, ar
         run._finalize_args(run._parse_args(argv))
 
 
-def test_density_drop_off_needs_line_qa(live_settings):
+@pytest.mark.parametrize("flag", ["--no-density-drop", "--no-sheet-shift"])
+def test_switching_a_shipped_step_off_needs_the_shipped_mode(live_settings, flag):
     with pytest.raises(SystemExit):
-        run._finalize_args(run._parse_args(["--legacy", "--no-density-drop"]))
+        run._finalize_args(run._parse_args(["--legacy", flag]))
+
+
+def test_sheet_shift_off_leaves_the_stamps_and_says_so(live_settings):
+    from kashi_server.worker import process
+
+    args = run._finalize_args(run._parse_args(["--no-sheet-shift"]))
+    assert args.deviations == ["sheet shift off"]
+    run._configure_shipped(args)
+    lyrics = object()
+    assert process._shift_sheet(None, None, None, lyrics, "a.wav", 1.0) == (lyrics, "a.wav", [])
 
 
 def test_a_named_model_keeps_the_languages_offsets_unless_they_are_zeroed(live_settings):

@@ -996,8 +996,9 @@ def _finalize_args(args: argparse.Namespace) -> argparse.Namespace:
     """Defaults that depend on the mode, and what makes a shipped run differ
     from the worker (`args.deviations`, written to the result meta)."""
     if args.legacy:
-        if args.no_density_drop:
-            raise SystemExit("--no-density-drop needs the shipped mode (legacy runs no line QA)")
+        if args.no_density_drop or args.no_sheet_shift:
+            raise SystemExit("--no-density-drop / --no-sheet-shift need the shipped mode "
+                             "(legacy runs neither line QA nor the sheet shift)")
         args.windowed = bool(args.windowed)
         args.separation = args.separation or "full-mix"
         args.mixback = 0.15 if args.mixback is None else args.mixback
@@ -1043,6 +1044,8 @@ def _finalize_args(args: argparse.Namespace) -> argparse.Namespace:
             deviations.append(f"{flag} {value}")
     if args.no_density_drop:
         deviations.append("line QA density drop off")
+    if args.no_sheet_shift:
+        deviations.append("sheet shift off")
     args.deviations = deviations
     return args
 
@@ -1069,6 +1072,12 @@ def _configure_shipped(args) -> None:
         from kashi_server.pipeline import line_qa
 
         line_qa._border_case_drops = lambda result, refs, flagged: set()
+    if args.no_sheet_shift:
+        # Isolates the sheet shift (2.29.1) at large stamp errors: the stamps
+        # reach the windows and line QA as the sheet gives them.
+        from kashi_server.worker import process
+
+        process._shift_sheet = lambda job, tmp, audio, lyrics, wav, speed: (lyrics, wav, [])
     by_initial = _by_initial(args)
     table = {}
     for code, choice in settings.align_models.items():
@@ -1259,6 +1268,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "shared by the arms of a sweep (the result does not change; the CPU pass goes)",
     )
     parser.add_argument(
+        "--no-sheet-shift",
+        action="store_true",
+        help="shipped mode: the sheet shift (2.29.1) leaves the stamps as they are (to "
+        "isolate what it does at large stamp errors)",
+    )
+    parser.add_argument(
         "--no-density-drop",
         action="store_true",
         help="shipped mode: line QA keeps the words of the lines its border-case density "
@@ -1427,7 +1442,8 @@ def _config_name(args) -> str:
     if args.stamp_offset_ms:
         config_name += f"-off{args.stamp_offset_ms}"
     if not args.legacy:
-        config_name = "shipped-" + config_name + ("-nodensity" if args.no_density_drop else "")
+        config_name = ("shipped-" + config_name + ("-nodensity" if args.no_density_drop else "")
+                       + ("-noshift" if args.no_sheet_shift else ""))
     return config_name
 
 
@@ -1487,6 +1503,7 @@ def _report_meta(args, config_name: str, tolerances_ms: tuple[int, ...]) -> dict
         "anchor_jitter_ms": args.anchor_jitter_ms if args.windowed or not args.legacy else None,
         "stamp_offset_ms": args.stamp_offset_ms,
         "density_drop": None if args.legacy else not args.no_density_drop,
+        "sheet_shift": None if args.legacy else not args.no_sheet_shift,
         "exact_stride": args.exact_stride,
         "windowed_lead_ms": WINDOWED_LEAD_MS if args.exact_stride and args.windowed else 0,
         "window_star": args.window_star,
