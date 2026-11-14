@@ -25,6 +25,21 @@ songs fell back to whole-audio alignment (no hybrid, vote or V3), and line QA
 snapped GOSSIP's line 0 onto its stale stamp, 17 s late. The ear hears those
 lines at the section's offset (line 0 at -17.5 s; the 16 intro repeats one
 for one at -3.7 s).
+
+2.32.1: the lines a move leaves behind take their side's offset
+(`_adopt_left_behind`). A section moved later never overtakes the lines
+before it, and one moved earlier never overtakes the lines after it, so
+those stayed at the old clock: Toz Pembe's two opening "Ah-ah" lines (too
+short to anchor) lit 19 s before the voice while lines 2-29 moved +19.3 s,
+and GOSSIP's middle and end (no unique line from line 25 on) stayed 19 s
+late behind lines 1-24. Lines before the first section and after the last
+now go with it, lines between two sections with one of them: the order of
+the stamps decides first, then where the ear hears each line (near its stamp
+moved by one side's offset or the other's), then position (the nearer edge
+stamp). JamendoLyrics, injected errors (gates pre-registered, 2026-11-14):
+of the left-behind lines > 1 s off, 6 094 of 6 124 come within 1 s; 12 of
+6 106 changed lines end farther from the human stamp; healthy sheets 0 of 79
+change.
 """
 
 from __future__ import annotations
@@ -125,6 +140,7 @@ class Section:
     anchors: int
     median_ms: int
     carried: int = 0  # stamped neighbours the move overtook, moved along (2.30.1)
+    adopted: int = 0  # unanchored lines left behind, taken over by position (2.32.1)
 
 
 def _agrees(run: list[Anchor], anchor: Anchor) -> bool:
@@ -194,11 +210,12 @@ def shift_sheet(texts: Sequence[str], starts: Sequence[int | None], tokens: Sequ
     """(stamps, the shifted sections applied). Unchanged unless a section of
     at least two agreeing anchors sits more than SHIFT_MS away;
     then its first..last lines move, and with them any neighbour whose stamp
-    the move overtakes (`_carry_overtaken`, 2.30.1). Other unanchored lines
-    around it stay: a repeated chorus has no unique line to anchor, and on the
-    pilot set GOSSIP's second chorus is 3-4 s late where its first verses are
-    19 s late (moving it with them would leave it 15 s early; its stamps stay
-    in order, so it is not carried)."""
+    the move overtakes (`_carry_overtaken`, 2.30.1), and then the unanchored
+    lines it left behind on either side, by position (`_adopt_left_behind`,
+    2.32.1). The 2.29.1 reading that kept them ("GOSSIP's second chorus is
+    3-4 s late where its first verses are 19 s late") came from the ±8 s
+    window; the whole-song ear hears every stamped line after GOSSIP's moved
+    section at -19 s (2026-11-14)."""
     stream, times = ear_stream(tokens)
     anchors = []
     for i in unique_lines(texts):
@@ -216,5 +233,147 @@ def shift_sheet(texts: Sequence[str], starts: Sequence[int | None], tokens: Sequ
             stamp = out[i]
             if stamp is not None:
                 out[i] = max(0, stamp + sec.median_ms)
-    applied = [replace(sec, carried=_carry_overtaken(out, taken, sec)) for sec in moving]
+    carried = {id(sec): _carry_overtaken(out, taken, sec) for sec in moving}
+    adopted = _adopt_left_behind(texts, starts, out, anchors, found, stream, times)
+    applied = [replace(sec, carried=carried[id(sec)], adopted=adopted[k])
+               for k, sec in enumerate(found) if id(sec) in carried]
     return out, applied
+
+
+def _offset(sec: Section | None) -> int:
+    """What a section does to its lines: its median when it moves, else 0."""
+    return sec.median_ms if sec is not None and abs(sec.median_ms) > SHIFT_MS else 0
+
+
+def _moved(stamp: int, offset: int) -> int:
+    return stamp if offset == 0 else max(0, stamp + offset)
+
+
+def _inversions(stamps: Sequence[int]) -> int:
+    return sum(b < a for a, b in zip(stamps, stamps[1:], strict=False))
+
+
+def _adopt_left_behind(texts: Sequence[str], starts: Sequence[int | None],
+                       out: list[int | None], anchors: Sequence[Anchor],
+                       found: Sequence[Section], stream: str, times: Sequence[int]) -> list[int]:
+    """2.32.1: the stamped lines between found sections (and before the first,
+    after the last) that a moved neighbour left at their old stamps take the
+    offset of the side they belong to by position. Per gap (the lines strictly
+    between two consecutive sections; the song start and end count as sides
+    that stay), a split puts the first lines with the left side and the rest
+    with the right: fewest stamps out of order first, then the fewest lines
+    whose own evidence (`_votes`) points to the other side, then the split
+    nearest the default (before the first section: every line with it; after
+    the last: every line with it; between two: each line with the section
+    whose edge stamp is nearer on the sheet, a tie to the left), then the
+    smaller split. A gap no moved section borders, or where no line was left
+    behind, is not touched; a split that would leave more stamps out of order
+    than today is never taken. Mutates ``out``; returns the lines adopted per
+    found section."""
+    inside = {i for sec in found for i in range(sec.first_line, sec.last_line + 1)}
+    own = {a.line: a.delta_ms for a in anchors if a.line not in inside}
+    adopted = [0] * len(found)
+    for k in range(len(found) + 1):
+        left = found[k - 1] if k > 0 else None
+        right = found[k] if k < len(found) else None
+        d_left, d_right = _offset(left), _offset(right)
+        if d_left == 0 and d_right == 0:
+            continue
+        lo = left.last_line + 1 if left is not None else 0
+        hi = right.first_line if right is not None else len(starts)
+        gap = [(i, s) for i in range(lo, hi) if (s := starts[i]) is not None]
+        if all(out[i] != s for i, s in gap):
+            continue  # nothing left behind (or no stamped line): today's stamps stand
+        before = [_stamp(out[left.last_line])] if left is not None else []
+        after = [_stamp(out[right.first_line])] if right is not None else []
+        today = _inversions([*before, *(_stamp(out[i]) for i, _ in gap), *after])
+        default = _default_split(gap, starts, left, right)
+        votes = _votes(gap, texts, own, d_left, d_right, stream, times)
+        best: tuple[tuple[int, int, int, int], list[int]] | None = None
+        for split in range(len(gap) + 1):
+            new = [_moved(s, d_left if j < split else d_right) for j, (_, s) in enumerate(gap)]
+            disorder = _inversions([*before, *new, *after])
+            if disorder > today:
+                continue
+            against = sum(votes.get(i) == ("right" if j < split else "left")
+                          for j, (i, _) in enumerate(gap))
+            cost = (disorder, against, abs(split - default), split)
+            if best is None or cost < best[0]:
+                best = (cost, new)
+        if best is None:
+            continue
+        split = best[0][3]
+        for j, ((i, s), stamp) in enumerate(zip(gap, best[1], strict=True)):
+            side = k - 1 if j < split else k
+            if out[i] == s and stamp != s and 0 <= side < len(found):
+                adopted[side] += 1
+            out[i] = stamp
+    return adopted
+
+
+def _votes(gap: Sequence[tuple[int, int]], texts: Sequence[str], own: dict[int, int],
+           d_left: int, d_right: int, stream: str, times: Sequence[int]) -> dict[int, str]:
+    """Which side a gap line's own evidence takes. A lone anchor (a unique
+    line the ear placed over the whole song, in no section) goes with the side
+    whose offset is nearer its own delta; a tie decides nothing. Any other
+    line of MIN_LETTERS or more goes with the side near whose moved stamp
+    (± AMBIGUITY_MS) the ear hears its letters, at MIN_RATIO or better and
+    MIN_MARGIN ahead of the other side; a repeat is fine here, the two
+    windows are all it is asked about. Without the ear's vote the carry moved
+    more healthy lines next to an injected verse than it brought back (61
+    against 34; with it 11 against 34, gates.md)."""
+    votes: dict[int, str] = {}
+    for i, s in gap:
+        if i in own:
+            to_left, to_right = abs(own[i] - d_left), abs(own[i] - d_right)
+            if to_left != to_right:
+                votes[i] = "left" if to_left < to_right else "right"
+        elif len(letters(texts[i])) >= MIN_LETTERS:
+            r_left = _ratio_near(texts[i], s + d_left + EAR_LAG_MS, stream, times)
+            r_right = _ratio_near(texts[i], s + d_right + EAR_LAG_MS, stream, times)
+            if r_left >= MIN_RATIO and r_left - r_right >= MIN_MARGIN:
+                votes[i] = "left"
+            elif r_right >= MIN_RATIO and r_right - r_left >= MIN_MARGIN:
+                votes[i] = "right"
+    return votes
+
+
+def _ratio_near(text: str, t: int, stream: str, times: Sequence[int]) -> float:
+    """`place`'s best similarity among placements within AMBIGUITY_MS of ``t``."""
+    target = letters(text)
+    span = len(target)
+    reach = AMBIGUITY_MS + span * MS_PER_LETTER
+    best = 0.0
+    for i, at in enumerate(times):
+        if at < t - reach:
+            continue
+        if at > t + reach:
+            break
+        piece = stream[i : i + span]
+        if len(piece) < span // 2:
+            break
+        matcher = SequenceMatcher(None, target, piece, autojunk=False)
+        first = next((b for b in matcher.get_matching_blocks() if b.size >= ANCHOR_BLOCK), None)
+        if first is not None and abs(times[i + first.b] - round(first.a * MS_PER_LETTER) - t) \
+                <= AMBIGUITY_MS:
+            best = max(best, matcher.ratio())
+    return best
+
+
+def _stamp(value: int | None) -> int:
+    assert value is not None  # a stamped line keeps a stamp; an anchor's line is stamped
+    return value
+
+
+def _default_split(gap: Sequence[tuple[int, int]], starts: Sequence[int | None],
+                   left: Section | None, right: Section | None) -> int:
+    """How many of the gap's lines go left when nothing else decides: none
+    before the first section, all after the last, and between two sections
+    those whose sheet stamp is nearer the left section's last stamp than the
+    right section's first (a tie goes left)."""
+    if left is None:
+        return 0
+    if right is None:
+        return len(gap)
+    a, b = _stamp(starts[left.last_line]), _stamp(starts[right.first_line])
+    return sum(s - a <= b - s for _, s in gap)

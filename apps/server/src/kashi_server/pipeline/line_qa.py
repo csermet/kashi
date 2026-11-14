@@ -276,7 +276,8 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
 
     The span itself is bounded too (2.32.0, `_cap_runaway`): past
     ADLIB_REDERIVE_MAX_SPAN_MS the words go over ADLIB_REDERIVE_RUNAWAY_SPAN_MS
-    instead of crawling across the whole of it.
+    instead of crawling across the whole of it. And it ends before the next
+    line starts (2.32.1, `_end_before_next`).
     """
     if result.sync != "word":
         return result, []
@@ -288,7 +289,8 @@ def rederive_adlib_words(result: AlignResult) -> tuple[AlignResult, list[int]]:
         if len(words) < ADLIB_REDERIVE_MIN_WORDS or not is_adlib(line.text):
             continue
         next_start = _next_start(result.lines, i)
-        line = _cap_runaway(_hold_to_next(line, next_start), next_start)
+        line = _end_before_next(_cap_runaway(_hold_to_next(line, next_start), next_start),
+                                next_start)
         if line is not result.lines[i]:
             lines_out[i] = line
         rederived = _respread(words, line)
@@ -338,6 +340,25 @@ def _cap_runaway(line: LineTiming, next_start: int | None) -> LineTiming:
     if end - start < ADLIB_REDERIVE_MIN_SPAN_MS:
         return line
     return replace(line, start_ms=start, end_ms=end)
+
+
+def _end_before_next(line: LineTiming, next_start: int | None) -> LineTiming:
+    """2.32.1: a line about to be re-derived may not end past the next line's
+    start; it ends a breath before it, as a held one does. The ad-lib snap
+    moves a line and its end as a block, and the re-derivation then spread the
+    words over audio the next line already owns: the overlay hands the screen
+    to the next line at its start, so the sweep never finished (Toz Pembe's
+    line 1 ended 900 ms into line 2; 32 re-derived ad-lib lines of the 2.31.0
+    archive end past the next start). Runs after `_cap_runaway`, whose span
+    test it does not change. Returns ``line`` itself when the end does not
+    pass the next start, and when the next line leaves no room for a span the
+    re-derivation would spread over."""
+    if next_start is None or line.end_ms <= next_start:
+        return line
+    end = next_start - ADLIB_HOLD_BREATH_MS
+    if end - line.start_ms < ADLIB_REDERIVE_MIN_SPAN_MS:
+        return line
+    return replace(line, end_ms=end)
 
 
 def _respread(words: list[AlignedWord], line: LineTiming) -> list[AlignedWord] | None:
