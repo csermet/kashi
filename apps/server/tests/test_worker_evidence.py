@@ -278,13 +278,15 @@ def test_any_replay_fault_costs_a_download_not_the_job(db_session, audio, monkey
     assert "replay failed — full job" in log.text
 
 
-def test_a_store_that_fails_never_fails_the_job(db_session, audio, monkeypatch):
+def test_a_store_that_fails_never_fails_the_job(db_session, audio, monkeypatch, log):
     def broken(self, record):
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(evidence.DbStore, "save", broken)
     _run(db_session, monkeypatch, "record")
     assert _row(db_session) is None
+    assert "evidence not stored" in log.text
+    assert "crashed" not in log.text
 
 
 def test_lrclib_weather_during_a_replay_defers_like_a_full_job(db_session, audio, monkeypatch):

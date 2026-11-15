@@ -258,6 +258,20 @@ def test_replay_serves_exactly_what_the_job_read(tmp_path):
     assert out["mix"] == (BEATS, ENERGY, SECTIONS)
 
 
+def test_every_served_array_is_its_own():
+    """A consumer that writes into the emissions it got cannot change what the next pass gets."""
+    recorder, _ = _record()
+    replayer, _why = evidence.replayer_for(recorder.pack(), _settings(), VERSIONS)
+    assert replayer is not None
+    with evidence.active(replayer):
+        track = evidence.track(lambda: None)
+        first, _ = evidence.emissions(_model(), track, True, _fake_emit([]), _stride_of, "abc123")
+        kept = np.asarray(first).copy()
+        np.asarray(first)[:] = 0
+        again, _ = evidence.emissions(_model(), track, True, _fake_emit([]), _stride_of, "abc123")
+    assert np.asarray(again).tobytes() == kept.tobytes()
+
+
 def test_the_library_clock_replays_too():
     """A pass without exact_stride gets the library's int stride back, as from _emit."""
     recorder, _ = _record()
