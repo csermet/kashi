@@ -108,6 +108,26 @@ def test_reprocess_carries_the_ingest_escape_hatches(client, db_session):
     assert job.options == {"original_title": "Song", "separate": False}
 
 
+def test_evidence_only_rides_along_and_is_absent_unless_asked(client, db_session):
+    """The evidence back-fill's option (pipeline/evidence.py) reaches the job; a request without
+    it stores the options exactly as before."""
+    import uuid
+
+    from kashi_server.api.schemas import IngestOptions
+    from kashi_server.db.models import Job
+
+    body = {
+        **_REPROCESS,
+        "hints": {"title": "T", "artist": "A"},
+        "options": {"evidence_only": True},
+    }
+    resp = client.post("/v1/admin/reprocess", json=body, headers=_auth(TEST_ADMIN_KEY))
+    assert resp.status_code == 202, resp.text
+    job = db_session.get(Job, uuid.UUID(resp.json()["job_id"]))
+    assert job.options == {"evidence_only": True, "separate": False}
+    assert "evidence_only" not in IngestOptions.model_fields  # never from a client ingest
+
+
 def test_live_job_is_returned_not_duplicated(client, user_key):
     live = client.post("/v1/ingest", json=_INGEST, headers=_auth(user_key))
     resp = client.post("/v1/admin/reprocess", json=_REPROCESS, headers=_auth(TEST_ADMIN_KEY))

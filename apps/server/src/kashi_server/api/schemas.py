@@ -52,6 +52,11 @@ class ReprocessOptions(IngestOptions):
     # ingest can never push a worse document over a better one. None, not
     # False, so the stored job options stay exactly what they were unless asked.
     force_persist: bool | None = None
+    # Admin only (refresh without download, pipeline/evidence.py): build the document but do not
+    # store it, so that a worker with evidence_mode on keeps the job's evidence and nothing else -
+    # the archive's evidence back-fill, which must not refresh every stored document to the
+    # current pipeline. None, not False, for the same reason as force_persist.
+    evidence_only: bool | None = None
 
 
 class IngestRequest(BaseModel):

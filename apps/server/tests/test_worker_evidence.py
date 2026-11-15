@@ -348,3 +348,52 @@ def test_the_by_ear_rung_needs_the_audio(db_session, audio, monkeypatch, log):
     _run(db_session, monkeypatch, "replay")
     assert audio.reads["download"] == 1
     assert "replay stopped (the by-ear rung)" in log.text
+
+
+# --- the back-fill: evidence_only --------------------------------------------------------------
+
+
+def _stored(db_session):
+    db_session.expire_all()
+    row = db_session.scalars(select(ProcessedTrack)).one()
+    return row.etag, row.job_id
+
+
+def test_evidence_only_records_and_keeps_the_stored_document(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "off")
+    before = _stored(db_session)
+    monkeypatch.setattr(settings, "evidence_mode", "record")
+    job = _job(db_session, {"evidence_only": True})
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert audio.reads["download"] == 2
+    assert _stored(db_session) == before
+    assert _row(db_session) is not None
+
+
+def test_evidence_only_over_matching_evidence_reads_no_audio(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "record")
+    before = _stored(db_session)
+    audio.reads.clear()
+    monkeypatch.setattr(settings, "evidence_mode", "replay")
+    job = _job(db_session, {"evidence_only": True})
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert audio.total() == 0
+    assert _stored(db_session) == before
+
+
+def test_evidence_only_on_a_worker_without_evidence_does_nothing(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "off")
+    before = _stored(db_session)
+    audio.reads.clear()
+    monkeypatch.setattr(settings, "evidence_mode", "off")
+    job = _job(db_session, {"evidence_only": True})
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "completed"
+    assert audio.total() == 0
+    assert _stored(db_session) == before
+    assert _row(db_session) is None

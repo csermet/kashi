@@ -43,7 +43,11 @@ from kashi_server.pipeline.asr import (
 )
 from kashi_server.pipeline.audio_source import fetch_audio
 from kashi_server.pipeline.beats import Beats, extract_beats
-from kashi_server.pipeline.document import build_document, persist_processed_track
+from kashi_server.pipeline.document import (
+    build_document,
+    persist_processed_track,
+    validate_document,
+)
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.energy import Energy, Section, extract_energy
 from kashi_server.pipeline.langid import detect_language
@@ -894,6 +898,12 @@ def _run_job(s: Session, job: Job, tmp: Path) -> None:
     failure of it, runs the job in full (and records it)."""
     mode = settings.evidence_mode
     if mode == "off":
+        if (job.options or {}).get("evidence_only"):
+            # Nothing this worker could keep: no evidence store, and no document wanted.
+            logger.warning("job %s: evidence_only with evidence_mode off — nothing to do", job.id)
+            queue.mark_completed(s, job)
+            s.commit()
+            return
         _run_pipeline(s, job, tmp)
         return
     if mode == "replay" and _replay(s, job, tmp):
@@ -1350,6 +1360,15 @@ def _postprocess(
     # overwrite what the job's new owner produced. The checkpoint also renews
     # the lease, so nobody can reclaim it between here and the commit.
     checkpoint(s, job)
+    if (job.options or {}).get("evidence_only"):
+        # The evidence back-fill (pipeline/evidence.py): the document is built and checked,
+        # the stored one stays; the job's evidence is what it was run for.
+        validate_document(doc)
+        queue.mark_completed(s, job)
+        _drop_staged_upload(s, job)
+        s.commit()
+        logger.info("job %s completed: evidence only, the document was not stored", job.id)
+        return
     persist_processed_track(s, job, doc)
     queue.mark_completed(s, job)
     _drop_staged_upload(s, job)  # same transaction as the completion
