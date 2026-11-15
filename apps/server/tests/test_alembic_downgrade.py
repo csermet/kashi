@@ -33,6 +33,7 @@ HEAD_TABLES = {
     "lrclib_publishes",
     "telemetry",
     "song_overrides",
+    "track_evidence",
 }
 
 
