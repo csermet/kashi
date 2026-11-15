@@ -292,10 +292,9 @@ def _wav_duration_s(path: Path) -> float:
 
 
 def _aligner_decode(source_audio: Path, tmp: Path, *, tempo: float = 1.0) -> Path:
-    """The aligner's 16 kHz wav (`ALIGN_WAV`). Under evidence (pipeline/evidence.py) the plain
-    decode is what the stored values were read off; a stretched one is a clock they do not key."""
-    if not is_original_speed(tempo):
-        evidence.other_audio("a nightcore clock", keyed=False)
+    """The aligner's 16 kHz wav (`ALIGN_WAV`): what the stored evidence was read off (pipeline/
+    evidence.py). A stretched decode never comes here: the nightcore branch decodes its own
+    (`resolve_nightcore`, where a replay stops) and hands it down as `align_wav`."""
     dest = tmp / ALIGN_WAV
     return evidence.aligner_wav(lambda: _decode(source_audio, dest, rate=16000, tempo=tempo), dest)
 

@@ -378,6 +378,29 @@ def test_other_audio():
         evidence.other_audio("the by-ear rung")
 
 
+# --- the aligner during a replay ------------------------------------------------------------
+
+
+def test_a_replay_loads_no_aligner_weights(monkeypatch):
+    from kashi_server.pipeline import alignment
+
+    def no_weights(*a, **k):
+        raise AssertionError("loaded weights")
+
+    tokenizer = object()
+    monkeypatch.setattr(alignment, "_loaded", {})
+    monkeypatch.setattr(alignment, "_load_checkpoint", no_weights)
+    monkeypatch.setattr(alignment, "_load_tokenizer", lambda name: tokenizer)
+    recorder, _ = _record()
+    with evidence.active(evidence.Replayer(recorder.pack())):
+        model, tok = alignment._load_model("org/aligner-tur")
+    assert isinstance(model, evidence.StandInModel)
+    assert evidence.checkpoint_name(model) == "org/aligner-tur"
+    assert tok is tokenizer
+    with pytest.raises(AssertionError, match="loaded weights"):
+        alignment._load_model("org/aligner-tur")  # no session: the real load
+
+
 # --- with no session nothing changes ---------------------------------------------------------
 
 

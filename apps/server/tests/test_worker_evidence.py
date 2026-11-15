@@ -40,6 +40,7 @@ class Audio:
         self.reads: dict[str, int] = {}
         self.slices = [(0, 16_000 * 9), (16_000 * 8, N)]
         self.fail_align = False
+        self.weather = False
 
     def read(self, kind: str) -> None:
         self.reads[kind] = self.reads.get(kind, 0) + 1
@@ -108,6 +109,8 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
     def align(wav, line_texts, language, synced_starts_ms=None, **kw):
         if a.fail_align and evidence.replaying():
             raise RuntimeError("a replay-only fault")
+        if a.weather and evidence.replaying():
+            raise PipelineError("network", "connection reset")
         model = _model()
         track = alignment._load_track(wav, model)
         words = []
@@ -298,3 +301,48 @@ def test_lrclib_weather_during_a_replay_defers_like_a_full_job(db_session, audio
     db_session.refresh(job)
     assert job.status == "queued" and job.deferrals == 1
     assert audio.total() == 0
+
+
+def test_weather_inside_a_replay_is_retried_not_downloaded(db_session, audio, monkeypatch):
+    """A transient error is not the replay's fault: the job retries, as a full job would."""
+    _run(db_session, monkeypatch, "record")
+    audio.weather = True
+    audio.reads.clear()
+    monkeypatch.setattr(settings, "evidence_mode", "replay")
+    job = _job(db_session)
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert (job.status, job.error_type) == ("queued", None)
+    assert audio.total() == 0
+
+
+def test_a_deferred_full_job_stores_nothing(db_session, audio, monkeypatch):
+    def busy(hints, base_url):
+        raise PipelineError("lrclib_unavailable", "503")
+
+    monkeypatch.setattr(wp, "fetch_lyrics", busy)
+    monkeypatch.setattr(settings, "evidence_mode", "record")
+    job = _job(db_session)
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    assert job.status == "queued"
+    assert _row(db_session) is None
+
+
+def test_the_by_ear_rung_needs_the_audio(db_session, audio, monkeypatch, log):
+    """The lookup misses now: the rung that transcribes the mix cannot be replayed."""
+    _run(db_session, monkeypatch, "record")
+    record = {"id": 99, "trackName": "T", "artistName": "A", "duration": SECONDS,
+              "plainLyrics": "\n".join(LINES),
+              "syncedLyrics": "[00:01.00] hello world\n[00:09.00] again here"}
+
+    def miss(hints, base_url):
+        raise PipelineError("lyrics_not_found", "no record")
+
+    monkeypatch.setattr(wp, "fetch_lyrics", miss)
+    monkeypatch.setattr(wp, "search_candidates", lambda query, base_url: [record])
+    monkeypatch.setattr(wp, "transcribe", lambda wav, model: "hello world again here")
+    audio.reads.clear()
+    _run(db_session, monkeypatch, "replay")
+    assert audio.reads["download"] == 1
+    assert "replay stopped (the by-ear rung)" in log.text
