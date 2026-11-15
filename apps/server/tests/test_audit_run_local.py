@@ -116,15 +116,20 @@ def heard(monkeypatch):
                     for i in range(len(words))]
         return segments, [-0.1] * len(words), 0
 
+    def get_spans(tokens, segments, blank):
+        # The library's shape: per word a list of segments. One unlabelled segment each: the
+        # stand-in has no letters (2.35.0 reads a span's letters).
+        return [[types.SimpleNamespace(label="", start=s, end=e)] for s, e in segments]
+
     def postprocess_results(text_starred, spans, stride, scores):
-        return [{"text": w, "start": s * stride / 1000, "end": e * stride / 1000, "score": sc}
-                for w, (s, e), sc in zip(text_starred, spans, scores, strict=True)]
+        return [{"text": w, "start": sp[0].start * stride / 1000, "end": sp[-1].end * stride / 1000,
+                 "score": sc}
+                for w, sp, sc in zip(text_starred, spans, scores, strict=True)]
 
     monkeypatch.setitem(sys.modules, "ctc_forced_aligner", types.SimpleNamespace(
         load_audio=load_audio, generate_emissions=generate_emissions,
         preprocess_text=preprocess_text, get_alignments=get_alignments,
-        get_spans=lambda tokens, segments, blank: segments,
-        postprocess_results=postprocess_results,
+        get_spans=get_spans, postprocess_results=postprocess_results,
     ))
     model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model",
