@@ -198,7 +198,12 @@ def key_difference(stored: dict, expected: dict) -> str | None:
     def walk(a: Any, b: Any, path: str) -> str | None:
         if isinstance(a, dict) and isinstance(b, dict):
             for name in sorted(set(a) | set(b)):
-                found = walk(a.get(name), b.get(name), f"{path}.{name}" if path else name)
+                where = f"{path}.{name}" if path else name
+                if (name in a) != (name in b):  # a field only one side has is a difference
+                    return f"{where}: {'present' if name in a else 'absent'} -> " + (
+                        "present" if name in b else "absent"
+                    )
+                found = walk(a[name], b[name], where)
                 if found:
                     return found
             return None
