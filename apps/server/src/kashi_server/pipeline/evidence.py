@@ -11,17 +11,19 @@ With `evidence_mode` on, a full job runs under a `Recorder`, which keeps what th
 returned, and stores it per song (`track_evidence`, `DbStore`). With `"replay"`, a later job for
 the song runs under a `Replayer`: the SAME pipeline code from the lyrics lookup to the persisted
 document, with only its audio boundaries served from the stored values — no download, no
-separation, no model forward pass. Whatever a replay cannot serve exactly (a slice another
-window plan cuts differently, another checkpoint or revision, a nightcore clock, the by-ear rung,
-another separator, another library that computed a value, a value never recorded) raises
-`EvidenceMissing`, always before anything is persisted, and the job runs in full instead.
+separation, no model forward pass. A record whose song-wide key differs (another separator,
+evidence code or library that computed a value) is not replayed at all; whatever a replay then
+cannot serve exactly (a slice another window plan cuts differently, another checkpoint or
+revision, a nightcore clock, the by-ear rung, a value never recorded) raises `EvidenceMissing`,
+always before anything is persisted, and the job runs in full instead.
 
 The hooks are the module-level functions below (`emissions`, `track`, `download`, ...). Each
 takes the real computation as `compute` and calls it as given when no session is active, so with
 the mode off the pipeline does exactly what it did (the callers look `compute` up at call time,
 which keeps the test and harness seams working).
 
-Design note: `docs/research` (indirmesiz-yenileme, 2026-11-15).
+Design note: "Refresh without download" (2026-11-15; working files indirmesiz-yenileme, to move
+into docs/research after review).
 """
 
 from __future__ import annotations
