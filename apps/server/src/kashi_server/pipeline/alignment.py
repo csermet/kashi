@@ -640,7 +640,8 @@ LINE_REGION_DEFAULT: int | None = LINE_REGION_MS
 
 #: 2.35.0: a line's first word starts at most this many ms before the
 #: earliest place a pass of the windowed path (edges, segment, whole track)
-#: hears its first letter (windows.start_at_heard_onset). The owner's bound
+#: hears its first letter, when the whole-track pass hears it no more than
+#: this much later (windows.start_at_heard_onset). The owner's bound
 #: (2026-11-14): a line may arrive about 1 s before it is sung, and the
 #: overlay already shows a line up to 500 ms before its start (packages/view
 #: findDisplayLine), so 500 ms is what the start itself may lead by. None

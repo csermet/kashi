@@ -557,18 +557,18 @@ def start_at_heard_onset(
     stamps: list[int | None] | None = None, drift_ms: int | None = None,
 ) -> tuple[list[dict], int]:
     """2.35.0: a line's first word starts at most `lead_ms` before the
-    earliest place any pass hears its first letter.
+    earliest place a pass hears its first letter, when the whole-track pass
+    hears it there too.
 
     The owner, 2026-11-14 (GOSSIP 2:00 and 2:23): the display jumped to the
     next line as soon as one ended, lit its first word and waited seconds for
     the rest. Both of his examples start where no pass hears the word's first
-    letter: the `edges` span starts halfway
-    into the blank before the word (ctc_forced_aligner's span rule; GOSSIP's
-    line 38 began 6.8 s before the letter all three passes hear at 150.9 s,
-    and the hybrid and the vote compared that padded start with the letter
-    and kept it), or the window passes parked the first letter on silence far
-    under the blank (line 33's "D" at 120.4 s, log-prob -8; the whole track
-    hears it at 121.9 s).
+    letter: the `edges` span starts halfway into the blank before the word
+    (ctc_forced_aligner's span rule; GOSSIP's line 38 began 6.8 s before the
+    letter all three passes hear at 150.9 s, and the hybrid and the vote
+    compared that padded start with the letter and kept it), or the window
+    passes parked the first letter on silence far under the blank (line 33's
+    "D" at 120.4 s, log-prob -8; the whole track hears it at 121.9 s).
 
     `results` is the final windowed stream on the edges clock, each word row
     with `"heard_at"`: the window passes' first-letter times at or above the
@@ -588,14 +588,14 @@ def start_at_heard_onset(
     does not hear keeps its start, and so does one any pass hears at or
     before its start: a held first word is heard where it begins. With no
     whole-track pass (the vote off, or a pass that does not pair) nothing
-    moves. With `stamps` (each line's lrclib
-    start or None, in the order of `line_words`) a stamped line is not moved
-    more than `drift_ms` past its stamp: line QA flags such a line as lost and
-    snaps it back (the threshold is line_qa.DRIFT_THRESHOLD_MS, read here on
-    the edges clock, without QA's median offset). A one-word line whose
-    whole-track letter sat 8 s later, just before the next line, lost its
-    word that way (Bwsr24D7HWY 0:11, 2.35.0 measurement). Returns (rows,
-    starts moved); a stream regroup could not walk comes back untouched."""
+    moves. With `stamps` (each line's lrclib start or None, in the order of
+    `line_words`) a stamped line is not moved more than `drift_ms` past its
+    stamp: line QA flags such a line as lost and snaps it back (the threshold
+    is line_qa.DRIFT_THRESHOLD_MS, read here on the edges clock, without QA's
+    median offset). A one-word line whose whole-track letter sat 8 s later,
+    just before the next line, lost its word that way (Bwsr24D7HWY 0:11,
+    2.35.0 measurement). Returns (rows, starts moved); a stream regroup could
+    not walk comes back untouched."""
     idx = [i for i, row in enumerate(results) if _is_word(row)]
     if sum(line_words) != len(idx):
         return results, 0

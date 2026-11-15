@@ -849,5 +849,35 @@
 # tags (Never Gonna Give You Up), 1 an ID tag; a 5 000-record mirror sample 0
 # and 9. LOOKUP_LADDER_VERSION stays 3: no rung changed and no cached miss
 # depends on the parse.
-PIPELINE_VERSION = "2.34.0"
+# 2.35.0: a line's first word starts where a second pass hears it (the owner,
+# 2026-11-14, on refreshed 2.34.0 documents: "the line ends and the display
+# jumps to the next line at once, which then sits there waiting"; GOSSIP 2:00
+# and 2:23). On the windowed path a line's first word moves to the earliest
+# place a pass (edges, segment, whole track) hears its first letter - the
+# letter's log-prob reaches ln 0.001 on one of its frames - when it starts more
+# than 500 ms before that place, the whole-track pass hears the letter there
+# too (no more than 500 ms later), the next word keeps 120 ms and a stamped
+# line stays inside line QA's 2.5 s drift band (windows.start_at_heard_onset,
+# alignment._first_letters; align `first_heard_ms`, None = 2.34.0; 500 is the
+# owner's ~1 s bound minus the overlay's 500 ms lead). Nothing else moves.
+# Two mechanisms put such a word seconds early: the edges span starts halfway
+# into the blank before it and the hybrid and the vote compare that padded
+# start with the other passes' letter (GOSSIP's stampless line 38, 6.8 s), or
+# the window passes park the word's first letter on silence under the blank
+# (line 33, 1.6 s; line 0, 2.0 s). Of the 42 detached first words in the 36
+# refreshed pilot / hold-out documents (>= 3 words, first gap >= 1 s and >= 3x
+# the line's others), 18 are heard early by all three passes (held or pick-up
+# words, or nothing the emissions can tell): untouched. Measured on the 39
+# songs through the worker's code (the harness reproduces the live documents,
+# 12 505 of 12 512 word starts within 20 ms) against pre-registered gates;
+# this is the fourth candidate, three earlier ones failed their bars on the
+# same songs, so the numbers are in-sample until the archive rig: 4 line
+# starts move (GOSSIP 0:12.4 -> 0:14.4, 2:00.3 -> 2:01.9, 2:24.1 -> 2:30.9;
+# one more song 64.8 -> 66.4 s), detached first words (>= 1 s) 49 -> 45 (the
+# 36: 42 -> 38), stem silence under the moved line starts 7 918 -> 27 ms;
+# 0 ms words, words lit < 120 ms, order, line ends past the next start and
+# wordless lines all unchanged; voice witness 45/193 -> 46/195 noticeable;
+# no song vetoed. The moved starts sit 0.08-0.54 s after the stem's voice
+# returns (a CTC first letter comes late on a sung onset).
+PIPELINE_VERSION = "2.35.0"
 PIPELINE_MAJOR = 2
