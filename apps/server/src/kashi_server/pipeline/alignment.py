@@ -27,6 +27,7 @@ from kashi_server.pipeline.windows import (
     line_regions,
     plan_windows,
     reconcile_seams,
+    start_at_heard_onset,
     unpile_starts,
     whole_track_vote,
     yield_pad_words,
@@ -637,6 +638,21 @@ UNPILE_DEFAULT = True
 #: window passes (_hold_line_starts). None reproduces 2.30.0.
 LINE_REGION_DEFAULT: int | None = LINE_REGION_MS
 
+#: 2.35.0: a line's first word starts at most this many ms before the
+#: earliest place a pass of the windowed path (edges, segment, whole track)
+#: hears its first letter (windows.start_at_heard_onset). The owner's bound
+#: (2026-11-14): a line may arrive about 1 s before it is sung, and the
+#: overlay already shows a line up to 500 ms before its start (packages/view
+#: findDisplayLine), so 500 ms is what the start itself may lead by. None
+#: reproduces 2.34.0.
+FIRST_HEARD_LEAD_MS = 500
+FIRST_HEARD_DEFAULT: int | None = FIRST_HEARD_LEAD_MS
+#: A pass hears a word's first letter where the letter's log-prob reaches
+#: this on one of its own frames: one chance in a thousand. A path parks a
+#: letter it cannot place on silence far below that (GOSSIP 0:12 and 2:00:
+#: -9.9, and -7.7 / -8.1); a weak letter that is sung sits above it.
+FIRST_LETTER_FLOOR = math.log(0.001)
+
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
     """The real time step between emission frames, in ms.
@@ -694,12 +710,14 @@ def _viterbi(
     emissions, stride, tokenizer, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True,
     starts_ms: LineStarts | None = None, tally: dict[str, int] | None = None,
+    letters: bool = False,
 ) -> list[dict]:
     """One forced-alignment (Viterbi) pass of `texts` over ready emissions.
     Results are [{start, end, text, score}] in SECONDS relative to the audio
     the emissions came from; star rows are already dropped by the library.
     `starts_ms` holds each text's first letter in a region (V1,
-    _hold_line_starts); `tally` counts what that did."""
+    _hold_line_starts); `tally` counts what that did. `letters` (2.35.0)
+    gives each row its `"first_letter"` (_first_letters)."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         get_alignments,
         get_spans,
@@ -742,7 +760,38 @@ def _viterbi(
             results[row] = {**results[row], "start": letter_frame * stride / 1000}
             if tally is not None:
                 tally["pads"] = tally.get("pads", 0) + 1
+    if letters:
+        results = _first_letters(emissions, stride, tokenizer, text_starred, spans, blank, results)
     return results
+
+
+def _first_letters(
+    emissions, stride, tokenizer, text_starred: list[str], spans: list, blank: str,
+    results: list[dict],
+) -> list[dict]:
+    """Each word row with `"first_letter"`: [the first frame of its first
+    letter on this path, in seconds, the letter's best log-prob on its own
+    frames]. A row whose span holds no letter of the vocabulary gets none.
+    Rows are the non-star entries of `text_starred`, in order, as
+    postprocess_results builds them."""
+    import numpy as np
+
+    log_probs = emissions.cpu() if hasattr(emissions, "cpu") else emissions
+    log_probs = np.asarray(log_probs.float().numpy() if hasattr(log_probs, "numpy") else log_probs)
+    dictionary = {k.lower(): v for k, v in tokenizer.get_vocab().items()}
+    out = list(results)
+    row = 0
+    for token, text in enumerate(text_starred):
+        if text == STAR_TOKEN:
+            continue
+        if row >= len(out):
+            break
+        first = next((s for s in spans[token] if s.label != blank and s.label in dictionary), None)
+        if first is not None:
+            lp = float(log_probs[first.start : first.end + 1, dictionary[first.label]].max())
+            out[row] = {**out[row], "first_letter": [first.start * stride / 1000, lp]}
+        row += 1
+    return out
 
 
 def _line_first_items(texts: list[str], language: str, romanize: bool) -> list[int] | None:
@@ -853,13 +902,15 @@ def _align_texts(
     model, tokenizer, audio, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True, *, exact_stride: bool = False,
     starts_ms: LineStarts | None = None, tally: dict[str, int] | None = None,
+    letters: bool = False,
 ) -> list[dict]:
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
     [{start, end, text, score}] in SECONDS relative to the given audio.
     `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
     emissions, stride = _emit(model, audio, exact_stride=exact_stride)
     return _viterbi(
-        emissions, stride, tokenizer, texts, language, star_frequency, romanize, starts_ms, tally
+        emissions, stride, tokenizer, texts, language, star_frequency, romanize, starts_ms, tally,
+        letters,
     )
 
 
@@ -867,16 +918,16 @@ def _align_slice_hybrid(
     model, tokenizer, piece, texts: list[str], language: str, *,
     romanize: bool, exact_stride: bool,
     edges_starts: LineStarts | None = None, segment_starts: LineStarts | None = None,
-    tally: dict[str, int] | None = None,
+    tally: dict[str, int] | None = None, letters: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """(edges, segment): one emission pass over the slice, two Viterbi passes,
     each with its line regions on its own clock (V1)."""
     emissions, stride = _emit(model, piece, exact_stride=exact_stride)
     return (
         _viterbi(emissions, stride, tokenizer, texts, language, "edges", romanize,
-                 edges_starts, tally),
+                 edges_starts, tally, letters),
         _viterbi(emissions, stride, tokenizer, texts, language, "segment", romanize,
-                 segment_starts, tally),
+                 segment_starts, tally, letters),
     )
 
 
@@ -1021,6 +1072,7 @@ def _align_windows(
     exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT, hybrid_t_ms: int = HYBRID_T_MS,
     synced_starts_ms: list[int | None] | None = None, line_region_ms: int | None = None,
     doc_offset_for=lambda text: 0, tally: dict[str, int] | None = None,
+    letters: bool = False,
 ) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
     whole-track clock (star tokens dropped), each tagged with its `"window"`
@@ -1035,7 +1087,11 @@ def _align_windows(
     With `line_region_ms` (V1, 2.31.0) each pass holds the line starts of a
     window that owns two or more stamped lines near their stamps
     (`_window_line_starts`, `_hold_line_starts`); `doc_offset_for` is the
-    path's lateness correction for a word, the lead included."""
+    path's lateness correction for a word, the lead included.
+
+    With `letters` (2.35.0) each row also carries `"heard_at"`: where the
+    window's passes hear its first letter (`_heard_at`), on the same clock as
+    its start."""
     edges_lead_ms = WINDOWED_LEAD_MS if exact_stride else 0
     merged: list[dict] = []
     for index, window in enumerate(plan):
@@ -1052,13 +1108,19 @@ def _align_windows(
                 model, tokenizer, piece, texts, language,
                 romanize=romanize, exact_stride=exact_stride,
                 edges_starts=edges_starts, segment_starts=segment_starts, tally=tally,
+                letters=letters,
             )
-            aligned, paired = hybrid_star_words(
-                [r for r in edges if r.get("text") != STAR_TOKEN],
-                [r for r in segment if r.get("text") != STAR_TOKEN],
-                hybrid_t_ms,
-                edges_lead_ms,
-            )
+            edges = [r for r in edges if r.get("text") != STAR_TOKEN]
+            segment = [r for r in segment if r.get("text") != STAR_TOKEN]
+            aligned, paired = hybrid_star_words(edges, segment, hybrid_t_ms, edges_lead_ms)
+            if letters:
+                aligned = [
+                    {**row, "heard_at": _heard_at(
+                        [edges[k], *([segment[k]] if paired else [])],
+                        [0.0, *([edges_lead_ms / 1000] if paired else [])],
+                    )}
+                    for k, row in enumerate(aligned)
+                ]
             if not paired:
                 logger.warning(
                     "window %d: edges and segment passes disagree on the words "
@@ -1076,8 +1138,11 @@ def _align_windows(
                     model, tokenizer, piece, texts, language, star,
                     romanize=romanize, exact_stride=exact_stride,
                     starts_ms=segment_starts if star == "segment" else edges_starts, tally=tally,
+                    letters=letters,
                 )
             ]
+            if letters:
+                aligned = [{**row, "heard_at": _heard_at([row], [back_s])} for row in aligned]
         for r in aligned:
             if r.get("text") == STAR_TOKEN:
                 continue  # regroup drops them anyway; keep offsets word-only
@@ -1089,8 +1154,21 @@ def _align_windows(
             }
             if "edges_start" in r:
                 row["edges_start"] = float(r["edges_start"]) + offset_s
+            if "heard_at" in r:
+                row["heard_at"] = [t + offset_s for t in r["heard_at"]]
             merged.append(row)
     return merged
+
+
+def _heard_at(rows: list[dict], backs_s: list[float]) -> list[float]:
+    """Where the given passes' rows of one word hear its first letter
+    (`"first_letter"` at or above FIRST_LETTER_FLOOR), each moved back by its
+    pass's lead, so that all of them sit on the edges clock."""
+    return [
+        float(row["first_letter"][0]) - back
+        for row, back in zip(rows, backs_s, strict=True)
+        if row.get("first_letter") is not None and row["first_letter"][1] >= FIRST_LETTER_FLOOR
+    ]
 
 
 def _source_counts(results: list[dict]) -> dict[str, int]:
@@ -1122,6 +1200,7 @@ def align(
     unpile: bool = UNPILE_DEFAULT,
     line_region_ms: int | None = LINE_REGION_DEFAULT,
     vote_order: bool = VOTE_ORDER_DEFAULT,
+    first_heard_ms: int | None = FIRST_HEARD_DEFAULT,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -1147,7 +1226,10 @@ def align(
     inside both window passes (windows.line_regions); None switches it off.
     `vote_order` (2.34.0) refuses a whole-track time that would put a word out
     of order with a neighbour keeping its windowed time (whole_track_vote's
-    `keep_order`); False reproduces 2.32.0."""
+    `keep_order`); False reproduces 2.32.0. `first_heard_ms` (2.35.0) starts a
+    line's first word no more than that many ms before the earliest place a
+    pass hears its first letter (windows.start_at_heard_onset); None
+    reproduces 2.34.0."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -1201,7 +1283,7 @@ def align(
             exact_stride=exact_stride, star=window_star, hybrid_t_ms=hybrid_t_ms,
             synced_starts_ms=synced_starts_ms, line_region_ms=line_region_ms,
             doc_offset_for=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
-            tally=tally,
+            tally=tally, letters=first_heard_ms is not None,
         )
         if tally:
             logger.info(
@@ -1216,10 +1298,12 @@ def align(
                 logger.info("seam policy yield: %d pad word(s) pulled back to their line", yielded)
         results = reconcile_seams(results)
         vote_note = ""
+        whole: list[dict] = []
         if whole_vote:
             whole = _align_texts(
                 model, tokenizer, audio, align_texts, language, "segment",
                 romanize=romanize, exact_stride=exact_stride,
+                letters=first_heard_ms is not None,
             )
             results, _taken, paired = whole_track_vote(
                 results, whole, whole_vote_t_ms, lead_ms, keep_order=vote_order
@@ -1239,6 +1323,20 @@ def align(
             if runs:
                 logger.info("piled starts: %d run(s), %d word(s) back on the edges clock",
                             runs, moved)
+        if first_heard_ms is not None:
+            # line_qa imports this module; its drift threshold is read at run time.
+            from kashi_server.pipeline.line_qa import DRIFT_THRESHOLD_MS
+
+            results, heard = start_at_heard_onset(
+                results, whole,
+                [len(p.units) if p else len(text.split()) for text, p in zip(
+                    line_texts, plans, strict=True)],
+                first_heard_ms, lead_ms, FIRST_LETTER_FLOOR,
+                stamps=synced_starts_ms, drift_ms=DRIFT_THRESHOLD_MS,
+            )
+            if heard:
+                logger.info("line starts at their first heard letter (%d ms): %d line(s)",
+                            first_heard_ms, heard)
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:

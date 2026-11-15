@@ -551,6 +551,87 @@ def unpile_starts(
     return out, runs, moved
 
 
+def start_at_heard_onset(
+    results: list[dict], whole: list[dict], line_words: list[int], lead_ms: int,
+    edges_lead_ms: int = 0, floor: float = float("-inf"), min_gap_ms: int = VOTE_MIN_GAP_MS,
+    stamps: list[int | None] | None = None, drift_ms: int | None = None,
+) -> tuple[list[dict], int]:
+    """2.35.0: a line's first word starts at most `lead_ms` before the
+    earliest place any pass hears its first letter.
+
+    The owner, 2026-11-14 (GOSSIP 2:00 and 2:23): the display jumped to the
+    next line as soon as one ended, lit its first word and waited seconds for
+    the rest. Both of his examples start where no pass hears the word's first
+    letter: the `edges` span starts halfway
+    into the blank before the word (ctc_forced_aligner's span rule; GOSSIP's
+    line 38 began 6.8 s before the letter all three passes hear at 150.9 s,
+    and the hybrid and the vote compared that padded start with the letter
+    and kept it), or the window passes parked the first letter on silence far
+    under the blank (line 33's "D" at 120.4 s, log-prob -8; the whole track
+    hears it at 121.9 s).
+
+    `results` is the final windowed stream on the edges clock, each word row
+    with `"heard_at"`: the window passes' first-letter times at or above the
+    floor (`alignment._heard_at`). `whole` is the whole-track pass with
+    `"first_letter"` [seconds, log-prob]; it counts when it pairs with
+    `results` word for word (as the vote pairs them), moved back by
+    `edges_lead_ms` onto the edges clock. `line_words` is each line's word
+    count in stream order, as regroup counts them. Per line, its first word
+    takes the earliest heard time when its start lies MORE than `lead_ms`
+    before it, and that time still leaves the next word `min_gap_ms` (the
+    overlay's short dwell), both in whole ms; the end follows only when the
+    new start passes it. Nothing else moves. The whole-track pass must hear
+    the letter too, no more than `lead_ms` after that earliest time: the two
+    window passes read the same emissions, and a window's weak first letter
+    can be sung where it sits (Q_mQxKviRJM 4:00, log-prob -7.0 on the voice's
+    return), so a move needs a second emission pass. A word the whole track
+    does not hear keeps its start, and so does one any pass hears at or
+    before its start: a held first word is heard where it begins. With no
+    whole-track pass (the vote off, or a pass that does not pair) nothing
+    moves. With `stamps` (each line's lrclib
+    start or None, in the order of `line_words`) a stamped line is not moved
+    more than `drift_ms` past its stamp: line QA flags such a line as lost and
+    snaps it back (the threshold is line_qa.DRIFT_THRESHOLD_MS, read here on
+    the edges clock, without QA's median offset). A one-word line whose
+    whole-track letter sat 8 s later, just before the next line, lost its
+    word that way (Bwsr24D7HWY 0:11, 2.35.0 measurement). Returns (rows,
+    starts moved); a stream regroup could not walk comes back untouched."""
+    idx = [i for i, row in enumerate(results) if _is_word(row)]
+    if sum(line_words) != len(idx):
+        return results, 0
+    theirs = [row for row in whole if _is_word(row)]
+    paired = len(theirs) == len(idx) and all(
+        str(results[i].get("text")) == str(w.get("text")) for i, w in zip(idx, theirs, strict=True)
+    )
+    back_s = edges_lead_ms / 1000
+    out = list(results)
+    moved = 0
+    at = 0
+    for line, count in enumerate(line_words):
+        k, at = at, at + count
+        if count == 0:
+            continue
+        row = out[idx[k]]
+        stamp = stamps[line] if stamps is not None and line < len(stamps) else None
+        letter = theirs[k].get("first_letter") if paired else None
+        if letter is None or letter[1] < floor:
+            continue  # the whole track does not hear it: no second emission pass agrees
+        whole_onset = float(letter[0]) - back_s
+        onset = min([whole_onset, *(float(t) for t in row.get("heard_at", []))])
+        onset_ms = round(onset * 1000)
+        if round(whole_onset * 1000) - onset_ms > lead_ms:
+            continue  # the window passes hear it earlier than the whole track does
+        if _start_ms(row) >= onset_ms - lead_ms:
+            continue
+        if k + 1 < len(idx) and onset_ms > _start_ms(out[idx[k + 1]]) - min_gap_ms:
+            continue
+        if stamp is not None and drift_ms is not None and onset_ms > stamp + drift_ms:
+            continue
+        out[idx[k]] = {**row, "start": onset, "end": max(float(row["end"]), onset)}
+        moved += 1
+    return out, moved
+
+
 def _piled_words(starts_ms: list[int], min_words: int, span_ms: int) -> int:
     """Words in runs of `min_words` or more starting within `span_ms` of the run's first."""
     piled = j = 0

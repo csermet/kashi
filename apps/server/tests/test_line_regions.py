@@ -405,7 +405,7 @@ def _align_shared_window(monkeypatch, line_region_ms):
     monkeypatch.setattr(alignment, "_load_model", lambda name: (model, object()))
 
     def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride,
-                    edges_starts=None, segment_starts=None, tally=None):
+                    edges_starts=None, segment_starts=None, tally=None, letters=False):
         seen.append((texts, edges_starts, segment_starts))
         rows = [{"text": w, "start": 0.5 + 0.3 * k, "end": 0.7 + 0.3 * k, "score": -0.1}
                 for k, w in enumerate(" ".join(texts).split())]
