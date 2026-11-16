@@ -363,9 +363,14 @@ def vetoes(comparison: dict) -> list[str]:
     return out
 
 
-def reviews(comparison: dict) -> list[str]:
-    """What a person must look at before the song is refreshed (none of it a veto)."""
+def reviews(comparison: dict, overruns: int = 0) -> list[str]:
+    """What a person must look at before the song is refreshed (none of it a veto): moves W2
+    cannot judge, a palette falling back, and passes the aligner library ran in its overrun region
+    (`alignment.library_overruns`: undefined behaviour, so the reprocess may store another path
+    than the one previewed)."""
     out = []
+    if overruns:
+        out.append(f"aligner overrun region: {overruns} pass{'es' if overruns != 1 else ''}")
     unjudged = comparison.get("w2_unjudged") or []
     if unjudged:
         lines = ", ".join(str(i) for i in unjudged)
@@ -375,7 +380,9 @@ def reviews(comparison: dict) -> list[str]:
     return out
 
 
-def verdict(comparison: dict, guard: tuple[str, str] | None = None) -> tuple[str, str]:
+def verdict(
+    comparison: dict, guard: tuple[str, str] | None = None, overruns: int = 0
+) -> tuple[str, str]:
     """(verdict, detail) for a built document: the persist guard first (a reprocess would keep the
     stored document whatever it measures), then a changed sheet, then the vetoes, then what needs a
     person (`review`); a document that differs only in when and by which version it was made is
@@ -387,7 +394,7 @@ def verdict(comparison: dict, guard: tuple[str, str] | None = None) -> tuple[str
     fired = vetoes(comparison)
     if fired:
         return VETOED, "veto: " + ", ".join(fired)
-    review = reviews(comparison)
+    review = reviews(comparison, overruns)
     if review:
         return REVIEW, "; ".join(review)
     if not comparison["differs"]:

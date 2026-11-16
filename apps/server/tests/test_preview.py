@@ -556,11 +556,11 @@ def test_candidates_order_cursor_and_limit(db_session, audio, monkeypatch):
 
 def test_the_summary_lists_what_to_refresh_and_why_not_the_rest():
     rows = [
-        {"source_id": "a", "verdict": rules.REFRESH, "detail": ""},
+        {"source_id": "a", "verdict": rules.REFRESH, "detail": "", "refresh_confirmed": True},
         {"source_id": "b", "verdict": rules.VETOED, "detail": "veto: W1, W3"},
         {"source_id": "c", "verdict": rules.GUARDED, "detail": "guard: stale: x"},
         {"source_id": "d", "verdict": rules.FULL_JOB, "detail": "no evidence stored"},
-        {"source_id": "e", "verdict": rules.REFRESH, "detail": ""},
+        {"source_id": "e", "verdict": rules.REFRESH, "detail": "", "refresh_confirmed": True},
         {"source_id": "f", "verdict": rules.UNCHANGED, "detail": ""},
     ]
     summary = preview.summarize(rows)
@@ -945,3 +945,146 @@ def test_a_record_replaced_between_its_meta_and_its_arrays_is_evidence_changed(d
     with pytest.raises(evidence.EvidenceChanged):
         record.blob  # noqa: B018 - reading it is the test
     assert issubclass(evidence.EvidenceChanged, evidence.EvidenceMissing)
+
+
+# --- round 3 ------------------------------------------------------------------------------------
+
+
+def test_a_refresh_without_its_confirmation_is_never_an_id_to_refresh():
+    rows = [
+        {"source_id": "a", "verdict": rules.REFRESH, "detail": "", "refresh_confirmed": True},
+        {"source_id": "b", "verdict": rules.REFRESH, "detail": ""},  # an earlier format's row
+        {"source_id": "c", "verdict": rules.REFRESH, "detail": "", "refresh_confirmed": False},
+    ]
+    summary = preview.summarize(rows)
+    assert summary["refresh_ids"] == ["a"]
+    assert summary["review"] == {"b": "refresh not confirmed by the ladder",
+                                 "c": "refresh not confirmed by the ladder"}
+
+
+def test_every_refresh_row_says_whether_its_reprocess_s_lyrics_confirmed_it(db_session, audio,
+                                                                           monkeypatch,
+                                                                           get_record):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)
+    ladder_row = _preview(db_session)
+    assert ladder_row["verdict"] == rules.REFRESH and ladder_row["refresh_confirmed"] is True
+    stored_row = _preview(db_session, lyrics="stored")
+    assert stored_row["refresh_confirmed"] is True and stored_row["ladder"]["confirmed"] is True
+
+
+def test_append_refuses_a_file_another_judge_wrote(db_session, audio, monkeypatch, tmp_path):
+    _run(db_session, monkeypatch, "record")
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == 0
+    segment = _lines(out)[0]["segment"]
+    judge = segment["judge"]
+    assert judge["preview_format"] == preview.PREVIEW_FORMAT and judge["lyrics"] == "ladder"
+    assert judge["pipeline"] == PIPELINE_VERSION
+    assert judge["evidence"] == evidence.expected_key(
+        settings, separate_first=settings.separation_mode == "always")
+    first = out.read_text()
+    monkeypatch.setattr(settings, "lrclib_request_gap_s", 0.0)
+    assert preview.main(["--lyrics", "stored", "--out", str(out), "--append"]) == (
+        preview.EXIT_OUT_EXISTS)  # another lyrics mode
+    monkeypatch.setattr(preview, "PREVIEW_FORMAT", preview.PREVIEW_FORMAT + 1)
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append") == preview.EXIT_OUT_EXISTS
+    assert out.read_text() == first
+
+
+def test_append_refuses_a_file_without_judged_segments(db_session, audio, monkeypatch, tmp_path):
+    """A file the first preview format wrote: rows, no segment lines."""
+    _run(db_session, monkeypatch, "record")
+    out = tmp_path / "rows.jsonl"
+    out.write_text(json.dumps({"source_id": SONG, "verdict": rules.REFRESH, "detail": ""}) + "\n")
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append") == preview.EXIT_OUT_EXISTS
+
+
+def test_a_truncated_last_line_is_skipped_and_counted(db_session, audio, monkeypatch, tmp_path,
+                                                      capsys):
+    _run(db_session, monkeypatch, "record")
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == 0
+    with open(out, "a") as handle:
+        handle.write('{"source_id": "cut-off-mid-wri')  # a run killed mid-line
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append") == 0
+    summary = _lines_tolerant(out)[-1]["summary"]
+    assert summary["unreadable_lines"] == 1 and summary["songs"] == 1
+    assert "1 unreadable line(s)" in capsys.readouterr().out
+
+
+def _lines_tolerant(path):
+    out = []
+    for line in path.read_text().splitlines():
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
+def test_a_source_id_run_keeps_the_cursor_s_frontier(db_session, audio, monkeypatch, tmp_path):
+    for song in ("songA0000001", "songB0000001", "songC0000001"):
+        monkeypatch.setattr(settings, "evidence_mode", "record")
+        job = _job(db_session, source_id=song)
+        wp.process_job(db_session, job)
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--limit", "2") == 0
+    assert _lines(out)[-1]["summary"]["next_after"] == "songB0000001"
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", "--source-id",
+                 "songA0000001") == 0
+    summary = _lines(out)[-1]["summary"]
+    assert summary["next_after"] == "songB0000001"  # not the given song
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", "--after",
+                 summary["next_after"]) == 0
+    assert _lines(out)[-1]["summary"]["next_after"] == "songC0000001"
+
+
+def test_a_pass_in_the_overrun_region_makes_the_song_review(db_session, audio, monkeypatch):
+    from kashi_server.pipeline import alignment
+
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)
+    stand_in = wp.align
+
+    def overrunning(*a, **kw):
+        if evidence.replaying():
+            alignment._note_overrun("segment", 286, [1 + (i % 2) for i in range(147)])
+        return stand_in(*a, **kw)
+
+    monkeypatch.setattr(wp, "align", overrunning)
+    row = _preview(db_session)
+    assert (row["verdict"], row["detail"]) == (rules.REVIEW, "aligner overrun region: 1 pass")
+    assert row["aligner_overruns"] == [
+        {"where": "whole track", "pass": "segment", "T": 286, "L": 147, "R": 0}]
+    assert "refresh_confirmed" not in row
+
+
+def test_an_aligner_refusal_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):
+    from kashi_server.pipeline import alignment
+
+    _run(db_session, monkeypatch, "record")
+
+    def refused(*a, **kw):
+        raise alignment.AlignerRefusal("window 3 (samples 1-2), segment pass: ... (T=1, L=2, R=0)")
+
+    monkeypatch.setattr(wp, "align", refused)
+    row = _preview(db_session)
+    assert (row["verdict"], row["detail"]) == (rules.FAILED, "alignment_failed")
+
+
+def test_the_job_code_names_its_song_for_the_overrun_line(db_session, audio, monkeypatch):
+    from kashi_server.pipeline import alignment
+
+    seen = []
+    named = wp._run_pipeline_named
+
+    def spy(s, job, tmp, *, persist=True):
+        seen.append((alignment._VITERBI_SONG.get(), str(job.id)))
+        return named(s, job, tmp, persist=persist)
+
+    monkeypatch.setattr(wp, "_run_pipeline_named", spy)
+    _run(db_session, monkeypatch, "record")
+    ((label, job_id),) = seen
+    assert label == f"youtube:{SONG} (job {job_id})"
+    assert alignment._VITERBI_SONG.get() == ""

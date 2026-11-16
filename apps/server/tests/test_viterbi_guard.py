@@ -1,11 +1,11 @@
 """The aligner guard (alignment._viterbi): what ctc-forced-aligner's compiled Viterbi cannot do
-safely is refused BEFORE the library is called (too few frames for the text; targets with no
-repeated neighbour that would overrun its back-pointer buffers, where it segfaults, aborts or
-returns a path that does not spell the text; non-finite emissions), and get_spans' own
-AssertionError becomes the same classified error. The library is a stand-in here that fails the
-test if it is called when it must not be: no segfaulting call runs in this process."""
+at all is refused BEFORE the library is called (fewer frames than the text needs; the exact fit
+without a repeated letter, where it segfaults; non-finite emissions), a path that does not spell
+the text (get_spans' AssertionError, or the IndexError of a path that runs out of tokens) becomes
+the same classified error, and a pass in the wider region where the library writes past its
+buffers is logged with its song and collected, not refused. The library is a stand-in here (the
+real one: tests/test_viterbi_guard_library.py, slow); no segfaulting call runs in this process."""
 
-import math
 import random
 import sys
 import types
@@ -137,9 +137,35 @@ def test_non_finite_emissions_are_refused_and_finite_ones_are_not():
     )
 
 
-def test_targets_are_the_libraries_own():
-    tokens = ["<star>", "a b", "<star>", "b b ?"]  # "?" is not in the vocabulary: dropped
-    assert alignment.viterbi_targets(tokens, Tokenizer()) == [27, 1, 2, 27, 2, 2]
+def test_torch_shaped_emissions_are_read_through_the_tensor_methods():
+    """What `_numpy_log_probs` does with a torch tensor (any device): detach, cpu, float, numpy."""
+    calls = []
+
+    class Tensor:
+        def __init__(self, values):
+            self.values = values
+
+        def detach(self):
+            calls.append("detach")
+            return self
+
+        def cpu(self):
+            calls.append("cpu")
+            return self
+
+        def float(self):
+            calls.append("float")
+            return self
+
+        def numpy(self):
+            calls.append("numpy")
+            return self.values
+
+    out = alignment._numpy_log_probs(Tensor(_lp(4, nan_at=1)))
+    assert calls == ["detach", "cpu", "float", "numpy"]
+    assert out.shape == (4, 28) and alignment.viterbi_refusal(out, [1, 2]) == (
+        "the emissions are not all finite"
+    )
 
 
 def test_the_class_is_permanent():
@@ -149,9 +175,10 @@ def test_the_class_is_permanent():
 # --- in _viterbi: refused before the library, named --------------------------------------------
 
 
-def _library(calls, *, spans_assert=False):
+def _library(calls, *, spans_assert=False, spans_error=AssertionError):
     """A ctc_forced_aligner stand-in shaped like the real one (words of space-joined letters,
-    stars between). Every call is recorded; get_spans can raise the library's AssertionError."""
+    stars between). Every call is recorded; get_spans can raise as the library does on a path
+    that does not spell the text (AssertionError, or IndexError when it runs out of tokens)."""
 
     def preprocess_text(text, romanize, language, split_size, star_frequency):
         words = text.split()
@@ -167,7 +194,7 @@ def _library(calls, *, spans_assert=False):
     def get_spans(tokens, segments, blank):
         calls.append("get_spans")
         if spans_assert:
-            raise AssertionError("n != i")
+            raise spans_error("n != i")
         return [[types.SimpleNamespace(label="a", start=0, end=0)] for _ in tokens]
 
     def postprocess_results(text_starred, spans, stride, scores):
@@ -246,14 +273,18 @@ def test_a_nan_frame_is_refused_before_the_library(monkeypatch):
     assert "the emissions are not all finite" in error.message
 
 
-def test_a_path_that_does_not_spell_the_text_is_the_same_classified_error(monkeypatch):
+@pytest.mark.parametrize("error", [AssertionError, IndexError])
+def test_a_path_that_does_not_spell_the_text_is_the_same_classified_error(monkeypatch, error):
     calls = []
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", _library(calls, spans_assert=True))
-    with pytest.raises(PipelineError) as raised:
+    monkeypatch.setitem(
+        sys.modules, "ctc_forced_aligner", _library(calls, spans_assert=True, spans_error=error)
+    )
+    with pytest.raises(alignment.AlignerRefusal) as raised:
         alignment._viterbi(_lp(200), 20.0, Tokenizer(), ["abbd efgh"], "eng", "segment", False)
     assert raised.value.error_type == "alignment_failed"
     assert "segment pass: the Viterbi path does not spell the text (T=200" in raised.value.message
-    assert isinstance(raised.value.__cause__, AssertionError)
+    assert isinstance(raised.value.__cause__, error)
+    assert isinstance(raised.value, PipelineError)  # the job path treats it as before
 
 
 def test_a_window_names_itself_and_the_label_is_put_back(monkeypatch):
@@ -284,7 +315,27 @@ def test_a_window_names_itself_and_the_label_is_put_back(monkeypatch):
     assert alignment._VITERBI_WHERE.get() == "whole track"
 
 
-def test_two_frames_a_letter_is_far_from_any_song():
-    """Why no stored document should meet the overrun refusal: it needs fewer than ~2 frames
-    (40 ms) a target with no doubled letter anywhere in the window; sung text runs 3-5."""
-    assert math.isclose(alignment.MODEL_HOP_SAMPLES / alignment.SAMPLE_RATE, 0.02)
+def test_the_overrun_line_names_the_song_and_the_real_repeat_count(monkeypatch, caplog):
+    """The log line carries the song (and job) the job code names, and R as counted: the
+    bookkeeping does not itself require R == 0, so neither may the line."""
+    monkeypatch.setattr(alignment, "library_overruns", lambda n_frames, targets: True)
+    with (
+        caplog.at_level("WARNING", logger=alignment.logger.name),
+        alignment.viterbi_song("youtube:abc (job 42)"),
+        alignment.overruns() as hits,
+    ):
+        _run_viterbi(monkeypatch, ["abbd efgh"], 40)
+    assert "youtube:abc (job 42): whole track, edges pass: the aligner library writes past" in (
+        caplog.text
+    )
+    assert "(T=40, L=10, R=1)" in caplog.text
+    assert hits == [{"where": "whole track", "pass": "edges", "T": 40, "L": 10, "R": 1}]
+    assert alignment._VITERBI_SONG.get() == ""  # put back
+
+
+def test_without_a_sink_nothing_is_collected_and_with_one_only_overruns(monkeypatch):
+    with alignment.overruns() as hits:
+        _run_viterbi(monkeypatch, ["abbd efgh"], 40)  # R = 1: inside its buffers
+    assert hits == []
+    _run_viterbi(monkeypatch, ["abcd efgh"], 15)  # an overrun, no sink open: nothing breaks
+    assert alignment._OVERRUN_SINK.get() is None

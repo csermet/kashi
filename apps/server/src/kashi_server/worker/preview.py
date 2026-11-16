@@ -85,6 +85,9 @@ logger = logging.getLogger(__name__)
 #: worker's own orphan sweep of `job-*`).
 DIR_PREFIX = "job-preview-"
 LYRICS_MODES = ("stored", "ladder")
+#: The layout and rules of the out file's rows; bumped whenever a row of an earlier format could
+#: be read wrongly by this code (2: segments carry their judge, refreshes their confirmation).
+PREVIEW_FORMAT = 2
 EXIT_OK, EXIT_SCHEMA, EXIT_OUT_EXISTS, EXIT_LIVE_JOBS, EXIT_DATABASE = 0, 2, 3, 4, 5
 #: Signals that stop a run with its summary written; the exit code is 128 + the signal's number.
 STOP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
@@ -247,21 +250,33 @@ def _no_audio() -> Any:
     raise RuntimeError("a preview never reads audio")
 
 
-def _build(job: Any, replayer: evidence.Replayer, pinned: bool) -> tuple[dict | None, tuple]:
-    """(the document the job code builds from the evidence, ()) or (None, (verdict, why)). The
-    reasons are fixed words and error classes: an exception's message can carry a title or a
-    line of the lyrics, so it goes to the log only."""
+def _build(
+    job: Any, replayer: evidence.Replayer, pinned: bool, hits: list[dict]
+) -> tuple[dict | None, tuple]:
+    """(the document the job code builds from the evidence, ()) or (None, (verdict, why)); the
+    passes the aligner library ran in its overrun region are added to `hits`. The reasons are
+    fixed words and error classes: an exception's message can carry a title or a line of the
+    lyrics, so it goes to the log only."""
+    from kashi_server.pipeline.alignment import AlignerRefusal, overruns
     from kashi_server.worker import process
 
     tmp = settings.data_dir / f"{DIR_PREFIX}{job.id}"
     tmp.mkdir(parents=True, exist_ok=True)
     try:
-        with evidence.active(replayer):
-            doc = process._run_pipeline(
-                cast(Session, PreviewSession(job.id)), job, tmp, persist=False
-            )
+        with evidence.active(replayer), overruns() as found:
+            try:
+                doc = process._run_pipeline(
+                    cast(Session, PreviewSession(job.id)), job, tmp, persist=False
+                )
+            finally:
+                hits.extend(found)
     except PreviewWriteError:
         raise
+    except AlignerRefusal as exc:
+        # The window plan, the text and the emissions are the evidence's: a full job meets them
+        # again and fails the same way, permanently. Nobody should pay a download for it.
+        logger.info("preview %s: %s", job.source_id, exc.message[:300])
+        return None, (rules.FAILED, "alignment_failed")
     except evidence.EvidenceChanged:
         return None, (rules.FAILED, "evidence replaced while it was read: preview the song again")
     except evidence.EvidenceMissing as exc:
@@ -321,7 +336,8 @@ def _preview(
             "detail": f"{conflict}: the audio behind the id may have changed",
         }, None
     out["lyrics"] = _lyrics(job, stored.document, mode)
-    doc, failure = _build(job, replayer, pinned=out["lyrics"].startswith("record"))
+    hits: list[dict] = []
+    doc, failure = _build(job, replayer, out["lyrics"].startswith("record"), hits)
     out["served"] = dict(sorted(replayer.served.items()))
     if doc is None:
         return {**out, "verdict": failure[0], "detail": failure[1]}, None
@@ -335,7 +351,8 @@ def _preview(
     # No lock: a read-only transaction cannot take one, and nothing here acts on the answer.
     guard = stored_document_kept(stored, overrides.find(s, "youtube", source_id), job, doc)
     comparison = rules.compare(stored.document, doc, envelope)
-    verdict, detail = rules.verdict(comparison, guard)
+    verdict, detail = rules.verdict(comparison, guard, len(hits))
+    out["aligner_overruns"] = hits
     return {**out, "verdict": verdict, "detail": detail, **comparison}, doc
 
 
@@ -409,6 +426,11 @@ def preview_song(
             s.rollback()
             ladder, ladder_doc = _preview(s, source_id, "ladder", None)
             row.update(confirmed(row, doc, ladder, ladder_doc))
+        if row["verdict"] == rules.REFRESH:
+            # What the reprocess will run: the ladder (or the override), as this row now says.
+            row["refresh_confirmed"] = not str(row.get("lyrics", "")).startswith("record") or (
+                bool((row.get("ladder") or {}).get("confirmed"))
+            )
     except OperationalError:
         raise
     except Exception as exc:  # noqa: BLE001 - one song's fault must not stop the run
@@ -417,6 +439,14 @@ def preview_song(
     finally:
         s.rollback()
     row["seconds"] = round(time.monotonic() - started, 2)
+    return row
+
+
+def _counted(row: dict) -> dict:
+    """The row as the summary counts it: a `refresh` its reprocess's own lyrics did not confirm
+    (an earlier format, a hand-edited file) is a `review`, never an id to refresh."""
+    if row.get("verdict") == rules.REFRESH and row.get("refresh_confirmed") is not True:
+        return {**row, "verdict": rules.REVIEW, "detail": "refresh not confirmed by the ladder"}
     return row
 
 
@@ -450,6 +480,7 @@ def summarize(rows: list[dict]) -> dict:
         rules.FULL_JOB: "needs_full_job",
         rules.FAILED: "failed",
     }
+    rows = [_counted(row) for row in rows]
     for row in rows:
         verdict = row["verdict"]
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
@@ -511,27 +542,61 @@ def peak_rss_mb() -> float:
     return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
 
 
-def rows_in(path: Path) -> tuple[list[dict], int]:
-    """(the song rows of an earlier out file, its number of segments)."""
+def judge(lyrics: str) -> dict:
+    """What judges a run's rows: the preview's format, the pipeline, the evidence this image
+    replays (its key: format, code versions, separation, libraries) and the lyrics mode. Rows of
+    one out file must all come from one judge."""
+    from kashi_server.version import PIPELINE_VERSION
+
+    return {
+        "preview_format": PREVIEW_FORMAT,
+        "pipeline": PIPELINE_VERSION,
+        "evidence": evidence.expected_key(
+            settings, separate_first=settings.separation_mode == "always"
+        ),
+        "lyrics": lyrics,
+    }
+
+
+def rows_in(path: Path) -> dict:
+    """An earlier out file: its rows (each with whether a cursor run made it), the judges of its
+    segments, and how many lines could not be read (a run killed mid-line leaves a truncated
+    last line; such lines are skipped and counted)."""
     rows: list[dict] = []
-    segments = 0
+    judges: list[Any] = []
+    unreadable = 0
+    cursor = False
     with open(path) as handle:
         for line in handle:
             line = line.strip()
             if not line:
                 continue
-            item = json.loads(line)
-            if "segment" in item:
-                segments += 1
+            try:
+                item = json.loads(line)
+            except ValueError:
+                unreadable += 1
+                continue
+            if not isinstance(item, dict):
+                unreadable += 1
+            elif "segment" in item:
+                judges.append(item["segment"].get("judge"))
+                cursor = bool(item["segment"].get("cursor"))
             elif "source_id" in item:
-                rows.append(item)
-    return rows, segments
+                rows.append({**item, "_cursor": cursor})
+    return {"rows": rows, "judges": judges, "unreadable": unreadable}
+
+
+def frontier(rows: list[dict], fallback: str | None) -> str | None:
+    """How far the cursor runs got: the highest source id a cursor run previewed (a
+    `--source-id` run previews given songs and moves no cursor)."""
+    reached = [row["source_id"] for row in rows if row.get("_cursor")]
+    return max(reached) if reached else fallback
 
 
 def whole(earlier: list[dict], rows: list[dict]) -> list[dict]:
     """Every song once, its latest row winning, in source-id order."""
     latest = {row["source_id"]: row for row in [*earlier, *rows]}
-    return [latest[key] for key in sorted(latest)]
+    return [{k: v for k, v in latest[key].items() if k != "_cursor"} for key in sorted(latest)]
 
 
 @contextlib.contextmanager
@@ -605,7 +670,18 @@ def main(argv: list[str] | None = None) -> int:
     if out_path.exists() and not args.append:
         print(f"preview refused: {out_path} exists (continue it with --append)", file=sys.stderr)
         return EXIT_OUT_EXISTS
-    earlier, segments = rows_in(out_path) if out_path.exists() else ([], 0)
+    current = judge(args.lyrics)
+    before = rows_in(out_path) if out_path.exists() else {"rows": [], "judges": [], "unreadable": 0}
+    if before["rows"] and not before["judges"] or any(j != current for j in before["judges"]):
+        print(
+            f"preview refused: {out_path} was written by another preview (format, pipeline, "
+            "evidence key or lyrics mode differ); start a new file",
+            file=sys.stderr,
+        )
+        return EXIT_OUT_EXISTS
+    earlier, segments = before["rows"], len(before["judges"])
+    if before["unreadable"]:
+        print(f"note: {before['unreadable']} unreadable line(s) in {out_path} skipped", flush=True)
     with SessionLocal() as s:
         live = live_jobs(read_only(s))
         s.rollback()
@@ -642,8 +718,8 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "segment": {
                         "started": stamp,
-                        "pipeline": PIPELINE_VERSION,
-                        "lyrics": args.lyrics,
+                        "judge": current,
+                        "cursor": not args.source_id,
                         "after": args.after,
                         "limit": args.limit,
                         "source_ids": len(args.source_id or []),
@@ -684,14 +760,17 @@ def main(argv: list[str] | None = None) -> int:
             code = EXIT_DATABASE
         requests_after = lrclib_requests()
         everything = whole(earlier, rows)
+        cursor = not args.source_id
         summary = {
             "pipeline": PIPELINE_VERSION,
             "lyrics": args.lyrics,
+            "preview_format": PREVIEW_FORMAT,
             **summarize(everything),
-            "next_after": rows[-1]["source_id"]
-            if rows
-            else (earlier[-1]["source_id"] if earlier else args.after),
+            "next_after": frontier(
+                [*earlier, *({**r, "_cursor": cursor} for r in rows)], args.after
+            ),
             "segments": segments + 1,
+            "unreadable_lines": before["unreadable"],
             "without_evidence": missing,
             "replay": replay,
             "this_run": {

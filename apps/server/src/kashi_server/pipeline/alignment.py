@@ -10,10 +10,12 @@ If the token accounting ever fails to line up, the job does NOT fail: we emit a
 line-level document instead (the overlay already renders those).
 """
 
+import contextlib
 import logging
 import math
 import os
 import unicodedata
+from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -769,6 +771,42 @@ LineStarts = list[tuple[float, float] | None]
 
 #: Which audio a Viterbi pass reads, for the guard's error: set per window by `_align_windows`.
 _VITERBI_WHERE: ContextVar[str] = ContextVar("viterbi_where", default="whole track")
+#: Which song (and job) the passes belong to, for the overrun log line: set by the job code for
+#: its run (`viterbi_song`); empty outside a job.
+_VITERBI_SONG: ContextVar[str] = ContextVar("viterbi_song", default="")
+#: Where a caller collects the passes that ran in the library's overrun region (`overruns`).
+_OVERRUN_SINK: ContextVar[list | None] = ContextVar("overrun_sink", default=None)
+
+
+class AlignerRefusal(PipelineError):
+    """The guard's refusal: `alignment_failed`, raised before the library runs or for a path it
+    cannot read. A job treats it like any other PipelineError of that class; the refresh preview
+    tells it apart (a full job would fail the same way)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("alignment_failed", message)
+
+
+@contextlib.contextmanager
+def viterbi_song(label: str) -> Iterator[None]:
+    """Name the song (and job) of the Viterbi passes run inside, for the overrun log line."""
+    token = _VITERBI_SONG.set(label)
+    try:
+        yield
+    finally:
+        _VITERBI_SONG.reset(token)
+
+
+@contextlib.contextmanager
+def overruns() -> Iterator[list[dict]]:
+    """Collect every Viterbi pass run inside that falls in the library's overrun region
+    (`library_overruns`): {where, pass, T, L, R} each."""
+    sink: list[dict] = []
+    token = _OVERRUN_SINK.set(sink)
+    try:
+        yield sink
+    finally:
+        _OVERRUN_SINK.reset(token)
 
 
 def viterbi_targets(tokens_starred: list[str], tokenizer) -> list[int]:
@@ -841,6 +879,22 @@ def viterbi_refusal(log_probs, targets: list[int]) -> str | None:
     return None
 
 
+def _note_overrun(star_frequency: str, n_frames: int, targets: list[int]) -> None:
+    """A pass in the library's overrun region: logged with the song, the window, the pass, T, L
+    and R, and handed to the `overruns()` sink when one is open."""
+    hit = {"where": _VITERBI_WHERE.get(), "pass": star_frequency, "T": n_frames,
+           "L": len(targets), "R": _repeats(targets)}
+    song = _VITERBI_SONG.get()
+    logger.warning(
+        "%s%s, %s pass: the aligner library writes past its buffers here "
+        "(T=%d, L=%d, R=%d); a crash or an unreadable path would come from it",
+        f"{song}: " if song else "", hit["where"], star_frequency, n_frames, hit["L"], hit["R"],
+    )
+    sink = _OVERRUN_SINK.get()
+    if sink is not None:
+        sink.append(hit)
+
+
 def _numpy_log_probs(emissions):
     """The emissions as a numpy array (torch on any device, or numpy), for the guard to read."""
     import numpy as np
@@ -857,9 +911,8 @@ def _refused(star_frequency: str, why: str, n_frames: int, targets: list[int] | 
     every retry; a new lyrics record or a code change is what can help, and both arrive through a
     reprocess, which the 7-day block does not stop."""
     sizes = "?" if targets is None else f"{len(targets)}, R={_repeats(targets)}"
-    return PipelineError(
-        "alignment_failed",
-        f"{_VITERBI_WHERE.get()}, {star_frequency} pass: {why} (T={n_frames}, L={sizes})",
+    return AlignerRefusal(
+        f"{_VITERBI_WHERE.get()}, {star_frequency} pass: {why} (T={n_frames}, L={sizes})"
     )
 
 
@@ -878,10 +931,11 @@ def _viterbi(
 
     Guarded: what the library cannot do at all (`viterbi_refusal`, checked before its Viterbi
     whenever the tokenizer has the vocabulary get_alignments reads) and a path that does not spell
-    the text (get_spans' own AssertionError) raise one PipelineError naming the window, the pass,
-    T, L and R, instead of a RuntimeError, a segfault or an uncaught AssertionError; a pass in
-    which the library overruns its buffers (`library_overruns`) is logged. Every input the library
-    completes today passes untouched."""
+    the text (get_spans' AssertionError, or the IndexError of a path that runs out of tokens)
+    raise one AlignerRefusal (`alignment_failed`) naming the window, the pass, T, L and R, instead
+    of a RuntimeError, a segfault or an uncaught error; a pass in which the library overruns its
+    buffers (`library_overruns`) is logged with the song and handed to an `overruns()` sink. Every
+    input the library completes today passes untouched."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         get_alignments,
         get_spans,
@@ -912,11 +966,7 @@ def _viterbi(
         if refusal is not None:
             raise _refused(star_frequency, refusal, n_frames, targets)
         if library_overruns(n_frames, targets):
-            logger.warning(
-                "%s, %s pass: the aligner library writes past its buffers here "
-                "(T=%d, L=%d, R=0); a crash or an unreadable path would come from it",
-                _VITERBI_WHERE.get(), star_frequency, n_frames, len(targets),
-            )
+            _note_overrun(star_frequency, n_frames, targets)
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     floors: list[tuple[int, int, int]] = []
     if starts_ms and any(starts_ms):
@@ -928,7 +978,7 @@ def _viterbi(
             segments, scores, floors = held
     try:
         spans = get_spans(tokens_starred, segments, blank)
-    except AssertionError as exc:  # the library's own check that the path spells the text
+    except (AssertionError, IndexError) as exc:  # a path that does not spell the text
         raise _refused(
             star_frequency, "the Viterbi path does not spell the text", n_frames, targets
         ) from exc
