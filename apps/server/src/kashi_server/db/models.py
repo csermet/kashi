@@ -296,7 +296,7 @@ class TrackEvidence(Base):
     # The recorded values and the index of the emission arrays in `emissions`.
     meta: Mapped[dict[str, Any]]
     # The encoded emission arrays, concatenated (evidence.encode_array: lossless).
-    emissions: Mapped[bytes] = mapped_column(LargeBinary)
+    emissions: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)  # read on first use
     size_bytes: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))
     updated_at: Mapped[datetime] = mapped_column(server_default=text(_NOW))

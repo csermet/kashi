@@ -803,10 +803,12 @@ def process_job(s: Session, job: Job) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _run_pipeline(s: Session, job: Job, tmp: Path) -> None:
+def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> None:
     """One job from the lyrics lookup to the persisted document. Under an evidence session
     (pipeline/evidence.py) the same code runs: a recorder keeps what the audio boundaries
-    returned, a replayer serves them instead of the audio."""
+    returned, a replayer serves them instead of the audio. `persist=False` builds and validates
+    the document without storing it (the evidence back-fill, worker/backfill.py; never a job
+    option, so no queued job and no older image can carry it)."""
     checkpoint(s, job)
 
     try:
@@ -888,30 +890,44 @@ def _run_pipeline(s: Session, job: Job, tmp: Path) -> None:
         qa,
         vocals_separated=vocals_separated,
         speed_factor=speed_factor,
+        persist=persist,
     )
 
 
 def _run_job(s: Session, job: Job, tmp: Path) -> None:
     """The job, under `settings.evidence_mode` (pipeline/evidence.py). "off": the pipeline as it
     always ran. "record": a full job that stores its evidence. "replay": the song's stored
-    evidence first, when its key matches this worker; anything the replay cannot serve, or any
-    failure of it, runs the job in full (and records it)."""
+    evidence first, when its key matches this worker and this job; anything the replay cannot
+    serve, or any failure of it, runs the job in full (and records it). Only YouTube songs:
+    an upload's audio is deleted with its job and re-uploading is how it is processed again
+    (README), so its evidence must not outlive it until the owner decides otherwise. An admin
+    reprocess with `options.fresh_audio` skips the replay: the audio is fetched again."""
     mode = settings.evidence_mode
-    if mode == "off":
-        if (job.options or {}).get("evidence_only"):
-            # Nothing this worker could keep: no evidence store, and no document wanted.
-            logger.warning("job %s: evidence_only with evidence_mode off — nothing to do", job.id)
-            queue.mark_completed(s, job)
-            s.commit()
-            return
+    if mode == "off" or job.source_type != "youtube":
         _run_pipeline(s, job, tmp)
         return
-    if mode == "replay" and _replay(s, job, tmp):
+    if mode == "replay" and not (job.options or {}).get("fresh_audio") and _replay(s, job, tmp):
         return
-    recorder = evidence.Recorder(job.source_type, job.source_id, evidence.expected_key(settings))
+    _record(s, job, tmp)
+
+
+def _evidence_key(job: Job) -> dict:
+    return evidence.expected_key(settings, separate_first=_separates_first(job))
+
+
+def _record(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> bool:
+    """A full job under a recorder, then its evidence stored; True when it was (`persist=False`:
+    the evidence back-fill, worker/backfill.py, which builds the document and keeps only the
+    evidence)."""
+    from kashi_server.version import PIPELINE_VERSION
+
+    recorder = evidence.Recorder(
+        job.source_type, job.source_id, _evidence_key(job),
+        made_by=evidence.provenance(settings, PIPELINE_VERSION),
+    )
     with evidence.active(recorder):
-        _run_pipeline(s, job, tmp)
-    _store_evidence(s, job, recorder)
+        _run_pipeline(s, job, tmp, persist=persist)
+    return _store_evidence(s, job, recorder)
 
 
 def _replay(s: Session, job: Job, tmp: Path) -> bool:
@@ -925,9 +941,14 @@ def _replay(s: Session, job: Job, tmp: Path) -> bool:
         s.rollback()
         logger.warning("job %s: stored evidence unreadable — full job", job.id, exc_info=True)
         return False
-    replayer, why = evidence.replayer_for(stored, settings)
-    if replayer is None:
+    replayer, why = evidence.replayer_for(stored, settings, separate_first=_separates_first(job))
+    if replayer is None or stored is None:
         logger.info("job %s: full job (%s)", job.id, why)
+        return False
+    conflict = evidence.duration_conflict(stored, credible_duration_hint(job.hints))
+    if conflict is not None:
+        logger.info("job %s: full job (%s: the audio behind the id may have changed)", job.id,
+                    conflict)
         return False
     try:
         with evidence.active(replayer):
@@ -935,43 +956,55 @@ def _replay(s: Session, job: Job, tmp: Path) -> bool:
     except (JobCanceled, OperationalError):
         raise
     except PipelineError as exc:
-        if exc.error_type == "lrclib_unavailable" or is_transient_error(exc.error_type):
+        if is_transient_error(exc.error_type):  # lrclib_unavailable is one
             raise  # weather, not the replay: a full job would meet it too
-        s.rollback()
-        logger.info("job %s: replay stopped (%s: %s) — full job", job.id, exc.error_type,
-                    exc.message[:200])
+        _replay_stopped(s, job, f"{exc.error_type}: {exc.message[:200]}")
         return False
     except evidence.EvidenceMissing as exc:
-        s.rollback()
-        logger.info("job %s: replay stopped (%s) — full job", job.id, exc)
+        _replay_stopped(s, job, str(exc))
         return False
     except Exception:  # noqa: BLE001 - a replay fault must cost a download, never the job
-        s.rollback()
-        logger.warning("job %s: replay failed — full job", job.id, exc_info=True)
+        logger.warning("job %s: replay failed", job.id, exc_info=True)
+        _replay_stopped(s, job, "replay failed")
         return False
-    logger.info("job %s: rebuilt from stored evidence, no download (%s)", job.id,
-                ", ".join(f"{k} {v}" for k, v in sorted(replayer.served.items())))
+    served = ", ".join(f"{k} {v}" for k, v in sorted(replayer.served.items()))
+    if job.status == "completed":
+        logger.info("job %s: rebuilt from stored evidence, no download (%s)", job.id, served)
+    else:
+        logger.info("job %s: replay ended %s, no download (%s)", job.id, job.status, served)
     return True
 
 
-def _store_evidence(s: Session, job: Job, recorder: evidence.Recorder) -> None:
-    """Best effort, after the job's own commit: evidence is a cache, its loss costs a download."""
+def _replay_stopped(s: Session, job: Job, why: str) -> None:
+    """Back to where a claimed job starts, so the full job's stages read as its own."""
+    s.rollback()
+    logger.info("job %s: replay stopped (%s) — full job", job.id, why)
+    queue.set_status(s, job, "downloading")
+    s.commit()
+
+
+def _store_evidence(s: Session, job: Job, recorder: evidence.Recorder) -> bool:
+    """Best effort, after the job's own commit: evidence is a cache, its loss costs a download.
+    Slices the stored record holds for the same audio and key and this job did not read are
+    kept (evidence.merged)."""
     if job.status != "completed":
-        return
+        return False
     if not recorder.usable:
         logger.info("job %s: evidence not stored (%s)", job.id, recorder.why_not)
-        return
+        return False
     try:
-        record = recorder.pack()
-        evidence.DbStore(s).save(record)
+        store = evidence.DbStore(s)
+        record = evidence.merged(store.load(job.source_type, job.source_id), recorder.pack())
+        store.save(record)
         s.commit()
     except Exception:  # noqa: BLE001
         with suppress(Exception):
             s.rollback()
         logger.warning("job %s: evidence not stored", job.id, exc_info=True)
-        return
+        return False
     logger.info("job %s: evidence stored (%d emission arrays, %d bytes)", job.id,
                 len(record.meta.get("emissions", [])), len(record.blob))
+    return True
 
 
 def _is_plain_lookup(job: Job) -> bool:
@@ -1212,13 +1245,16 @@ def _align_with_ctc(
     return lyrics, result, qa, vocals_separated, speed_factor
 
 
+def _separates_first(job: Job) -> bool:
+    """Whether the job aligns the separated stem from the start (the evidence key names it)."""
+    return settings.separation_mode == "always" or bool((job.options or {}).get("separate"))
+
+
 def _separation_source(
     s: Session, job: Job, tmp: Path, download: DownloadResult
 ) -> tuple[Path, bool]:
     """The audio alignment starts from, and whether it was separated first."""
-    separate_first = settings.separation_mode == "always" or bool(
-        (job.options or {}).get("separate")
-    )
+    separate_first = _separates_first(job)
     if not separate_first:
         return download.path, False
     queue.set_status(s, job, "separating")
@@ -1338,6 +1374,7 @@ def _postprocess(
     *,
     vocals_separated: bool,
     speed_factor: float,
+    persist: bool = True,
 ) -> None:
     """Beats, energy, sections, fx and palette -> the persisted document."""
     # --- postprocessing ---
@@ -1360,9 +1397,9 @@ def _postprocess(
     # overwrite what the job's new owner produced. The checkpoint also renews
     # the lease, so nobody can reclaim it between here and the commit.
     checkpoint(s, job)
-    if (job.options or {}).get("evidence_only"):
-        # The evidence back-fill (pipeline/evidence.py): the document is built and checked,
-        # the stored one stays; the job's evidence is what it was run for.
+    if not persist:
+        # The evidence back-fill (worker/backfill.py): the document is built and checked,
+        # the stored one stays; the run's evidence is what it was for.
         validate_document(doc)
         queue.mark_completed(s, job)
         _drop_staged_upload(s, job)

@@ -108,24 +108,26 @@ def test_reprocess_carries_the_ingest_escape_hatches(client, db_session):
     assert job.options == {"original_title": "Song", "separate": False}
 
 
-def test_evidence_only_rides_along_and_is_absent_unless_asked(client, db_session):
-    """The evidence back-fill's option (pipeline/evidence.py) reaches the job; a request without
-    it stores the options exactly as before."""
+def test_evidence_only_is_refused_and_fresh_audio_rides_along(client, db_session):
+    """The evidence back-fill is not a job (review finding 1): a request naming it is refused, never
+    turned into an ordinary reprocess. `fresh_audio` reaches the job (pipeline/evidence.py)."""
     import uuid
 
     from kashi_server.api.schemas import IngestOptions
     from kashi_server.db.models import Job
 
-    body = {
-        **_REPROCESS,
-        "hints": {"title": "T", "artist": "A"},
-        "options": {"evidence_only": True},
-    }
+    hints = {"title": "T", "artist": "A"}
+    for options in ({"evidence_only": True}, {"evidence_only": True, "force_persist": True}):
+        refused = client.post("/v1/admin/reprocess", headers=_auth(TEST_ADMIN_KEY),
+                              json={**_REPROCESS, "hints": hints, "options": options})
+        assert refused.status_code == 422, refused.text
+        assert "backfill" in refused.text
+    body = {**_REPROCESS, "hints": hints, "options": {"fresh_audio": True}}
     resp = client.post("/v1/admin/reprocess", json=body, headers=_auth(TEST_ADMIN_KEY))
     assert resp.status_code == 202, resp.text
     job = db_session.get(Job, uuid.UUID(resp.json()["job_id"]))
-    assert job.options == {"evidence_only": True, "separate": False}
-    assert "evidence_only" not in IngestOptions.model_fields  # never from a client ingest
+    assert job.options == {"fresh_audio": True, "separate": False}
+    assert "fresh_audio" not in IngestOptions.model_fields  # never from a client ingest
 
 
 def test_live_job_is_returned_not_duplicated(client, user_key):

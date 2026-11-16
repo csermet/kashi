@@ -16,6 +16,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from kashi_server.pipeline import evidence
+
 logger = logging.getLogger(__name__)
 
 RATE_HZ = 2
@@ -88,6 +90,7 @@ def extract_energy(wav_path: Path) -> tuple[Energy, list[Section]] | None:
         return Energy(rate_hz=RATE_HZ, values=values), sections
     except Exception as exc:
         logger.warning("energy extraction failed (%s) — document ships without it", exc)
+        evidence.extractor_failed("energy extraction")  # a failure, not "too short"
         return None
 
 

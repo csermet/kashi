@@ -11,11 +11,17 @@ With `evidence_mode` on, a full job runs under a `Recorder`, which keeps what th
 returned, and stores it per song (`track_evidence`, `DbStore`). With `"replay"`, a later job for
 the song runs under a `Replayer`: the SAME pipeline code from the lyrics lookup to the persisted
 document, with only its audio boundaries served from the stored values — no download, no
-separation, no model forward pass. A record whose song-wide key differs (another separator,
-evidence code or library that computed a value) is not replayed at all; whatever a replay then
-cannot serve exactly (a slice another window plan cuts differently, another checkpoint or
-revision, a nightcore clock, the by-ear rung, a value never recorded) raises `EvidenceMissing`,
-always before anything is persisted, and the job runs in full instead.
+separation, no model forward pass. A record whose song-wide key differs (what the aligner heard:
+the separator and whether this job separates first; the evidence code and the libraries and
+ffmpeg that computed a value) or that lacks a value a replay always reads is not replayed at all;
+whatever a replay then cannot serve exactly (a slice another window plan cuts differently,
+another checkpoint, an unpinned or other revision, a nightcore clock, the by-ear rung) raises
+`EvidenceMissing`, always before anything is persisted, and the job runs in full instead.
+
+A recording is never stored when it cannot be keyed or is not what a healthy job reads: two
+different tracks in one job (a second-pass separation), a nightcore clock, an unpinned
+checkpoint, or an extractor that FAILED (`extractor_failed`; "found nothing" is a value, a
+failure is not).
 
 The hooks are the module-level functions below (`emissions`, `track`, `download`, ...). Each
 takes the real computation as `compute` and calls it as given when no session is active, so with
@@ -29,9 +35,15 @@ into docs/research after review).
 from __future__ import annotations
 
 import contextlib
+import functools
+import hashlib
 import json
 import logging
 import math
+import os
+import re
+import shutil
+import subprocess
 import zlib
 from collections.abc import Callable, Iterator
 from contextvars import ContextVar
@@ -43,17 +55,29 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 #: Layout of a stored record (key, meta, blob). A reader refuses any other value.
-EVIDENCE_FORMAT = 1
+#: 2 (review round, 2026-11-16): meta names the track's digest, the download's format facts and
+#: the recorder's provenance; the key names the separation this job did and ffmpeg.
+EVIDENCE_FORMAT = 2
 
 #: What OUR code that computes each recorded value looks like, by version. Bump the matching
-#: entry whenever that code changes: `alignment._emit` / `_emissions` (emissions), `onsets.
-#: detect_onsets` (onsets), `process._mix_features` and the beats / energy / structure modules
-#: (mix). Stored evidence from another version is refused, so the next job runs in full.
-#: tests/test_evidence.py pins a hash of those functions' source to these numbers.
-EVIDENCE_CODE: dict[str, int] = {"emissions": 1, "onsets": 1, "mix": 1}
+#: entry whenever that code changes: `alignment._emit`, `_emissions`, `_load_track` (emissions);
+#: `onsets` (onsets); `process._mix_features` and the beats / energy / structure modules (mix);
+#: `process._decode`, `_separate_vocals`, `_mix_back`, `_aligner_decode` and the download's
+#: format choice and duration (stem). Stored evidence from another version is refused, so the
+#: next job runs in full. tests/test_evidence.py pins a hash of that source to these numbers.
+EVIDENCE_CODE: dict[str, int] = {"emissions": 1, "onsets": 1, "mix": 1, "stem": 1}
 
 #: The aligner input's sample rate (alignment.SAMPLE_RATE, which load_audio produces).
 SAMPLE_RATE = 16_000
+
+#: How far a job's credible duration hint (what the player plays) may sit from the recorded
+#: download's duration before the replay refuses: the audio behind the id may have changed. The
+#: lrclib ladder's own duration tolerance; client hints are whole seconds, probes are exact.
+DURATION_TOLERANCE_S = 3.0
+
+#: What every replay reads (a record without one of them is refused before it starts, so a replay
+#: cannot stop after line QA has counted the job).
+REQUIRED_META = ("download", "track_samples", "track_sha256", "wav_duration_s", "onsets", "mix")
 
 
 class EvidenceMissing(Exception):  # noqa: N818 - a reason to run the job in full, not an error
@@ -90,6 +114,14 @@ def _numpy(array: Any) -> Any:
     if hasattr(array, "detach"):
         array = array.detach().cpu().numpy()
     return np.array(array, copy=True)
+
+
+def _digest(audio: Any) -> str:
+    """sha256 of a loaded track's samples (what the aligner heard), on the CPU."""
+    import numpy as np
+
+    values = audio.detach().cpu().numpy() if hasattr(audio, "detach") else np.asarray(audio)
+    return hashlib.sha256(np.ascontiguousarray(values).tobytes()).hexdigest()
 
 
 def _tensor(array: Any) -> Any:
@@ -162,24 +194,49 @@ def _distribution_version(name: str) -> str | None:
     return f"{dist.version}+{commit}" if commit else dist.version
 
 
+@functools.lru_cache(maxsize=1)
+def ffmpeg_version() -> str | None:
+    """The ffmpeg that decodes the download and the stem ("8.1.2" in the image: a pinned static
+    build, the same in the cluster worker and the GPU helper, both built from one Dockerfile)."""
+    binary = shutil.which("ffmpeg")
+    if binary is None:
+        return None
+    try:
+        first = subprocess.run([binary, "-version"], capture_output=True, text=True,
+                               timeout=20).stdout.splitlines()[0]
+    except (OSError, subprocess.SubprocessError, IndexError):
+        return None
+    found = re.match(r"ffmpeg version (\S+)", first)
+    return found.group(1) if found else first[:80]
+
+
 def runtime_versions() -> dict[str, str | None]:
-    """Libraries whose code computes a recorded value. `ctc-forced-aligner` (generate_emissions)
-    and `librosa` (onsets, beats, energy, structure) are part of the key; torch and transformers
-    are provenance only — the cluster worker (CPU build) and the GPU helper (CUDA build) already
-    differ in the last bits of every emission, and replaying the recorder's own emissions is
-    exactly what the replay is for."""
-    return {
+    """Libraries and the ffmpeg build behind the recorded values. `KEY_LIBRARIES` are key: the
+    aligner library's emission pass, librosa (onsets, beats, energy, structure), the separator
+    and ffmpeg (the stem and the decode) — each is pinned and changes only by a deliberate bump.
+    torch / transformers / numpy and yt-dlp are provenance only: the cluster worker (CPU build)
+    and the GPU helper (CUDA build) already differ in the last bits of every emission and a replay
+    serves the recorder's own arrays; yt-dlp is bumped whenever YouTube breaks it, which must not
+    void the archive's evidence."""
+    versions = {
         name: _distribution_version(name)
-        for name in ("ctc-forced-aligner", "librosa", "torch", "transformers", "numpy")
+        for name in ("ctc-forced-aligner", "librosa", "audio-separator", "torch",
+                     "transformers", "numpy", "yt-dlp")
     }
+    versions["ffmpeg"] = ffmpeg_version()
+    return versions
 
 
-KEY_LIBRARIES = ("ctc-forced-aligner", "librosa")
+KEY_LIBRARIES = ("ctc-forced-aligner", "librosa", "audio-separator", "ffmpeg")
 
 
-def expected_key(settings: Any, versions: dict[str, str | None] | None = None) -> dict:
-    """The song-wide key a record must carry to be replayed by THIS worker. Per-slice keys
-    (checkpoint, revision, sample range) are checked when the aligner asks for each slice."""
+def expected_key(settings: Any, versions: dict[str, str | None] | None = None, *,
+                 separate_first: bool) -> dict:
+    """The song-wide key a record must carry to be replayed by THIS worker for THIS job.
+    `separate_first`: the job aligns the separated stem from the start (process.
+    _separates_first: the mode `always` or the job's `separate` option), so a record made over
+    the mix never serves a stem job, nor the reverse. Per-slice keys (checkpoint, pinned
+    revision, sample range) are checked when the aligner asks for each slice."""
     versions = runtime_versions() if versions is None else versions
     return {
         "format": EVIDENCE_FORMAT,
@@ -188,6 +245,7 @@ def expected_key(settings: Any, versions: dict[str, str | None] | None = None) -
             "mode": settings.separation_mode,
             "model": settings.separation_model_filename,
             "mixback": float(settings.separation_mixback),
+            "first": bool(separate_first),
         },
         "structure_sections": bool(settings.structure_sections),
         "libraries": {name: versions.get(name) for name in KEY_LIBRARIES},
@@ -215,23 +273,89 @@ def key_difference(stored: dict, expected: dict) -> str | None:
     return walk(stored, expected, "")
 
 
+def provenance(settings: Any, pipeline_version: str) -> dict:
+    """Who recorded a record and with what (stored, never compared)."""
+    return {
+        "worker": settings.worker_name,
+        "pipeline_version": pipeline_version,
+        "device": os.environ.get("KASHI_ALIGN_DEVICE", "cpu"),
+        "versions": runtime_versions(),
+    }
+
+
+def duration_conflict(evidence: Evidence, hint_ms: int | None) -> str | None:
+    """Why the record cannot be the audio this job's player plays, or None. The only identity a
+    replay can check without downloading: a credible duration hint against the recorded download
+    duration (`DURATION_TOLERANCE_S`). No hint: nothing to compare."""
+    if hint_ms is None:
+        return None
+    recorded = (evidence.meta.get("download") or {}).get("duration_s")
+    if not isinstance(recorded, int | float) or isinstance(recorded, bool):
+        return None
+    if abs(hint_ms / 1000 - float(recorded)) > DURATION_TOLERANCE_S:
+        return (f"the player's {hint_ms / 1000:.1f} s is not the recorded download's "
+                f"{float(recorded):.1f} s")
+    return None
+
+
 # --- the stored record -----------------------------------------------------------------------
 
 
 @dataclass
 class Evidence:
     """One song's stored evidence: `key` (song-wide, compared whole), `meta` (the recorded values
-    and the emission index), `blob` (the encoded emission arrays, concatenated)."""
+    and the emission index), the encoded emission arrays (concatenated) — given, or read on first
+    use through `load_blob` (a store reads the key before the megabytes)."""
 
     source_type: str
     source_id: str
     key: dict
     meta: dict
-    blob: bytes
+    blob_bytes: bytes | None = None
+    load_blob: Callable[[], bytes] | None = None
+
+    @property
+    def blob(self) -> bytes:
+        if self.blob_bytes is None:
+            self.blob_bytes = self.load_blob() if self.load_blob is not None else b""
+        return self.blob_bytes
 
     def array(self, entry: dict) -> Any:
         part = self.blob[entry["offset"] : entry["offset"] + entry["length"]]
         return decode_array(part, entry["dtype"], (entry["frames"], entry["cols"]))
+
+
+def entry_key(entry: dict) -> tuple:
+    return entry["checkpoint"], entry["revision"], entry["lo"], entry["hi"]
+
+
+def merged(stored: Evidence | None, new: Evidence) -> Evidence:
+    """What to store after a full job: `new`, plus the stored slices `new` did not read when both
+    describe the same audio under the same key (the same track digest) and come from a checkpoint
+    and revision `new` also read: a job whose plan cut fewer or other windows must not throw away
+    slices a later plan may ask for again, while another checkpoint's or a superseded revision's
+    slices could never be served and are dropped."""
+    if (
+        stored is None
+        or stored.key != new.key
+        or stored.meta.get("track_sha256") is None
+        or stored.meta.get("track_sha256") != new.meta.get("track_sha256")
+    ):
+        return new
+    have = {entry_key(e) for e in new.meta.get("emissions", [])}
+    models = {(e["checkpoint"], e["revision"]) for e in new.meta.get("emissions", [])}
+    index = [dict(e) for e in new.meta.get("emissions", [])]
+    parts = [new.blob]
+    offset = len(new.blob)
+    for entry in stored.meta.get("emissions", []):
+        if entry_key(entry) in have or (entry["checkpoint"], entry["revision"]) not in models:
+            continue
+        part = stored.blob[entry["offset"] : entry["offset"] + entry["length"]]
+        index.append({**entry, "offset": offset, "length": len(part)})
+        parts.append(part)
+        offset += len(part)
+    meta = {**new.meta, "emissions": index}
+    return Evidence(new.source_type, new.source_id, new.key, meta, b"".join(parts))
 
 
 class EvidenceStore(Protocol):
@@ -254,7 +378,8 @@ class DirStore:
         if not head.exists() or not body.exists():
             return None
         data = json.loads(head.read_text())
-        return Evidence(source_type, source_id, data["key"], data["meta"], body.read_bytes())
+        return Evidence(source_type, source_id, data["key"], data["meta"],
+                        load_blob=body.read_bytes)
 
     def save(self, evidence: Evidence) -> None:
         head, body = self._paths(evidence.source_type, evidence.source_id)
@@ -267,7 +392,8 @@ class DirStore:
 
 
 class DbStore:
-    """Evidence in Postgres (`track_evidence`, one row per song, replaced by each full job)."""
+    """Evidence in Postgres (`track_evidence`, one row per song). `load` reads the key and the
+    meta; the arrays only when a replay first asks for one."""
 
     def __init__(self, session: Any) -> None:
         self.session = session
@@ -277,14 +403,24 @@ class DbStore:
 
         from kashi_server.db.models import TrackEvidence
 
-        row = self.session.scalars(
-            select(TrackEvidence).where(
+        row = self.session.execute(
+            select(TrackEvidence.key, TrackEvidence.meta).where(
                 TrackEvidence.source_type == source_type, TrackEvidence.source_id == source_id
             )
         ).first()
         if row is None:
             return None
-        return Evidence(row.source_type, row.source_id, row.key, row.meta, bytes(row.emissions))
+
+        def blob() -> bytes:
+            value = self.session.execute(
+                select(TrackEvidence.emissions).where(
+                    TrackEvidence.source_type == source_type,
+                    TrackEvidence.source_id == source_id,
+                )
+            ).scalar_one()
+            return bytes(value)
+
+        return Evidence(source_type, source_id, row.key, row.meta, load_blob=blob)
 
     def save(self, evidence: Evidence) -> None:
         from sqlalchemy.dialects.postgresql import insert
@@ -325,45 +461,48 @@ class _Session:
 @dataclass
 class Recorder(_Session):
     """A full job's audio boundaries, kept. `usable` turns False when the job read audio this
-    record cannot key (a nightcore clock, a second-pass separation, a slice of an unknown track);
-    such a record is never stored."""
+    record cannot key (a nightcore clock, a second-pass separation, two different tracks, a slice
+    of an unknown track, an unpinned checkpoint) or an extractor failed; such a record is never
+    stored."""
 
     source_type: str
     source_id: str
     key: dict
+    made_by: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
     arrays: dict[tuple, Any] = field(default_factory=dict)
     order: list[tuple] = field(default_factory=list)
     usable: bool = True
     why_not: str | None = None
-    _tracks: list[Any] = field(default_factory=list)
+    _tracks: list[tuple[Any, str]] = field(default_factory=list)
 
     def refuse(self, reason: str) -> None:
         if self.usable:
             self.usable, self.why_not = False, reason
 
-    # Every array view of a registered track maps to its sample range on that track.
-    def span(self, audio: Any) -> tuple[int, int] | None:
-        for track in self._tracks:
+    def span(self, audio: Any) -> tuple[str, int, int] | None:
+        """(the track's digest, first sample, end sample) of a view of a loaded track."""
+        for track, digest in self._tracks:
             found = _view_span(audio, track)
             if found is not None:
-                return found
+                return digest, found[0], found[1]
         return None
 
     def add_track(self, audio: Any) -> None:
-        n = int(audio.shape[-1])
-        seen = self.meta.get("track_samples")
-        if seen is not None and seen != n:
-            self.refuse(f"two different tracks ({seen} and {n} samples)")
-        self.meta["track_samples"] = n
-        self._tracks.append(audio)
+        digest = _digest(audio)
+        seen = self.meta.get("track_sha256")
+        if seen is not None and seen != digest:
+            self.refuse("two different tracks in one job")
+        self.meta.setdefault("track_sha256", digest)
+        self.meta.setdefault("track_samples", int(audio.shape[-1]))
+        self._tracks.append((audio, digest))
 
     def pack(self) -> Evidence:
         index, parts, offset = [], [], 0
         for key in self.order:
             array = self.arrays[key]
             blob = encode_array(array)
-            checkpoint, revision, lo, hi = key
+            checkpoint, revision, _digest_of_track, lo, hi = key
             index.append({
                 "checkpoint": checkpoint, "revision": revision, "lo": lo, "hi": hi,
                 "frames": int(array.shape[0]), "cols": int(array.shape[1]),
@@ -371,7 +510,7 @@ class Recorder(_Session):
             })
             parts.append(blob)
             offset += len(blob)
-        meta = {**self.meta, "emissions": index}
+        meta = {**self.meta, "emissions": index, "made_by": self.made_by}
         return Evidence(self.source_type, self.source_id, self.key, meta, b"".join(parts))
 
 
@@ -427,11 +566,13 @@ class Replayer(_Session):
         return VirtualTrack(int(self.meta("track_samples")))
 
     def emissions(self, name: str, revision: str | None, audio: Any) -> Any:
+        if revision is None:
+            raise EvidenceMissing(f"{name} has no pinned revision")
         if not isinstance(audio, VirtualTrack):
             raise EvidenceMissing("emissions asked for audio that is not the replayed track")
         wanted = (name, revision, audio.lo, audio.lo + audio.n)
         for number, entry in enumerate(self.evidence.meta.get("emissions", [])):
-            if (entry["checkpoint"], entry["revision"], entry["lo"], entry["hi"]) == wanted:
+            if entry_key(entry) == wanted:
                 self._count("emissions")
                 if number not in self._decoded:
                     self._decoded[number] = self.evidence.array(entry)
@@ -442,13 +583,20 @@ class Replayer(_Session):
 
 
 def replayer_for(evidence: Evidence | None, settings: Any,
-                 versions: dict[str, str | None] | None = None) -> tuple[Replayer | None, str]:
-    """(a Replayer, "") when `evidence` can be replayed by this worker, else (None, why not)."""
+                 versions: dict[str, str | None] | None = None, *,
+                 separate_first: bool) -> tuple[Replayer | None, str]:
+    """(a Replayer, "") when `evidence` can be replayed by this worker for a job that does (or
+    does not) separate first, else (None, why not)."""
     if evidence is None:
         return None, "no evidence stored"
-    difference = key_difference(evidence.key, expected_key(settings, versions))
+    difference = key_difference(
+        evidence.key, expected_key(settings, versions, separate_first=separate_first)
+    )
     if difference is not None:
         return None, f"key differs at {difference}"
+    missing = [name for name in REQUIRED_META if name not in evidence.meta]
+    if missing:
+        return None, f"evidence lacks {', '.join(missing)}"
     return Replayer(evidence), ""
 
 
@@ -475,7 +623,8 @@ def emissions(model: Any, audio: Any, exact_stride: bool, compute: Callable[...,
               stride_of: Callable[[int, int, int], float], revision: str | None) -> tuple[Any, Any]:
     """Every emission pass of the aligner (`alignment._emissions`). `stride_of` is
     alignment.exact_stride_ms; a replay derives the frame step from the slice length exactly as
-    the library and `_emit` do."""
+    the library and `_emit` do. `revision`: the checkpoint's pinned hub revision (None: unpinned,
+    which no record keys and no replay serves — the hub's `main` moves)."""
     session = current()
     if session is None:
         return compute(model, audio, exact_stride=exact_stride)
@@ -486,8 +635,10 @@ def emissions(model: Any, audio: Any, exact_stride: bool, compute: Callable[...,
         lib = library_stride(n, frames)
         return _tensor(array), (stride_of(n, frames, lib) if exact_stride else lib)
     assert isinstance(session, Recorder)
+    if revision is None:
+        session.refuse(f"{name} has no pinned revision")
     span = session.span(audio)
-    key = None if span is None else (name, revision, span[0], span[1])
+    key = None if span is None else (name, revision, *span)
     if key is not None and key in session.arrays:  # the second whole-track pass of a job
         array = session.arrays[key]
         n, frames = int(audio.shape[-1]), int(array.shape[0])
@@ -523,6 +674,16 @@ def track(compute: Callable[[], Any]) -> Any:
     return audio
 
 
+def _download_facts(info: Any) -> dict:
+    """What yt-dlp said about the file it fetched (provenance: a later job cannot compare it
+    without fetching again)."""
+    if not isinstance(info, dict):
+        return {}
+    facts = {name: info.get(name) for name in ("format_id", "ext", "asr", "filesize",
+                                               "filesize_approx", "duration")}
+    return {k: v for k, v in facts.items() if isinstance(v, str | int | float)}
+
+
 def download(compute: Callable[[], Any], placeholder: Path) -> Any:
     """The job's audio fetch. A replay hands back a DownloadResult whose path is never read."""
     session = current()
@@ -537,7 +698,8 @@ def download(compute: Callable[[], Any], placeholder: Path) -> Any:
     assert isinstance(session, Recorder)
     result = compute()
     session.meta["download"] = {"duration_s": result.duration_s, "abr": result.abr,
-                                "acodec": result.acodec}
+                                "acodec": result.acodec,
+                                "facts": _download_facts(getattr(result, "info", None))}
     return result
 
 
@@ -578,7 +740,8 @@ def wav_duration(compute: Callable[[], float]) -> float:
 
 
 def onsets(compute: Callable[[], list[int] | None]) -> list[int] | None:
-    """The stem's onsets line QA reads (None, as recorded, when detection failed)."""
+    """The stem's onsets line QA reads. None is recorded only when detection found none: a
+    detector that FAILED says so (`extractor_failed`) and the record is not stored."""
     session = current()
     if session is None:
         return compute()
@@ -618,6 +781,15 @@ def mix_features(compute: Callable[[], tuple]) -> tuple:
             {"type": s.type, "start_ms": s.start_ms, "end_ms": s.end_ms} for s in sections],
     }
     return beats, energy, sections
+
+
+def extractor_failed(what: str) -> None:
+    """A best-effort extractor (onsets, beats, energy, structure) swallowed an error and returns
+    None. The job carries on as before; a recording made in it is not stored, because a healthy
+    job would have read a value there (review finding 2, 2026-11-16)."""
+    session = current()
+    if isinstance(session, Recorder):
+        session.refuse(f"{what} failed")
 
 
 def other_audio(reason: str, *, keyed: bool = True) -> None:

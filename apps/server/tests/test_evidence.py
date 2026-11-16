@@ -58,8 +58,9 @@ def _settings(**over):
     return SimpleNamespace(**{**base, **over})
 
 
-VERSIONS = {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0", "torch": "2.9.1+cpu",
-            "transformers": "5.13.0", "numpy": "2.4.6"}
+VERSIONS = {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0",
+            "audio-separator": "0.44.3", "ffmpeg": "8.1.2", "torch": "2.9.1+cpu",
+            "transformers": "5.13.0", "numpy": "2.4.6", "yt-dlp": "2026.8.19"}
 
 BEATS = Beats(bpm=118.3, confidence=0.71, times_ms=[500, 1007, 1514], downbeat_indices=[0])
 ENERGY = Energy(rate_hz=4, values=[3, 50, 99, 0])
@@ -71,11 +72,15 @@ def _record(spans=SPANS, revision="abc123", track=None):
     track = _track() if track is None else track
     calls: list = []
     emit = _fake_emit(calls)
-    recorder = evidence.Recorder("youtube", "vid", evidence.expected_key(_settings(), VERSIONS))
+    recorder = evidence.Recorder(
+        "youtube", "vid", evidence.expected_key(_settings(), VERSIONS, separate_first=True),
+        made_by={"worker": "test"})
     seen: dict = {}
     with evidence.active(recorder):
         seen["download"] = evidence.download(
-            lambda: SimpleNamespace(duration_s=12.3, abr=130.9, acodec="opus"), None)
+            lambda: SimpleNamespace(duration_s=12.3, abr=130.9, acodec="opus",
+                                    info={"format_id": "251", "filesize": 3_000_000,
+                                          "http_headers": {"x": "y"}}), None)
         seen["wav_s"] = evidence.wav_duration(lambda: 12.0)
         loaded = evidence.track(lambda: track)
         seen["emissions"] = [
@@ -93,7 +98,7 @@ def _record(spans=SPANS, revision="abc123", track=None):
 
 
 def _replay(record, spans=SPANS, revision="abc123", name="org/aligner-eng"):
-    replayer, why = evidence.replayer_for(record, _settings(), VERSIONS)
+    replayer, why = evidence.replayer_for(record, _settings(), VERSIONS, separate_first=True)
     assert replayer is not None, why
     out: dict = {}
     with evidence.active(replayer):
@@ -176,18 +181,20 @@ def test_view_span_of_numpy_slices():
 
 
 def test_the_key_names_what_computed_the_values():
-    key = evidence.expected_key(_settings(), VERSIONS)
+    key = evidence.expected_key(_settings(), VERSIONS, separate_first=True)
     assert key == {
         "format": evidence.EVIDENCE_FORMAT,
         "code": evidence.EVIDENCE_CODE,
-        "separation": {"mode": "always", "model": "vocals_mel_band_roformer.ckpt", "mixback": 0.0},
+        "separation": {"mode": "always", "model": "vocals_mel_band_roformer.ckpt", "mixback": 0.0,
+                       "first": True},
         "structure_sections": True,
-        "libraries": {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0"},
+        "libraries": {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0",
+                      "audio-separator": "0.44.3", "ffmpeg": "8.1.2"},
     }
 
 
 def _key_with(path, value):
-    key = evidence.expected_key(_settings(), VERSIONS)
+    key = evidence.expected_key(_settings(), VERSIONS, separate_first=True)
     node = key
     *parents, leaf = path
     for name in parents:
@@ -205,15 +212,18 @@ def _key_with(path, value):
     (("separation", "mode"), "second_pass"),
     (("separation", "model"), "mel_band_roformer_kim_ft_unwa.ckpt"),
     (("separation", "mixback"), 0.1),
+    (("separation", "first"), False),
     (("structure_sections",), False),
     (("libraries", "ctc-forced-aligner"), "0.3.0+0000000"),
     (("libraries", "librosa"), "0.11.1"),
+    (("libraries", "audio-separator"), "0.45.0"),
+    (("libraries", "ffmpeg"), "8.2"),
 ])
 def test_any_key_field_that_differs_refuses_the_replay(path, value):
     record, _ = _record()
     stored = record.pack()
     stored.key = _key_with(path, value)
-    replayer, why = evidence.replayer_for(stored, _settings(), VERSIONS)
+    replayer, why = evidence.replayer_for(stored, _settings(), VERSIONS, separate_first=True)
     assert replayer is None
     assert ".".join(path) in why
 
@@ -222,8 +232,9 @@ def test_torch_and_transformers_builds_are_provenance_not_key():
     """The GPU helper's CUDA build records, the cluster's CPU build replays: the replay serves the
     recorder's own emissions, so the build that would recompute them does not matter."""
     record, _ = _record()
-    other = {**VERSIONS, "torch": "2.9.1+cu128", "transformers": "5.14.0", "numpy": "2.5.0"}
-    replayer, why = evidence.replayer_for(record.pack(), _settings(), other)
+    other = {**VERSIONS, "torch": "2.9.1+cu128", "transformers": "5.14.0", "numpy": "2.5.0",
+             "yt-dlp": "2026.11.1"}
+    replayer, why = evidence.replayer_for(record.pack(), _settings(), other, separate_first=True)
     assert replayer is not None, why
 
 
@@ -234,7 +245,8 @@ def test_a_bool_is_not_an_int_in_a_key():
 
 
 def test_no_evidence_is_a_full_job():
-    assert evidence.replayer_for(None, _settings(), VERSIONS) == (None, "no evidence stored")
+    assert evidence.replayer_for(None, _settings(), VERSIONS, separate_first=True) == (
+        None, "no evidence stored")
 
 
 # --- record, then replay ---------------------------------------------------------------------
@@ -261,7 +273,8 @@ def test_replay_serves_exactly_what_the_job_read(tmp_path):
 def test_every_served_array_is_its_own():
     """A consumer that writes into the emissions it got cannot change what the next pass gets."""
     recorder, _ = _record()
-    replayer, _why = evidence.replayer_for(recorder.pack(), _settings(), VERSIONS)
+    replayer, _why = evidence.replayer_for(recorder.pack(), _settings(), VERSIONS,
+                                           separate_first=True)
     assert replayer is not None
     with evidence.active(replayer):
         track = evidence.track(lambda: None)
@@ -275,7 +288,8 @@ def test_every_served_array_is_its_own():
 def test_the_library_clock_replays_too():
     """A pass without exact_stride gets the library's int stride back, as from _emit."""
     recorder, _ = _record()
-    replayer, _why = evidence.replayer_for(recorder.pack(), _settings(), VERSIONS)
+    replayer, _why = evidence.replayer_for(recorder.pack(), _settings(), VERSIONS,
+                                           separate_first=True)
     assert replayer is not None
     with evidence.active(replayer):
         track = evidence.track(lambda: None)
@@ -307,27 +321,38 @@ def test_an_emission_the_record_does_not_hold_is_missing(change):
         _replay(recorder.pack(), **change)
 
 
-def test_a_value_never_recorded_is_missing():
+@pytest.mark.parametrize("name", evidence.REQUIRED_META)
+def test_a_record_lacking_what_every_replay_reads_is_refused_before_it_starts(name):
+    """Refused up front, so a replay cannot stop after line QA has counted the job."""
     recorder, _ = _record()
     record = recorder.pack()
-    for name in ("onsets", "mix", "download", "wav_duration_s", "track_samples"):
-        meta = {k: v for k, v in record.meta.items() if k != name}
-        stripped = evidence.Evidence(record.source_type, record.source_id, record.key, meta,
-                                     record.blob)
-        with pytest.raises(evidence.EvidenceMissing):
-            _replay(stripped)
+    meta = {k: v for k, v in record.meta.items() if k != name}
+    stripped = evidence.Evidence(record.source_type, record.source_id, record.key, meta,
+                                 record.blob)
+    replayer, why = evidence.replayer_for(stripped, _settings(), VERSIONS, separate_first=True)
+    assert replayer is None
+    assert name in why
+    with evidence.active(evidence.Replayer(stripped)), pytest.raises(evidence.EvidenceMissing):
+        {"download": lambda: evidence.download(lambda: None, None),
+         "track_samples": lambda: evidence.track(lambda: None),
+         "track_sha256": lambda: evidence.Replayer(stripped).meta("track_sha256"),
+         "wav_duration_s": lambda: evidence.wav_duration(lambda: None),
+         "onsets": lambda: evidence.onsets(lambda: None),
+         "mix": lambda: evidence.mix_features(lambda: (None, None, None))}[name]()
 
 
-def test_failed_onset_detection_replays_as_failed():
+def test_onset_detection_that_found_nothing_replays_as_nothing():
+    """None from a detector that ran is a value ("no onsets"); a failure is not (below)."""
     recorder = evidence.Recorder("youtube", "vid", {})
     with evidence.active(recorder):
         assert evidence.onsets(lambda: None) is None
+    assert recorder.usable
     replayer = evidence.Replayer(recorder.pack())
     with evidence.active(replayer):
         assert evidence.onsets(lambda: pytest.fail("onsets")) is None
 
 
-def test_mix_features_that_failed_replay_as_failed():
+def test_mix_features_that_found_nothing_replay_as_nothing():
     recorder = evidence.Recorder("youtube", "vid", {})
     with evidence.active(recorder):
         evidence.mix_features(lambda: (None, None, None))
@@ -454,20 +479,143 @@ def test_changing_code_that_computes_evidence_bumps_its_version():
     """Stored evidence is only as good as the code that computed it. When one of these changes,
     bump the matching EVIDENCE_CODE entry (stored records then refuse and the next job of each
     song runs in full); a change that cannot alter a value (a comment) updates the pin only."""
-    from kashi_server.pipeline import alignment, beats, energy, onsets, structure
+    from kashi_server.pipeline import alignment, beats, download, energy, onsets, structure
+    from kashi_server.vdl_kit import ytdlp_opts
     from kashi_server.worker import process
 
     pins = {
-        ("emissions", evidence.EVIDENCE_CODE["emissions"]): _source_hash(alignment._emit),
+        ("emissions", evidence.EVIDENCE_CODE["emissions"]): _source_hash(
+            alignment._emit, alignment._emissions, alignment._load_track),
         ("onsets", evidence.EVIDENCE_CODE["onsets"]): _source_hash(onsets),
         ("mix", evidence.EVIDENCE_CODE["mix"]): _source_hash(
             process._mix_features, beats, energy, structure),
+        ("stem", evidence.EVIDENCE_CODE["stem"]): _source_hash(
+            process._decode, process._separate_vocals, process._mix_back,
+            process._aligner_decode, download.download_audio, download._probe_duration_s)
+        + hashlib.sha256(repr(ytdlp_opts.AUDIO_FORMAT_TIERED).encode()).hexdigest()[:8],
     }
     assert pins == PINNED, "evidence code changed: bump EVIDENCE_CODE (or the pin, for a no-op)"
 
 
 PINNED = {
-    ("emissions", 1): "fe5364920aa4324e",
-    ("onsets", 1): "c4ce9dcc3f9d5e04",
-    ("mix", 1): "c7ffac48abdc8fb6",
+    # 2026-11-16 (review round): onsets / mix re-pinned for the extractor_failed line, a change
+    # no value can see; emissions and stem pin more of the code that makes them.
+    ("emissions", 1): "dd3308e81dac775e",
+    ("onsets", 1): "9c9e3e3df887bad8",
+    ("mix", 1): "c87a490b071edbc4",
+    ("stem", 1): "bdbfb7499d44e949837d0602",
 }
+
+
+# --- review round (2026-11-16) ------------------------------------------------------------------
+
+
+def test_the_memo_never_answers_one_track_with_another():
+    """Finding 6: two tracks of the same length (a second-pass stem after the mix) cut into the
+    same slices; the second track's slice must be computed, not served from the first's."""
+    calls: list = []
+    emit = _fake_emit(calls)
+    mix, stem = _track(), -_track()
+    recorder = evidence.Recorder("youtube", "vid", {})
+    with evidence.active(recorder):
+        first = evidence.track(lambda: mix)
+        from_mix, _ = evidence.emissions(_model(), first[0:16_000], True, emit, _stride_of, "r")
+        second = evidence.track(lambda: stem)
+        from_stem, _ = evidence.emissions(_model(), second[0:16_000], True, emit, _stride_of, "r")
+    assert len(calls) == 2
+    assert np.asarray(from_stem).tobytes() != np.asarray(from_mix).tobytes()
+    assert not recorder.usable and recorder.why_not == "two different tracks in one job"
+
+
+def test_the_track_digest_is_recorded():
+    recorder, _ = _record()
+    assert recorder.meta["track_sha256"] == hashlib.sha256(_track().tobytes()).hexdigest()
+
+
+def test_an_unpinned_checkpoint_is_neither_recorded_nor_replayed():
+    """Finding 8: revision None would match itself after the hub's main moved."""
+    recorder, _ = _record(revision=None)
+    assert not recorder.usable and "no pinned revision" in (recorder.why_not or "")
+    pinned, _ = _record()
+    record = pinned.pack()
+    for entry in record.meta["emissions"]:
+        entry["revision"] = None
+    with pytest.raises(evidence.EvidenceMissing, match="no pinned revision"):
+        _replay(record, revision=None)
+
+
+@pytest.mark.parametrize("extract", ["onsets", "beats", "energy", "structure"])
+def test_an_extractor_that_fails_keeps_its_record_out(tmp_path, extract):
+    """Finding 2: the real extractors swallow their errors and return None; under a recorder the
+    failure must make the record unusable, while the job sees exactly the None it saw before."""
+    from kashi_server.pipeline import beats, energy, onsets, structure
+
+    missing = tmp_path / "missing.wav"
+    run = {"onsets": lambda: onsets.detect_onsets(missing),
+           "beats": lambda: beats.extract_beats(missing),
+           "energy": lambda: energy.extract_energy(missing),
+           "structure": lambda: structure.extract_structure(missing, None)}[extract]
+    assert run() is None  # no session: the failure is invisible, as before
+    recorder = evidence.Recorder("youtube", "vid", {})
+    with evidence.active(recorder):
+        assert run() is None
+    assert not recorder.usable and "failed" in (recorder.why_not or "")
+
+
+def test_extractor_failed_touches_only_a_recorder():
+    evidence.extractor_failed("x")  # no session: nothing
+    recorder, _ = _record()
+    with evidence.active(evidence.Replayer(recorder.pack())):
+        evidence.extractor_failed("x")  # a replay runs no extractor; nothing to refuse
+
+
+@pytest.mark.parametrize("hint_ms,conflict", [
+    (None, False), (12_300, False), (15_300, False), (9_300, False), (15_301, True),
+    (9_299, True), (300_000, True),
+])
+def test_a_player_duration_far_from_the_recorded_download_refuses(hint_ms, conflict):
+    """Finding 5: the one identity a replay can check without fetching (recorded 12.3 s)."""
+    recorder, _ = _record()
+    found = evidence.duration_conflict(recorder.pack(), hint_ms)
+    assert (found is not None) == conflict
+
+
+def test_the_download_facts_and_the_recorder_are_kept():
+    recorder, _ = _record()
+    record = recorder.pack()
+    assert record.meta["download"]["facts"] == {"format_id": "251", "filesize": 3_000_000}
+    assert record.meta["made_by"] == {"worker": "test"}
+
+
+def _slices(record):
+    return sorted((e["lo"], e["hi"]) for e in record.meta["emissions"])
+
+
+def test_a_later_job_keeps_the_slices_it_did_not_read():
+    """Nit: a full job that read fewer or other slices of the same audio must not drop the
+    stored ones a later plan may ask for again."""
+    old, _ = _record()
+    new, _ = _record(spans=[(0, N), (16_000 * 2, 16_000 * 6)])
+    both = evidence.merged(old.pack(), new.pack())
+    assert _slices(both) == sorted({*_slices(old.pack()), *_slices(new.pack())})
+    out_old = _replay(both)  # the old plan replays from the merged record
+    out_new = _replay(both, spans=[(0, N), (16_000 * 2, 16_000 * 6)])
+    assert len(out_old["emissions"]) == len(SPANS) + 1 and len(out_new["emissions"]) == 3
+
+
+def test_another_audio_or_key_is_not_merged():
+    old, _ = _record()
+    other_audio, _ = _record(track=-_track(), spans=[(0, N)])
+    assert _slices(evidence.merged(old.pack(), other_audio.pack())) == [(0, N)]
+    other_key = old.pack()
+    other_key.key = {**other_key.key, "format": 0}
+    same_audio, _ = _record(spans=[(0, N)])
+    assert _slices(evidence.merged(other_key, same_audio.pack())) == [(0, N)]
+    assert evidence.merged(None, same_audio.pack()) is not None
+
+
+def test_a_superseded_revision_is_not_merged():
+    old, _ = _record()
+    new, _ = _record(revision="def456", spans=[(0, N)])
+    merged = evidence.merged(old.pack(), new.pack())
+    assert {e["revision"] for e in merged.meta["emissions"]} == {"def456"}

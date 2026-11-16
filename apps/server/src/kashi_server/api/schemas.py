@@ -52,11 +52,24 @@ class ReprocessOptions(IngestOptions):
     # ingest can never push a worse document over a better one. None, not
     # False, so the stored job options stay exactly what they were unless asked.
     force_persist: bool | None = None
-    # Admin only (refresh without download, pipeline/evidence.py): build the document but do not
-    # store it, so that a worker with evidence_mode on keeps the job's evidence and nothing else -
-    # the archive's evidence back-fill, which must not refresh every stored document to the
-    # current pipeline. None, not False, for the same reason as force_persist.
-    evidence_only: bool | None = None
+    # Admin only (refresh without download, pipeline/evidence.py): fetch the audio again instead
+    # of replaying the song's stored evidence, e.g. when the audio behind the id is known to have
+    # changed; the full job then records anew. Workers without evidence ignore it (they always
+    # fetch). None, not False, for the same reason as force_persist.
+    fresh_audio: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_evidence_only(cls, data: Any) -> Any:
+        """The evidence back-fill is not a job: a queued "build but do not store" job could be
+        claimed by a worker that cannot record, or by an older image that ignores the key and
+        replaces the stored document. It runs as `python -m kashi_server.worker.backfill`. Refused
+        loudly, because an ignored key would turn the request into an ordinary reprocess."""
+        if isinstance(data, dict) and "evidence_only" in data:
+            raise ValueError(
+                "evidence_only is not a job option: run `python -m kashi_server.worker.backfill`"
+            )
+        return data
 
 
 class IngestRequest(BaseModel):
