@@ -152,14 +152,19 @@ file:line and the checklist item it violates.
 - Overlay hype contract: `fx-off`/`simple`/`full` render PIXEL-IDENTICAL to pre-hype output
   (regression-tested); the DEFAULT level (`simple`) never changes appearance; at most ONE
   semantic effect per line (highest intensity wins).
-- Hype CSS: tag/tint rules must win the cascade — pattern `body.fx-hype .word.fx-word.fx-<tag>`
-  (specificity 0,4,1); re-verify the cascade manually whenever custom-property rules change
-  (the 0.7.2 regression). Effects animate transform/opacity ONLY; glow/aberration live on
+- Hype CSS: a category tint is set INLINE on the fx word as `--fx-color` (effects-logic
+  `fxWordColor`, at line build and on every palette/settings change; since client review E.3,
+  replacing the 24 per-tag rules), over the stylesheet default
+  `body.fx-hype .word.fx-word { --fx-color: var(--kashi-primary) }` in
+  `packages/view/src/view.css`; every rule that paints with it reads
+  `var(--fx-color, <theme fallback>)`. Re-verify the cascade manually whenever custom-property
+  rules change (the 0.7.2 regression). Effects animate transform/opacity ONLY; glow/aberration live on
   pre-drawn layers driven by opacity/class toggles; box-shadow/blur/text-shadow VALUES and
   `font-variation-settings` are never animated. The one sanctioned exception is STEPPED
   (non-interpolated) color cycling via `steps()` on the LINE container only (`#lyric-line`) —
   it repaints a few times per second instead of every frame (reference: the nightcore shimmer,
-  `apps/overlay/src/renderer/src/style.css:648-665`); continuous color interpolation and
+  `body.fx-hype.nightcore #lyric-line` and `@keyframes kashi-nc-hue` in
+  `packages/view/src/view.css`); continuous color interpolation and
   per-word color clocks remain violations (the per-word variant was removed in overlay 0.11.0
   because it read as a phase-shifted patchwork).
 - Icons: vendored monochrome Material Symbols (Apache-2.0, license badge in the vendored dir),

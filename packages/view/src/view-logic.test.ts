@@ -430,7 +430,7 @@ describe('plain lines wear the theme, and know it from their own data', () => {
 
 describe('popScaleCap', () => {
   it('lets a short word keep the stylesheet scale', () => {
-    // 40 px word at 28 px: 1 + 5.04 / 40 = 1.126, above every pop in style.css.
+    // 40 px word at 28 px: 1 + 5.04 / 40 = 1.126, above every pop in view.css.
     expect(popScaleCap(40, 28)).toBeCloseTo(1.126, 3);
     expect(popScaleCap(40, 28)).toBeGreaterThan(1.08);
   });

@@ -5,7 +5,7 @@
 //      audio (coarse: log-energy envelopes; fine: GCC-PHAT on the waveform,
 //      per segment; a robust line through the segments absorbs clock drift);
 //   2. marker reading: the latency marker's cells per video frame -> code
-//      changes (src/renderer/src/latency-marker.ts draws them);
+//      changes (packages/view/src/latency-marker.ts draws them);
 //   3. matching: each code change to the word activation it shows, and the
 //      lit-minus-intended time of every matched word.
 

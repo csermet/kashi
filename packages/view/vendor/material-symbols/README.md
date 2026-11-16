@@ -4,7 +4,9 @@
 [google/material-design-icons](https://github.com/google/material-design-icons)
 (`symbols/web/<name>/materialsymbolsoutlined/<name>_24px.svg`, fetched
 2026-07-18), embedded as path data in
-`src/renderer/src/fx-icons.ts` for the Faz 6 semantic word effects.
+`packages/view/src/fx-icons.ts` (the shared view; it moved there from the
+overlay with the renderer, client review E.4) for the Faz 6 semantic word
+effects.
 
 Icons: bomb, local_fire_department, skull, favorite, heart_broken,
 water_drop, star, flare, celebration, paid, flight_takeoff, speed, bolt,

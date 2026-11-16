@@ -1,6 +1,7 @@
 /**
  * FX category icons — Google Material Symbols (outlined, 24px), vendored as
- * path data (Apache 2.0 — full license in ../../vendor/material-symbols/).
+ * path data (Apache 2.0 — full license in ../vendor/material-symbols/, i.e.
+ * packages/view/vendor/material-symbols/).
  * Source: github.com/google/material-design-icons symbols/web/<name>/
  * materialsymbolsoutlined/<name>_24px.svg (fetched 2026-07-18).
  * All icons share viewBox "0 -960 960 960", drawn with fill=currentColor.

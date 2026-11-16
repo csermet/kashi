@@ -205,8 +205,9 @@ async function renderRun(run) {
       }),
   );
   const key = `${doc.track.source.type}:${doc.track.source.id}`;
-  const pick = ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale }) =>
-    ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, fill_style, text_scale, box_scale });
+  // What main's broadcastSettings sends (the view's SettingsPayload); fill_style left in client review E.3.
+  const pick = ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, text_scale, box_scale }) =>
+    ({ box_alpha, timing_offset_rel_ms, effect_level, theme_scope, text_scale, box_scale });
   let v = await page.evaluate(() => window.__vt.now());
   v += 100;
   await page.evaluate(
