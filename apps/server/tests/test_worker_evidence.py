@@ -100,7 +100,8 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
 
     def envelope(path):
         a.read("envelope")
-        return Envelope(bytes([0, 9, 30, 70] * (N // 320 // 4)))
+        return Envelope(bytes([0, 9, 30, 70] * (N // 320 // 4)),
+                        crossings=bytes([5, 0, 99, 255] * (N // 320 // 4)), loudest=(10**9, 320))
 
     def mix(path):
         a.read("mix")
