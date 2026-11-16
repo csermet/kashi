@@ -19,10 +19,20 @@ changes: the CPU worker keeps the queue.
   re-runs the job from the start.
 - **Expiry is judged on the database clock**, the clock that wrote the lease,
   so a desktop whose clock runs fast cannot reclaim live jobs.
-- **Same pipeline on both.** Documents record the version that made them.
-  Each worker logs `worker <name> ready: pipeline <version>` at startup; both
-  lines must show the same version, and the image must be built from the same
-  tag the server runs.
+- **Same image tag, same pipeline.** Build the helper at the `server-v<version>`
+  tag the cluster runs. Documents record the pipeline version that made them,
+  and since 2.33.0 a stored document from a newer version is never replaced by
+  an older worker, so a stale helper wastes its runs. Each worker logs
+  `worker <name> ready: pipeline <version>, <configuration> …` at startup; both
+  lines must show the same version, and since server 0.37.0 the configuration
+  must read `code-default configuration`. `env overrides <fields> (not what the
+  version names)` means an env value changes a pipeline setting: remove it.
+- **Schema first.** Only the API deployment migrates the database (its
+  initContainer). Since 0.37.0 a worker whose database is behind its code does
+  not claim: before its ready line it logs `not claiming jobs: database schema
+  behind this worker: expected Alembic revision <head>, found <revision> …` and
+  checks again with backoff up to a minute. Start the helper after the API of
+  the same release has rolled out (it would wait until then anyway).
 - **Publishing stays on the server's worker**: set `LRCLIB_PUBLISH_ENABLED=false`
   on the helper.
 
@@ -39,9 +49,15 @@ docker build -f apps/server/Dockerfile --build-arg TORCH_CUDA=cu130 -t kashi-wor
 
 ## Environment
 
-Copy every pipeline setting from the server worker's deployment **verbatim** —
-`ALIGN_MODELS` carries the per-language offset tables, and a helper with other
-values produces other timings. A `kashi-worker.env` file (keep it out of git):
+Since server 0.37.0 (pipeline 2.33.0) the production pipeline is the code
+default — the aligner table with its offsets, the separator, the structure
+sections, the pinned aligner revisions — so the helper needs **no pipeline
+settings**. Do not copy `ALIGN_MODELS`, `SEPARATION_MODEL_FILENAME` or
+`STRUCTURE_SECTIONS` any more; an older env file that still carries them works
+as long as their values equal the defaults (the ready line then still reads
+`code-default configuration`), but delete them. A helper built at a tag before
+`server-v0.37.0` still needs them, copied verbatim from the server worker.
+A `kashi-worker.env` file (keep it out of git):
 
 ```ini
 DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:<port>/kashi
@@ -49,9 +65,6 @@ WORKER_NAME=gpu-desktop
 KASHI_ALIGN_DEVICE=cuda
 LRCLIB_PUBLISH_ENABLED=false
 LRCLIB_FALLBACK_BASE_URL=<the lrclib mirror, as the desktop reaches it>
-ALIGN_MODELS=<copied from the server worker>
-SEPARATION_MODEL_FILENAME=<copied from the server worker>
-STRUCTURE_SECTIONS=<copied from the server worker>
 ```
 
 The database has to be reachable from the desktop; a `kubectl port-forward` to
@@ -72,8 +85,39 @@ Ctrl+C finishes the current job, then exits.
 
 ## Checks after the first job
 
+0. At start: `worker gpu-desktop ready: pipeline <the server's version>,
+   code-default configuration …`, and the aligner load lines name a 40-hex
+   commit (`loading alignment model <checkpoint> @ <commit> (cuda)`), never
+   `UNPINNED`.
 1. `claimed job … attempt N on gpu-desktop`, then `job … completed` about a
    minute later.
 2. The document's `pipeline_version` equals the server's.
 3. Word timings agree with a CPU-processed copy of the same track to within a
    frame or two (GPU and CPU kernels differ in the last digits).
+
+## Evidence back-fill (refresh without download)
+
+With the deployment's evidence enabled (`docs/research/refresh-from-evidence-2026-11.md`), the
+archive gets its evidence from this machine, by hand, with the same image and env file:
+
+```bat
+docker run --rm --gpus all --ipc=host --env-file kashi-worker.env -v kashi-bench-models:/models -v kashi-worker-scratch:/scratch kashi-worker-gpu python -m kashi_server.worker.backfill --limit 40
+```
+
+- **Build it at the tag the cluster runs.** A record carries the key of the image that made it (the
+  evidence code, the aligner library, librosa, the separator, ffmpeg); a record from another tag
+  is refused by the cluster's replay, which then downloads as before.
+- **What it writes:** one `track_evidence` row per song it completes (the aligner's emission
+  arrays, onsets, mix features, the download's facts; about 2 MB). **What it does not write:** no
+  document (it builds and validates one and drops it), no row in `jobs` (no worker can pick the
+  work up), nothing for uploads or nightcore songs.
+- **Progress:** songs in source-id order; the last line is a JSON summary whose `next_after` goes
+  into the next run (`--after <id>`), so a song that always fails cannot hold the batch.
+  `--source-id ID ...` takes given songs. Exit codes: 0 ran, 1 nothing stored of the songs tried,
+  2 database schema behind the image, 3 another back-fill holds the lock, 143 stopped by SIGTERM.
+- **Scratch:** each song's audio lives in `/scratch/job-backfill-*` and is deleted when the song
+  ends, also on Ctrl+C or `docker stop` (SIGTERM). A run killed outright leaves it to the next
+  back-fill's start-up sweep and to the worker's own sweep of `job-*`. One back-fill at a time.
+- **Check the first song:** its line says `stored`, and a reprocess of it on a cluster worker in
+  `replay` logs `rebuilt from stored evidence, no download`, not `key differs at …`.
+

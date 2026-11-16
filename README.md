@@ -102,6 +102,14 @@ settings.
 The server turns songs into word-timed documents: it downloads the audio once,
 separates vocals, force-aligns the LRCLIB text against them, extracts a beat
 grid and an album palette, stores a small JSON — and deletes the audio.
+A deployment that sets `EVIDENCE_MODE` (off by default) also keeps, for YouTube
+songs only, what the aligner read off the audio — not audio: its per-frame
+output, the vocal onsets, the vocal stem's loudness and zero-crossing count
+every 20 ms and the beat/energy features, about 2 MB a song — so a later
+reprocess can rebuild the
+document without fetching the song again
+([design](docs/research/refresh-from-evidence-2026-11.md)). The audio is still
+deleted, and nothing is kept for uploads.
 
 ```bash
 cd deploy && cp .env.example .env    # set ADMIN_API_KEY etc.
@@ -134,7 +142,9 @@ curl "$SERVER/v1/jobs/$JOB_ID" -H "Authorization: Bearer $KEY"   # queued → ..
 Each option works alone; all of them also work on normal-speed tracks. For a
 track that already has a (wrong) document or a failed job, `POST
 /v1/admin/reprocess` (admin key) forces a fresh run and takes the same
-`options`.
+`options`. On a worker with `EVIDENCE_MODE=replay` that run is rebuilt from the
+kept evidence while it still matches; `"fresh_audio": true` fetches the audio
+again (and records anew).
 
 **Bring your own audio** (a track that isn't on YouTube): stage the file
 first, then ingest the returned `source` ref like any other track:

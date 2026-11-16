@@ -24,7 +24,10 @@ Design notes (research round 2026-07-11):
   (also keeps the stamp-free warmup fixture on the old path).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from statistics import median
+from typing import Any
 
 PAD_MS = 350
 MIN_WINDOW_MS = 4000
@@ -36,6 +39,10 @@ MIN_STAMPED_FRACTION = 0.8
 # this span of the run's first. The benchmark's bunched-run rule.
 PILE_MIN_WORDS = 3
 PILE_SPAN_MS = 60
+# 2.34.0 (whole_track_vote's spacing guard): the vote may not bring two words
+# closer than this when their windowed starts are at least this far apart —
+# the overlay's short dwell (a word lit under 120 ms reads as a flash).
+VOTE_MIN_GAP_MS = 120
 # Timing v3, V1 (line_regions): how far a line inside a merged window may
 # start from its own stamp, either way. 1200 and 800 were measured on the 20
 # pilot songs (2026-11-09): the same moments fixed, 800 also lands BxMxC 0:13
@@ -376,7 +383,8 @@ def hybrid_star_words(
 
 
 def whole_track_vote(
-    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0
+    results: list[dict], whole: list[dict], t_ms: int, edges_lead_ms: int = 0,
+    *, keep_order: bool = True,
 ) -> tuple[list[dict], int, bool]:
     """A third vote from the whole track (Faz 9 round 5, "Third vote").
 
@@ -393,6 +401,17 @@ def whole_track_vote(
     the whole track joins every line, windows join only their own). A
     different word count or text means the two streams cannot be paired, and
     nothing changes. Returns (rows, words taken, paired).
+
+    `keep_order` (2.34.0): a word is refused the whole-track time when that
+    time would start it at or after the next word, or at or before the
+    previous word, where that neighbour keeps its windowed time, or would
+    bring it under VOTE_MIN_GAP_MS of a neighbour the windows kept at least
+    that far away; refusals repeat until none is left (`_order_refusals`).
+    Where the whole-track pass drifts late over a phrase, a 1 200 ms vote
+    takes some of its words and not the next ones, and the seam pass after
+    the vote clamped the kept words onto the voted one: 229 of the 274 words
+    in new 0 ms runs on the 2.32.0 archive (vote-pile-guard, 2026-11-14).
+    False reproduces 2.32.0.
     """
     mine = [i for i, row in enumerate(results) if _is_word(row)]
     theirs = [row for row in whole if _is_word(row)]
@@ -401,11 +420,21 @@ def whole_track_vote(
     ):
         return results, 0, False
     back_s = edges_lead_ms / 1000
+    voted = [
+        abs(_start_ms(w) - (_start_ms(results[i]) + edges_lead_ms)) <= t_ms
+        for i, w in zip(mine, theirs, strict=True)
+    ]
+    if keep_order:
+        voted = _order_refusals(
+            voted,
+            [_start_ms(results[i]) for i in mine],
+            [round((float(w["start"]) - back_s) * 1000) for w in theirs],
+        )
     out = list(results)
     taken = 0
-    for i, w in zip(mine, theirs, strict=True):
+    for i, w, vote in zip(mine, theirs, voted, strict=True):
         row = out[i]
-        if abs(_start_ms(w) - (_start_ms(row) + edges_lead_ms)) <= t_ms:
+        if vote:
             out[i] = {
                 **row,
                 "start": float(w["start"]) - back_s,
@@ -416,6 +445,39 @@ def whole_track_vote(
             }
             taken += 1
     return out, taken, True
+
+
+def _order_refusals(
+    voted: list[bool], kept_ms: list[int], taken_ms: list[int], min_gap_ms: int = VOTE_MIN_GAP_MS
+) -> list[bool]:
+    """The vote's order and spacing guard (2.34.0): `voted` with refusals, pair
+    by pair of adjacent words, each at its taken start (`taken_ms`) if voted
+    and its windowed start (`kept_ms`) if not:
+
+    - order: a voted word that would start at or after its kept next word, or
+      at or before its kept previous one, is refused;
+    - spacing: two words that would start under `min_gap_ms` apart while their
+      windowed starts are at least that far apart refuse their voted
+      member(s) — the whole-track pass squeezing a pair the windows kept apart.
+
+    A refusal changes the pairs around it, so the check repeats until nothing
+    changes. Two voted words are never out of order: the whole-track pass is
+    one path, its starts never go backwards."""
+    voted = list(voted)
+    changed = True
+    while changed:
+        changed = False
+        for n in range(len(voted) - 1):
+            a, b = voted[n], voted[n + 1]
+            if not (a or b):
+                continue
+            gap = (taken_ms[n + 1] if b else kept_ms[n + 1]) - (taken_ms[n] if a else kept_ms[n])
+            out_of_order = a != b and gap <= 0
+            squeezed = gap < min_gap_ms <= kept_ms[n + 1] - kept_ms[n]
+            if out_of_order or squeezed:
+                voted[n] = voted[n + 1] = False
+                changed = True
+    return voted
 
 
 def unpile_starts(
@@ -490,6 +552,150 @@ def unpile_starts(
             moved += 1
         j = m
     return out, runs, moved
+
+
+def start_at_heard_onset(
+    results: list[dict], whole: list[dict], line_words: list[int], lead_ms: int,
+    edges_lead_ms: int = 0, floor: float = float("-inf"), min_gap_ms: int = VOTE_MIN_GAP_MS,
+    stamps: list[int | None] | None = None, drift_ms: int | None = None,
+    *, envelope: Any = None, silence_db: float | None = None, silence_share: float = 1.0,
+    min_silence_ms: int = 0, doc_offset: Callable[[str], int] | None = None,
+    adlib: list[bool] | None = None,
+) -> tuple[list[dict], int]:
+    """2.35.0: a line's first word starts at most `lead_ms` before the
+    earliest place a pass hears its first letter, when the whole-track pass
+    hears it there too.
+
+    The owner, 2026-11-14 (GOSSIP 2:00 and 2:23): the display jumped to the
+    next line as soon as one ended, lit its first word and waited seconds for
+    the rest. Both of his examples start where no pass hears the word's first
+    letter: the `edges` span starts halfway into the blank before the word
+    (ctc_forced_aligner's span rule; GOSSIP's line 38 began 6.8 s before the
+    letter all three passes hear at 150.9 s, and the hybrid and the vote
+    compared that padded start with the letter and kept it), or the window
+    passes parked the first letter on silence far under the blank (line 33's
+    "D" at 120.4 s, log-prob -8; the whole track hears it at 121.9 s).
+
+    `results` is the final windowed stream on the edges clock, each word row
+    with `"heard_at"`: the window passes' first-letter times at or above the
+    floor (`alignment._heard_at`). `whole` is the whole-track pass with
+    `"first_letter"` [seconds, log-prob]; it counts when it pairs with
+    `results` word for word (as the vote pairs them), moved back by
+    `edges_lead_ms` onto the edges clock. `line_words` is each line's word
+    count in stream order, as regroup counts them. Per line, its first word
+    takes the earliest heard time when its start lies MORE than `lead_ms`
+    before it, and that time still leaves the next word `min_gap_ms` (the
+    overlay's short dwell), both in whole ms; the end follows only when the
+    new start passes it, and then the word is 0 ms long (its end is the new
+    start; restore_held_ends gives it its `"held"` cut back, which shrinks by
+    what the end took, as in unpile_starts). This function changes no other
+    row; the steps after it read the moved start, so these can change too:
+    the previous word's and line's end (regroup and restore_held_ends stop
+    them at the next start, now later), an ad-lib line's hold before the moved
+    line (line_qa ends it before the next line), and line QA's median offset
+    over the line starts, which can flag or clear a line sitting near the
+    drift band's edge (the band below is checked around the median as it is
+    BEFORE any move). The whole-track pass must hear
+    the letter too, no more than `lead_ms` after that earliest time: the two
+    window passes read the same emissions, and a window's weak first letter
+    can be sung where it sits (Q_mQxKviRJM 4:00, log-prob -7.0 on the voice's
+    return), so a move needs a second emission pass. A word the whole track
+    does not hear keeps its start, and so does one any pass hears at or
+    before its start: a held first word is heard where it begins. With no
+    whole-track pass (the vote off, or a pass that does not pair) nothing
+    moves. With `stamps` (each line's lrclib start or None, in the order of
+    `line_words`) a stamped line is not moved more than `drift_ms` past its
+    stamp: line QA flags such a line as lost and snaps it back (the threshold
+    is line_qa.DRIFT_THRESHOLD_MS). A one-word line whose whole-track letter
+    sat 8 s later, just before the next line, lost its word that way
+    (Bwsr24D7HWY 0:11, 2.35.0 measurement). With `doc_offset` (the path's
+    lateness correction of a word, as shift_result applies it) the band is
+    read as line QA reads it: on the document clock, around QA's median
+    offset (the median over the stamped lines of first word + its offset -
+    stamp, taken before any move); without it on the edges clock (v4, whose
+    KAWASAKI line landed just past the band and lost its word).
+
+    v5 (2.35.0) moves only out of silence: with `silence_db` set, the stem's
+    level `envelope` (pipeline/level.py) must lie under `silence_db` (dB re
+    the track's loudest frame) on at least `silence_share` of the 20 ms
+    frames from the old start to the new start minus `lead_ms` (the word's own
+    onset region, where its voice returns before the letter is heard), and
+    that span must last `min_silence_ms` (the voice witness's own shortest
+    silence; one 20 ms frame is no evidence). A first word over voiced audio
+    keeps its start: held notes, pick-up words and the lines whose other words
+    locked late look alike there (the owner's blind clips and the bench,
+    2026-11-16), and so does every word when there is no envelope. The
+    envelope is the wav the first pass aligns: the vocal stem under the
+    production separation mode ("always"); under "second_pass" or "off" it is
+    the MIX's, which is rarely 25 dB under its loudest frame while the band
+    plays, so the rule then almost never moves a word. Lines `adlib` marks are
+    left to line QA (its ad-lib snap moves them onto their anchors as a block).
+    Returns (rows, starts moved); a stream regroup could not walk comes back
+    untouched."""
+    idx = [i for i, row in enumerate(results) if _is_word(row)]
+    if sum(line_words) != len(idx):
+        return results, 0
+    theirs = [row for row in whole if _is_word(row)]
+    paired = len(theirs) == len(idx) and all(
+        str(results[i].get("text")) == str(w.get("text")) for i, w in zip(idx, theirs, strict=True)
+    )
+    back_s = edges_lead_ms / 1000
+    out = list(results)
+    moved = 0
+    qa_offset = _qa_offset(results, idx, line_words, stamps, doc_offset)
+    at = 0
+    for line, count in enumerate(line_words):
+        k, at = at, at + count
+        if count == 0 or (adlib is not None and line < len(adlib) and adlib[line]):
+            continue
+        row = out[idx[k]]
+        stamp = stamps[line] if stamps is not None and line < len(stamps) else None
+        letter = theirs[k].get("first_letter") if paired else None
+        if letter is None or letter[1] < floor:
+            continue  # the whole track does not hear it: no second emission pass agrees
+        whole_onset = float(letter[0]) - back_s
+        onset = min([whole_onset, *(float(t) for t in row.get("heard_at", []))])
+        onset_ms = round(onset * 1000)
+        if round(whole_onset * 1000) - onset_ms > lead_ms:
+            continue  # the window passes hear it earlier than the whole track does
+        if _start_ms(row) >= onset_ms - lead_ms:
+            continue
+        if k + 1 < len(idx) and onset_ms > _start_ms(out[idx[k + 1]]) - min_gap_ms:
+            continue
+        if stamp is not None and drift_ms is not None:
+            shift = 0 if doc_offset is None else doc_offset(str(row.get("text", "")))
+            if onset_ms + shift - stamp - qa_offset > drift_ms:
+                continue
+        if silence_db is not None:
+            span = (_start_ms(row), onset_ms - lead_ms)
+            quiet = None if envelope is None or span[1] - span[0] < min_silence_ms else (
+                envelope.quiet_share(span[0], span[1], silence_db))
+            if quiet is None or quiet < silence_share:
+                continue  # the word may be sung where it starts: no evidence it is early
+        end = max(float(row["end"]), onset)
+        moved_row = {**row, "start": onset, "end": end}
+        if "held" in row:  # what the end took back comes off the held cut (as unpile_starts)
+            moved_row["held"] = max(0.0, float(row["held"]) - (end - float(row["end"])))
+        out[idx[k]] = moved_row
+        moved += 1
+    return out, moved
+
+
+def _qa_offset(results: list[dict], idx: list[int], line_words: list[int],
+               stamps: list[int | None] | None, doc_offset: Callable[[str], int] | None) -> int:
+    """Line QA's median offset as it will read it (line_qa.apply_line_qa): the median, over the
+    stamped lines with words, of the line's start on the document clock (its first word plus the
+    word's lateness correction) minus its stamp; 0 without stamps or without `doc_offset`."""
+    if stamps is None or doc_offset is None:
+        return 0
+    deviations, at = [], 0
+    for line, count in enumerate(line_words):
+        k, at = at, at + count
+        stamp = stamps[line] if line < len(stamps) else None
+        if count and stamp is not None:
+            row = results[idx[k]]
+            deviations.append(_start_ms(row) + doc_offset(str(row.get("text", ""))) - stamp)
+    return round(median(deviations)) if deviations else 0
 
 
 def _piled_words(starts_ms: list[int], min_words: int, span_ms: int) -> int:

@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from kashi_server import queue
+from kashi_server import overrides, queue
 from kashi_server.api.deps import get_db, queue_full_response, require_key
-from kashi_server.api.schemas import IngestResponse, ReprocessRequest
+from kashi_server.api.schemas import ReprocessRequest, ReprocessResponse
 from kashi_server.db.models import ApiKey, Job
 from kashi_server.version import PIPELINE_MAJOR
 
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/v1/admin")
 @router.post(
     "/reprocess",
     status_code=202,
-    response_model=IngestResponse,
+    response_model=ReprocessResponse,
     responses={
         404: {"description": "Source has no job history - pass hints explicitly"},
         503: {"description": "Queue full - retry later"},
@@ -64,4 +64,13 @@ def reprocess(
         )
     except queue.QueueFull:
         return queue_full_response()
-    return IngestResponse(job_id=job.id, status=job.status)
+    # A live job wins over a new one (enqueue_reprocess): say whether the job
+    # that answered carries the song's current override (the importer's
+    # immediate rebuild depends on it).
+    row = overrides.find(db, body.source.type, body.source.id)
+    carried = (
+        None
+        if row is None or not overrides.acted_fields(row)
+        else overrides.carries(job.options, row)
+    )
+    return ReprocessResponse(job_id=job.id, status=job.status, song_override_applied=carried)

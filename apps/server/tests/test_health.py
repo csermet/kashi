@@ -14,6 +14,17 @@ def test_health() -> None:
     assert resp.json()["status"] == "ok"
 
 
+def test_health_names_the_pipeline_version() -> None:
+    """The cosmetic server version alone could not tell which pipeline a
+    deployment runs; checking a rollout needed a worker log line (2.33.0)."""
+    from kashi_server import __version__
+    from kashi_server.version import PIPELINE_VERSION
+
+    assert client.get("/v1/health").json() == {
+        "status": "ok", "version": __version__, "pipeline_version": PIPELINE_VERSION,
+    }
+
+
 @pytest.mark.skipif(
     not os.environ.get("DATABASE_URL"), reason="DATABASE_URL not set (needs Postgres)"
 )

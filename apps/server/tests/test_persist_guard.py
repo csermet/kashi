@@ -13,6 +13,8 @@ from kashi_server.db.models import Job
 from kashi_server.pipeline.document import (
     QUALITY_DROP_LIMIT,
     regression,
+    stale_writer,
+    version_key,
 )
 
 
@@ -166,3 +168,130 @@ def test_force_persist_is_an_admin_option_only():
 
     assert "force_persist" not in IngestOptions.model_fields
     assert ReprocessOptions(force_persist=True).force_persist is True
+
+
+# --- 2.33.0: the full version orders a persist, not only the major -------------
+#
+# Review 2026-11-13, reproduced on a throwaway database the same night: a worker
+# running an older 2.x image (the GPU helper is rebuilt by hand each release)
+# replaced a newer 2.x document whenever the quality rules let it, because only
+# the MAJOR was compared.
+
+
+def test_versions_order_as_numbers_not_strings():
+    assert version_key("2.10.0") == (2, 10, 0)
+    assert version_key("2.10.0") > version_key("2.9.1")  # as strings, "2.9.1" sorts after
+    assert version_key("2.32.1") > version_key("2.32.0")
+
+
+@pytest.mark.parametrize("text", ["", None, "2.32", "2.32.0.1", "2.32.0-rc1", "v2.32.0", "2.x.0"])
+def test_a_string_that_is_not_a_version_reads_as_none(text):
+    assert version_key(text) is None
+
+
+@pytest.mark.parametrize(
+    ("stored", "current", "refused"),
+    [
+        ("2.32.0", "2.31.0", True),  # the field case: a stale helper image
+        ("2.32.1", "2.32.0", True),  # a patch is newer too
+        ("2.10.0", "2.9.9", True),  # the string-compare trap
+        ("3.0.0", "2.33.0", True),  # a newer major is newer
+        ("2.32.0", "2.32.0", False),  # same pipeline: the regression rules decide
+        ("2.31.0", "2.32.0", False),  # the normal refresh
+        ("1.9.0", "2.33.0", False),
+        ("garbage", "2.33.0", False),  # unreadable: never freeze a document on it
+    ],
+)
+def test_only_an_older_worker_is_refused(stored, current, refused):
+    reason = stale_writer(stored, current)
+    assert (reason is not None) == refused
+    if refused:
+        assert reason == f"stored by pipeline {stored}, this worker runs {current}"
+
+
+def _persist_as(monkeypatch, db_session, job, version: str, lines: int, quality: float) -> str:
+    from kashi_server.pipeline import document
+
+    monkeypatch.setattr(document, "PIPELINE_VERSION", version)
+    monkeypatch.setattr(document, "PIPELINE_MAJOR", int(version.split(".")[0]))
+    return document.persist_processed_track(db_session, job, _real_doc(job, lines, quality))
+
+
+@pytest.fixture
+def stored_2320(db_session, monkeypatch):
+    job = _job()
+    db_session.add(job)
+    db_session.flush()
+    etag = _persist_as(monkeypatch, db_session, job, "2.32.0", 40, 0.93)
+    assert _stored(db_session).pipeline_version == "2.32.0"
+    return job, etag
+
+
+def test_a_stale_worker_keeps_its_hands_off_a_newer_document(db_session, monkeypatch, stored_2320):
+    """Equal quality, same major: the major-only guard let this through."""
+    job, etag = stored_2320
+    assert _persist_as(monkeypatch, db_session, job, "2.31.0", 40, 0.93) == etag
+    db_session.expire_all()
+    stored = _stored(db_session)
+    assert (stored.pipeline_version, stored.etag) == ("2.32.0", etag)
+    assert stored.document["pipeline_version"] == "2.32.0"
+
+
+def test_a_stale_patch_release_is_refused_too(db_session, monkeypatch, stored_2320):
+    job, etag = stored_2320
+    assert _persist_as(monkeypatch, db_session, job, "2.31.9", 41, 0.95) == etag
+
+
+def test_force_persist_lets_an_older_pipeline_write_on_purpose(db_session, monkeypatch,
+                                                               stored_2320):
+    job, etag = stored_2320
+    job.options = {"force_persist": True}
+    db_session.flush()
+    new_etag = _persist_as(monkeypatch, db_session, job, "2.31.0", 40, 0.93)
+    db_session.expire_all()
+    assert new_etag != etag and _stored(db_session).pipeline_version == "2.31.0"
+
+
+@pytest.mark.parametrize(
+    ("version", "lines", "quality", "basis"),
+    [
+        # The 2026-11-13 adversarial verification's overwrites (dogrulama/
+        # test_dg1_stale_worker.py), each of which the major-only guard let in.
+        ("2.29.0", 40, 0.93, None),  # equal quality
+        ("2.29.0", 21, 0.6801, None),  # a drop just under the limit, 21 of 40 lines
+        ("2.29.0", 40, 0.05, "ctc-probs"),  # any drop across quality bases
+        ("1.9.0", 40, 0.93, None),  # an older MAJOR
+    ],
+)
+def test_the_verifications_stale_overwrites_are_refused_and_logged(
+        db_session, monkeypatch, caplog, version, lines, quality, basis):
+    import logging
+
+    from kashi_server.pipeline import document
+
+    # alembic's fileConfig (test_alembic_downgrade) disables loggers that exist
+    # by then; this one has to speak for the assertion below.
+    monkeypatch.setattr(logging.getLogger(document.__name__), "disabled", False)
+    job = _job()
+    db_session.add(job)
+    db_session.flush()
+    stored_etag = _persist_as(monkeypatch, db_session, job, "2.31.0", 40, 0.93)
+    monkeypatch.setattr(document, "PIPELINE_VERSION", version)
+    monkeypatch.setattr(document, "PIPELINE_MAJOR", int(version.split(".")[0]))
+    doc = _real_doc(job, lines, quality)
+    if basis is not None:
+        doc["alignment"]["quality_basis"] = basis
+    with caplog.at_level("WARNING", logger="kashi_server.pipeline.document"):
+        assert document.persist_processed_track(db_session, job, doc) == stored_etag
+    db_session.expire_all()
+    assert _stored(db_session).pipeline_version == "2.31.0"
+    assert f"stored by pipeline 2.31.0, this worker runs {version}" in caplog.text
+
+
+def test_a_newer_worker_replaces_and_an_equal_one_still_meets_the_quality_rules(
+        db_session, monkeypatch, stored_2320):
+    job, etag = stored_2320
+    assert _persist_as(monkeypatch, db_session, job, "2.32.0", 1, 0.0) == etag  # regression
+    newer = _persist_as(monkeypatch, db_session, job, "2.33.0", 40, 0.93)
+    db_session.expire_all()
+    assert newer != etag and _stored(db_session).pipeline_version == "2.33.0"

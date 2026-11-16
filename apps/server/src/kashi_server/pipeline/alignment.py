@@ -17,9 +17,10 @@ import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from kashi_server.pipeline import japanese
+from kashi_server.pipeline import evidence, japanese
 from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
+from kashi_server.pipeline.level import Envelope
 from kashi_server.pipeline.trellis import forced_align_cut, letter_bounds_cuts
 from kashi_server.pipeline.windows import (
     LINE_REGION_MS,
@@ -27,6 +28,7 @@ from kashi_server.pipeline.windows import (
     line_regions,
     plan_windows,
     reconcile_seams,
+    start_at_heard_onset,
     unpile_starts,
     whole_track_vote,
     yield_pad_words,
@@ -177,16 +179,18 @@ def resolve_model_name(override: str | None = None) -> str:
 
 
 def _load_model(model_name: str):
-    """Loaded on demand, at most _MAX_LOADED_MODELS resident (LRU)."""
+    """Loaded on demand, at most _MAX_LOADED_MODELS resident (LRU). A replay from stored
+    evidence (pipeline/evidence.py) needs the tokenizer only: a checkpoint not resident is not
+    loaded for it."""
+    if model_name not in _loaded and evidence.replaying():
+        return evidence.StandInModel(model_name), _load_tokenizer(model_name)
     if model_name in _loaded:
         # Refresh recency: dicts iterate in insertion order, so re-inserting
         # makes "first key" mean "least recently used".
         _loaded[model_name] = _loaded.pop(model_name)
         return _loaded[model_name]
 
-    # The [align] extra — absent in plain dev installs, present in the image.
-    import torch  # pyright: ignore[reportMissingImports]
-    from ctc_forced_aligner import load_alignment_model  # pyright: ignore[reportMissingImports]
+    from kashi_server.config import settings
 
     while len(_loaded) >= _MAX_LOADED_MODELS:
         evicted = next(iter(_loaded))  # insertion order: first = least recent
@@ -199,11 +203,15 @@ def _load_model(model_name: str):
     # Prod images ship CPU torch, so the default never changes behaviour;
     # the GPU benchmark image opts in with KASHI_ALIGN_DEVICE=cuda.
     device = os.environ.get("KASHI_ALIGN_DEVICE", "cpu")
-    logger.info("loading alignment model %s (%s)", model_name, device)
+    # Pinned hub revision (2.33.0): a fresh volume loads the weights the
+    # pipeline was measured with, not whatever the repository's main is today.
+    revision = settings.align_model_revisions.get(model_name)
+    logger.info(
+        "loading alignment model %s @ %s (%s)",
+        model_name, revision or "hub main, UNPINNED", device,
+    )
     try:
-        _loaded[model_name] = load_alignment_model(
-            device=device, model_path=model_name, dtype=torch.float32
-        )
+        _loaded[model_name] = _load_checkpoint(model_name, device=device, revision=revision)
     except Exception as exc:
         # Unlisted-language models are not warmed at startup (warmup aligns
         # "eng"), so the first such job downloads ~1.2 GB INSIDE the job. An
@@ -220,6 +228,50 @@ def _load_model(model_name: str):
             ) from exc
         raise
     return _loaded[model_name]
+
+
+def _load_checkpoint(model_name: str, *, device: str, revision: str | None) -> tuple:
+    """`ctc_forced_aligner.load_alignment_model` (at the git commit pyproject pins)
+    plus the hub revision, which the library's loader cannot pass: the same two
+    `from_pretrained` calls with the same arguments, and `revision` only when one
+    is pinned, so an unpinned load is the library's call exactly."""
+    # The [align] extra — absent in plain dev installs, present in the image.
+    import torch  # pyright: ignore[reportMissingImports]
+    from transformers import AutoModelForCTC, AutoTokenizer  # pyright: ignore[reportMissingImports]
+
+    # For a checkpoint that ships only pytorch_model.bin (the English and
+    # Turkish aligners) transformers starts a thread on every load that asks the
+    # hub for a safetensors conversion and downloads it (refs/pr/N) into the
+    # model cache: the HF cache trap's second copy, never loaded. Measured on the
+    # bench image (transformers 5.13), 2026-11-14: the thread starts without this
+    # variable and not with it. Read at load time; an operator's value wins.
+    os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
+    pinned = {"revision": revision} if revision else {}
+    model = (
+        AutoModelForCTC.from_pretrained(model_name, dtype=torch.float32, **pinned)
+        .to(device)
+        .eval()
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_name, word_delimiter_token=None, **pinned)
+    return model, tokenizer
+
+
+_tokenizers: dict = {}
+
+
+def _load_tokenizer(model_name: str):
+    """The checkpoint's tokenizer alone, from the pinned revision (`_load_checkpoint`'s call)."""
+    if model_name not in _tokenizers:
+        from transformers import AutoTokenizer  # pyright: ignore[reportMissingImports]
+
+        from kashi_server.config import settings
+
+        revision = settings.align_model_revisions.get(model_name)
+        pinned = {"revision": revision} if revision else {}
+        _tokenizers[model_name] = AutoTokenizer.from_pretrained(
+            model_name, word_delimiter_token=None, **pinned
+        )
+    return _tokenizers[model_name]
 
 
 def _word_prob(score: float) -> float:
@@ -582,8 +634,21 @@ HYBRID_T_MS = 400
 #: lyric is aligned once over the whole track and a word takes that time when
 #: it lies within WHOLE_VOTE_T_MS of its windowed one (windows.whole_track_vote).
 #: One extra emission pass per song.
+#:
+#: 2.32.0: 400 -> 1 200 ms. Where the two passes disagree by more than 400 ms
+#: the windowed time is usually the earlier one, and human truth sides with the
+#: whole track (whole-project review, 2026-11-13, rule fixed before the runs):
+#: eng20 (400 ms stamp jitter, production offsets) PCO@0.1 0.824 -> 0.842,
+#: noticeable line starts 0.108 -> 0.062 (early 55 -> 23 of 868 lines); all 79
+#: songs @0.1 0.886 -> 0.901, 41 songs better, 3 worse. The worker and the
+#: bench both take this default; align(whole_vote_t_ms=) and the bench's
+#: --whole-vote-t-ms keep it adjustable.
 WHOLE_VOTE_DEFAULT = True
-WHOLE_VOTE_T_MS = 400
+WHOLE_VOTE_T_MS = 1200
+
+#: 2.34.0: the vote keeps the word order and the windows' spacing
+#: (windows.whole_track_vote, `keep_order`). Off reproduces 2.32.0.
+VOTE_ORDER_DEFAULT = True
 
 #: Timing v3, V3 (2.30.0): after the hybrid and the vote, a run of 3+ words
 #: starting within 60 ms that they made takes the `edges` starts back
@@ -595,6 +660,36 @@ UNPILE_DEFAULT = True
 #: on the document clock (windows.line_regions), cut into the trellis of both
 #: window passes (_hold_line_starts). None reproduces 2.30.0.
 LINE_REGION_DEFAULT: int | None = LINE_REGION_MS
+
+#: 2.35.0: a line's first word starts at most this many ms before the
+#: earliest place a pass of the windowed path (edges, segment, whole track)
+#: hears its first letter, when the whole-track pass hears it no more than
+#: this much later (windows.start_at_heard_onset). The owner's bound
+#: (2026-11-14): a line may arrive about 1 s before it is sung, and the
+#: overlay already shows a line up to 500 ms before its start
+#: (apps/overlay/src/renderer/src/view-logic.ts: findDisplayLine,
+#: LINE_LEAD_IN_MS = 500), so 500 ms is what the start itself may lead by.
+#: None reproduces 2.34.0.
+FIRST_HEARD_LEAD_MS = 500
+FIRST_HEARD_DEFAULT: int | None = FIRST_HEARD_LEAD_MS
+#: A pass hears a word's first letter where the letter's log-prob reaches
+#: this on one of its own frames: one chance in a thousand. A path parks a
+#: letter it cannot place on silence far below that (GOSSIP 0:12 and 2:00:
+#: -9.9, and -7.7 / -8.1); a weak letter that is sung sits above it.
+FIRST_LETTER_FLOOR = math.log(0.001)
+#: v5 (2.35.0): a first word moves only out of silence (windows.start_at_heard_onset): the stem's
+#: level envelope (pipeline/level.py) under this, in dB re the track's loudest frame — the audit
+#: voice witness's own silence line (audit.analysis.SILENCE_DB) —
+FIRST_HEARD_SILENCE_DB = -25.0
+#: on at least this share of the 20 ms frames between the old start and the new one minus the
+#: lead. Not fitted: a sung pause may still carry a breath or the separator's bleed, a tenth of it
+#: at most; a held syllable or the next phrase covers far more.
+FIRST_HEARD_SILENCE_SHARE = 0.9
+#: ... and that span lasts at least this: the voice witness's shortest silence
+#: (audit.analysis.MIN_SILENCE_MS, "shorter dips are consonants and breaths inside a phrase"). A
+#: copy, because the worker image does not ship apps/server/audit; tests pin both values to the
+#: witness's.
+FIRST_HEARD_MIN_SILENCE_MS = 150
 
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
@@ -644,6 +739,28 @@ def _emit(model, audio, *, exact_stride: bool = False):
     return emissions, stride
 
 
+def _emissions(model, audio, *, exact_stride: bool = False):
+    """Every emission pass of a job: `_emit`, or, while an evidence session is active
+    (pipeline/evidence.py), the recorder around it or the replayer instead of it."""
+    if evidence.current() is None:
+        return _emit(model, audio, exact_stride=exact_stride)
+    from kashi_server.config import settings
+
+    revision = settings.align_model_revisions.get(evidence.checkpoint_name(model))
+    return evidence.emissions(model, audio, exact_stride, _emit, exact_stride_ms, revision)
+
+
+def _load_track(wav_path: Path, model):
+    """The 16 kHz track the aligner and the sheet shift's ear read (a replay's stand-in)."""
+
+    def read():
+        from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
+
+        return load_audio(str(wav_path), model.dtype, model.device)
+
+    return evidence.track(read)
+
+
 #: Where each text's first letter may start, per text, in ms on the clock of
 #: the emissions it is aligned over: (earliest, latest), or None for no bound.
 LineStarts = list[tuple[float, float] | None]
@@ -653,12 +770,14 @@ def _viterbi(
     emissions, stride, tokenizer, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True,
     starts_ms: LineStarts | None = None, tally: dict[str, int] | None = None,
+    letters: bool = False,
 ) -> list[dict]:
     """One forced-alignment (Viterbi) pass of `texts` over ready emissions.
     Results are [{start, end, text, score}] in SECONDS relative to the audio
     the emissions came from; star rows are already dropped by the library.
     `starts_ms` holds each text's first letter in a region (V1,
-    _hold_line_starts); `tally` counts what that did."""
+    _hold_line_starts); `tally` counts what that did. `letters` (2.35.0)
+    gives each row its `"first_letter"` (_first_letters)."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         get_alignments,
         get_spans,
@@ -701,7 +820,38 @@ def _viterbi(
             results[row] = {**results[row], "start": letter_frame * stride / 1000}
             if tally is not None:
                 tally["pads"] = tally.get("pads", 0) + 1
+    if letters:
+        results = _first_letters(emissions, stride, tokenizer, text_starred, spans, blank, results)
     return results
+
+
+def _first_letters(
+    emissions, stride, tokenizer, text_starred: list[str], spans: list, blank: str,
+    results: list[dict],
+) -> list[dict]:
+    """Each word row with `"first_letter"`: [the first frame of its first
+    letter on this path, in seconds, the letter's best log-prob on its own
+    frames]. A row whose span holds no letter of the vocabulary gets none.
+    Rows are the non-star entries of `text_starred`, in order, as
+    postprocess_results builds them."""
+    import numpy as np
+
+    log_probs = emissions.cpu() if hasattr(emissions, "cpu") else emissions
+    log_probs = np.asarray(log_probs.float().numpy() if hasattr(log_probs, "numpy") else log_probs)
+    dictionary = {k.lower(): v for k, v in tokenizer.get_vocab().items()}
+    out = list(results)
+    row = 0
+    for token, text in enumerate(text_starred):
+        if text == STAR_TOKEN:
+            continue
+        if row >= len(out):
+            break
+        first = next((s for s in spans[token] if s.label != blank and s.label in dictionary), None)
+        if first is not None:
+            lp = float(log_probs[first.start : first.end + 1, dictionary[first.label]].max())
+            out[row] = {**out[row], "first_letter": [first.start * stride / 1000, lp]}
+        row += 1
+    return out
 
 
 def _line_first_items(texts: list[str], language: str, romanize: bool) -> list[int] | None:
@@ -792,7 +942,7 @@ def _hold_line_starts(
             tally["windows"] = tally.get("windows", 0) + 1
         log_probs = emissions.cpu() if hasattr(emissions, "cpu") else emissions
         log_probs = log_probs.float().numpy() if hasattr(log_probs, "numpy") else log_probs
-        blank_id = dictionary.get("<blank>", tokenizer.pad_token_id)
+        blank_id = ctc_blank_id(tokenizer)
         found = forced_align_cut(np.asarray(log_probs), targets, blank_id, cuts)
         if found is None:
             if tally is not None:
@@ -812,13 +962,15 @@ def _align_texts(
     model, tokenizer, audio, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True, *, exact_stride: bool = False,
     starts_ms: LineStarts | None = None, tally: dict[str, int] | None = None,
+    letters: bool = False,
 ) -> list[dict]:
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
     [{start, end, text, score}] in SECONDS relative to the given audio.
     `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
-    emissions, stride = _emit(model, audio, exact_stride=exact_stride)
+    emissions, stride = _emissions(model, audio, exact_stride=exact_stride)
     return _viterbi(
-        emissions, stride, tokenizer, texts, language, star_frequency, romanize, starts_ms, tally
+        emissions, stride, tokenizer, texts, language, star_frequency, romanize, starts_ms, tally,
+        letters,
     )
 
 
@@ -826,20 +978,37 @@ def _align_slice_hybrid(
     model, tokenizer, piece, texts: list[str], language: str, *,
     romanize: bool, exact_stride: bool,
     edges_starts: LineStarts | None = None, segment_starts: LineStarts | None = None,
-    tally: dict[str, int] | None = None,
+    tally: dict[str, int] | None = None, letters: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """(edges, segment): one emission pass over the slice, two Viterbi passes,
     each with its line regions on its own clock (V1)."""
-    emissions, stride = _emit(model, piece, exact_stride=exact_stride)
+    emissions, stride = _emissions(model, piece, exact_stride=exact_stride)
     return (
         _viterbi(emissions, stride, tokenizer, texts, language, "edges", romanize,
-                 edges_starts, tally),
+                 edges_starts, tally, letters),
         _viterbi(emissions, stride, tokenizer, texts, language, "segment", romanize,
-                 segment_starts, tally),
+                 segment_starts, tally, letters),
     )
 
 
 SAMPLES_PER_MS = 16  # load_audio normalizes to 16 kHz mono
+
+
+def ctc_blank_id(tokenizer) -> int:
+    """The CTC blank's id, taken the way the aligner itself takes it
+    (ctc_forced_aligner's get_alignments, 0.3.0): `<blank>` when the
+    vocabulary has one (MMS keeps a separate `<pad>` that never wins), else the
+    tokenizer's pad token. One definition for every greedy reader of the
+    emissions (`transcribe`, `heard_tokens`, `audit.ear`) and for the line
+    regions' trellis (`_hold_line_starts`).
+
+    Before 2.32.0 the greedy readers looked up `vocab["<pad>"]`: right for the
+    three production checkpoints (English `<pad>` = 0, Turkish `[PAD]` = 0
+    through the 0 default, MMS through `<blank>`), wrong for any checkpoint
+    whose pad token is not named `<pad>` (omniASR-CTC: pad `<s>` = 0, `<pad>`
+    = 1; whole-project review, 2026-11-13)."""
+    dictionary = {k.lower(): v for k, v in tokenizer.get_vocab().items()}
+    return dictionary.get("<blank>", tokenizer.pad_token_id)
 
 
 def transcribe(wav_path: Path, model_name: str) -> str:
@@ -869,7 +1038,7 @@ def transcribe(wav_path: Path, model_name: str) -> str:
     keep = usable_columns(int(emissions.shape[-1]), len(vocab))
     ids = emissions[:, :keep].argmax(dim=-1).squeeze().tolist()
     id_to_token = {token_id: token for token, token_id in vocab.items()}
-    return greedy_ctc_decode(ids, id_to_token, vocab.get("<pad>", 0))
+    return greedy_ctc_decode(ids, id_to_token, ctc_blank_id(tokenizer))
 
 
 def heard_tokens(wav_path: Path, language: str) -> list[dict]:
@@ -878,21 +1047,18 @@ def heard_tokens(wav_path: Path, language: str) -> list[dict]:
     audit's ear reads it (`audit.ear.hear_audio`). Feeds the sheet shift
     check (2.29.1, `sheet_shift`); never shown, never lyrics.
 
-    The blank is `<blank>` when the vocabulary has one (MMS keeps `<pad>`
-    separate): taking `<pad>` turned every MMS blank frame into a letter in
-    the audit (2026-11)."""
-    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
-
+    The blank is the aligner's own (`ctc_blank_id`): taking `<pad>` turned
+    every MMS blank frame into a letter in the audit (2026-11)."""
     model, tokenizer = _load_model(resolve_aligner(language).model_name)
-    audio = load_audio(str(wav_path), model.dtype, model.device)
-    emissions, stride = _emit(model, audio, exact_stride=True)
+    audio = _load_track(wav_path, model)
+    emissions, stride = _emissions(model, audio, exact_stride=True)
     vocab = tokenizer.get_vocab()
     keep = usable_columns(int(emissions.shape[-1]), len(vocab))
     logp = emissions[:, :keep]
     if logp.dim() == 3:
         logp = logp.squeeze(0)
     ids = logp.argmax(dim=-1).tolist()
-    blank_id = vocab["<blank>"] if "<blank>" in vocab else vocab.get("<pad>", 0)
+    blank_id = ctc_blank_id(tokenizer)
     id_to_token = {i: tok for tok, i in vocab.items()}
     out: list[dict] = []
     previous: int | None = None
@@ -964,6 +1130,7 @@ def _align_windows(
     exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT, hybrid_t_ms: int = HYBRID_T_MS,
     synced_starts_ms: list[int | None] | None = None, line_region_ms: int | None = None,
     doc_offset_for=lambda text: 0, tally: dict[str, int] | None = None,
+    letters: bool = False,
 ) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
     whole-track clock (star tokens dropped), each tagged with its `"window"`
@@ -978,7 +1145,11 @@ def _align_windows(
     With `line_region_ms` (V1, 2.31.0) each pass holds the line starts of a
     window that owns two or more stamped lines near their stamps
     (`_window_line_starts`, `_hold_line_starts`); `doc_offset_for` is the
-    path's lateness correction for a word, the lead included."""
+    path's lateness correction for a word, the lead included.
+
+    With `letters` (2.35.0) each row also carries `"heard_at"`: where the
+    window's passes hear its first letter (`_heard_at`), on the same clock as
+    its start."""
     edges_lead_ms = WINDOWED_LEAD_MS if exact_stride else 0
     merged: list[dict] = []
     for index, window in enumerate(plan):
@@ -995,13 +1166,19 @@ def _align_windows(
                 model, tokenizer, piece, texts, language,
                 romanize=romanize, exact_stride=exact_stride,
                 edges_starts=edges_starts, segment_starts=segment_starts, tally=tally,
+                letters=letters,
             )
-            aligned, paired = hybrid_star_words(
-                [r for r in edges if r.get("text") != STAR_TOKEN],
-                [r for r in segment if r.get("text") != STAR_TOKEN],
-                hybrid_t_ms,
-                edges_lead_ms,
-            )
+            edges = [r for r in edges if r.get("text") != STAR_TOKEN]
+            segment = [r for r in segment if r.get("text") != STAR_TOKEN]
+            aligned, paired = hybrid_star_words(edges, segment, hybrid_t_ms, edges_lead_ms)
+            if letters:
+                aligned = [
+                    {**row, "heard_at": _heard_at(
+                        [edges[k], *([segment[k]] if paired else [])],
+                        [0.0, *([edges_lead_ms / 1000] if paired else [])],
+                    )}
+                    for k, row in enumerate(aligned)
+                ]
             if not paired:
                 logger.warning(
                     "window %d: edges and segment passes disagree on the words "
@@ -1019,8 +1196,11 @@ def _align_windows(
                     model, tokenizer, piece, texts, language, star,
                     romanize=romanize, exact_stride=exact_stride,
                     starts_ms=segment_starts if star == "segment" else edges_starts, tally=tally,
+                    letters=letters,
                 )
             ]
+            if letters:
+                aligned = [{**row, "heard_at": _heard_at([row], [back_s])} for row in aligned]
         for r in aligned:
             if r.get("text") == STAR_TOKEN:
                 continue  # regroup drops them anyway; keep offsets word-only
@@ -1032,8 +1212,21 @@ def _align_windows(
             }
             if "edges_start" in r:
                 row["edges_start"] = float(r["edges_start"]) + offset_s
+            if "heard_at" in r:
+                row["heard_at"] = [t + offset_s for t in r["heard_at"]]
             merged.append(row)
     return merged
+
+
+def _heard_at(rows: list[dict], backs_s: list[float]) -> list[float]:
+    """Where the given passes' rows of one word hear its first letter
+    (`"first_letter"` at or above FIRST_LETTER_FLOOR), each moved back by its
+    pass's lead, so that all of them sit on the edges clock."""
+    return [
+        float(row["first_letter"][0]) - back
+        for row, back in zip(rows, backs_s, strict=True)
+        if row.get("first_letter") is not None and row["first_letter"][1] >= FIRST_LETTER_FLOOR
+    ]
 
 
 def _source_counts(results: list[dict]) -> dict[str, int]:
@@ -1064,6 +1257,9 @@ def align(
     whole_vote_t_ms: int = WHOLE_VOTE_T_MS,
     unpile: bool = UNPILE_DEFAULT,
     line_region_ms: int | None = LINE_REGION_DEFAULT,
+    vote_order: bool = VOTE_ORDER_DEFAULT,
+    first_heard_ms: int | None = FIRST_HEARD_DEFAULT,
+    envelope: Envelope | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -1086,13 +1282,22 @@ def align(
     `unpile` (2.30.0) then gives a piled run they made its `edges` starts
     (windows.unpile_starts). `line_region_ms` (2.31.0) holds each line of a
     window with two or more stamps within that many ms of its own stamp,
-    inside both window passes (windows.line_regions); None switches it off."""
+    inside both window passes (windows.line_regions); None switches it off.
+    `vote_order` (2.34.0) refuses a whole-track time that would put a word out
+    of order with a neighbour keeping its windowed time (whole_track_vote's
+    `keep_order`); False reproduces 2.32.0. `first_heard_ms` (2.35.0) starts a
+    line's first word no more than that many ms before the earliest place a
+    pass hears its first letter (windows.start_at_heard_onset); None
+    reproduces 2.34.0. `envelope` is the track's level envelope
+    (pipeline/level.py, the worker computes it from the same wav and keeps it
+    as evidence): that rule moves a word only out of silence, and without an
+    envelope it moves nothing. It is the envelope of `wav_path`: the vocal
+    stem under separation_mode "always" (production), the mix under
+    "second_pass" (first pass) or "off", where the rule then rarely moves."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
         raise ValueError(f"unknown window star placement {window_star!r}")
-    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
-
     spec = resolve_aligner(language, model_name, romanize, offset_ms, offset_by_initial)
     model_name, romanize = spec.model_name, spec.romanize
     # Per job, because per-language routing means the answer can differ
@@ -1104,7 +1309,7 @@ def align(
         f", by-initial {spec.offset_by_initial}" if spec.offset_by_initial else "",
     )
     model, tokenizer = _load_model(model_name)
-    audio = load_audio(str(wav_path), model.dtype, model.device)
+    audio = _load_track(wav_path, model)
 
     plans, align_texts = _alignment_texts(line_texts, language)
 
@@ -1140,7 +1345,7 @@ def align(
             exact_stride=exact_stride, star=window_star, hybrid_t_ms=hybrid_t_ms,
             synced_starts_ms=synced_starts_ms, line_region_ms=line_region_ms,
             doc_offset_for=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
-            tally=tally,
+            tally=tally, letters=first_heard_ms is not None,
         )
         if tally:
             logger.info(
@@ -1155,12 +1360,16 @@ def align(
                 logger.info("seam policy yield: %d pad word(s) pulled back to their line", yielded)
         results = reconcile_seams(results)
         vote_note = ""
+        whole: list[dict] = []
         if whole_vote:
             whole = _align_texts(
                 model, tokenizer, audio, align_texts, language, "segment",
                 romanize=romanize, exact_stride=exact_stride,
+                letters=first_heard_ms is not None,
             )
-            results, _taken, paired = whole_track_vote(results, whole, whole_vote_t_ms, lead_ms)
+            results, _taken, paired = whole_track_vote(
+                results, whole, whole_vote_t_ms, lead_ms, keep_order=vote_order
+            )
             if not paired:
                 vote_note = " (skipped: the whole-track pass found other words)"
             # The voted times were never seam-clamped; restore monotonicity.
@@ -1176,6 +1385,25 @@ def align(
             if runs:
                 logger.info("piled starts: %d run(s), %d word(s) back on the edges clock",
                             runs, moved)
+        if first_heard_ms is not None:
+            # line_qa imports this module; its threshold and predicate are read at run time.
+            from kashi_server.pipeline.line_qa import DRIFT_THRESHOLD_MS, is_adlib
+
+            results, heard = start_at_heard_onset(
+                results, whole,
+                [len(p.units) if p else len(text.split()) for text, p in zip(
+                    line_texts, plans, strict=True)],
+                first_heard_ms, lead_ms, FIRST_LETTER_FLOOR,
+                stamps=synced_starts_ms, drift_ms=DRIFT_THRESHOLD_MS,
+                envelope=envelope, silence_db=FIRST_HEARD_SILENCE_DB,
+                silence_share=FIRST_HEARD_SILENCE_SHARE,
+                min_silence_ms=FIRST_HEARD_MIN_SILENCE_MS,
+                doc_offset=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
+                adlib=[is_adlib(text) for text in line_texts],
+            )
+            if heard:
+                logger.info("line starts at their first heard letter (%d ms): %d line(s)",
+                            first_heard_ms, heard)
 
     regrouped = regroup_words_into_lines(line_texts, results, plans)
     if regrouped is None:

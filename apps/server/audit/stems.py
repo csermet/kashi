@@ -28,9 +28,9 @@ from audit.paths import RAW_DIR, STEMS_DIR, stem_16k_path, stem_meta_path, stem_
 
 logger = logging.getLogger("audit.stems")
 
-# The live worker's separator (gitops deployment-worker.yaml,
-# SEPARATION_MODEL_FILENAME); the settings default is a different checkpoint,
-# so the name is always passed explicitly. Same file as the bench's "kim-base".
+# The live worker's separator (config.PRODUCTION_SEPARATION_MODEL, the settings
+# default since pipeline 2.33.0; a different checkpoint before, so the name is
+# passed explicitly). Same file as the bench's "kim-base".
 SEPARATION_MODEL = "vocals_mel_band_roformer.ckpt"
 MAX_DURATION_S = 1200  # settings.max_track_duration_s
 

@@ -20,11 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Cache the HF models (~1.7 GB — MMS + e5-small)
+      # Since pipeline 2.33.0 the code default routes English to the production
+      # checkpoint (jonatasgrosman XLS-R 1B, ~3.9 GB), so the smoke runs the model
+      # production runs; the key changed with the content.
+      - name: Cache the HF models (~4.4 GB — XLS-R 1B English + e5-small)
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-mms-300m-e5-small-v2
+          key: hf-xlsr-1b-english-e5-small-v3
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends g++ ffmpeg
       - run: uv sync --extra align --extra semantics
       - run: uv run pytest -q -m slow --override-ini addopts=''

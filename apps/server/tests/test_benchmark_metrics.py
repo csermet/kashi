@@ -143,3 +143,109 @@ def test_bunched_run_needs_three_words_within_60_ms_inclusive():
 
     assert duration_hygiene([0, 30, 60], [100, 130, 160])["bunched_runs"] == 1
     assert duration_hygiene([0, 30, 61], [100, 130, 161])["bunched_runs"] == 0
+
+
+# --- line starts and dwell (review step B.3), hand-made songs -----------------
+
+
+def _line(line: int, truth: list[int], hyp: list[int | None], verified=None):
+    from benchmarks.metrics import WordRow
+
+    verified = verified or [True] * len(truth)
+    return [WordRow(line, t, h, v) for t, h, v in zip(truth, hyp, verified, strict=True)]
+
+
+def test_a_line_start_is_late_past_220_and_early_past_minus_330_ms():
+    from benchmarks.metrics import fluency
+
+    rows = (
+        _line(0, [1000, 1500], [1220, 1700])  # +220: on time
+        + _line(1, [3000, 3500], [3221, 3700])  # +221: late
+        + _line(2, [5000, 5500], [4670, 5600])  # -330: on time
+        + _line(3, [7000, 7500], [6669, 7600])  # -331: early
+    )
+    f = fluency(rows)
+    assert (f.lines, f.line_late, f.line_early) == (4, 1, 1)
+
+
+def test_only_the_first_word_judges_its_line_and_an_unverified_one_skips_it():
+    from benchmarks.metrics import fluency
+
+    rows = (
+        _line(0, [1000, 1500], [1000, 9000])  # a late SECOND word does not make the line late
+        + _line(1, [3000, 3500], [9000, 3500], verified=[False, True])  # skipped, not 2nd word
+    )
+    f = fluency(rows)
+    assert (f.lines, f.line_late, f.line_early) == (1, 0, 0)
+
+
+def test_a_wordless_line_is_judged_at_its_line_start_when_one_is_given():
+    from benchmarks.metrics import fluency, fluency_summary
+
+    rows = _line(0, [1000, 1500], [1000, 1400]) + _line(1, [3000, 3500], [None, None])
+    assert fluency(rows).lines == 1  # nothing to read the line at
+    f = fluency(rows, {1: 3400})
+    assert (f.lines, f.line_late, f.untimed) == (2, 1, 2)
+    assert (f.wordless_lines, f.wordless_late, f.wordless_early) == (1, 1, 0)
+    s = fluency_summary([f])["line_starts"]
+    assert (s["wordless_lines"], s["noticeable_pooled"], s["noticeable_timed_pooled"]) == (
+        1, 0.5, 0.0)
+    assert fluency(rows, {1: 3200}).line_late == 0
+
+
+def test_dwell_is_next_start_minus_own_start_inside_a_line_under_120_ms():
+    from benchmarks.metrics import fluency
+
+    rows = (
+        _line(0, [0, 200, 400, 600], [0, 119, 239, 600])  # 119 short, 120 not, 361 not
+        + _line(1, [700, 800], [650, 700])  # the cross-line pair 600->650 is not a dwell
+    )
+    f = fluency(rows)
+    assert f.pairs == 4
+    assert f.hyp_short == 2  # 0->119 and 650->700
+    assert f.truth_short == 1  # 700->800 is 100 ms in the singing too
+    assert f.both_short == 1  # so only 0->119 is rushed by the pipeline alone
+
+
+def test_dwell_pairs_need_both_words_verified_and_timed():
+    from benchmarks.metrics import fluency
+
+    rows = (
+        _line(0, [0, 50, 100], [0, 10, 20], verified=[True, False, True])
+        + _line(1, [1000, 1050, 1100], [None, None, None])
+        + _line(2, [2000, 2050], [2000, 2010])
+    )
+    f = fluency(rows)
+    assert (f.pairs, f.hyp_short, f.truth_short, f.both_short) == (1, 1, 1, 1)
+
+
+def test_gross_errors_are_beyond_500_ms_among_timed_verified_words():
+    from benchmarks.metrics import fluency
+
+    rows = _line(0, [1000, 2000, 3000, 4000], [1500, 2501, None, 3000],
+                 verified=[True, True, True, False])
+    f = fluency(rows)
+    assert (f.words, f.gross, f.untimed) == (2, 1, 1)
+
+
+def test_the_summary_gives_per_song_means_beside_pooled_shares():
+    from benchmarks.metrics import Fluency, fluency_summary
+
+    small = Fluency(lines=2, line_late=1, line_early=0, pairs=4, hyp_short=2, truth_short=1,
+                    both_short=1, words=10, gross=1, untimed=0)
+    big = Fluency(lines=18, line_late=0, line_early=1, pairs=36, hyp_short=2, truth_short=4,
+                  both_short=0, words=90, gross=0, untimed=3)
+    s = fluency_summary([small, big])
+    assert s["line_starts"] == {
+        "noticeable_per_song": round((1 / 2 + 1 / 18) / 2, 4), "noticeable_pooled": 0.1,
+        "late_pooled": 0.05, "early_pooled": 0.05, "late": 1, "early": 1, "lines": 20,
+        "wordless_lines": 0, "noticeable_timed_pooled": 0.1,
+    }
+    assert s["dwell"] == {
+        "pipeline_short_pooled": 0.1, "truth_short_pooled": 0.125, "pipeline_only_pooled": 0.075,
+        "real_of_pipeline_short": 0.25, "pipeline_short_per_song": round((0.5 + 2 / 36) / 2, 4),
+        "truth_short_per_song": round((0.25 + 4 / 36) / 2, 4), "pairs": 40,
+    }
+    assert s["gross"] == {"per_song": 0.05, "pooled": 0.01, "words": 1, "of": 100,
+                          "untimed_words": 3}
+    assert fluency_summary([])["line_starts"]["noticeable_per_song"] is None

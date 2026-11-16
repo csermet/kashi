@@ -91,3 +91,13 @@ def test_anything_else_still_ends_the_process():
     with pytest.raises(RuntimeError):
         serve(script.iteration, script.should_stop, script.sleep)
     assert script.slept == []
+
+
+def test_the_worker_exports_its_model_cache_as_hf_home(monkeypatch):
+    import os
+
+    from kashi_server.worker import main
+
+    monkeypatch.delenv("HF_HOME", raising=False)
+    main._environment_defaults()
+    assert os.environ["HF_HOME"] == str(main.settings.model_cache_dir)

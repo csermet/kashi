@@ -22,9 +22,10 @@ from prometheus_client import Counter
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from kashi_server import queue
+from kashi_server import overrides, queue
 from kashi_server.config import settings
 from kashi_server.db.models import RUNNING_STATUSES, Job, UploadedAudio
+from kashi_server.pipeline import evidence
 from kashi_server.pipeline.alignment import (
     AlignResult,
     align,
@@ -42,14 +43,20 @@ from kashi_server.pipeline.asr import (
 )
 from kashi_server.pipeline.audio_source import fetch_audio
 from kashi_server.pipeline.beats import Beats, extract_beats
-from kashi_server.pipeline.document import build_document, persist_processed_track
+from kashi_server.pipeline.document import (
+    build_document,
+    persist_processed_track,
+    validate_document,
+)
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.energy import Energy, Section, extract_energy
 from kashi_server.pipeline.langid import detect_language
+from kashi_server.pipeline.level import level_envelope
 from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa, restore_held_ends
 from kashi_server.pipeline.lrclib import (
     LyricsText,
     fetch_lyrics,
+    fetch_record,
     lyrics_from_record,
     lyrics_from_text,
     normalize_artist,
@@ -71,7 +78,6 @@ from kashi_server.pipeline.palette import extract_palette
 from kashi_server.pipeline.sheet_shift import shift_sheet
 from kashi_server.pipeline.structure import extract_structure
 from kashi_server.pipeline.titles import clean_title, parse_composite_title
-from kashi_server.pipeline.vocal_energy import measure_vocal_energy
 from kashi_server.vdl_kit.errors import JobCanceled, PipelineError, is_transient_error
 
 logger = logging.getLogger(__name__)
@@ -114,10 +120,6 @@ LINE_QA_SNAPPED_LINES = Counter(
     "kashi_line_qa_snapped_lines_total",
     "Lines snapped to lrclib reference times by line QA",
 )
-LINE_QA_DENSITY_DROPPED_LINES = Counter(
-    "kashi_line_qa_density_dropped_lines_total",
-    "Neighbour lines whose words were dropped by the border-case gate (QA v2)",
-)
 LINE_QA_ADLIB_SHIFTED_LINES = Counter(
     "kashi_line_qa_adlib_shifted_lines_total",
     "Nonlexical lines block-shifted onto their lrclib anchor",
@@ -126,18 +128,10 @@ LINE_QA_ADLIB_REDERIVED_LINES = Counter(
     "kashi_line_qa_adlib_rederived_lines_total",
     "Ad-lib lines whose word spans were redistributed across the line (Faz 4)",
 )
-LINE_QA_RESPONSE_SHIFTED_LINES = Counter(
-    "kashi_line_qa_response_shifted_lines_total",
-    "Parenthetical responses moved onto the answering voice (Faz 9, 2.27.0)",
-)
 NIGHTCORE_JOBS = Counter(
     "kashi_nightcore_jobs_total",
     "Jobs that entered the nightcore branch, by how the factor was resolved",
     ["outcome"],  # explicit | detected | reverted | explicit_failed
-)
-WORD_END_TRIMS = Counter(
-    "kashi_line_qa_word_end_trims_total",
-    "Word ends capped by the sustain trim (Faz 5 P1 ear-test fix)",
 )
 LYRICSFILE_DOCS = Counter(
     "kashi_lyricsfile_docs_total",
@@ -164,6 +158,7 @@ def build_gateway() -> LrclibGateway:
     return LrclibGateway(
         fetch=lambda hints, url: fetch_lyrics(hints, base_url=url),
         search=lambda query, url: search_candidates(query, base_url=url),
+        get=lambda record_id, url: fetch_record(record_id, base_url=url),
         primary_url=settings.lrclib_base_url,
         mirror_url=settings.lrclib_fallback_base_url,
         breaker=LrclibBreaker(
@@ -198,16 +193,27 @@ def credible_duration_hint(hints: dict | None) -> int | None:
     The Sinsirella gate itself is untouched: every hint that could describe
     a real track is still compared against the downloaded audio.
     """
+    value = _plausible_hint(hints)
+    if value is not None:
+        return value
     value = (hints or {}).get("duration_ms")
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        return None
-    if value > settings.max_track_duration_s * 1000:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         IMPLAUSIBLE_DURATION_HINTS.inc()
         logger.warning(
             "discarding impossible duration hint: %dms exceeds the %ds track ceiling",
             value,
             settings.max_track_duration_s,
         )
+    return None
+
+
+def _plausible_hint(hints: dict | None) -> int | None:
+    """`credible_duration_hint` without its counter and warning: the evidence path reads the hint
+    too, and a job's one implausible hint must not be counted once more for it."""
+    value = (hints or {}).get("duration_ms")
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return None
+    if value > settings.max_track_duration_s * 1000:
         return None
     return value
 
@@ -301,6 +307,14 @@ def _wav_duration_s(path: Path) -> float:
         return f.getnframes() / rate if rate else 0.0
 
 
+def _aligner_decode(source_audio: Path, tmp: Path, *, tempo: float = 1.0) -> Path:
+    """The aligner's 16 kHz wav (`ALIGN_WAV`): what the stored evidence was read off (pipeline/
+    evidence.py). A stretched decode never comes here: the nightcore branch decodes its own
+    (`resolve_nightcore`, where a replay stops) and hands it down as `align_wav`."""
+    dest = tmp / ALIGN_WAV
+    return evidence.aligner_wav(lambda: _decode(source_audio, dest, rate=16000, tempo=tempo), dest)
+
+
 def _separate_vocals(
     audio: Path,
     tmp: Path,
@@ -376,13 +390,15 @@ def _align_stage(
     *,
     align_wav: Path | None = None,
     tempo: float = 1.0,
+    align_kwargs: dict | None = None,
 ) -> tuple[AlignResult, bool, Path]:
     """Align; optionally re-align on separated vocals when the score is low.
 
     `align_wav` skips the first decode when the caller already produced it
     (the nightcore branch decodes early for the duration sanity check);
     `tempo` carries the same slow-down into the second-pass vocal decode so
-    both passes align the same clock.
+    both passes align the same clock. `align_kwargs` reach `align()` as
+    keywords: the bench's research switches; the worker passes none.
 
     Returns the wav that WON as well, because the arbiter's onset evidence has
     to be measured on exactly the audio the surviving alignment heard — the
@@ -391,9 +407,9 @@ def _align_stage(
     language = detect_language(lyrics.full_text)
     # Windowing needs the lrclib stamps; the flag is the single rollout switch.
     anchors = lyrics.synced_starts_ms if settings.windowed_alignment else None
-    wav = align_wav or _decode(source_audio, tmp / ALIGN_WAV, rate=16000, tempo=tempo)
+    wav = align_wav or _aligner_decode(source_audio, tmp, tempo=tempo)
     if anchors is not None and lyrics.record_duration_s is not None:
-        wav_s = _wav_duration_s(wav)
+        wav_s = evidence.wav_duration(lambda: _wav_duration_s(wav))
         if abs(wav_s - lyrics.record_duration_s) > ANCHOR_CLOCK_TOLERANCE_S:
             logger.info(
                 "job %s: anchors disabled — record edit %.0fs vs audio %.0fs "
@@ -403,7 +419,12 @@ def _align_stage(
                 wav_s,
             )
             anchors = None
-    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors)
+    extra = align_kwargs or {}
+    # The track's level envelope (pipeline/level.py), handed to the aligner beside the audio it
+    # describes; kept as evidence like the onsets.
+    envelope = evidence.envelope(lambda: level_envelope(wav))
+    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors,
+                   envelope=envelope, **extra)
 
     if (
         result.quality_score < SECOND_PASS_QUALITY_GATE
@@ -414,6 +435,7 @@ def _align_stage(
             job.id,
             result.quality_score,
         )
+        evidence.other_audio("a second pass on separated vocals", keyed=False)
         queue.set_status(s, job, "separating")
         s.commit()
         vocals = _separate_vocals(source_audio, tmp)
@@ -421,7 +443,8 @@ def _align_stage(
         queue.set_status(s, job, "aligning")
         s.commit()
         vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000, tempo=tempo)
-        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors)
+        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors,
+                       envelope=level_envelope(vocal_wav), **extra)
         if second.quality_score > result.quality_score:
             return second, True, vocal_wav
     return result, False, wav
@@ -479,11 +502,12 @@ def _original_song_candidates(query_title: str, artist: str) -> list[dict]:
 def _caller_lyrics(job: Job) -> LyricsText | None:
     """Caller-supplied `options.lyrics_text`, or None. Honored on EVERY path —
     the escape hatch must work exactly when detection failed or reverted
-    (retro finding: it was dead in the r=1 flow)."""
+    (retro finding: it was dead in the r=1 flow). A song override's LRC text
+    or pinned record answers here too, before any lookup (C.1)."""
     text = (job.options or {}).get("lyrics_text")
     if isinstance(text, str) and text.strip():
         return lyrics_from_text(text)
-    return None
+    return overrides.override_lyrics(job.options or {}, lambda rid: LRCLIB.get_record(rid))
 
 
 def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText | None:
@@ -503,6 +527,7 @@ def _lyrics_by_ear(job: Job, download: DownloadResult, tmp: Path) -> LyricsText 
     swallowing it would turn a hiccup into a permanent lyrics_not_found with a
     7-day block (2026-10 review; the same reason as cec3a33).
     """
+    evidence.other_audio("the by-ear rung")  # it transcribes a slice of the mix
     hints = dict(job.hints or {})
     title = (
         (job.options or {}).get("original_title")
@@ -687,6 +712,7 @@ def resolve_nightcore(
     # lyrics_not_found must not cost a 30-minute decode first (retro finding
     # — the explicit-r path decoded, then searched).
     lyrics = _nightcore_lyrics(job, download, detection_record, speed_factor)
+    evidence.other_audio("a nightcore clock", keyed=False)
     align_wav = _decode(source_audio, tmp / ALIGN_WAV, rate=16000, tempo=1.0 / speed_factor)
     if slow_duration_ok(_wav_duration_s(align_wav), download.duration_s, speed_factor):
         NIGHTCORE_JOBS.labels(nc_outcome).inc()
@@ -764,85 +790,7 @@ def process_job(s: Session, job: Job) -> None:
     tmp.mkdir(parents=True, exist_ok=True)
     claim = _CLAIM_ATTEMPTS.set(job.attempts)
     try:
-        checkpoint(s, job)
-
-        try:
-            lookup = _lookup_before_download(job)
-        except PipelineError as exc:
-            if exc.error_type != "lrclib_unavailable":
-                raise  # the handler below files it, as after a download
-            # The lookup can take a while (timeouts on both targets): a cancel
-            # that landed meanwhile wins over re-queueing the job.
-            checkpoint(s, job)
-            _defer_or_give_up(s, job, exc.message, "precheck")
-            s.commit()
-            return
-
-        # --- downloading (claim already set the status) ---
-        # youtube_fetch is passed from THIS module so the download_audio
-        # monkeypatch seam survives the source dispatch (Faz 5 P4).
-        download: DownloadResult = fetch_audio(job, tmp, s, youtube_fetch=download_audio)
-        _check_client_edit(job, download)
-        checkpoint(s, job)
-
-        # --- aligning (lyrics resolve FIRST — Faz 5 P3) ---
-        queue.set_status(s, job, "aligning")
-        s.commit()
-        # Lyricsfile fast path: when the chosen lrclib record carries HUMAN
-        # word timings, alignment has nothing to add — separation, langid,
-        # CTC and line QA are all skipped (the word clock becomes human-
-        # accurate and the job saves the double-digit-minute separation
-        # bill). Only the plain r=1 flow qualifies: nightcore MUST keep the
-        # CTC wrong-song gate. Resolving lyrics before separation also means
-        # a doomed lyrics_not_found no longer pays for separation first
-        # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
-        # Off by default since 2.31.0 (settings.lyricsfile_fast_path): the
-        # file is still parsed so the log says what alignment overrode.
-        detection = _detect_nightcore(job, download)
-        plain_lyrics = _resolve_plain_lyrics(job, download, tmp, detection, lookup)
-        file_result = (
-            alignresult_from_lyricsfile(plain_lyrics.lyricsfile_raw, download.duration_s)
-            if plain_lyrics is not None and plain_lyrics.source == "lrclib"
-            else None
-        )
-        fast_result = file_result if settings.lyricsfile_fast_path else None
-        if file_result is not None and fast_result is None:
-            logger.info(
-                "job %s: lyricsfile present (%d lines, %d with words) — fast path off, aligning",
-                job.id,
-                len(file_result.lines),
-                sum(bool(chunk) for chunk in file_result.words_per_line),
-            )
-        checkpoint(s, job)
-        qa: LineQAOutcome | None = None
-        if fast_result is not None:
-            if plain_lyrics is None:  # fast_result is only ever built from plain_lyrics
-                raise PipelineError("other", "lyricsfile fast path reached without lyrics")
-            lyrics = replace(plain_lyrics, source="lyricsfile")
-            result = fast_result
-            vocals_separated = False
-            speed_factor = 1.0
-            LYRICSFILE_DOCS.inc()
-            logger.info(
-                "job %s: lyricsfile fast path (%d lines, %d with words) — CTC skipped",
-                job.id,
-                len(result.lines),
-                sum(bool(chunk) for chunk in result.words_per_line),
-            )
-        else:
-            lyrics, result, qa, vocals_separated, speed_factor = _align_with_ctc(
-                s, job, tmp, download, detection, plain_lyrics
-            )
-        _postprocess(
-            s,
-            job,
-            download,
-            lyrics,
-            result,
-            qa,
-            vocals_separated=vocals_separated,
-            speed_factor=speed_factor,
-        )
+        _run_job(s, job, tmp)
     except LeaseLost as exc:
         s.rollback()
         logger.warning("%s — another worker owns it now; this run is dropped", exc)
@@ -870,6 +818,222 @@ def process_job(s: Session, job: Job) -> None:
         _CLAIM_ATTEMPTS.reset(claim)
         # AUDIO DELETION GUARANTEE — every path ends here.
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> None:
+    """One job from the lyrics lookup to the persisted document. Under an evidence session
+    (pipeline/evidence.py) the same code runs: a recorder keeps what the audio boundaries
+    returned, a replayer serves them instead of the audio. `persist=False` builds and validates
+    the document without storing it (the evidence back-fill, worker/backfill.py; never a job
+    option, so no queued job and no older image can carry it)."""
+    checkpoint(s, job)
+
+    try:
+        lookup = _lookup_before_download(job)
+    except PipelineError as exc:
+        if exc.error_type != "lrclib_unavailable":
+            raise  # process_job's handler files it, as after a download
+        # The lookup can take a while (timeouts on both targets): a cancel
+        # that landed meanwhile wins over re-queueing the job.
+        checkpoint(s, job)
+        _defer_or_give_up(s, job, exc.message, "precheck")
+        s.commit()
+        return
+
+    # --- downloading (claim already set the status) ---
+    # youtube_fetch is passed from THIS module so the download_audio
+    # monkeypatch seam survives the source dispatch (Faz 5 P4).
+    download: DownloadResult = evidence.download(
+        lambda: fetch_audio(job, tmp, s, youtube_fetch=download_audio),
+        tmp / "audio.evidence",
+    )
+    _check_client_edit(job, download)
+    checkpoint(s, job)
+
+    # --- aligning (lyrics resolve FIRST — Faz 5 P3) ---
+    queue.set_status(s, job, "aligning")
+    s.commit()
+    # Lyricsfile fast path: when the chosen lrclib record carries HUMAN
+    # word timings, alignment has nothing to add — separation, langid,
+    # CTC and line QA are all skipped (the word clock becomes human-
+    # accurate and the job saves the double-digit-minute separation
+    # bill). Only the plain r=1 flow qualifies: nightcore MUST keep the
+    # CTC wrong-song gate. Resolving lyrics before separation also means
+    # a doomed lyrics_not_found no longer pays for separation first
+    # (the 2.2.4 lyrics-before-decode lesson, one stage earlier).
+    # Off by default since 2.31.0 (settings.lyricsfile_fast_path): the
+    # file is still parsed so the log says what alignment overrode.
+    detection = _detect_nightcore(job, download)
+    plain_lyrics = _resolve_plain_lyrics(job, download, tmp, detection, lookup)
+    file_result = (
+        alignresult_from_lyricsfile(plain_lyrics.lyricsfile_raw, download.duration_s)
+        if plain_lyrics is not None and plain_lyrics.source == "lrclib"
+        else None
+    )
+    fast_result = file_result if settings.lyricsfile_fast_path else None
+    if file_result is not None and fast_result is None:
+        logger.info(
+            "job %s: lyricsfile present (%d lines, %d with words) — fast path off, aligning",
+            job.id,
+            len(file_result.lines),
+            sum(bool(chunk) for chunk in file_result.words_per_line),
+        )
+    checkpoint(s, job)
+    qa: LineQAOutcome | None = None
+    if fast_result is not None:
+        if plain_lyrics is None:  # fast_result is only ever built from plain_lyrics
+            raise PipelineError("other", "lyricsfile fast path reached without lyrics")
+        lyrics = replace(plain_lyrics, source="lyricsfile")
+        result = fast_result
+        vocals_separated = False
+        speed_factor = 1.0
+        LYRICSFILE_DOCS.inc()
+        logger.info(
+            "job %s: lyricsfile fast path (%d lines, %d with words) — CTC skipped",
+            job.id,
+            len(result.lines),
+            sum(bool(chunk) for chunk in result.words_per_line),
+        )
+    else:
+        lyrics, result, qa, vocals_separated, speed_factor = _align_with_ctc(
+            s, job, tmp, download, detection, plain_lyrics
+        )
+    _postprocess(
+        s,
+        job,
+        download,
+        lyrics,
+        result,
+        qa,
+        vocals_separated=vocals_separated,
+        speed_factor=speed_factor,
+        persist=persist,
+    )
+
+
+def _run_job(s: Session, job: Job, tmp: Path) -> None:
+    """The job, under `settings.evidence_mode` (pipeline/evidence.py). "off": the pipeline as it
+    always ran. "record": a full job that stores its evidence. "replay": the song's stored
+    evidence first, when its key matches this worker and this job; anything the replay cannot
+    serve, or any failure of it, runs the job in full (and records it). Only YouTube songs:
+    an upload's audio is deleted with its job and re-uploading is how it is processed again
+    (README), so its evidence must not outlive it until the owner decides otherwise. An admin
+    reprocess with `options.fresh_audio` skips the replay: the audio is fetched again."""
+    mode = settings.evidence_mode
+    if mode == "off" or job.source_type != "youtube":
+        _run_pipeline(s, job, tmp)
+        return
+    if mode == "replay" and not (job.options or {}).get("fresh_audio") and _replay(s, job, tmp):
+        return
+    _record(s, job, tmp)
+
+
+def _evidence_key(job: Job) -> dict:
+    return evidence.expected_key(settings, separate_first=_separates_first(job))
+
+
+def _record(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> bool:
+    """A full job under a recorder, then its evidence stored; True when it was (`persist=False`:
+    the evidence back-fill, worker/backfill.py, which builds the document and keeps only the
+    evidence)."""
+    from kashi_server.version import PIPELINE_VERSION
+
+    recorder = evidence.Recorder(
+        job.source_type, job.source_id, _evidence_key(job),
+        made_by=evidence.provenance(settings, PIPELINE_VERSION),
+    )
+    # The player's length this record is made under: a replay compares its own job's hint with it
+    # (evidence.duration_conflict).
+    recorder.meta["hint_duration_ms"] = _plausible_hint(job.hints)
+    with evidence.active(recorder):
+        _run_pipeline(s, job, tmp, persist=persist)
+    return _store_evidence(s, job, recorder)
+
+
+def _replay(s: Session, job: Job, tmp: Path) -> bool:
+    """True when the job was carried out from stored evidence (completed, deferred or failed as
+    a full job would have been); False when it must run in full."""
+    try:
+        stored = evidence.DbStore(s).load(job.source_type, job.source_id)
+    except OperationalError:
+        raise
+    except Exception:  # noqa: BLE001 - unreadable evidence is no evidence
+        s.rollback()
+        logger.warning("job %s: stored evidence unreadable — full job", job.id, exc_info=True)
+        return False
+    if (job.options or {}).get("speed_factor") is not None:
+        # A stated nightcore clock: the replay would stop at it after the branch's own lrclib
+        # searches, and the full job would search again.
+        logger.info("job %s: full job (a nightcore clock)", job.id)
+        return False
+    replayer, why = evidence.replayer_for(stored, settings, separate_first=_separates_first(job))
+    if replayer is None or stored is None:
+        logger.info("job %s: full job (%s)", job.id, why)
+        return False
+    conflict = evidence.duration_conflict(stored, _plausible_hint(job.hints))
+    if conflict is not None:
+        logger.info("job %s: full job (%s: the audio behind the id may have changed)", job.id,
+                    conflict)
+        return False
+    try:
+        with evidence.active(replayer):
+            _run_pipeline(s, job, tmp)
+    except (JobCanceled, OperationalError):
+        raise
+    except PipelineError as exc:
+        if is_transient_error(exc.error_type):  # lrclib_unavailable is one
+            raise  # weather, not the replay: a full job would meet it too
+        _replay_stopped(s, job, f"{exc.error_type}: {exc.message[:200]}")
+        return False
+    except evidence.EvidenceMissing as exc:
+        _replay_stopped(s, job, str(exc))
+        return False
+    except Exception:  # noqa: BLE001 - a replay fault must cost a download, never the job
+        logger.warning("job %s: replay failed", job.id, exc_info=True)
+        _replay_stopped(s, job, "replay failed")
+        return False
+    served = ", ".join(f"{k} {v}" for k, v in sorted(replayer.served.items()))
+    if job.status == "completed":
+        logger.info("job %s: rebuilt from stored evidence, no download (%s)", job.id, served)
+    else:
+        logger.info("job %s: replay ended %s, no download (%s)", job.id, job.status, served)
+    return True
+
+
+def _replay_stopped(s: Session, job: Job, why: str) -> None:
+    """Back to where a claimed job starts, so the full job's stages read as its own."""
+    s.rollback()
+    logger.info("job %s: replay stopped (%s) — full job", job.id, why)
+    queue.set_status(s, job, "downloading")
+    s.commit()
+
+
+def _store_evidence(s: Session, job: Job, recorder: evidence.Recorder) -> bool:
+    """Best effort, after the job's own commit: evidence is a cache, its loss costs a download.
+    Slices the stored record holds for the same audio and key and this job did not read are
+    kept (evidence.merged)."""
+    if job.status != "completed":
+        return False
+    if not recorder.usable:
+        logger.info("job %s: evidence not stored (%s)", job.id, recorder.why_not)
+        return False
+    missing = recorder.missing()
+    if missing:  # an unaligned job (the lyricsfile fast path): nothing a replay could serve
+        logger.info("job %s: evidence not stored (never read %s)", job.id, ", ".join(missing))
+        return False
+    try:
+        store = evidence.DbStore(s)
+        record = evidence.merged(store.load(job.source_type, job.source_id), recorder.pack())
+        store.save(record)
+        s.commit()
+    except Exception:  # noqa: BLE001
+        with suppress(Exception):
+            s.rollback()
+        logger.warning("job %s: evidence not stored", job.id, exc_info=True)
+        return False
+    logger.info("job %s: evidence stored (%d emission arrays, %d bytes)", job.id,
+                len(record.meta.get("emissions", [])), len(record.blob))
+    return True
 
 
 def _is_plain_lookup(job: Job) -> bool:
@@ -992,28 +1156,89 @@ def _resolve_plain_lyrics(
 def _shift_sheet(
     job: Job, tmp: Path, source_audio: Path, lyrics: LyricsText, align_wav: Path | None,
     speed_factor: float,
-) -> tuple[LyricsText, Path | None, list[dict] | None]:
+) -> tuple[LyricsText, Path | None, list]:
     """Move an lrclib section the ear hears seconds away (2.29.1, sheet_shift),
     before windows are cut around the stamps and line QA trusts them. Windowed
     alignment only (the stamps' one consumer besides QA), r = 1 only. Returns
     the lyrics, the decoded wav, which `_align_stage` then reuses, and the
-    ear's tokens, which line QA's voice-return rule reads (2.30.0); None
-    where the check does not run."""
+    sections that moved."""
     starts = lyrics.synced_starts_ms
     if not settings.windowed_alignment or starts is None or not is_original_speed(speed_factor):
-        return lyrics, align_wav, None
-    wav = align_wav or _decode(source_audio, tmp / ALIGN_WAV, rate=16000)
+        return lyrics, align_wav, []
+    wav = align_wav or _aligner_decode(source_audio, tmp)
     tokens = heard_tokens(wav, detect_language(lyrics.full_text))
     shifted, applied = shift_sheet(lyrics.line_texts, starts, tokens)
     for sec in applied:
         logger.info(
             "job %s: lyrics sheet shifted %+d ms (lines %d-%d, %d anchors, %d overtaken "
-            "neighbours carried)",
+            "neighbours carried, %d left-behind lines adopted)",
             job.id, sec.median_ms, sec.first_line, sec.last_line, sec.anchors, sec.carried,
+            sec.adopted,
         )
     if not applied:
-        return lyrics, wav, tokens
-    return replace(lyrics, synced_starts_ms=shifted), wav, tokens
+        return lyrics, wav, []
+    return replace(lyrics, synced_starts_ms=shifted), wav, list(applied)
+
+
+@dataclass(frozen=True)
+class ReviewedAlignment:
+    """What `align_and_review` hands back: the result the document is built
+    from, plus what the steps before it saw (the bench scores each stage)."""
+
+    lyrics: LyricsText  # after the sheet shift: the stamps line QA judged against
+    aligned: AlignResult  # the aligner's output, before line QA
+    result: AlignResult  # after line QA and the held-end restore
+    qa: LineQAOutcome
+    restored: int  # words restore_held_ends lengthened
+    second_pass_separated: bool
+    sheet_shifts: list  # sheet_shift sections that moved
+
+
+def align_and_review(
+    s: Session,
+    job: Job,
+    tmp: Path,
+    source_audio: Path,
+    lyrics: LyricsText,
+    *,
+    align_wav: Path | None = None,
+    speed_factor: float = 1.0,
+    align_kwargs: dict | None = None,
+) -> ReviewedAlignment:
+    """The chain between chosen lyrics + audio and the document: the sheet
+    shift, alignment, line QA on the onsets of the audio that was aligned, and
+    the held-end restore. The worker runs it for every job (`_align_with_ctc`);
+    the bench (benchmarks/run.py, its default mode since 2.33.0) runs exactly
+    this against human truth, so the two cannot drift apart."""
+    lyrics, align_wav, shifts = _shift_sheet(
+        job, tmp, source_audio, lyrics, align_wav, speed_factor
+    )
+    aligned, second_pass_separated, aligned_wav = _align_stage(
+        s,
+        job,
+        tmp,
+        source_audio,
+        lyrics,
+        align_wav=align_wav,
+        tempo=1.0 / speed_factor,
+        align_kwargs=align_kwargs,
+    )
+    # The arbiter's only aligner-independent evidence (Faz 8 B4).
+    # Measured on the audio the winning alignment actually heard; a
+    # failure returns None and line QA falls back to today's rule.
+    onsets = evidence.onsets(lambda: detect_onsets(aligned_wav))
+    qa = apply_line_qa(aligned, lyrics.line_texts, lyrics.synced_starts_ms, onsets)
+    # 2.29.1: QA judged the cut ends; the words get their length back now.
+    result, restored = restore_held_ends(qa.result)
+    return ReviewedAlignment(
+        lyrics=lyrics,
+        aligned=aligned,
+        result=result,
+        qa=qa,
+        restored=restored,
+        second_pass_separated=second_pass_separated,
+        sheet_shifts=shifts,
+    )
 
 
 def _align_with_ctc(
@@ -1035,38 +1260,13 @@ def _align_with_ctc(
     )
     if plan.outcome is not None:  # the branch decoded — same cadence as before
         checkpoint(s, job)
-    lyrics = plan.lyrics
     speed_factor = plan.speed_factor
-    lyrics, align_wav, heard = _shift_sheet(
-        job, tmp, source_audio, lyrics, plan.align_wav, speed_factor
+    reviewed = align_and_review(
+        s, job, tmp, source_audio, plan.lyrics, align_wav=plan.align_wav,
+        speed_factor=speed_factor,
     )
-    result, second_pass_separated, aligned_wav = _align_stage(
-        s,
-        job,
-        tmp,
-        source_audio,
-        lyrics,
-        align_wav=align_wav,
-        tempo=1.0 / speed_factor,
-    )
-    vocals_separated = second_pass_separated or separate_first
-    # The arbiter's only aligner-independent evidence (Faz 8 B4).
-    # Measured on the audio the winning alignment actually heard; a
-    # failure returns None and line QA falls back to today's rule.
-    # The response rule reads LOUDNESS, and only a separated stem has
-    # the silences it looks for — on a full mix the drums fill every
-    # breath. So it is handed a contour only when separation actually
-    # produced the audio the alignment won on.
-    qa = apply_line_qa(
-        result,
-        lyrics.line_texts,
-        lyrics.synced_starts_ms,
-        detect_onsets(aligned_wav),
-        energy=measure_vocal_energy(aligned_wav) if vocals_separated else None,
-        heard=heard,
-    )
-    # 2.29.1: QA judged the cut ends; the words get their length back now.
-    result, _restored = restore_held_ends(qa.result)
+    lyrics, result, qa = reviewed.lyrics, reviewed.result, reviewed.qa
+    vocals_separated = reviewed.second_pass_separated or separate_first
     if not is_original_speed(speed_factor):
         result = _nightcore_gate(result, lyrics, speed_factor)
     _record_line_qa(job, qa)
@@ -1074,18 +1274,23 @@ def _align_with_ctc(
     return lyrics, result, qa, vocals_separated, speed_factor
 
 
+def _separates_first(job: Job) -> bool:
+    """Whether the job aligns the separated stem from the start (the evidence key names it)."""
+    return settings.separation_mode == "always" or bool((job.options or {}).get("separate"))
+
+
 def _separation_source(
     s: Session, job: Job, tmp: Path, download: DownloadResult
 ) -> tuple[Path, bool]:
     """The audio alignment starts from, and whether it was separated first."""
-    separate_first = settings.separation_mode == "always" or bool(
-        (job.options or {}).get("separate")
-    )
+    separate_first = _separates_first(job)
     if not separate_first:
         return download.path, False
     queue.set_status(s, job, "separating")
     s.commit()
-    source_audio = _separate_vocals(download.path, tmp)
+    source_audio = evidence.separated(
+        lambda: _separate_vocals(download.path, tmp), tmp / "separated" / "vocals.evidence"
+    )
     checkpoint(s, job)
     queue.set_status(s, job, "aligning")
     s.commit()
@@ -1094,7 +1299,7 @@ def _separation_source(
 
 def _nightcore_gate(result: AlignResult, lyrics: LyricsText, speed_factor: float) -> AlignResult:
     """Wrong-song gate for detected lyrics, then the rescale onto the played clock."""
-    if lyrics.source != "caller":
+    if lyrics.source != "caller" and not lyrics.pinned:
         # Wrong-song gate: detection can only vouch for
         # title+duration ratio; the CTC probs are the honest
         # lyrics-identity signal.
@@ -1131,11 +1336,8 @@ def _record_line_qa(job: Job, qa: LineQAOutcome) -> None:
     LINE_QA_DOCS.labels(qa_outcome).inc()
     if not qa.degraded_to_line:
         LINE_QA_SNAPPED_LINES.inc(len(qa.flagged))
-        LINE_QA_DENSITY_DROPPED_LINES.inc(len(qa.density_dropped))
     LINE_QA_ADLIB_SHIFTED_LINES.inc(len(qa.adlib_shifted))
     LINE_QA_ADLIB_REDERIVED_LINES.inc(len(qa.adlib_rederived))
-    LINE_QA_RESPONSE_SHIFTED_LINES.inc(len(qa.response_shifted))
-    WORD_END_TRIMS.inc(qa.trimmed_ends)
 
 
 def _mix_features(mix: Path) -> tuple[Beats | None, Energy | None, list[Section] | None]:
@@ -1201,12 +1403,13 @@ def _postprocess(
     *,
     vocals_separated: bool,
     speed_factor: float,
+    persist: bool = True,
 ) -> None:
     """Beats, energy, sections, fx and palette -> the persisted document."""
     # --- postprocessing ---
     queue.set_status(s, job, "postprocessing")
     s.commit()
-    beats, energy, sections = _mix_features(download.path)
+    beats, energy, sections = evidence.mix_features(lambda: _mix_features(download.path))
     doc = _assemble_document(
         job,
         download,
@@ -1223,6 +1426,15 @@ def _postprocess(
     # overwrite what the job's new owner produced. The checkpoint also renews
     # the lease, so nobody can reclaim it between here and the commit.
     checkpoint(s, job)
+    if not persist:
+        # The evidence back-fill (worker/backfill.py): the document is built and checked,
+        # the stored one stays; the run's evidence is what it was for.
+        validate_document(doc)
+        queue.mark_completed(s, job)
+        _drop_staged_upload(s, job)
+        s.commit()
+        logger.info("job %s completed: evidence only, the document was not stored", job.id)
+        return
     persist_processed_track(s, job, doc)
     queue.mark_completed(s, job)
     _drop_staged_upload(s, job)  # same transaction as the completion

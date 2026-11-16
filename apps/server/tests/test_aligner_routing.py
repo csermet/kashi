@@ -43,10 +43,11 @@ def configure(monkeypatch):
     return apply
 
 
-def test_an_empty_table_is_todays_behaviour(configure):
-    """The default has to be a no-op: every Faz 8 measurement was taken with
-    the single-model path, and they stay valid only if it still answers."""
-    assert Settings.model_fields["align_models"].default == {}
+def test_an_empty_table_is_the_single_model_behaviour(configure):
+    """An empty table (ALIGN_MODELS={}) has to be a no-op: every Faz 8
+    measurement was taken with the single-model path, and they stay valid only
+    if it still answers. The DEFAULT is the production table since 2.33.0
+    (test_config_defaults pins it)."""
     configure()
     for language in ("eng", "tur", "jpn"):
         assert resolve_aligner(language) == resolve_aligner()
@@ -135,7 +136,7 @@ def test_resolve_model_name_still_names_the_language_agnostic_default(configure)
 
 
 def test_the_table_is_settable_as_one_env_var(monkeypatch):
-    """The operator-facing surface: this is how the deployment sets it."""
+    """The operator-facing surface: an env value replaces the code default."""
     import json
 
     monkeypatch.setenv(
@@ -145,7 +146,16 @@ def test_the_table_is_settable_as_one_env_var(monkeypatch):
     table = Settings().align_models
     assert table["eng"].checkpoint == EN_MODEL
     assert table["eng"].romanize is None  # inherit
+    assert table["eng"].offset_ms is None  # the WHOLE table is replaced, not merged
     assert (table["tur"].checkpoint, table["tur"].romanize) == (TR_MODEL, False)
+
+
+def test_an_empty_env_table_switches_the_routing_off(monkeypatch):
+    """ALIGN_MODELS={} is how a run asks for the pre-Faz-8.1 single model."""
+    monkeypatch.setenv("ALIGN_MODELS", "{}")
+    assert Settings().align_models == {}
+    monkeypatch.delenv("ALIGN_MODELS")
+    assert set(Settings().align_models) == {"eng", "tur"}
 
 
 def test_align_actually_routes_by_language(monkeypatch, configure, tmp_path):

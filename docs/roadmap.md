@@ -47,7 +47,7 @@ at once.
 
 | Line | Step | What | Size |
 |---|---|---|---|
-| timing | A | Pipeline 2.32.0: whole-track vote threshold 400 → 1 200 ms (human truth: eng20 PCO@0.1 0.824 → 0.842, noticeable line starts 0.108 → 0.062), remove four rules that do nothing on fresh songs, cap the ad-lib re-derivation, then one archive refresh | ~3 workdays + owner 15 min |
+| timing | A | Pipeline 2.32.0: whole-track vote threshold 400 → 1 200 ms (human truth: eng20 PCO@0.1 0.824 → 0.842, noticeable line starts 0.108 → 0.062), remove four rules that do nothing on fresh songs, cap the ad-lib re-derivation, then one archive refresh | **in `main` and tagged `server-v0.36.0` 2026-11-14** (the owner's advance yes; blind, he preferred the new document on all four heard-fine moments it moves); rollout and the archive refresh wait for the owner's gitops merge |
 | timing | B | Measure what ships: production configuration as versioned code defaults, the bench runs the shipped pipeline with line-start and dwell metrics, an archive replay rig, persist and revision guards | ~6-7 workdays |
 | timing | D | The ear: own conversion of omniASR 1B and a repeat of its test; then duration-aware decoding in the trellis | ~1.5 + 4-6 workdays |
 | source | C | Per-song overrides that survive reprocessing; clock verification (scale refit for nightcore, whole-sheet offset from repeated lines); honest plain-text fallback; the wordless-line policy (replaces 9.6 as written; the LLM label trial is narrowed and parked) | ~6-8 workdays + owner 10-15 min |
@@ -57,6 +57,32 @@ at once.
 
 9.5 (Turkish parity) follows D's first step; 9.7 (plain lyrics) follows C; 11 (hardening) is partly
 B.
+
+**State on 2026-11-14 (evening).** A, B and the first part of C are live: server 0.36.0 / pipeline
+2.32.0 (A), then 0.37.0 / 2.33.0 (B's code defaults, version-ordered persist guard and shipped-mode
+bench; C's per-song overrides) with no document change. The timing release 0.38.0 / pipeline 2.34.0
+(a pile guard on the 1 200 ms vote, the sheet shift carrying the lines it left behind, the density
+drop removed, two small visible fixes) is measured, tagged and live since that evening; it
+refreshed the pilot and hold-out songs only (36 documents, plus the three hand-repaired songs
+rebuilt under their stored overrides); the rest of the archive keeps its 2.31.0 (or older) documents. Timing changes are now accepted in a fixed order: archive rig with a per-song veto →
+human truth in shipped mode → at most eight blind clips → reviewer → tag
+(`toptan-gozden-gecirme-2026-11.md`, "The second pass"). On branches, waiting for the owner's look
+on a real Windows window: `client-foundations` (held-note sweep, golden frames, latency tools) and
+`client-shared-view` (fewer knobs, the renderer as `packages/view`). Next, in the order the owner
+left to the session: (1) an archive refresh from stored stems, without downloading; (2) the client
+branches and the Android probe; (3) the duration-term experiment for words the model cannot place.
+(1) is built as a refresh from stored evidence, not stems (owner, 2026-11-16;
+`docs/research/refresh-from-evidence-2026-11.md`) and merged with `EVIDENCE_MODE` off; before it is
+used, the nightly dump leaves the evidence table's data out (done 2026-11-16), the GPU helper
+back-fills the archive, and the workers switch to `replay`.
+
+**State on 2026-11-16.** Server 0.40.0 / pipeline 2.35.0: a line's first word that waited in silence
+seconds before its line now starts where the voice returns (8 lines in 6 of 287 archive songs; the
+same complaint over continuous singing is open, `toptan-gozden-gecirme-2026-11.md`, "Release
+2.35.0"), and the stem's level envelope is part of the evidence a job can keep. Next: back-fill the
+archive's evidence with this build, switch the workers to `replay`, then let the archive follow
+2.35.0 without downloads.
+D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set

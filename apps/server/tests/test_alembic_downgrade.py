@@ -32,6 +32,8 @@ HEAD_TABLES = {
     "uploaded_audio",
     "lrclib_publishes",
     "telemetry",
+    "song_overrides",
+    "track_evidence",
 }
 
 

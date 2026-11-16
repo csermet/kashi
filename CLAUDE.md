@@ -9,7 +9,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 1. `docs/research/INDEX.md` — why each decision was made.
 2. Current state. `docs/research/toptan-gozden-gecirme-2026-11.md` is the whole-project review
    (2026-11-13: what was measured, the proposed steps A-G, what waits for the owner) and the entry
-   point. Behind it `docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md` (the timing re-plan and
+   point; its last sections carry the releases since (2.32.0 … 2.35.0, each with what was measured
+   and what was left open). `docs/research/refresh-from-evidence-2026-11.md` is how a release
+   reaches the archive without downloading (what a job keeps, the back-fill, replay). Behind them `docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md` (the timing re-plan and
    everything up to 2.31.0, the owner's listen included), then, newest first: the 2.29 / 2.29.1 paragraphs that
    close `faz-9-pencere-saati-2026-10.md`, then `yerel-model-denetim-2026-11.md` (Faz 3.5 local
    runs and the listening set), then `perceptual-audit-2026-11.md` (Faz 3). The 2026-08 hand-off
@@ -34,11 +36,24 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   and nobody looked.
 - DB-backed tests are **skipped** unless `DATABASE_URL` points at a throwaway Postgres 17
   (`postgresql+psycopg://USER:PASS@localhost:PORT/kashi`). A green run without it proves little.
-- `/v1/health` returns only the server version, which is cosmetic. `pipeline_version`
-  (`kashi_server/version.py`) is the load-bearing field. After a rollout, check it in each worker's
-  `ready: pipeline …` log line and in the first refreshed document.
+- The server version is cosmetic; `pipeline_version` (`kashi_server/version.py`) is the
+  load-bearing field. `/v1/health` returns both since 2.33.0 (the API image's: a worker built from
+  another image, like the GPU helper, says its own). After a rollout, check each worker's
+  `ready: pipeline …` log line (it also names any pipeline setting an env value overrides; since
+  2.33.0 the code defaults are the production pipeline) and the first refreshed document.
 - Never edit an Alembic migration that has already reached head: environments that applied it
-  drift silently. Add a new migration.
+  drift silently. Add a new migration. A release that carries a migration is NOT rolled back by
+  the image tag alone: the older image's `alembic upgrade head` does not know the newer revision
+  and the API will not start — downgrade with the newer image first.
+- A timing change is accepted in a fixed order, each step against bars written down and hashed
+  BEFORE its numbers exist: the archive with a per-song veto → human truth in shipped mode → at
+  most eight blind clips for the owner, drawn by a stated rule → a reviewer pass on the merge →
+  tag. A candidate that passes on the local songs has proven nothing yet (2.35.0's fourth
+  candidate passed there and failed the archive and human truth).
+- Anything a pipeline rule reads from the audio must be recorded evidence
+  (`pipeline/evidence.py`; a test pins the code that computes each recorded value). Adding an
+  audio-derived signal after the archive's evidence was recorded sends the whole archive back to
+  a download: decide what is kept before, and re-pin or bump consciously.
 - Schema change ⇒ `pnpm --filter @kashi/schemas codegen` and commit the generated output.
 - Guards are proven by mutation: remove the fix, the test must fail. Several first-draft guards
   here were toothless until checked this way. Run mutation loops with `PYTHONDONTWRITEBYTECODE=1`: a
@@ -81,7 +96,15 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   after a raw-SQL claim, refresh ORM objects (identity map is stale).
 - Turkish dotless `ı` does not decompose under NFKD. `ctc_forced_aligner` emissions carry a
   `<star>` column: drop it before any argmax.
-- The HF cache keeps every model revision (budget ~2× model size); worker peak memory is in
-  source separation, not alignment.
+- The HF cache's second copy of the English and Turkish aligners (budget ~2× model size) is
+  `refs/pr/N`: safetensors that transformers' background auto-conversion downloads for .bin-only
+  repos, never loaded. Since 2.33.0 aligners load from pinned commits (`config.ALIGNER_REVISIONS`)
+  and the worker sets `DISABLE_SAFETENSORS_CONVERSION=1`. Worker peak memory is in source
+  separation, not alignment.
+- Building the GPU helper image on a Docker Desktop / WSL2 machine: every build leaves ~10 GB of
+  image and more of build cache inside a disk file that never shrinks by itself. Check the host's
+  free space before building, and remove the previous helper image and the build cache in the
+  same step (four builds in three days filled the owner's disk on 2026-11-16). A wait on a log
+  line must grep for that line alone, in a log this run has truncated first.
 
 Project agents: `.claude/agents/kashi-reviewer.md`, `.claude/agents/ytm-scout.md`.

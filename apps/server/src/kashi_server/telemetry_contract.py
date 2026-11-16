@@ -97,6 +97,36 @@ TELEMETRY_FIELDS: dict[str, frozenset[str]] = {
     ),
     "error": frozenset({"scope", "code", "message"}),
     "watchdog": frozenset({"reason", "elapsed_ms", "cleared"}),
+    # The overlay's position clock, summarised once per track and once per
+    # session (review step E.1, 2026-11-14: measuring the hidden 200 ms lead).
+    # Numbers and a scope ("track" / "session") only — no video id, title or
+    # artist: the per-track row is tied to its track by the session's own
+    # track_changed events, which already carry the identity. Transport delay is
+    # now − captured_at of each position report; the dead band, slews and snaps
+    # are what the clock did with a report's |delta|.
+    "clock_stats": frozenset(
+        {
+            "scope",
+            "reports",
+            "transport_p50_ms",
+            "transport_p90_ms",
+            "transport_p99_ms",
+            "transport_max_ms",
+            "transport_negative",
+            "transport_over_cap",
+            "deadband_n",
+            "deadband_p50_ms",
+            "deadband_p90_ms",
+            "slew_n",
+            "slew_p50_ms",
+            "slew_p90_ms",
+            "slew_max_ms",
+            "snap_n",
+            "snap_max_ms",
+            "seek_n",
+            "anchor_n",
+        }
+    ),
 }
 
 KNOWN_KINDS = frozenset(TELEMETRY_FIELDS)

@@ -114,7 +114,54 @@ def test_position_anomaly_can_name_the_video_and_the_number_it_replaced():
     assert {"video_id", "previous_duration_ms"} <= TELEMETRY_FIELDS["position_anomaly"]
 
 
+CLOCK_STATS_FIELDS = {
+    "scope", "reports",
+    "transport_p50_ms", "transport_p90_ms", "transport_p99_ms", "transport_max_ms",
+    "transport_negative", "transport_over_cap",
+    "deadband_n", "deadband_p50_ms", "deadband_p90_ms",
+    "slew_n", "slew_p50_ms", "slew_p90_ms", "slew_max_ms",
+    "snap_n", "snap_max_ms", "seek_n", "anchor_n",
+}
+
+
+def test_clock_stats_carries_the_overlays_clock_numbers_and_no_identifier():
+    # 2026-11-14 (review step E.1): the overlay's position clock summary, the
+    # field names its worker asked for. Identity already travels in the
+    # session's track_changed events; this kind must not grow its own.
+    assert TELEMETRY_FIELDS["clock_stats"] == CLOCK_STATS_FIELDS
+    assert not {"video_id", "title", "artist", "server_host"} & TELEMETRY_FIELDS["clock_stats"]
+
+
+def test_clock_stats_values_go_through_the_same_sanitiser():
+    result = sanitize_payload(
+        "clock_stats",
+        {
+            "scope": "track",
+            "reports": 412,
+            "transport_p50_ms": 12.7,
+            "transport_max_ms": 10**40,  # absurd: dropped
+            "slew_n": 3,
+            "video_id": "dQw4w9WgXcQ",  # not contracted for this kind
+            "histogram": [1, 2, 3],  # nested and not contracted
+        },
+    )
+    assert result == ({"scope": "track", "reports": 412, "transport_p50_ms": 12, "slew_n": 3}, 3)
+
+
 # --- the endpoint ----------------------------------------------------------
+
+
+def test_a_clock_stats_event_is_stored(client, user_key, db_session):
+    from sqlalchemy import select
+
+    from kashi_server.db.models import Telemetry
+
+    payload = {"scope": "session", "reports": 1800, "transport_p90_ms": 41, "snap_n": 2}
+    resp = client.post("/v1/telemetry", json=_batch("clock_stats", payload),
+                       headers=_auth(user_key))
+    assert resp.status_code == 202
+    assert resp.json() == {"stored": 1, "dropped": 0, "filtered": 0}
+    assert db_session.scalars(select(Telemetry)).one().payload == payload
 
 
 def test_batch_is_stored_and_counted(client, user_key, db_session):

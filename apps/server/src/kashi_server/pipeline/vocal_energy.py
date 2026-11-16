@@ -7,8 +7,14 @@ about WHICH position is right (measured 2026-09-04, the whole reason this
 module exists). Loudness answers a different question — "is anyone singing
 here?" — and its silences are rare and load-bearing.
 
-This module is the I/O boundary, exactly like `onsets.py`: `line_qa.py` stays
+This module is the I/O boundary, exactly like `onsets.py`: its consumers stay
 pure and testable without librosa by being handed a contour, never a path.
+
+Since pipeline 2.32.0 the worker no longer reads it: the two line-QA rules
+that did (the call-and-response shift, 2.27.0, and the V2 voice return,
+2.30.0) were removed after measuring nothing on fresh songs. The audit's voice
+witness (`audit.analysis`, `audit.score`) still measures with it, on the same
+16 kHz stem, so it stays here as the one definition of the contour.
 
 Two facts a future reader will otherwise get wrong:
 

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -624,6 +624,48 @@ describe('degenerate lrclib records (LyricFix P4, twin of the server gate)', () 
     await writeFile(join(cacheDir, `${key}.json`), JSON.stringify(stale));
     expect(await client.getLyrics(QUERY)).toMatchObject({ found: true, sourceId: 4242 });
     expect(calls.length).toBeGreaterThan(0);
+  });
+
+  // Invented words in the record-1009665 shape (2026-11): a tag before every
+  // word. 8 lines of 4 words = 32 words, enough for the gate at 213 s (9/min).
+  const TAGGED_LRC = Array.from({ length: 8 }, (_, i) => {
+    const s = String(18 + 3 * i).padStart(2, '0');
+    return `[00:${s}.00] <00:${s}.10>Velo <00:${s}.40>tarin <00:${s}.70>mox <00:${s}.90>dun`;
+  }).join('\n');
+
+  it('a record with inline word tags reaches the screen and the cache without them', async () => {
+    const { fetchFn } = makeFetch(() => jsonResponse(200, { id: 1009665, duration: 213, syncedLyrics: TAGGED_LRC }));
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    const result = await client.getLyrics(QUERY);
+    expect(result).toMatchObject({ found: true, sourceId: 1009665 });
+    const texts = result.found ? result.lines.map((line) => line.text) : [];
+    expect(texts).toEqual(Array.from({ length: 8 }, () => 'Velo tarin mox dun'));
+    const key = (client as unknown as { cacheKey: (q: typeof QUERY) => string }).cacheKey(QUERY);
+    const stored = JSON.parse(await readFile(join(cacheDir, `${key}.json`), 'utf8')) as { lines: Array<{ text: string }> };
+    expect(stored.lines.map((line) => line.text)).toEqual(texts);
+  });
+
+  it('a hit cached with inline word tags before the strip is asked again; a clean one is not', async () => {
+    const { fetchFn, calls } = makeFetch(() => jsonResponse(200, { id: 1009665, duration: 213, syncedLyrics: TAGGED_LRC }));
+    const client = new LrclibClient({ cacheDir, fetchFn });
+    const key = (client as unknown as { cacheKey: (q: typeof QUERY) => string }).cacheKey(QUERY);
+    // What the old parser stored: the tags inside the text.
+    const tagged = TAGGED_LRC.split('\n').map((raw, i) => ({
+      start_ms: 18_000 + 3_000 * i,
+      end_ms: 21_000 + 3_000 * i,
+      text: raw.slice(raw.indexOf(']') + 1).trim(),
+    }));
+    expect(tagged[0]?.text).toContain('<00:18.10>');
+    await writeFile(
+      join(cacheDir, `${key}.json`),
+      JSON.stringify({ found: true, sourceId: 1009665, lines: tagged, recordDurationMs: 213_000 }),
+    );
+    const fresh = await client.getLyrics(QUERY);
+    expect(calls).toHaveLength(1);
+    expect(fresh.found && fresh.lines[0]?.text).toBe('Velo tarin mox dun');
+    // The re-asked answer replaced the stale entry: the next lookup is served from disk.
+    await client.getLyrics(QUERY);
+    expect(calls).toHaveLength(1);
   });
 
   it('a miss stored by the previous ladder (2) is asked again', async () => {

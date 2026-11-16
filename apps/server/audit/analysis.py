@@ -4,7 +4,8 @@ Measured on the 16 kHz stem with the production functions, on the same audio
 the worker's arbiter reads (``worker/process.py`` ``_align_with_ctc``):
 
 - ``energy``: vocal loudness in dB relative to the song's loudest frame
-  (``measure_vocal_energy``);
+  (``pipeline.vocal_energy.measure_vocal_energy``; the worker stopped reading
+  it in 2.32.0, the audit's voice witness still does);
 - ``onsets``: librosa onsets (``detect_onsets``). On pop they are dense (one
   every ~344 ms, measured 2026-09-04), so an onset near a word proves little;
 - ``voice_onsets``: where the voice comes back after a real silence, read off
@@ -21,7 +22,8 @@ from dataclasses import dataclass
 from audit.paths import STEMS_DIR
 from audit.stems import decode_16k
 
-# line_qa.RESPONSE_SILENCE_DB: below this (dB re the song max) nobody sings.
+# Below this (dB re the song max) nobody sings: the silence line of line QA's
+# response shift and V2 (both removed in pipeline 2.32.0), kept as the audit's own.
 SILENCE_DB = -25.0
 # A gap must last this long to count as silence before a voice onset; shorter
 # dips are consonants and breaths inside a phrase.

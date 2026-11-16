@@ -28,6 +28,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from kashi_server.pipeline import evidence
 from kashi_server.pipeline.energy import Energy, Section
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ def extract_structure(wav_path: Path, energy: Energy | None) -> list[Section] | 
         return sections
     except Exception as exc:  # enrichment, never a job failure
         logger.warning("structure analysis failed (%s) — document ships without it", exc)
+        evidence.extractor_failed("structure analysis")  # a failure, not "no chorus"
         return None
 
 

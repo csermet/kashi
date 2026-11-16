@@ -116,15 +116,20 @@ def heard(monkeypatch):
                     for i in range(len(words))]
         return segments, [-0.1] * len(words), 0
 
+    def get_spans(tokens, segments, blank):
+        # The library's shape: per word a list of segments. One unlabelled segment each: the
+        # stand-in has no letters (2.35.0 reads a span's letters).
+        return [[types.SimpleNamespace(label="", start=s, end=e)] for s, e in segments]
+
     def postprocess_results(text_starred, spans, stride, scores):
-        return [{"text": w, "start": s * stride / 1000, "end": e * stride / 1000, "score": sc}
-                for w, (s, e), sc in zip(text_starred, spans, scores, strict=True)]
+        return [{"text": w, "start": sp[0].start * stride / 1000, "end": sp[-1].end * stride / 1000,
+                 "score": sc}
+                for w, sp, sc in zip(text_starred, spans, scores, strict=True)]
 
     monkeypatch.setitem(sys.modules, "ctc_forced_aligner", types.SimpleNamespace(
         load_audio=load_audio, generate_emissions=generate_emissions,
         preprocess_text=preprocess_text, get_alignments=get_alignments,
-        get_spans=lambda tokens, segments, blank: segments,
-        postprocess_results=postprocess_results,
+        get_spans=get_spans, postprocess_results=postprocess_results,
     ))
     model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model",
@@ -171,7 +176,8 @@ def _without_clock(doc):
 def test_an_anchored_run_writes_a_valid_windowed_document(stem, heard, record_file, tmp_path):
     doc, extras = _local(record_file, tmp_path)
     a = doc["alignment"]
-    assert a["method"] == "ctc-forced-aligner/mms-300m+line-windowed"
+    # The production table routes English to the 1B checkpoint (code default since 2.33.0).
+    assert a["method"] == "ctc-forced-aligner/wav2vec2-xls-r-1b-english+line-windowed"
     assert (a["vocals_separated"], a["lyrics_source"], a["lyrics_source_id"]) == (True, "lrclib",
                                                                                   4242)
     assert doc["track"]["source"] == {"type": "youtube", "id": VID}
@@ -180,8 +186,11 @@ def test_an_anchored_run_writes_a_valid_windowed_document(stem, heard, record_fi
     assert all(len(ln["words"]) == 3 for ln in doc["lines"])
     assert "edges" in heard["stars"] and "segment" in heard["stars"]  # hybrid windows ran
     assert extras["anchors"] is True and extras["separations"] == 1
-    assert extras["onsets"] and extras["vocal_energy"]["frames"]
-    assert {w["source"] for chunk in extras["words"] for w in chunk} == {"edges", "whole"}
+    # 2.32.0: line QA reads onsets only (the loudness rules are gone)
+    assert extras["onsets"] and "vocal_energy" not in extras
+    # The stand-in's passes disagree by 400-1 200 ms on every word: at the shipped vote window
+    # (1 200 ms since 2.32.0) the whole-track pass places them all.
+    assert {w["source"] for chunk in extras["words"] for w in chunk} == {"whole"}
     assert extras["settings"]["separation_mode"] == "always"
 
 
@@ -199,7 +208,7 @@ def test_the_aligner_hears_the_cached_stem_and_nothing_is_separated(
 def test_no_anchors_keeps_the_lines_and_aligns_the_whole_track(
         stem, heard, record_file, tmp_path):
     doc, extras = _local(record_file, tmp_path, "--no-anchors")
-    assert doc["alignment"]["method"] == "ctc-forced-aligner/mms-300m"
+    assert doc["alignment"]["method"] == "ctc-forced-aligner/wav2vec2-xls-r-1b-english"
     assert [ln["text"] for ln in doc["lines"]] == LINES
     assert doc["alignment"]["lyrics_source"] == "lrclib"
     assert extras["anchors"] is False and "edges" not in heard["stars"]
@@ -369,7 +378,14 @@ def test_a_changed_timing_constant_shows_in_the_local_document(stem, heard, reco
                                                                 tmp_path, monkeypatch):
     """The windowed lead 20 ms shorter: every word the edges pass placed lands
     exactly 20 ms earlier, the whole-track vote's words net the lead out and
-    stay (Faz 9 round 5), and the document is no longer the same one."""
+    stay (Faz 9 round 5), and the document is no longer the same one. The vote
+    runs at its pre-2.32 window (400 ms) so that the stand-in leaves the edges
+    pass some words to place."""
+    import functools
+
+    from kashi_server.worker import process
+
+    monkeypatch.setattr(process, "align", functools.partial(alignment.align, whole_vote_t_ms=400))
     before, sources_before = _local(record_file, tmp_path)
     monkeypatch.setattr(alignment, "WINDOWED_LEAD_MS", alignment.WINDOWED_LEAD_MS - 20)
     after, sources_after = _local(record_file, tmp_path)
@@ -581,3 +597,38 @@ def test_the_worker_env_example_is_the_live_aligner(stem, heard, record_file, tm
         "ctc-forced-aligner/wav2vec2-xls-r-1b-english+line-windowed"
     assert extras["language"] == "eng"
     assert extras["aligner"]["offset_by_initial"]["vowel"] == -80
+
+
+# --- production configuration as code defaults (2.33.0) -----------------------------
+
+def _run_with_pipeline_of(fresh, monkeypatch, record_file, tmp_path):
+    """One local run with the live settings' pipeline fields taken from `fresh`."""
+    from kashi_server.config import PIPELINE_FIELDS, settings
+
+    for name in PIPELINE_FIELDS:
+        monkeypatch.setattr(settings, name, getattr(fresh, name))
+    return _local(record_file, tmp_path)
+
+
+def test_the_worker_env_and_the_code_defaults_make_one_document(stem, heard, record_file,
+                                                                 tmp_path, monkeypatch):
+    """One song through the worker's chain twice: pipeline settings from the live
+    worker's env file, then from no env at all. Same document, same extras (the
+    aligner spec with its offsets included). Against the pre-2.33 defaults it
+    differs, so the comparison can see a configuration."""
+    from helpers import env_file, settings_from
+
+    from kashi_server.config import Settings
+
+    from_env = settings_from(monkeypatch, env_file())
+    bare = settings_from(monkeypatch, {})
+    old = Settings(align_models={}, separation_model_filename="mel_band_roformer_kim_ft_unwa.ckpt",
+                   structure_sections=False)
+    doc_env, extras_env = _run_with_pipeline_of(from_env, monkeypatch, record_file, tmp_path)
+    doc_bare, extras_bare = _run_with_pipeline_of(bare, monkeypatch, record_file, tmp_path)
+    doc_old, extras_old = _run_with_pipeline_of(old, monkeypatch, record_file, tmp_path)
+    assert _without_clock(doc_env) == _without_clock(doc_bare)
+    assert extras_env == extras_bare
+    assert extras_bare["aligner"]["offset_by_initial"]["vowel"] == -80
+    assert doc_old["alignment"]["method"] != doc_bare["alignment"]["method"]
+    assert extras_old["aligner"] != extras_bare["aligner"]

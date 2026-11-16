@@ -60,7 +60,29 @@ SEARCH_DURATION_TOLERANCE_S = 3
 # ANCHOR_CLOCK_TOLERANCE_S — a contract test pins the two together.
 DIFFERENT_EDIT_TOLERANCE_S = 5.0
 _SEARCH_PATH = "/api/search"
-_TIMESTAMP = re.compile(r"^\[(\d{2}):(\d{2})[.:](\d{2,3})\]\s*")
+# LRC syntax, ONE grammar on both twins (the overlay's lrclib.ts reads the same
+# shapes); packages/schemas/vectors/lrc-lines.json holds the shared cases both
+# test suites run. A stamp is [m:ss], [mm:ss.xx] or [mm:ss.xxx] (":" may stand
+# for "."); a line opens with one or more of them (several = the line repeats).
+_STAMP = r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]"
+_TIMESTAMP = re.compile(r"^\s*" + _STAMP + r"\s*")
+# Time tags INSIDE a line's text (pipeline 2.34.0): enhanced-LRC word tags
+# "<mm:ss.xx>" before each word or syllable (lrclib record 1009665 since
+# 2026-11; they reached the screen as text), and a square stamp after text.
+# They are stripped, never read: the line keeps its own stamp, and lrclib's
+# word timing measured less accurate than the aligner's (olu-fikirler.md, the
+# referee row). A run of tags is one unit: with whitespace in or around it, it
+# leaves one space (a word boundary); glued between letters, nothing (a
+# syllable tag inside a word). The (?<!\s) lookbehind lets a run start only at
+# the beginning of a whitespace run (linear on long blanks, like _TOPIC_SUFFIX).
+_INLINE_TAG = r"(?:<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>|\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])"
+_INLINE_TAG_RUN = re.compile(r"(?:(?<!\s)\s+)?" + _INLINE_TAG + r"(?:\s*" + _INLINE_TAG + r")*\s*")
+# A whole line that is an LRC ID tag ("[ar:Artist]", "[offset:+500]"): metadata,
+# not lyrics. The overlay never showed one (no stamp); the server used to keep
+# it as a stampless line. The offset is not applied (lrclib ignores it too).
+_ID_TAG_LINE = re.compile(
+    r"^\s*\[(?:ti|ar|al|au|lr|by|re|ve|tool|length|offset|#)\s*:[^\]]*\]\s*$", re.IGNORECASE
+)
 # The (?<!\s) lookbehinds below only let a match START at the beginning of a
 # whitespace run: same matches (fuzz-verified), but a long run that never
 # completes a separator is scanned once instead of once per position.
@@ -92,6 +114,10 @@ class LyricsText:
     # stamps live on a DIFFERENT edit's clock (video intro/outro class) and
     # windowed anchors would harm instead of help.
     record_duration_s: float | None = None
+    # A record the owner PINNED for this song (song_overrides.lrclib_id):
+    # trusted like caller text, so the nightcore wrong-song gate - which exists
+    # for records a detection picked - does not judge it.
+    pinned: bool = False
 
 
 def normalize_artist(artist: str) -> str:
@@ -309,27 +335,46 @@ def _client(
     )
 
 
+def strip_inline_tags(text: str) -> str:
+    """A line's text without its inline time tags (`_INLINE_TAG_RUN`), trimmed.
+    Text without a tag comes back only trimmed, inner whitespace untouched."""
+    return _INLINE_TAG_RUN.sub(
+        lambda m: " " if any(ch.isspace() for ch in m.group(0)) else "", text
+    ).strip()
+
+
+def parse_lrc_line(raw: str) -> tuple[list[int], str] | None:
+    """One LRC line: its leading stamps in ms (none for a stampless line) and
+    its text, or None when no lyric text is left (an empty or tag-only line, an
+    ID tag). Twin of parseLrcLine in the overlay's lrclib.ts: both run the
+    shared vectors in packages/schemas/vectors/lrc-lines.json."""
+    if _ID_TAG_LINE.match(raw):
+        return None
+    rest = raw
+    stamps: list[int] = []
+    while (match := _TIMESTAMP.match(rest)) is not None:
+        mm, ss, frac = match.groups()
+        # A fraction is decimal: "5" = 500 ms, "50" = 500 ms, "505" = 505 ms.
+        stamps.append(int(mm) * 60_000 + int(ss) * 1_000 + int((frac or "").ljust(3, "0")))
+        rest = rest[match.end() :]
+    text = strip_inline_tags(rest)
+    return (stamps, text) if text else None
+
+
 def _parse_synced(synced: str) -> list[tuple[int | None, str]]:
     """One (start_ms, text) entry per non-empty lyric line.
 
     Strips EVERY leading [mm:ss.xx] stamp (multi-stamp LRC lines repeat one text
-    at several times; the first stamp wins, none may leak into the text). Empty
-    lines drop time and text together, so the result stays parallel to the
-    line_texts the aligner sees.
+    at several times; the first stamp wins, none may leak into the text) and
+    every inline time tag. Empty and tag-only lines drop time and text
+    together, so the result stays parallel to the line_texts the aligner sees.
     """
     entries: list[tuple[int | None, str]] = []
     for raw in synced.splitlines():
-        rest = raw
-        start_ms: int | None = None
-        while (match := _TIMESTAMP.match(rest)) is not None:
-            if start_ms is None:
-                mm, ss, frac = match.groups()
-                frac_ms = int(frac) if len(frac) == 3 else int(frac) * 10
-                start_ms = int(mm) * 60_000 + int(ss) * 1_000 + frac_ms
-            rest = rest[match.end() :]
-        text = rest.strip()
-        if text:
-            entries.append((start_ms, text))
+        parsed = parse_lrc_line(raw)
+        if parsed is not None:
+            stamps, text = parsed
+            entries.append((stamps[0] if stamps else None, text))
     return entries
 
 
@@ -388,7 +433,21 @@ def is_degenerate_synced(entries: list[tuple[int | None, str]], duration_s: floa
     return words / (duration_s / 60) < MIN_WORDS_PER_MINUTE
 
 
-def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | None:
+def _shift_stamps(starts: list[int | None], offset_ms: int) -> list[int | None]:
+    """Every stamp moved by `offset_ms` (a song override's whole-sheet clock
+    error: + = the singing comes later than the stamps say). Pure. A stamp
+    pushed before 0 is blanked, not clamped: it no longer says anything
+    trustworthy, and a stampless line has a defined meaning downstream."""
+    if not offset_ms:
+        return starts
+    return [
+        None if start is None or start + offset_ms < 0 else start + offset_ms for start in starts
+    ]
+
+
+def _extract(
+    record: dict, offset_ms: int = 0
+) -> tuple[list[str], list[int | None] | None, bool] | None:
     if record.get("instrumental"):
         return None
     synced = record.get("syncedLyrics")
@@ -403,7 +462,12 @@ def _extract(record: dict) -> tuple[list[str], list[int | None] | None, bool] | 
             # lyrics_not_found.
             return None
         if entries:
-            starts = _drop_overrunning_stamps([start for start, _ in entries], duration_s)
+            # A song override's offset moves the stamps BEFORE the overrun
+            # check: a sheet 20 s late has its last stamps past the record's
+            # end, and they are fine once moved back.
+            starts = _drop_overrunning_stamps(
+                _shift_stamps([start for start, _ in entries], offset_ms), duration_s
+            )
             return [text for _, text in entries], starts, True
     plain = record.get("plainLyrics")
     if plain:
@@ -754,9 +818,13 @@ def search_candidates(
     return data if isinstance(data, list) else []
 
 
-def lyrics_from_record(record: dict) -> LyricsText:
-    """LyricsText from an already-fetched lrclib record (no extra request)."""
-    extracted = _extract(record)
+def lyrics_from_record(record: dict, *, offset_ms: int = 0) -> LyricsText:
+    """LyricsText from an already-fetched lrclib record (no extra request).
+
+    `offset_ms` is a song override's whole-sheet clock correction (0 = the
+    record as served, byte for byte). A moved sheet drops the record's
+    word-timed file: its times live on the uncorrected clock."""
+    extracted = _extract(record, offset_ms)
     if extracted is None:
         raise PipelineError("lyrics_not_found", "lrclib record carries no usable lyrics")
     line_texts, synced_starts_ms, had_synced = extracted
@@ -766,8 +834,60 @@ def lyrics_from_record(record: dict) -> LyricsText:
         source_id=int(record.get("id") or 0),
         had_synced=had_synced,
         synced_starts_ms=synced_starts_ms,
-        lyricsfile_raw=_lyricsfile_raw(record),
+        lyricsfile_raw=None if offset_ms else _lyricsfile_raw(record),
         record_duration_s=float(record["duration"]) if record.get("duration") else None,
+    )
+
+
+def fetch_record(
+    record_id: int,
+    *,
+    base_url: str,
+    timeout_s: float | None = None,
+    client: httpx.Client | None = None,
+) -> dict | None:
+    """One lrclib record by id (`/api/get/{id}`), or None when there is no
+    such record (404). For a PINNED record (song_overrides): one request, no
+    ladder. Network errors surface as transient PipelineErrors like the main
+    fetch path, so the worker's gateway can fall back to the mirror."""
+    owns_client = client is None
+    http = client or _client(base_url, timeout_s)
+    try:
+        response = http.get(f"/api/get/{int(record_id)}")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        data = response.json()
+    except httpx.HTTPError as exc:
+        raise _pipeline_error(exc, f"record {record_id}") from exc
+    finally:
+        if owns_client:
+            http.close()
+    return data if isinstance(data, dict) else None
+
+
+def is_lrc(text: str) -> bool:
+    """True when caller text carries LRC stamps (any line starting [mm:ss.xx])."""
+    return any(_TIMESTAMP.match(line.strip()) for line in text.splitlines())
+
+
+def lyrics_from_lrc(text: str, *, offset_ms: int = 0) -> LyricsText:
+    """Caller-supplied LRC (a song override's text with stamps). Parsed like
+    an lrclib record's synced lyrics, so the stamps anchor the windows and
+    line QA exactly as a record's would; provenance stays "caller". No
+    degenerate-record gate (the owner wrote it) and no record duration to
+    blank stamps against. `offset_ms` as in `lyrics_from_record`."""
+    entries = _parse_synced(text)
+    if not entries:
+        raise PipelineError("lyrics_not_found", "lyrics text carries no lyric lines")
+    line_texts = [line for _, line in entries]
+    return LyricsText(
+        line_texts=line_texts,
+        full_text=" ".join(line_texts),
+        source_id=0,
+        had_synced=True,
+        synced_starts_ms=_shift_stamps([start for start, _ in entries], offset_ms),
+        source="caller",
     )
 
 

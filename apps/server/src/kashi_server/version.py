@@ -744,5 +744,163 @@
 # listening set read 5 bad:fixed? on 3 of them, SexyBack 2:18.6 piled 8 -> 16
 # starts. Off, such a record aligns like any other and the worker logs the
 # file it skipped; V1 and v3 now reach those songs too.
-PIPELINE_VERSION = "2.31.0"
+# 2.32.0: balance the clock, prune, cap (whole-project review, 2026-11-13,
+# step A). The whole-track vote takes the whole-track time up to 1 200 ms
+# (WHOLE_VOTE_T_MS, was 400); human truth, rule fixed before the runs: eng20
+# PCO@0.1 0.824 -> 0.842, noticeable line starts 0.108 -> 0.062; all 79 songs
+# @0.1 0.886 -> 0.901 (41 songs better, 3 worse). Four line-QA post-passes
+# that moved nothing on 19 fresh songs are gone: V2 voice return, the call-
+# and-response shift, the sub-threshold nudge, the word-end sustain trim
+# (alignment.qa.nudged / response_shifted / trimmed_ends stay as 0). Refactor
+# proof: on 39 songs the branch equals the review's ablation arm "vote 1 200
+# + V2, response, nudge, trim off" on 2.31.0 document for document. The
+# ad-lib re-derivation no longer spreads a line over more than 12 s
+# (ADLIB_REDERIVE_MAX_SPAN_MS): a runaway span gets 2.2 s before the next
+# line (2 of 279 re-derived lines in the 2.31.0 archive). The greedy readers
+# of the emissions take the CTC blank as the aligner does
+# (alignment.ctc_blank_id; byte-identical with the production checkpoints).
+# Against 2.31.0 on the same stems and records (audit.run_local harness):
+# pilot noticeable lines (audit.score) 92/679 -> 83/683, short-dwell share
+# 0.100 -> 0.094, rushed runs 591 -> 555, 0 ms words 1.39 % -> 1.08 %;
+# hold-out 67/531 -> 60/534, 0.064 -> 0.059, 286 -> 271, 0.93 % -> 0.81 %;
+# worded lines unchanged (1 213, 967). The ear witness is the vote's own
+# pass; the independent voice witness reads pilot 18/72 -> 23/77, hold-out
+# 10/38 -> 11/42. Owner-labelled moments: the four heard-fine ones the vote
+# moves past the threshold, the owner preferred blind 4 of 4 on the new
+# side; heard-bad fixed? 8, worse? 2 (both the vote's).
+# 2.33.0: the production configuration is the code default (whole-project
+# review, step B.1; the owner agreed 2026-11-14). The per-language aligner
+# table with its offsets (English jonatasgrosman XLS-R 1B, base -50 ms and
+# vowel -80 / fricative -50 / plosive -30 / sonorant -20; Turkish mpoyraz cv7,
+# romanize off), the separator vocals_mel_band_roformer.ckpt and
+# structure_sections on lived only in env values copied by hand (gitops, the
+# GPU helper's env file, audit/worker.env.example, bench flags), while the
+# defaults named the CC-BY-NC MMS checkpoint for every language, the
+# unlicensed unwa separator and no chorus sections. Production documents do
+# not change: the worker's env and no env resolve every pipeline field alike
+# (config.PIPELINE_FIELDS, tests/test_config_defaults), and one song through
+# the worker's chain makes the same document either way
+# (tests/test_audit_run_local). A worker started WITHOUT that env, which until
+# now ran another pipeline under the same version, runs this one. A minor bump
+# by the house rule that flipping a default is a pipeline bump (2.28.0); the
+# worker's ready line now names any pipeline setting an env value overrides.
+# Also in 2.33.0: the aligner checkpoints load from pinned hub commits
+# (config.ALIGNER_REVISIONS, settable as align_model_revisions), not from each
+# repository's moving main; each pin is that repository's main head on
+# 2026-11-13, i.e. what a worker (re)started online loaded already.
+# 2.34.0: the timing release (whole-project review, steps C.2 first half and
+# C.4, the vote-pile guard and two visible sheet defects; (1)-(3) heard blind
+# by the owner). Five changes, each its own switch or rule; 2.32.1 was each
+# branch's working number and never shipped (the persist guard orders by
+# version, so the release sits above 2.33.0). Together, measured in the order
+# the review set (gates pre-registered): archive rig, 287 songs, against
+# 2.32.0 (= 2.33.0) documents: words in new 0 ms runs (vs 2.31.0) 274 -> 49,
+# short-dwell share 0.0607 -> 0.0508, rushed runs 4 190 -> 3 554, bunched
+# 111 -> 71, worded lines 15 677 -> 15 792 (wordless 256 -> 140), voice
+# witness 0.308 -> 0.311; 9 songs carry a new moment past the per-song veto
+# (6 piles of 4-5 words, 2 lines moved > 1.5 s from a witness by the carry,
+# 1 one-word line left plain). Human truth, shipped mode, against 2.33.0:
+# eng20 +-400 PCO@0.1 0.8434 -> 0.8420, @0.3 0.9520 -> 0.9523, rushed 0.0272
+# -> 0.0253; all 79 +-400 @0.1 0.9016 -> 0.9021, @0.3 0.9683 -> 0.9693, rushed
+# 0.0358 -> 0.0282, line starts 0.0364 both; a whole sheet +3 s late (all 79)
+# @0.1 0.6459 -> 0.8461, line starts 0.3696 -> 0.0982, timed lines outside the
+# moved section late 1 002 of 1 027 -> 217 of 1 222.
+# (1) The whole-track vote keeps the word order and the windows' spacing
+# (windows.whole_track_vote `keep_order`, align `vote_order`; off = 2.32.0): a
+# word is refused the whole-track time when it would start at or after a next
+# word, or at or before a previous one, that keeps its window time, or would
+# sit under VOTE_MIN_GAP_MS (120) from a neighbour the windows kept >= 120 ms
+# apart; refusals repeat to a fixed point. 229 of the 274 words in new 0 ms
+# runs of the 2.32.0 archive were such inversions (the seam pass clamped the
+# kept words onto the voted one). Archive rig, 287 songs: new-run words 274 ->
+# 39, short-dwell share 0.0607 -> 0.0511, bunched runs 111 -> 72; human truth
+# all 79 PCO@0.1 0.9012 -> 0.9031, @0.3 0.9656 -> 0.9678, pipeline-only rushed
+# 0.0382 -> 0.0295.
+# (2) Line QA's density drop is gone: the unflagged lines within two lines of
+# a flagged one no longer lose their words for a score under 0.01 or words
+# covering under 30 % of the stamp window (flags, snaps and the arbiter stay;
+# `alignment.qa.density_dropped` is always 0). With (1), archive: wordless
+# lines 256 -> 141, 10 of the 116 re-lit lines lit badly; hold-out 10 -> 1
+# wordless at no measured line-start cost; on healthy +-400 ms sheets the drop
+# had emptied few lines and about half of them wrongly (step B).
+# (3) The sheet shift carries the lines it leaves behind (C.2): a gap next to
+# a moved section that still holds a line at the old clock is decided again
+# (sheet_shift._adopt_left_behind): its lines take the offset of the side they
+# belong to, by stamp order, then by where the ear hears each line, then by
+# position. Toz Pembe's two short opening "Ah-ah" lines lit 19 s before the
+# voice and GOSSIP's lines 25-37 stayed 19 s late. Injected errors on
+# JamendoLyrics (79 songs, pre-registered): left-behind lines > 1 s off 6 124
+# -> 30; next to a moved verse 11 made > 1 s off against 34 brought back;
+# healthy sheets 0 of 79 change. Known flaw: GOSSIP's stampless line 38 rides
+# in line 37's moved window and starts 6.8 s early (was 3.7 s late).
+# (4) A re-derived ad-lib line ends a breath before the next line
+# (line_qa._end_before_next), and the ad-lib snap never carries a line over a
+# neighbour (line_qa._snap_end): the snapped end stops at the next line's
+# start (2.31.0 archive: 18 pairs in 12 of 307 documents, up to 1.19 s); the
+# snap is refused when its start would not fall between the neighbours'
+# starts or a hook of two or more words would keep under 500 ms. A hook
+# snapped earlier into the previous line's tail is not touched.
+# (5) LRC syntax never reaches the screen as text, on both twins (server
+# lrclib.py, overlay lrclib.ts; shared vectors packages/schemas/vectors/
+# lrc-lines.json): enhanced-LRC word tags ("<00:18.89>") and a square stamp
+# inside a line are stripped, ID-tag lines ("[ar:]", "[offset:]") dropped
+# ("[offset:]" is not applied), one leading-stamp grammar ("[1:02.50]",
+# "[01:02]" anchor on the server too). 1 of 306 archive records carries word
+# tags (Never Gonna Give You Up), 1 an ID tag; a 5 000-record mirror sample 0
+# and 9. LOOKUP_LADDER_VERSION stays 3: no rung changed and no cached miss
+# depends on the parse.
+# 2.35.0: a line's first word that waits in silence starts where a second
+# pass hears it (the owner, 2026-11-14, on refreshed 2.34.0 documents: "the
+# line ends and the display jumps to the next line at once, which then sits
+# there waiting"; GOSSIP 2:00 and 2:23). On the windowed path a line's first
+# word moves to the earliest place a pass (edges, segment, whole track) hears
+# its first letter - the letter's log-prob reaches ln 0.001 on one of its
+# frames - when it starts more than 500 ms before that place, the whole-track
+# pass hears the letter there too (no more than 500 ms later), the next word
+# keeps 120 ms, a stamped line stays inside line QA's 2.5 s drift band read as
+# QA reads it (document clock, around QA's median offset), the line is no
+# ad-lib, and the vocal stem is silent where the word used to wait: under -25
+# dB re its loudest frame (the audit voice witness's silence line) on at least
+# 9 in 10 of the 20 ms frames from the old start to 500 ms before the new one,
+# a span of at least 150 ms (the witness's shortest silence)
+# (windows.start_at_heard_onset, alignment._first_letters; align
+# `first_heard_ms`, None = 2.34.0; 500 is the owner's ~1 s bound minus the
+# overlay's 500 ms lead). The rule changes no other word; what reads the moved
+# start can change with it: the previous word's and line's end (they stop at
+# the next start, now later), an ad-lib hold before the line, and line QA's
+# median offset, which can flag or clear a line at the drift band's edge (one
+# '♪' line in the 287-song archive). Known: a moved word whose old end lies
+# before its new start comes out 0 ms long, then restore_held_ends gives it
+# its held cut (shrunk by what the end took). The stem's level envelope
+# (pipeline/level.py) reaches align() from the worker and is kept as evidence
+# (EVIDENCE_FORMAT 4), so a replay moves the same words without audio; with no
+# envelope nothing moves. It is the envelope of the wav the first pass aligns:
+# the vocal stem under separation_mode "always" (production); under
+# "second_pass" or "off" the mix's, and the rule then rarely moves a word.
+# Two mechanisms put such a word seconds early: the
+# edges span starts halfway into the blank before it and the hybrid and the
+# vote compare that padded start with the other passes' letter (GOSSIP's
+# stampless line 38, 6.8 s), or the window passes park the word's first letter
+# on silence under the blank (line 0, 2.0 s). Fifth candidate, every number
+# against pre-registered bars: 39 songs, 2 line starts move (GOSSIP 0:12.4 ->
+# 0:14.4, 2:24.1 -> 2:30.9), detached first words (>= 1 s) 49 -> 47; archive
+# rig (287), 8 lines in 6 songs, stem silence under them 15.4 s -> 63 ms in
+# all, words lit < 120 / < 60 / 0 ms 4 861 / 949 / 280 -> 4 860 / 948 / 279,
+# no song vetoed; JamendoLyrics human truth, shipped mode, +-400 ms sheets:
+# word starts identical to 2.34.0 on 79 of 79 songs; +3 s sheets, 2 line
+# starts move, both onto the human start (-1.22 s -> -26 ms, -1.24 s ->
+# -19 ms), line starts noticeable 0.0982 -> 0.0977.
+# The VOICED class is open: a first word that starts over sung audio and
+# waits there may be a held or pick-up word sung where it is, or the word
+# whose line's other words locked late; the emissions do not tell them apart
+# (v4 moved them and lost on the owner's blind clips and on human truth), so
+# none of them moves - GOSSIP 2:00 (line 33) included. Labelled moments for
+# the next attempt: the owner's blind verdicts on voiced lines (GOSSIP L33 the
+# moved start better, Dollhouse L38 and Paint The Town Blue L29 the old one,
+# WORTH NOTHING L42 the moved one, Best Night L11 both wrong), the bench moves
+# on human truth (HILA "Give Me the Same" L43 and Avercage "Embers" L25
+# worse, La rumba del coronavirus L71 better at +-400 ms and +3 s,
+# LUNABLIND L10 and Le musée L45 better at +3 s), and two archive lines whose
+# old start sat on the voice's return (Ras-XCBl3Hw L64, 3mTDbDbryO8 L39).
+PIPELINE_VERSION = "2.35.0"
 PIPELINE_MAJOR = 2

@@ -13,6 +13,7 @@ from sqlalchemy import bindparam, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from kashi_server import overrides
 from kashi_server.config import settings
 from kashi_server.db.models import LIVE_STATUSES, RUNNING_STATUSES, Job, ProcessedTrack
 from kashi_server.vdl_kit.errors import is_transient_error
@@ -111,7 +112,8 @@ def enqueue(
         source_id=source_id,
         pipeline_major=pipeline_major,
         hints=hints,
-        options=options,
+        # A song's override rides along on every job created for it (C.1).
+        options=overrides.apply(s, source_type, source_id, options),
         requested_by=requested_by,
     )
     s.add(job)
@@ -205,7 +207,9 @@ def enqueue_reprocess(
         source_id=source_id,
         pipeline_major=pipeline_major,
         hints=hints,
-        options=options,
+        # The archive feeder sends no options: the song's override is what
+        # keeps a repair alive across refreshes (C.1).
+        options=overrides.apply(s, source_type, source_id, options),
         requested_by=requested_by,
     )
     s.add(job)
