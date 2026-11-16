@@ -820,12 +820,13 @@ def process_job(s: Session, job: Job) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> None:
+def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> dict | None:
     """One job from the lyrics lookup to the persisted document. Under an evidence session
     (pipeline/evidence.py) the same code runs: a recorder keeps what the audio boundaries
     returned, a replayer serves them instead of the audio. `persist=False` builds and validates
-    the document without storing it (the evidence back-fill, worker/backfill.py; never a job
-    option, so no queued job and no older image can carry it)."""
+    the document without storing it (the evidence back-fill, worker/backfill.py, and the refresh
+    preview, worker/preview.py; never a job option, so no queued job and no older image can carry
+    it). Returns the document built, or None when the job was deferred."""
     checkpoint(s, job)
 
     try:
@@ -838,7 +839,7 @@ def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> N
         checkpoint(s, job)
         _defer_or_give_up(s, job, exc.message, "precheck")
         s.commit()
-        return
+        return None
 
     # --- downloading (claim already set the status) ---
     # youtube_fetch is passed from THIS module so the download_audio
@@ -898,7 +899,7 @@ def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> N
         lyrics, result, qa, vocals_separated, speed_factor = _align_with_ctc(
             s, job, tmp, download, detection, plain_lyrics
         )
-    _postprocess(
+    return _postprocess(
         s,
         job,
         download,
@@ -1404,8 +1405,9 @@ def _postprocess(
     vocals_separated: bool,
     speed_factor: float,
     persist: bool = True,
-) -> None:
-    """Beats, energy, sections, fx and palette -> the persisted document."""
+) -> dict:
+    """Beats, energy, sections, fx and palette -> the persisted document, which is returned (also
+    when `persist` is False: the back-fill drops it, the preview compares it)."""
     # --- postprocessing ---
     queue.set_status(s, job, "postprocessing")
     s.commit()
@@ -1427,14 +1429,15 @@ def _postprocess(
     # the lease, so nobody can reclaim it between here and the commit.
     checkpoint(s, job)
     if not persist:
-        # The evidence back-fill (worker/backfill.py): the document is built and checked,
-        # the stored one stays; the run's evidence is what it was for.
+        # The evidence back-fill (worker/backfill.py) and the refresh preview (worker/preview.py):
+        # the document is built and checked, the stored one stays; the back-fill keeps the run's
+        # evidence, the preview compares the document.
         validate_document(doc)
         queue.mark_completed(s, job)
         _drop_staged_upload(s, job)
         s.commit()
-        logger.info("job %s completed: evidence only, the document was not stored", job.id)
-        return
+        logger.info("job %s completed: the document was built, not stored", job.id)
+        return doc
     persist_processed_track(s, job, doc)
     queue.mark_completed(s, job)
     _drop_staged_upload(s, job)  # same transaction as the completion
@@ -1446,6 +1449,7 @@ def _postprocess(
         result.quality_score,
         doc["alignment"].get("quality_basis", "?"),
     )
+    return doc
 
 
 def _fail_or_retry(s: Session, job: Job, error_type: str, message: str) -> None:

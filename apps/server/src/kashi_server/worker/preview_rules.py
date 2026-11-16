@@ -1,0 +1,338 @@
+"""What a preview measures between a stored document and the one the current code builds, and the
+verdict it draws (worker/preview.py). Pure: documents and the stem's level envelope in, numbers out.
+
+The verdict takes the archive rig's per-song vetoes as they were written before the 2.34.0 and
+2.35.0 runs (outside the repository: the timing release's gates and the 2.35.0 archive appendix),
+not tuned here:
+
+- W1 a new pile: a run of >= 4 consecutive words of one line, each starting < 60 ms after the one
+  before it, that no run of the stored line contains;
+- W2 away from the voice: a line start that moves more than 1 500 ms farther from where the voice
+  returns (below);
+- W3 lost words: a line with text that had word timings and has none;
+- W4 a rushed first word: a moved line (start > 100 ms away) whose first word now lights < 120 ms
+  before its second word and lit >= 120 ms before.
+
+W2's witness is the stem's level envelope (pipeline/level.py, kept in the evidence): the voice
+returns where a frame reaches the audit voice witness's silence line after at least its shortest
+silence (alignment.FIRST_HEARD_SILENCE_DB, FIRST_HEARD_MIN_SILENCE_MS, the constants the 2.35.0 rule
+reads), and a line is placed on that return exactly as the audit voice witness places it
+(audit.score.line_timings: after >= LINE_GAP_MS of document silence, the voice's return within
+LINE_VOICE_MAX_MS of its first word). The rig read the same line off another contour of the same
+stem (librosa RMS over 128 ms windows, 16 ms apart); this one reads 20 ms frames. Where the 2.35.0
+rule moved a word, it moved it out of silence on this same envelope, so this witness cannot argue
+with that rule's own moves; it watches every other move (carries, sheet shifts, regroups).
+
+A sheet that changed (another lyrics record, source or clock, another line count, any line's text)
+is reported and never judged by these measures: they pair lines by index.
+
+Every list in the output carries line indexes and times only, never lyric text.
+"""
+
+from __future__ import annotations
+
+import bisect
+from typing import Any
+
+from kashi_server.pipeline.alignment import FIRST_HEARD_MIN_SILENCE_MS, FIRST_HEARD_SILENCE_DB
+from kashi_server.pipeline.level import Envelope
+
+#: W1: words of one line form a run while each starts less than this after the one before it.
+RUN_STEP_MS = 60
+#: W1: a new run of at least this many words vetoes the song.
+VETO_RUN_WORDS = 4
+#: W2: a line start this much farther from the voice's return (strictly more) vetoes the song.
+VETO_AWAY_MS = 1500
+#: W4 and the counts: a word whose successor in its line starts less than this after it has no
+#: visible dwell.
+SHORT_DWELL_MS = 120
+#: The counts: ... and less than this, a word that only flashes.
+FLASH_DWELL_MS = 60
+#: A line start that moved more than this (strictly) is a moved line; the counts also report
+#: moves past the other two.
+MOVED_MS = 100
+MOVED_FAR_MS = (500, 1500)
+#: The voice witness (audit.finder.LINE_GAP_MS / LINE_VOICE_MAX_MS, copies: the worker image does
+#: not ship apps/server/audit; tests pin them to the witness's): a line is placed only after this
+#: much document silence ...
+LINE_GAP_MS = 500
+#: ... on the voice's return nearest its first word, when that return is this close.
+LINE_VOICE_MAX_MS = 1500
+#: The silence line and the shortest silence (the 2.35.0 rule's, the audit voice witness's own).
+SILENCE_DB = FIRST_HEARD_SILENCE_DB
+MIN_SILENCE_MS = FIRST_HEARD_MIN_SILENCE_MS
+
+#: Verdicts, in the order they are decided.
+FAILED = "failed"
+FULL_JOB = "needs a full job"
+GUARDED = "keep"  # the persist guard would keep the stored document (detail: "guard: ...")
+SHEET = "sheet changed"
+VETOED = "keep"  # detail: "veto: W1, ..."
+UNCHANGED = "unchanged"
+REFRESH = "refresh"
+
+#: Document fields a rebuild always changes: they say when and by which version, not what.
+STAMP_FIELDS = ("generated_at", "pipeline_version")
+
+
+def _lines(doc: dict) -> list[dict]:
+    return list(doc.get("lines") or [])
+
+
+def _words(line: dict) -> list[dict]:
+    return list(line.get("words") or [])
+
+
+def shape(doc: dict) -> dict:
+    """Counts over one document (the 2.34.0 refresh's definitions): lines, words, worded and
+    wordless lines; `dwell_under_120` / `dwell_under_60` / `dwell_0`: words whose successor in
+    the same line starts < SHORT_DWELL_MS / < FLASH_DWELL_MS / <= 0 ms after them; `disorder`:
+    words starting before the word before them (across lines); `overlap`: lines ending after the
+    next line starts."""
+    lines = _lines(doc)
+    out = {
+        "lines": len(lines),
+        "words": 0,
+        "worded": 0,
+        "wordless": 0,
+        "dwell_under_120": 0,
+        "dwell_under_60": 0,
+        "dwell_0": 0,
+        "disorder": 0,
+        "overlap": 0,
+    }
+    previous: int | None = None
+    for index, line in enumerate(lines):
+        words = _words(line)
+        out["worded" if words else "wordless"] += 1
+        if index + 1 < len(lines) and line["end_ms"] > lines[index + 1]["start_ms"]:
+            out["overlap"] += 1
+        for k, word in enumerate(words):
+            out["words"] += 1
+            if previous is not None and word["start_ms"] < previous:
+                out["disorder"] += 1
+            previous = word["start_ms"]
+            if k + 1 < len(words):
+                dwell = words[k + 1]["start_ms"] - word["start_ms"]
+                out["dwell_under_120"] += dwell < SHORT_DWELL_MS
+                out["dwell_under_60"] += dwell < FLASH_DWELL_MS
+                out["dwell_0"] += dwell <= 0
+    return out
+
+
+def sheet_changes(old: dict, new: dict) -> list[str]:
+    """Why the two documents are not on the same sheet: the lyrics record, its source, the clock
+    (speed factor), the line count, and the index of the first line whose text differs. []: the
+    same sheet, so lines pair by index."""
+    a, b = old.get("alignment") or {}, new.get("alignment") or {}
+    out = []
+    for name, label in (
+        ("lyrics_source", "lyrics source"),
+        ("lyrics_source_id", "lyrics record"),
+        ("speed_factor", "speed factor"),
+    ):
+        if a.get(name) != b.get(name):
+            out.append(f"{label} {a.get(name)} -> {b.get(name)}")
+    la, lb = _lines(old), _lines(new)
+    if len(la) != len(lb):
+        out.append(f"line count {len(la)} -> {len(lb)}")
+    else:
+        texts = [
+            i for i, (x, y) in enumerate(zip(la, lb, strict=True)) if x.get("text") != y.get("text")
+        ]
+        if texts:
+            out.append(f"text of {len(texts)} line(s), first line {texts[0]}")
+    return out
+
+
+def runs(words: list[dict]) -> list[tuple[int, int]]:
+    """Maximal runs (first, last word index) of >= 2 consecutive words, each starting less than
+    RUN_STEP_MS after the word before it."""
+    out: list[tuple[int, int]] = []
+    k = 0
+    while k < len(words):
+        j = k
+        while j + 1 < len(words) and words[j + 1]["start_ms"] - words[j]["start_ms"] < RUN_STEP_MS:
+            j += 1
+        if j > k:
+            out.append((k, j))
+        k = j + 1
+    return out
+
+
+def new_runs(old_words: list[dict], new_words: list[dict]) -> list[tuple[int, int]]:
+    """The runs of the new line that no run of the stored line contains; the stored line's runs
+    count only when it had words and the same number of them (a word pairing)."""
+    paired = bool(old_words) and len(old_words) == len(new_words)
+    before = runs(old_words) if paired else []
+    return [
+        (k0, k1)
+        for k0, k1 in runs(new_words)
+        if not any(x0 <= k0 and k1 <= x1 for x0, x1 in before)
+    ]
+
+
+def voiced(envelope: Envelope, frame: int) -> bool:
+    """The frame is at or above the silence line."""
+    return envelope.db(frame) >= SILENCE_DB
+
+
+def silent_lead(envelope: Envelope, t_ms: int) -> int | None:
+    """Ms from `t_ms` to the start of the first frame starting at or after it that is voiced;
+    None when no such frame follows."""
+    step = envelope.step_ms
+    for frame in range(max(0, -(-t_ms // step)), len(envelope.levels)):
+        if voiced(envelope, frame):
+            return frame * step - t_ms
+    return None
+
+
+def voice_returns(envelope: Envelope) -> list[int]:
+    """Where the voice returns: the start of a voiced frame after at least MIN_SILENCE_MS of
+    frames under the silence line (the track starts in silence), as audit.analysis.voice_onsets
+    reads its contour."""
+    out: list[int] = []
+    quiet_since: int | None = 0
+    for frame in range(len(envelope.levels)):
+        t = frame * envelope.step_ms
+        if not voiced(envelope, frame):
+            if quiet_since is None:
+                quiet_since = t
+        else:
+            if quiet_since is not None and t - quiet_since >= MIN_SILENCE_MS:
+                out.append(t)
+            quiet_since = None
+    return out
+
+
+def placed_on_voice(doc: dict, returns: list[int]) -> dict[int, int]:
+    """Line index -> the voice's return the witness places it on (audit.score.line_timings, the
+    voice part): a worded line whose first word starts >= LINE_GAP_MS after the end of the
+    document's previous worded stretch, on the nearest return (the earlier one on a tie) when that
+    return is within LINE_VOICE_MAX_MS of the word."""
+    out: dict[int, int] = {}
+    if not returns:
+        return out
+    previous_end: int | None = None
+    for index, line in enumerate(_lines(doc)):
+        words = _words(line)
+        start = words[0]["start_ms"] if words else None
+        if start is not None and previous_end is not None and start - previous_end >= LINE_GAP_MS:
+            at = bisect.bisect_left(returns, start)
+            near = min(returns[max(0, at - 1) : at + 1], key=lambda v: abs(v - start))
+            if abs(start - near) <= LINE_VOICE_MAX_MS:
+                out[index] = near
+        if words or previous_end is None:
+            previous_end = line["end_ms"]
+        else:
+            previous_end = max(previous_end, line["end_ms"])
+    return out
+
+
+def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
+    """Everything the verdict reads, and the report around it (numbers only)."""
+    out: dict[str, Any] = {
+        "pipeline": [old.get("pipeline_version"), new.get("pipeline_version")],
+        "differs": sorted(
+            k for k in set(old) | set(new) if k not in STAMP_FIELDS and old.get(k) != new.get(k)
+        ),
+        "old": shape(old),
+        "new": shape(new),
+        "sheet": sheet_changes(old, new),
+    }
+    if out["sheet"]:
+        return out
+    la, lb = _lines(old), _lines(new)
+    returns = voice_returns(envelope) if envelope is not None else []
+    on_old, on_new = placed_on_voice(old, returns), placed_on_voice(new, returns)
+    moved: list[dict] = []
+    w1: dict[str, Any] = {"words": 0}
+    w2: dict[str, Any] = {"away_ms": 0}
+    lost: list[int] = []
+    gained: list[int] = []
+    w4: list[dict] = []
+    for i, (a, b) in enumerate(zip(la, lb, strict=True)):
+        wa, wb = _words(a), _words(b)
+        for k0, k1 in new_runs(wa, wb):
+            if k1 - k0 + 1 > w1["words"]:
+                w1 = {"words": k1 - k0 + 1, "line": i, "word": k0, "t_ms": wb[k0]["start_ms"]}
+        sung = on_old.get(i, on_new.get(i))
+        if sung is not None:
+            away = abs(b["start_ms"] - sung) - abs(a["start_ms"] - sung)
+            if away > w2["away_ms"]:
+                w2 = {
+                    "away_ms": away,
+                    "line": i,
+                    "voice_ms": sung,
+                    "old_ms": a["start_ms"],
+                    "new_ms": b["start_ms"],
+                }
+        if wa and not wb:
+            if (a.get("text") or "").strip():
+                lost.append(i)
+        elif wb and not wa:
+            gained.append(i)
+        d = b["start_ms"] - a["start_ms"]
+        if abs(d) > MOVED_MS:
+            row: dict[str, Any] = {
+                "line": i,
+                "old_ms": a["start_ms"],
+                "new_ms": b["start_ms"],
+                "d_ms": d,
+            }
+            if envelope is not None:
+                row["lead_old_ms"] = silent_lead(envelope, a["start_ms"])
+                row["lead_new_ms"] = silent_lead(envelope, b["start_ms"])
+            moved.append(row)
+            if len(wa) > 1 and len(wb) > 1:
+                dwell_old = wa[1]["start_ms"] - wa[0]["start_ms"]
+                dwell_new = wb[1]["start_ms"] - wb[0]["start_ms"]
+                if dwell_new < SHORT_DWELL_MS <= dwell_old:
+                    w4.append({"line": i, "dwell_old_ms": dwell_old, "dwell_new_ms": dwell_new})
+    largest = max(moved, key=lambda r: abs(r["d_ms"]), default=None)
+    out["moved"] = {
+        f"over_{MOVED_MS}": len(moved),
+        **{f"over_{far}": sum(abs(r["d_ms"]) > far for r in moved) for far in MOVED_FAR_MS},
+        "largest": largest,
+    }
+    out["moved_lines"] = moved
+    out["lost_words"] = lost
+    out["gained_words"] = gained
+    out["voice"] = {
+        "returns": len(returns),
+        "placed_old": len(on_old),
+        "placed_new": len(on_new),
+        "envelope": envelope is not None,
+    }
+    out["w1"], out["w2"], out["w3"], out["w4"] = w1, w2, lost, w4
+    return out
+
+
+def vetoes(comparison: dict) -> list[str]:
+    """The archive rig's vetoes that fire (W1-W4)."""
+    out = []
+    if comparison["w1"]["words"] >= VETO_RUN_WORDS:
+        out.append("W1")
+    if comparison["w2"]["away_ms"] > VETO_AWAY_MS:
+        out.append("W2")
+    if comparison["w3"]:
+        out.append("W3")
+    if comparison["w4"]:
+        out.append("W4")
+    return out
+
+
+def verdict(comparison: dict, guard: tuple[str, str] | None = None) -> tuple[str, str]:
+    """(verdict, detail) for a built document: the persist guard first (a reprocess would keep the
+    stored document whatever it measures), then a changed sheet, then the vetoes; a document that
+    differs only in when and by which version it was made is `unchanged`."""
+    if guard is not None:
+        return GUARDED, f"guard: {guard[0]}: {guard[1]}"
+    if comparison["sheet"]:
+        return SHEET, "; ".join(comparison["sheet"])
+    fired = vetoes(comparison)
+    if fired:
+        return VETOED, "veto: " + ", ".join(fired)
+    if not comparison["differs"]:
+        return UNCHANGED, ""
+    return REFRESH, ""

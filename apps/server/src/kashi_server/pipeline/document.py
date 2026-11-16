@@ -445,6 +445,42 @@ def _override_verdict(override, job: Job, existing) -> tuple[bool, bool]:
     return applied, built_under
 
 
+def stored_document_kept(existing, override, job: Job, doc: dict) -> tuple[str, str] | None:
+    """Which guard keeps the stored document against `doc`, and why, or None when `doc` would
+    replace it: the rules of `persist_processed_track` (first match wins), which reads its inputs
+    under the override's row lock and then acts on this answer. The refresh preview
+    (worker/preview.py) asks the same question without writing. `existing`: the stored row
+    (document, etag, pipeline_version, pipeline_major) or None; `override`: the song's override
+    row or None."""
+    applied, built_under = _override_verdict(override, job, existing)
+    return _kept(existing, job, doc, applied, built_under)
+
+
+def _kept(
+    existing, job: Job, doc: dict, applied: bool, built_under: bool
+) -> tuple[str, str] | None:
+    if existing is None:
+        return None
+    forced = bool((job.options or {}).get("force_persist"))
+    # Version order: outside G1 and G2, so applying the song's override never
+    # lets an older image replace a newer document.
+    if not forced:
+        stale = stale_writer(existing.pipeline_version, PIPELINE_VERSION)
+        if stale is not None:
+            return "stale", stale
+    if built_under and not applied and not forced:  # G1
+        return "override", "it was built under the song's override and this run did not apply it"
+    if (
+        existing.pipeline_major >= PIPELINE_MAJOR
+        and not forced
+        and not (applied and not built_under)  # G2: an override's first build
+    ):
+        reason = regression(existing.document, doc)
+        if reason is not None:
+            return "regression", reason
+    return None
+
+
 def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     """Validate (hard gate), then upsert — unless the new document regresses the
     stored one (see `regression`). Returns the etag of what is stored.
@@ -477,43 +513,32 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     existing = s.execute(
         _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
     ).first()
-    forced = bool((job.options or {}).get("force_persist"))
     applied, built_under = _override_verdict(override, job, existing)
-    # Version order: outside G1 and G2, so applying the song's override never
-    # lets an older image replace a newer document.
-    if existing is not None and not forced:
-        stale = stale_writer(existing.pipeline_version, PIPELINE_VERSION)
-        if stale is not None:
+    kept = _kept(existing, job, doc, applied, built_under)
+    if kept is not None and existing is not None:
+        guard, why = kept
+        if guard == "stale":
             STALE_WRITES_KEPT.inc()
             logger.warning(
                 "kept the stored %s:%s document: %s (a stale worker image?); "
                 "an admin reprocess with force_persist overrides",
-                job.source_type, job.source_id, stale,
+                job.source_type, job.source_id, why,
             )
-            return existing.etag
-    if existing is not None and built_under and not applied and not forced:  # G1
-        OVERRIDE_BUILDS_KEPT.inc()
-        logger.warning(
-            "kept the stored %s:%s document: it was built under the song's override and "
-            "this run did not apply it; an admin reprocess with force_persist overrides",
-            job.source_type, job.source_id,
-        )
-        return existing.etag
-    if (
-        existing is not None
-        and existing.pipeline_major >= PIPELINE_MAJOR
-        and not forced
-        and not (applied and not built_under)  # G2: an override's first build
-    ):
-        reason = regression(existing.document, doc)
-        if reason is not None:
+        elif guard == "override":
+            OVERRIDE_BUILDS_KEPT.inc()
+            logger.warning(
+                "kept the stored %s:%s document: it was built under the song's override and "
+                "this run did not apply it; an admin reprocess with force_persist overrides",
+                job.source_type, job.source_id,
+            )
+        else:
             REGRESSIONS_KEPT.inc()
             logger.warning(
                 "kept the stored %s:%s document: the new one regresses it (%s); "
                 "an admin reprocess with force_persist overrides",
-                job.source_type, job.source_id, reason,
+                job.source_type, job.source_id, why,
             )
-            return existing.etag
+        return existing.etag
     if applied:  # B1
         s.execute(
             _OVERRIDE_APPLIED_SQL,
