@@ -18,7 +18,10 @@ def db_session():
 
     with engine.begin() as conn:
         conn.execute(
-            text("TRUNCATE api_keys, jobs, processed_tracks, telemetry, song_overrides CASCADE")
+            text(
+                "TRUNCATE api_keys, jobs, processed_tracks, telemetry, song_overrides,"
+                " track_evidence CASCADE"
+            )
         )
     session = SessionLocal()
     try:

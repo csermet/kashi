@@ -18,6 +18,8 @@ times, never a file path.
 import logging
 from pathlib import Path
 
+from kashi_server.pipeline import evidence
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,7 @@ def detect_onsets(wav_path: Path) -> list[int] | None:
         onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=True)
     except Exception:
         logger.exception("onset detection failed for %s", wav_path.name)
+        evidence.extractor_failed("onset detection")  # a failure, not "no onsets"
         return None
 
     times_ms = [round(float(t) * 1000) for t in onsets]

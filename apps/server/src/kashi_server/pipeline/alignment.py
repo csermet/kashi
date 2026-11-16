@@ -17,7 +17,7 @@ import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from kashi_server.pipeline import japanese
+from kashi_server.pipeline import evidence, japanese
 from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
 from kashi_server.pipeline.trellis import forced_align_cut, letter_bounds_cuts
@@ -178,7 +178,11 @@ def resolve_model_name(override: str | None = None) -> str:
 
 
 def _load_model(model_name: str):
-    """Loaded on demand, at most _MAX_LOADED_MODELS resident (LRU)."""
+    """Loaded on demand, at most _MAX_LOADED_MODELS resident (LRU). A replay from stored
+    evidence (pipeline/evidence.py) needs the tokenizer only: a checkpoint not resident is not
+    loaded for it."""
+    if model_name not in _loaded and evidence.replaying():
+        return evidence.StandInModel(model_name), _load_tokenizer(model_name)
     if model_name in _loaded:
         # Refresh recency: dicts iterate in insertion order, so re-inserting
         # makes "first key" mean "least recently used".
@@ -249,6 +253,24 @@ def _load_checkpoint(model_name: str, *, device: str, revision: str | None) -> t
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name, word_delimiter_token=None, **pinned)
     return model, tokenizer
+
+
+_tokenizers: dict = {}
+
+
+def _load_tokenizer(model_name: str):
+    """The checkpoint's tokenizer alone, from the pinned revision (`_load_checkpoint`'s call)."""
+    if model_name not in _tokenizers:
+        from transformers import AutoTokenizer  # pyright: ignore[reportMissingImports]
+
+        from kashi_server.config import settings
+
+        revision = settings.align_model_revisions.get(model_name)
+        pinned = {"revision": revision} if revision else {}
+        _tokenizers[model_name] = AutoTokenizer.from_pretrained(
+            model_name, word_delimiter_token=None, **pinned
+        )
+    return _tokenizers[model_name]
 
 
 def _word_prob(score: float) -> float:
@@ -702,6 +724,28 @@ def _emit(model, audio, *, exact_stride: bool = False):
     return emissions, stride
 
 
+def _emissions(model, audio, *, exact_stride: bool = False):
+    """Every emission pass of a job: `_emit`, or, while an evidence session is active
+    (pipeline/evidence.py), the recorder around it or the replayer instead of it."""
+    if evidence.current() is None:
+        return _emit(model, audio, exact_stride=exact_stride)
+    from kashi_server.config import settings
+
+    revision = settings.align_model_revisions.get(evidence.checkpoint_name(model))
+    return evidence.emissions(model, audio, exact_stride, _emit, exact_stride_ms, revision)
+
+
+def _load_track(wav_path: Path, model):
+    """The 16 kHz track the aligner and the sheet shift's ear read (a replay's stand-in)."""
+
+    def read():
+        from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
+
+        return load_audio(str(wav_path), model.dtype, model.device)
+
+    return evidence.track(read)
+
+
 #: Where each text's first letter may start, per text, in ms on the clock of
 #: the emissions it is aligned over: (earliest, latest), or None for no bound.
 LineStarts = list[tuple[float, float] | None]
@@ -908,7 +952,7 @@ def _align_texts(
     """One emissions+Viterbi pass over `audio` for `texts`. Results are
     [{start, end, text, score}] in SECONDS relative to the given audio.
     `exact_stride` replaces the library's rounded frame step (exact_stride_ms)."""
-    emissions, stride = _emit(model, audio, exact_stride=exact_stride)
+    emissions, stride = _emissions(model, audio, exact_stride=exact_stride)
     return _viterbi(
         emissions, stride, tokenizer, texts, language, star_frequency, romanize, starts_ms, tally,
         letters,
@@ -923,7 +967,7 @@ def _align_slice_hybrid(
 ) -> tuple[list[dict], list[dict]]:
     """(edges, segment): one emission pass over the slice, two Viterbi passes,
     each with its line regions on its own clock (V1)."""
-    emissions, stride = _emit(model, piece, exact_stride=exact_stride)
+    emissions, stride = _emissions(model, piece, exact_stride=exact_stride)
     return (
         _viterbi(emissions, stride, tokenizer, texts, language, "edges", romanize,
                  edges_starts, tally, letters),
@@ -990,11 +1034,9 @@ def heard_tokens(wav_path: Path, language: str) -> list[dict]:
 
     The blank is the aligner's own (`ctc_blank_id`): taking `<pad>` turned
     every MMS blank frame into a letter in the audit (2026-11)."""
-    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
-
     model, tokenizer = _load_model(resolve_aligner(language).model_name)
-    audio = load_audio(str(wav_path), model.dtype, model.device)
-    emissions, stride = _emit(model, audio, exact_stride=True)
+    audio = _load_track(wav_path, model)
+    emissions, stride = _emissions(model, audio, exact_stride=True)
     vocab = tokenizer.get_vocab()
     keep = usable_columns(int(emissions.shape[-1]), len(vocab))
     logp = emissions[:, :keep]
@@ -1235,8 +1277,6 @@ def align(
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
         raise ValueError(f"unknown window star placement {window_star!r}")
-    from ctc_forced_aligner import load_audio  # pyright: ignore[reportMissingImports]
-
     spec = resolve_aligner(language, model_name, romanize, offset_ms, offset_by_initial)
     model_name, romanize = spec.model_name, spec.romanize
     # Per job, because per-language routing means the answer can differ
@@ -1248,7 +1288,7 @@ def align(
         f", by-initial {spec.offset_by_initial}" if spec.offset_by_initial else "",
     )
     model, tokenizer = _load_model(model_name)
-    audio = load_audio(str(wav_path), model.dtype, model.device)
+    audio = _load_track(wav_path, model)
 
     plans, align_texts = _alignment_texts(line_texts, language)
 

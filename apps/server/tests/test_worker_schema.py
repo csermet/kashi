@@ -18,8 +18,8 @@ from sqlalchemy.exc import OperationalError
 from kashi_server.db.schema import MIGRATIONS_DIR, schema_gap
 from kashi_server.worker import main
 
-HEAD = "f3a8c2d61b07"  # this release's single head
-BEHIND = "b36dfc2aae66"  # 0.36.0's head
+HEAD = "a4e7c19d2b58"  # this release's single head
+BEHIND = "f3a8c2d61b07"  # 0.38.0's head
 
 
 # --- schema_gap against the real database (rolled back after each test) -------

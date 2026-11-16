@@ -306,6 +306,15 @@ class Settings(BaseSettings):
     # deterministic. Production has run it on (env) since the canary wave (BAD
     # GIRL was the acceptance case); the code default followed in 2.33.0.
     structure_sections: bool = True
+    # Refresh without download (prototype, 2026-11-15; pipeline/evidence.py). "record": every
+    # completed full job stores what it read off the audio (the aligner's emissions per slice,
+    # the stem's onsets, the mix features, the download's duration) in `track_evidence`.
+    # "replay": the same, and a job whose song has matching evidence is rebuilt from it — the
+    # whole pipeline from the lyrics lookup on, with no download, separation or model pass; a
+    # replay that cannot serve something exactly runs the job in full instead. Operational, not
+    # a pipeline field: a replay builds the document a full job builds from the same audio
+    # (39 songs, document for document), so it never changes what a version names.
+    evidence_mode: Literal["off", "record", "replay"] = "off"
     # Field diagnostics (Faz 6.7 P1). Default ON, unlike the publish flags:
     # nothing arrives unless a client is configured with this server's URL and
     # one of its API keys, so the data is the operator's own by construction.
@@ -392,6 +401,7 @@ OPERATIONAL_FIELDS: tuple[str, ...] = (
     "upload_ttl_hours",
     "lrclib_publish_enabled",
     "lrclib_publish_dry_run",
+    "evidence_mode",
     "telemetry_enabled",
     "telemetry_retention_days",
     "queue_depth_limit",

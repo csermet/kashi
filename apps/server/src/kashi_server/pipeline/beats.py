@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from kashi_server.pipeline import evidence
+
 logger = logging.getLogger(__name__)
 
 _MIN_BEATS = 8
@@ -76,4 +78,5 @@ def extract_beats(wav_path: Path) -> Beats | None:
         )
     except Exception as exc:
         logger.warning("beat extraction failed (%s) — document ships without beats", exc)
+        evidence.extractor_failed("beat extraction")  # a failure, not "no grid"
         return None

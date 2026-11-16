@@ -94,3 +94,30 @@ Ctrl+C finishes the current job, then exits.
 2. The document's `pipeline_version` equals the server's.
 3. Word timings agree with a CPU-processed copy of the same track to within a
    frame or two (GPU and CPU kernels differ in the last digits).
+
+## Evidence back-fill (refresh without download)
+
+With the deployment's evidence enabled (`docs/research/refresh-from-evidence-2026-11.md`), the
+archive gets its evidence from this machine, by hand, with the same image and env file:
+
+```bat
+docker run --rm --gpus all --ipc=host --env-file kashi-worker.env -v kashi-bench-models:/models -v kashi-worker-scratch:/scratch kashi-worker-gpu python -m kashi_server.worker.backfill --limit 40
+```
+
+- **Build it at the tag the cluster runs.** A record carries the key of the image that made it (the
+  evidence code, the aligner library, librosa, the separator, ffmpeg); a record from another tag
+  is refused by the cluster's replay, which then downloads as before.
+- **What it writes:** one `track_evidence` row per song it completes (the aligner's emission
+  arrays, onsets, mix features, the download's facts; about 2 MB). **What it does not write:** no
+  document (it builds and validates one and drops it), no row in `jobs` (no worker can pick the
+  work up), nothing for uploads or nightcore songs.
+- **Progress:** songs in source-id order; the last line is a JSON summary whose `next_after` goes
+  into the next run (`--after <id>`), so a song that always fails cannot hold the batch.
+  `--source-id ID ...` takes given songs. Exit codes: 0 ran, 1 nothing stored of the songs tried,
+  2 database schema behind the image, 3 another back-fill holds the lock, 143 stopped by SIGTERM.
+- **Scratch:** each song's audio lives in `/scratch/job-backfill-*` and is deleted when the song
+  ends, also on Ctrl+C or `docker stop` (SIGTERM). A run killed outright leaves it to the next
+  back-fill's start-up sweep and to the worker's own sweep of `job-*`. One back-fill at a time.
+- **Check the first song:** its line says `stored`, and a reprocess of it on a cluster worker in
+  `replay` logs `rebuilt from stored evidence, no download`, not `key differs at …`.
+
