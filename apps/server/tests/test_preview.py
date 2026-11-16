@@ -438,9 +438,14 @@ class _GuardSession:
 
 
 @pytest.mark.parametrize("kind", ["stale", "override", "regression"])
-def test_each_guard_keeps_counts_and_says_its_own(kind, caplog):
+def test_each_guard_keeps_counts_and_says_its_own(kind, caplog, monkeypatch):
     """The extracted decision drives persist's own counters and log lines, one per guard."""
+    import logging
+
     from prometheus_client import REGISTRY
+
+    # alembic's fileConfig (test_alembic_downgrade) disables loggers that exist by then.
+    monkeypatch.setattr(logging.getLogger(document.__name__), "disabled", False)
     from test_persist_guard import _job as guard_job
     from test_persist_guard import _real_doc
 

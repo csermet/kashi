@@ -343,8 +343,10 @@ content hashes). Its verdicts are the 2.35.0 release's own footprint: GOSSIP `re
 veto) and 38 `unchanged`. Then the worker's own replay of each song stored a document equal to the
 preview's, 39 of 39 (`generated_at` aside), in both lyrics modes. Unit tests put every threshold
 exactly on its value and one millisecond (or one step) either side; one-line mutations of the new
-code: every one makes a test fail but one equivalent mutant (the witness's first silence starting
-at 0 or at the first frame, which starts at 0). The persist guard's extraction equals main's
+code: 69 of 70 make a test fail, the 70th is equivalent (the witness's first silence starting at
+0 ms or at the first frame, which starts at 0 ms). The summed counts of the 39 songs (877 words
+under 120 ms, 40 at 0 ms, 6 overlapping lines, 1 wordless line on both sides) are the 2.35.0
+release's own numbers. The persist guard's extraction equals main's
 `persist_processed_track` on 26 040 seeded and boundary cases (statements, counters, log lines),
 and that harness reports each of four one-line mutations of the new guard.
 

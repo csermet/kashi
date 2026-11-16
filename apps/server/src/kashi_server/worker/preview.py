@@ -306,6 +306,9 @@ def preview_song(
         raise ValueError(f"lyrics mode {lyrics!r} is not one of {LYRICS_MODES}")
     started = time.monotonic()
     row: dict[str, Any] = {"source_id": source_id}
+    # Names the song before its replay: a crash inside the aligner library ends the process
+    # without a row, and `--after` this id resumes past it.
+    logger.info("preview of %s starts", source_id)
     try:
         row.update(_preview(s, source_id, lyrics, documents))
     except OperationalError:

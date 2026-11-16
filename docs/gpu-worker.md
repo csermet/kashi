@@ -153,4 +153,7 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
 - **Exit codes:** 0 ran, 2 database schema behind the image, 143 stopped by SIGTERM (the summary is
   still written). Its scratch directories (`job-preview-*`, empty during a replay) are deleted per
   song and matched by the worker's own sweep.
+- **A crash** inside the aligner library (its forced alignment reads past its buffers when a
+  window's letters fill its frames exactly) ends the process without a row for that song: the last
+  `preview of <id> starts` line on stderr names it, and `--after <id>` resumes past it.
 
