@@ -283,6 +283,23 @@ def test_the_band_follows_line_qa_s_median_offset():
     assert n == 0
 
 
+def test_the_median_counts_only_the_stamped_lines():
+    # QA's median offset is over the stamped lines (0 and 300 ms -> 150): a move to 2 700 ms past
+    # its stamp is 2 550 net, outside the band; three late unstamped lines must not drag the median
+    # towards themselves and let it through
+    rows = [_row("ab", 1.0, heard=[1.0]), _row("ab", 1.4, heard=[1.4]),
+            _row("ab", 0.3, heard=[2.7]), _row("ab", 3.0, heard=[3.0]),
+            _row("ab", 5.0, heard=[5.0]), _row("ab", 5.1, heard=[5.1]),
+            _row("ab", 6.0, heard=[6.0]), _row("ab", 6.1, heard=[6.1]),
+            _row("ab", 7.0, heard=[7.0]), _row("ab", 7.1, heard=[7.1])]
+    stamps = [1_000, 0, None, None, None]
+    kwargs = {"line_words": (2,) * 5, "stamps": stamps, "drift_ms": 2_500,
+              "doc_offset": lambda text: 0}
+    assert _run(rows, **kwargs)[1] == 0
+    rows[0] = _row("ab", 1.3, heard=[1.3])  # both stamped lines 300 ms late: 2 400 net, inside
+    assert _run(rows, **kwargs)[1] == 1
+
+
 def test_other_keys_ride_along():
     rows = _stream(0.6, [1.2])
     rows[2] = {**rows[2], "star": "edges", "held": 0.3, "window": 4}
@@ -444,7 +461,7 @@ def _align(monkeypatch, **kwargs):
         seen["rule"].append((len(results), whole[0]["text"], line_words, lead_ms, edges_lead_ms,
                              floor, stamps, drift_ms))
         seen["v5"] = (envelope, silence_db, silence_share, doc_offset("you"), doc_offset("uh"),
-                      adlib)
+                      doc_offset("2"), adlib)
         return results, 0
 
     monkeypatch.setattr(alignment, "_align_slice_hybrid", fake_hybrid)
@@ -462,8 +479,10 @@ def test_align_runs_the_rule_last_with_the_whole_track_pass_and_the_line_counts(
     assert seen["hybrid"] == [True] and seen["whole"] == [True]
     assert seen["rule"] == [(10, "x", [2, 2, 4, 2], 500, 70, FLOOR, [2_000, 4_000, 5_000, 9_000],
                              2_500)]
-    # the document clock: the path's 70 ms lead on top of each initial's offset
-    assert seen["v5"] == (marker, -25.0, 0.9, -20 + 70, -80 + 70, [False, False, False, False])
+    # the document clock: the path's 70 ms lead on top of each initial's offset, and on the plain
+    # offset for a word with no initial class
+    assert seen["v5"] == (marker, -25.0, 0.9, -20 + 70, -80 + 70, -50 + 70,
+                          [False, False, False, False])
     assert alignment.FIRST_HEARD_DEFAULT == alignment.FIRST_HEARD_LEAD_MS == 500
     assert alignment.FIRST_LETTER_FLOOR == pytest.approx(math.log(0.001))
     assert (alignment.FIRST_HEARD_SILENCE_DB, alignment.FIRST_HEARD_SILENCE_SHARE) == (-25.0, 0.9)
