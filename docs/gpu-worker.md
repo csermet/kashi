@@ -121,3 +121,36 @@ docker run --rm --gpus all --ipc=host --env-file kashi-worker.env -v kashi-bench
 - **Check the first song:** its line says `stored`, and a reprocess of it on a cluster worker in
   `replay` logs `rebuilt from stored evidence, no download`, not `key differs at …`.
 
+## Preview before a refresh
+
+What a reprocess would store for each song with evidence, compared with what is stored and judged
+by the archive rig's vetoes, with nothing written: no job, no document, no evidence; reads only,
+in read-only transactions (`docs/research/refresh-from-evidence-2026-11.md`, "Preview before
+refresh"). CPU only: no GPU, no audio, no download; about 1.7 s a song plus one lrclib request and
+the artwork fetch, so ~15 min for 425 songs.
+
+It previews the code of the image it runs in. For the deployed release: a shell in the cluster
+worker's container (its environment has the database, the lrclib settings and the model cache; the
+tokenizer is all it loads). For a candidate: a one-off container of the candidate's image with the
+same environment, never the deployed worker. Mind the threads on a shared node:
+
+```bash
+OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratch/preview.jsonl
+```
+
+- **Options:** `--source-id ID ...` (given songs, with or without evidence), `--limit N`,
+  `--after ID` (the summary's `next_after`), `--out FILE` (default
+  `<data_dir>/preview-<UTC time>.jsonl`; the root filesystem may be read-only, the scratch volume
+  is not), `--documents DIR` (each built document too: they carry lyric text), `--lyrics stored`
+  (default: the record the stored document names, one request a song) or `ladder` (the lookup as a
+  reprocess runs it), `--lrclib-gap-s` (default 0.5 s between requests to lrclib.net).
+- **Output:** one line a song on stdout (`<id>: <verdict> (<detail>)`), one JSON line a song in the
+  out file (numbers only), and last a JSON summary: counts per verdict, `refresh_ids`,
+  `unchanged_ids`, why the rest are kept or need a full job, the vetoes, the counts summed over the
+  songs on the same sheet, `without_evidence`, the lrclib requests made.
+- **Then:** each id of `refresh_ids` takes one admin reprocess call; with the workers in `replay`
+  it is rebuilt without a download. A `needs a full job` song downloads on its reprocess.
+- **Exit codes:** 0 ran, 2 database schema behind the image, 143 stopped by SIGTERM (the summary is
+  still written). Its scratch directories (`job-preview-*`, empty during a replay) are deleted per
+  song and matched by the worker's own sweep.
+

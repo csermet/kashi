@@ -144,7 +144,9 @@ track that already has a (wrong) document or a failed job, `POST
 /v1/admin/reprocess` (admin key) forces a fresh run and takes the same
 `options`. On a worker with `EVIDENCE_MODE=replay` that run is rebuilt from the
 kept evidence while it still matches; `"fresh_audio": true` fetches the audio
-again (and records anew).
+again (and records anew). Before such a wave, `python -m kashi_server.worker.preview`
+shows what each reprocess would store and judges it against the stored document,
+writing nothing ([how](docs/gpu-worker.md#preview-before-a-refresh)).
 
 **Bring your own audio** (a track that isn't on YouTube): stage the file
 first, then ingest the returned `source` ref like any other track:
