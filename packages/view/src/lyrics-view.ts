@@ -17,7 +17,7 @@
  */
 import { loadArtworkPalette } from './artwork-palette.js';
 import { BOX_CHROME, DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from './box-scale.js';
-import { ClockStats, formatClockStats } from './clock-stats.js';
+import { ClockStats, clockStatsFields, formatClockStats } from './clock-stats.js';
 import { parseEffectLevel, parseThemeScope, type EffectLevel, type ThemeScope } from './effect-level.js';
 import {
   ambientColors,
@@ -144,8 +144,9 @@ export function createLyricsView(
   const idleStash = new IdleStash<unknown>();
 
   /**
-   * Report age and clock corrections (clock-stats.ts): one summary line per
-   * track and a running one for the session, logged at track change and idle.
+   * Report age and clock corrections (clock-stats.ts): one summary per track
+   * and a running one for the session, logged and handed to the host for
+   * telemetry (kind clock_stats) at track change and idle.
    */
   const trackClockStats = new ClockStats();
   const sessionClockStats = new ClockStats();
@@ -163,11 +164,15 @@ export function createLyricsView(
     },
   );
 
-  /** Logs the clock-stats lines for the track that just ended; quiet when nothing played. */
+  /** Logs and reports the clock stats of the track that just ended; quiet when nothing played. */
   function flushClockStats(): void {
     if (trackClockStats.empty) return;
-    host.log(formatClockStats('track', trackClockStats.summary()));
-    host.log(formatClockStats('session', sessionClockStats.summary()));
+    const track = trackClockStats.summary();
+    const session = sessionClockStats.summary();
+    host.log(formatClockStats('track', track));
+    host.log(formatClockStats('session', session));
+    host.reportAnomaly('clock_stats', 0, 0, null, clockStatsFields('track', track));
+    host.reportAnomaly('clock_stats', 0, 0, null, clockStatsFields('session', session));
     trackClockStats.clear();
   }
 

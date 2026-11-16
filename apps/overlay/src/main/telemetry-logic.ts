@@ -7,6 +7,7 @@
  * the caller. Losing events is always preferable to spending a byte of the
  * playback path on them.
  */
+import { CLOCK_STATS_FIELDS } from '@kashi/view/clock-stats';
 
 export type TelemetryKind =
   | 'session_start'
@@ -14,13 +15,32 @@ export type TelemetryKind =
   | 'lyrics_outcome'
   | 'position_anomaly'
   | 'error'
-  | 'watchdog';
+  | 'watchdog'
+  | 'clock_stats';
 
 export interface TelemetryEvent {
   /** ISO-8601, stamped when the event happened (not when it is sent). */
   ts: string;
   kind: TelemetryKind;
   payload: Record<string, unknown>;
+}
+
+/**
+ * The `clock_stats` payload from a renderer report's coerced fields: only the
+ * contract's names (CLOCK_STATS_FIELDS, the server's allowlist), a scope of
+ * "track" or "session", numbers for the rest - or nothing at all.
+ */
+export function clockStatsPayload(fields: unknown): Record<string, number | string> | null {
+  if (typeof fields !== 'object' || fields === null) return null;
+  const record = fields as Record<string, unknown>;
+  const scope = record['scope'];
+  if (scope !== 'track' && scope !== 'session') return null;
+  const payload: Record<string, number | string> = { scope };
+  for (const name of CLOCK_STATS_FIELDS) {
+    const value = record[name];
+    if (name !== 'scope' && typeof value === 'number' && Number.isFinite(value)) payload[name] = value;
+  }
+  return payload;
 }
 
 /** Ceiling on unsent events; the oldest are dropped past it. */

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ClockStats, formatClockStats, TRANSPORT_CAP_MS } from './clock-stats.js';
+// The server's own allowlist, read from its source so the two cannot drift.
+import contract from '../../../apps/server/src/kashi_server/telemetry_contract.py?raw';
+import {
+  CLOCK_STATS_FIELDS,
+  ClockStats,
+  clockStatsFields,
+  formatClockStats,
+  TRANSPORT_CAP_MS,
+} from './clock-stats.js';
 
 describe('ClockStats', () => {
   it('summarises transport delays and corrections exactly at 1 ms', () => {
@@ -71,5 +79,67 @@ describe('ClockStats', () => {
       'clock stats (track): 3 reports; transport ms p50 8 p90 9 p99 9 max 9; ' +
         'dead-band 1 (|d| p50 12 p90 12), slew 1 (|d| p50 45 p90 45 max 45), snap 0 (max 0), seek 0, anchor 1',
     );
+  });
+});
+
+/** The names inside `"clock_stats": frozenset({ ... })` of telemetry_contract.py. */
+function serverClockStatsFields(): Set<string> {
+  const block = /"clock_stats":\s*frozenset\(\s*\{([^}]*)\}/.exec(contract);
+  if (!block) throw new Error('clock_stats allowlist not found in telemetry_contract.py');
+  return new Set([...(block[1] ?? '').matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1] ?? ''));
+}
+
+describe('clockStatsFields (telemetry kind clock_stats)', () => {
+  it('names exactly the fields the server allows', () => {
+    const server = serverClockStatsFields();
+    expect(server.size).toBeGreaterThan(10);
+    expect(new Set(CLOCK_STATS_FIELDS)).toEqual(server);
+  });
+
+  it('sends only allowed, flat keys, under the server names', () => {
+    const stats = new ClockStats();
+    stats.add({ transportMs: 6, action: 'anchor', deltaMs: 0 });
+    stats.add({ transportMs: 8, action: 'deadband', deltaMs: -12 });
+    stats.add({ transportMs: 9, action: 'slew', deltaMs: 45 });
+    stats.add({ transportMs: -2, action: 'snap', deltaMs: 2400 });
+    stats.add({ transportMs: 7000, action: 'seek', deltaMs: 0 });
+    const fields = clockStatsFields('track', stats.summary());
+    const server = serverClockStatsFields();
+    for (const key of Object.keys(fields)) expect(server.has(key), key).toBe(true);
+    expect(fields).toEqual({
+      scope: 'track',
+      reports: 5,
+      transport_p50_ms: 8,
+      transport_p90_ms: 5000,
+      transport_p99_ms: 5000,
+      transport_max_ms: 7000,
+      transport_negative: 1,
+      transport_over_cap: 1,
+      deadband_n: 1,
+      deadband_p50_ms: 12,
+      deadband_p90_ms: 12,
+      slew_n: 1,
+      slew_p50_ms: 45,
+      slew_p90_ms: 45,
+      slew_max_ms: 45,
+      snap_n: 1,
+      snap_max_ms: 2400,
+      seek_n: 1,
+      anchor_n: 1,
+    });
+    for (const value of Object.values(fields)) expect(typeof value === 'object').toBe(false);
+  });
+
+  it('leaves a quantile with no value out instead of sending null', () => {
+    const stats = new ClockStats();
+    stats.add({ transportMs: 5, action: 'seek', deltaMs: 0 });
+    const fields = clockStatsFields('session', stats.summary());
+    expect(fields.scope).toBe('session');
+    expect(fields.transport_p50_ms).toBe(5);
+    for (const absent of ['deadband_p50_ms', 'deadband_p90_ms', 'slew_p50_ms', 'slew_p90_ms']) {
+      expect(absent in fields, absent).toBe(false);
+    }
+    expect(fields.deadband_n).toBe(0);
+    expect(Object.values(fields).some((v) => v === null || v === undefined)).toBe(false);
   });
 });

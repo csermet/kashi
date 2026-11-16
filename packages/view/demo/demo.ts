@@ -8,9 +8,15 @@
 import { createLyricsView, mapDocument, type HostBridge, type Listener } from '../src/index.js';
 
 /** A host in a few lines: listeners per channel, and a way to push to them. */
-function fakeHost(): { host: HostBridge; push: (channel: string, payload: unknown) => void; log: string[] } {
+function fakeHost(): {
+  host: HostBridge;
+  push: (channel: string, payload: unknown) => void;
+  log: string[];
+  reports: { reason: string; fields?: Readonly<Record<string, number | string>> }[];
+} {
   const listeners = new Map<string, Listener[]>();
   const log: string[] = [];
+  const reports: { reason: string; fields?: Readonly<Record<string, number | string>> }[] = [];
   const on = (channel: string) => (cb: Listener) => {
     const list = listeners.get(channel) ?? [];
     list.push(cb);
@@ -26,12 +32,16 @@ function fakeHost(): { host: HostBridge; push: (channel: string, payload: unknow
       onSourceGone: on('sourceGone'),
       onSettings: on('settings'),
       log: (line) => log.push(line),
-      reportAnomaly: (reason, deltaMs) => log.push(`anomaly ${reason} ${deltaMs}`),
+      reportAnomaly: (reason, deltaMs, _positionMs, _trackKey, fields) => {
+        log.push(`anomaly ${reason} ${deltaMs}`);
+        reports.push(fields === undefined ? { reason } : { reason, fields });
+      },
     },
     push: (channel, payload) => {
       for (const cb of listeners.get(channel) ?? []) cb(payload);
     },
     log,
+    reports,
   };
 }
 
@@ -75,7 +85,7 @@ const DOC = {
 };
 const KEY = 'demo:demo0001';
 
-const { host, push, log } = fakeHost();
+const { host, push, log, reports } = fakeHost();
 const view = createLyricsView(document.body, host);
 
 let level = 'hype';
@@ -153,6 +163,9 @@ declare global {
       seek: (ms: number) => void;
       setLevel: (value: string) => void;
       log: string[];
+      reports: { reason: string; fields?: Readonly<Record<string, number | string>> }[];
+      /** The player tab went away: the view goes idle (and flushes its clock stats). */
+      sourceGone: () => void;
       destroy: () => void;
     };
   }
@@ -164,5 +177,7 @@ window.__demo = {
     push('settings', settings());
   },
   log,
+  reports,
+  sourceGone: () => push('sourceGone', {}),
   destroy: () => view.destroy(),
 };

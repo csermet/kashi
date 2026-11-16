@@ -41,7 +41,7 @@ import { isDurationCorrection } from './edit-check.js';
 import { DurationLedger, type DurationVerdict } from './duration-ledger.js';
 import { AnchorGuard, positionTooDeepForAFreshTrack } from './position-sanity.js';
 import { TelemetryClient } from './telemetry.js';
-import { sessionEnvelope, serverHostOf } from './telemetry-logic.js';
+import { clockStatsPayload, sessionEnvelope, serverHostOf } from './telemetry-logic.js';
 import { ReplayStore } from './replay-store.js';
 import {
   applyExtensionMessage,
@@ -859,6 +859,13 @@ ipcMain.on('kashi:anomaly', (_event, raw: unknown) => {
   if (typeof raw !== 'object' || raw === null) return;
   const info = raw as Record<string, unknown>;
   const reason = typeof info['reason'] === 'string' ? info['reason'].slice(0, 64) : 'unknown';
+  // The position clock's per-track / session summary (clock-stats.ts): its own
+  // kind, its numbers in `fields`, no track identity.
+  if (reason === 'clock_stats') {
+    const payload = clockStatsPayload(info['fields']);
+    if (payload) telemetry?.record('clock_stats', payload);
+    return;
+  }
   const deltaMs = Number(info['delta_ms']);
   const positionMs = Number(info['position_ms']);
   if (!Number.isFinite(deltaMs) || !Number.isFinite(positionMs)) return;

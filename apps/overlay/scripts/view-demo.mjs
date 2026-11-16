@@ -5,9 +5,11 @@
 // The demo mounts createLyricsView on <body> with a fake host and one
 // synthetic document under the desktop's strict CSP. The check seeks it and
 // reads the DOM: the line on screen, the active and sung words, the sweep on
-// an ad-lib line, the fx word's inline tint; then destroy() must take the
-// view's DOM away and leave later pushes harmless. No page error and no CSP
-// violation is allowed.
+// an ad-lib line, the fx word's inline tint; going idle must hand the host
+// the clock stats (telemetry kind clock_stats, a track and a session row,
+// every key on the server's allowlist, read from apps/server); then destroy()
+// must take the view's DOM away and leave later pushes harmless. No page
+// error and no CSP violation is allowed.
 //
 //   node scripts/view-demo.mjs [--out <dir>] [--build-only] [--chromium <path>]
 //        [--screenshot <png>]   (the page at 5.4 s, hype, the fx word lit)
@@ -24,6 +26,7 @@ import { Browser, IMAGE_CHROMIUM } from './lib/cdp.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VIEW = resolve(HERE, '../../../packages/view');
+const CONTRACT = resolve(HERE, '../../server/src/kashi_server/telemetry_contract.py');
 
 const { values: args } = parseArgs({
   options: {
@@ -119,6 +122,23 @@ try {
   const s5 = await at(2000);
   expect('level off: no fx class on body', s5.bodyClasses.split(' ').filter((c) => c.startsWith('fx-')), ['fx-off']);
   expect('level off: words still lit', s5.active, 1);
+
+  // Idle flushes the clock stats of the seeks above (track + running session).
+  await page.evaluate(() => window.__demo.sourceGone());
+  await frames();
+  const reports = await page.evaluate(() => window.__demo.reports.filter((r) => r.reason === 'clock_stats'));
+  const allowed = new Set(
+    [...(/"clock_stats":\s*frozenset\(\s*\{([^}]*)\}/.exec(readFileSync(CONTRACT, 'utf8'))?.[1] ?? '').matchAll(/"([a-z0-9_]+)"/g)].map(
+      (m) => m[1],
+    ),
+  );
+  expect('clock_stats reports on idle', reports.map((r) => r.fields?.scope), ['track', 'session']);
+  for (const r of reports) {
+    const keys = Object.keys(r.fields ?? {});
+    const unknown = keys.filter((k) => !allowed.has(k));
+    if (allowed.size < 10 || unknown.length > 0) failures.push(`clock_stats keys not on the server allowlist: ${unknown.join(', ')}`);
+    if (!(r.fields?.reports > 0)) failures.push(`clock_stats ${r.fields?.scope}: no reports counted`);
+  }
 
   await page.evaluate(() => window.__demo.destroy());
   await frames();

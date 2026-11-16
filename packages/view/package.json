@@ -12,6 +12,7 @@
     "./text-scale": "./src/text-scale.ts",
     "./timing-offset": "./src/timing-offset.ts",
     "./box-scale": "./src/box-scale.ts",
+    "./clock-stats": "./src/clock-stats.ts",
     "./view.css": "./src/view.css"
   },
   "scripts": {

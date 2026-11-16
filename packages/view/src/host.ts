@@ -41,12 +41,19 @@ export interface HostBridge {
   onSettings: (cb: Listener) => Unsubscribe;
   /** One diagnostic line (the desktop prints it to the overlay's terminal). */
   log: (line: string) => void;
-  /** A clock jump the view classified (snap-classifier.ts), for telemetry. */
+  /**
+   * A diagnostics event for telemetry. A clock jump the view classified
+   * (snap-classifier.ts) names its reason and numbers; reason `clock_stats`
+   * carries the position clock's summary in `fields`, flat and under the
+   * server's own names (clock-stats.ts clockStatsFields), once per track and
+   * a running one for the session.
+   */
   reportAnomaly: (
     reason: string,
     deltaMs: number,
     positionMs: number,
     trackKey: string | null,
+    fields?: Readonly<Record<string, number | string>>,
   ) => void;
 }
 

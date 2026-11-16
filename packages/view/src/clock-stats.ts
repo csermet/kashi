@@ -7,9 +7,10 @@
  *
  * Bounded by construction: fixed 1 ms histograms, no samples kept, so a
  * day-long session costs the same few kilobytes as a single song. No
- * identifier of any kind — counts and milliseconds only. The server's
- * telemetry contract cannot carry these yet (unknown kinds and keys are
- * dropped there), so the overlay logs the summary; see formatClockStats.
+ * identifier of any kind — counts and milliseconds only. The view logs each
+ * summary (formatClockStats) and hands the host the same numbers under the
+ * server's flat field names (clockStatsFields, telemetry kind `clock_stats`,
+ * apps/server/src/kashi_server/telemetry_contract.py).
  */
 import {
   IGNORE_BELOW_MS,
@@ -172,4 +173,71 @@ export function formatClockStats(scope: string, s: ClockStatsSummary): string {
     `, slew ${s.slew.n} (|d| p50 ${ms(s.slew.p50_abs)} p90 ${ms(s.slew.p90_abs)} max ${s.slew.max_abs})` +
     `, snap ${s.snap.n} (max ${s.snap.max_abs}), seek ${s.seek}, anchor ${s.anchor}`
   );
+}
+
+/**
+ * The telemetry kind `clock_stats`: its payload keys, exactly the server's
+ * allowlist (apps/server/src/kashi_server/telemetry_contract.py; a test reads
+ * that file, so the two cannot drift). Flat, because the server drops nested
+ * values.
+ */
+export const CLOCK_STATS_FIELDS = [
+  'scope',
+  'reports',
+  'transport_p50_ms',
+  'transport_p90_ms',
+  'transport_p99_ms',
+  'transport_max_ms',
+  'transport_negative',
+  'transport_over_cap',
+  'deadband_n',
+  'deadband_p50_ms',
+  'deadband_p90_ms',
+  'slew_n',
+  'slew_p50_ms',
+  'slew_p90_ms',
+  'slew_max_ms',
+  'snap_n',
+  'snap_max_ms',
+  'seek_n',
+  'anchor_n',
+] as const;
+
+export type ClockStatsField = (typeof CLOCK_STATS_FIELDS)[number];
+
+/**
+ * One summary as the telemetry payload: the server's field names, a scope of
+ * "track" (the track that just ended) or "session" (everything since the view
+ * started: the last row of a session is the whole session). A quantile with
+ * no value yet is left out rather than sent as null.
+ */
+export function clockStatsFields(
+  scope: 'track' | 'session',
+  s: ClockStatsSummary,
+): Partial<Record<ClockStatsField, number | string>> {
+  const fields: Partial<Record<ClockStatsField, number | string>> = {
+    scope,
+    reports: s.reports,
+    transport_p50_ms: s.transport.p50 ?? undefined,
+    transport_p90_ms: s.transport.p90 ?? undefined,
+    transport_p99_ms: s.transport.p99 ?? undefined,
+    transport_max_ms: s.transport.max,
+    transport_negative: s.transport.negative,
+    transport_over_cap: s.transport.over_cap,
+    deadband_n: s.deadband.n,
+    deadband_p50_ms: s.deadband.p50_abs ?? undefined,
+    deadband_p90_ms: s.deadband.p90_abs ?? undefined,
+    slew_n: s.slew.n,
+    slew_p50_ms: s.slew.p50_abs ?? undefined,
+    slew_p90_ms: s.slew.p90_abs ?? undefined,
+    slew_max_ms: s.slew.max_abs,
+    snap_n: s.snap.n,
+    snap_max_ms: s.snap.max_abs,
+    seek_n: s.seek,
+    anchor_n: s.anchor,
+  };
+  for (const key of Object.keys(fields) as ClockStatsField[]) {
+    if (fields[key] === undefined) delete fields[key];
+  }
+  return fields;
 }

@@ -3,6 +3,7 @@
  * never gets direct Node/Electron access (contextIsolation + sandbox stay on).
  */
 import { contextBridge, ipcRenderer } from 'electron';
+import { coerceDiagnosticFields } from '../shared/diagnostic-fields.js';
 import { KASHI_VERSION } from '../shared/version.js';
 
 type Listener = (payload: unknown) => void;
@@ -52,9 +53,16 @@ contextBridge.exposeInMainWorld('kashi', {
   /**
    * One narrow diagnostics channel (Faz 6.7 P2): the renderer names an event
    * kind and hands over numbers, main decides whether anyone is listening.
-   * Coerced here so a renderer bug cannot post arbitrary shapes.
+   * Coerced here so a renderer bug cannot post arbitrary shapes. `fields`
+   * carries a kind's own flat numbers (reason clock_stats).
    */
-  reportAnomaly: (reason: string, deltaMs: number, positionMs: number, trackKey?: string | null) =>
+  reportAnomaly: (
+    reason: string,
+    deltaMs: number,
+    positionMs: number,
+    trackKey?: string | null,
+    fields?: unknown,
+  ) =>
     ipcRenderer.send('kashi:anomaly', {
       reason: String(reason),
       delta_ms: Number(deltaMs),
@@ -62,5 +70,6 @@ contextBridge.exposeInMainWorld('kashi', {
       // Which track the jump belonged to. Reporting is deferred, so the song
       // may have moved on before this is sent.
       track_key: typeof trackKey === 'string' ? trackKey : null,
+      fields: coerceDiagnosticFields(fields),
     }),
 });
