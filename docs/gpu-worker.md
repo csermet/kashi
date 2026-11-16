@@ -144,7 +144,9 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   `--after ID` (the summary's `next_after`), `--out FILE` (default
   `<data_dir>/preview-<UTC time>.jsonl`; never overwritten; the root filesystem may be read-only,
   the scratch volume is not), `--append` (continue that file: a segment line, the rows, and a
-  summary of the whole file, each song's latest row), `--documents DIR` (each built document too:
+  summary of the whole file, each song's latest row; refused when the file's segments were judged
+  by another preview format, pipeline, evidence key or lyrics mode; a truncated last line is
+  skipped and counted), `--documents DIR` (each built document too:
   they carry lyric text), `--lyrics stored` (default: the record the stored document names, then
   a ladder pass for each `refresh`) or `ladder` (the lookup as a reprocess runs it, every song),
   `--lrclib-gap-s` (default 0.5 s between requests to lrclib.net), `--beside-live-jobs`.
@@ -160,11 +162,14 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
 - **Then, the canary first:** reprocess ONE id of `refresh_ids` (one admin reprocess call) on the
   workers in `replay`; its log must say `rebuilt from stored evidence, no download`, not
   `key differs at …` or `full job (…)`. Only then feed the rest, one call each.
-- **Exit codes:** 0 ran, 2 database schema behind the image, 3 `--out` exists (continue it with
-  `--append`), 4 a job is live (refused, or stopped between two songs), 5 the database went away,
+- **Exit codes:** 0 ran, 2 database schema behind the image, 3 the out file cannot be used (it
+  exists: continue it with `--append`; or another preview judged it: start a new file), 4 a job is
+  live (refused, or stopped between two songs), 5 the database went away,
   129 / 130 / 143 stopped by SIGHUP / SIGINT / SIGTERM; every exit after the start writes the
   summary of what was previewed. Its scratch directories (`job-preview-*`, empty during a replay)
   are deleted per song and matched by the worker's own sweep.
 - **A crash** inside the aligner library ends the process without a row for that song (the job
   code refuses the inputs known to crash it; others may exist): the last `preview of <id> starts`
-  line on stderr names it, and `--after <id> --append` resumes past it into the same file.
+  line on stderr names it, and `--after <id> --append` resumes past it into the same file. A pass in
+  the library's overrun region is logged on the worker as `<type>:<id> (job <uuid>): window …:
+  the aligner library writes past its buffers here (T=…, L=…, R=…)`, and such a song is `review`.

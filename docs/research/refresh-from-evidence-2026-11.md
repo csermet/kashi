@@ -289,7 +289,9 @@ rules in `worker/preview_rules.py`; how to run it: `docs/gpu-worker.md`).
   its reprocess will run, and stays `refresh` only when the ladder builds the same document on the
   same record; otherwise its verdict is the ladder's (another record: `sheet changed`; the by-ear
   rung: `needs a full job`; lrclib weather: `failed`), or `review` when the ladder says refresh
-  with another document. `refresh_ids` come from the confirmed songs only. `--lyrics ladder` runs
+  with another document. `refresh_ids` come from the confirmed songs only (a row says
+  `refresh_confirmed`; a `refresh` without it, from an earlier format, counts as `review`).
+  `--lyrics ladder` runs
   the ladder for every song. An override's lyrics are always the override's. There is no preview
   without a request: the stamps that cut the windows and judge line QA live only in the record.
 - **Requests.** Stored mode: one by-id request a song; a title with a nightcore marker adds the
@@ -315,12 +317,20 @@ rules in `worker/preview_rules.py`; how to run it: `docs/gpu-worker.md`).
   are not, the vetoes, the counts summed over the songs judged on the same sheet, what a worker
   needs for the reprocesses to replay (`replay`: the mode and the evidence key this image records
   and replays, and this environment's mode), the lrclib requests, the peak memory, the exit code.
+- **One judge a file.** Every run writes a segment line naming what judged its rows: the preview's
+  format, the pipeline version, the evidence key and the lyrics mode. `--append` continues a file
+  only when every segment in it was judged the same way (a run stopped on one image and resumed on
+  another, or a file the first format wrote, is refused), and its summary counts each song's latest
+  row; a truncated last line (a run killed mid-write) is skipped and counted, and `next_after`
+  stays where the cursor runs got (a `--source-id` run moves no cursor).
 
 **The verdict, first match wins.** Rules in the code; thresholds the archive rig's vetoes, written
 before the 2.34.0 and 2.35.0 runs, not tuned here:
 
 1. `failed`: the preview could not tell (lrclib weather, no stored document, no job history, the
-   stored document's record gone, evidence replaced while it was read).
+   stored document's record gone, evidence replaced while it was read), or the aligner guard
+   refuses a window (`failed (alignment_failed)`: the evidence's window plan, text and emissions
+   would fail a full job the same way, permanently, so nobody should pay a download for it).
 2. `needs a full job: <reason>` (above).
 3. `keep (guard: ...)`: the persist guard would keep the stored document (a newer pipeline's, an
    override's build this run does not apply, a regression).
@@ -332,10 +342,12 @@ before the 2.34.0 and 2.35.0 runs, not tuned here:
    W3 a line with text that had word timings and has none;
    W4 a moved line (start more than 100 ms away) whose first word now lights < 120 ms before its
    second word and lit >= 120 ms before.
-6. `review (...)`: for a person, out of `refresh_ids`: a line start moved more than 1 500 ms that
-   W2 cannot judge (below), or a rebuilt palette that is the default while the stored one was read
-   off the album art (the palette is fetched live, it is not evidence: a failed artwork fetch would
-   overwrite the album's colours).
+6. `review (...)`: for a person, out of `refresh_ids`: a pass the aligner library ran in its
+   buffer-overrun region (below: undefined behaviour, so the two preview passes can agree while the
+   reprocess stores another path; `aligner overrun region: N passes`), a line start moved more
+   than 1 500 ms that W2 cannot judge (below), or a rebuilt palette that is the default while the
+   stored one was read off the album art (the palette is fetched live, it is not evidence: a failed
+   artwork fetch would overwrite the album's colours).
 7. `unchanged`: the document differs only in `generated_at` and `pipeline_version` (a reprocess
    would only restamp it: not listed for refresh).
 8. `refresh` (in stored mode: confirmed by the ladder).
@@ -358,12 +370,14 @@ own moves; it watches every other move (carries, sheet shifts, regroups).
 **Proof** (the 39 pilot and hold-out songs through the worker's `process_job` against a throwaway
 Postgres 17; working files `kashi-gozden-gecirme/onizleme/`). Evidence recorded, then every stored
 document replaced by the 2.34.0 build's, one song's line 5 moved 300 ms more. The preview of all 39
-(evidence mode off, every audio reader made to raise) took 67 s, 1.7 s a song, at a peak of 542 MB
+(evidence mode off, every audio reader made to raise) took 71 s, 1.8 s a song, at a peak of 539 MB
 (the harness's process, torch loaded), and left nine tables identical (row counts and content
 hashes). Its verdicts: the seeded song `refresh`, confirmed by its ladder pass on the same record;
 GOSSIP `review`: lines 0 and 38, the 2.35.0 rule's two moves (1 950 and 6 770 ms; silent leads
 1 690 -> 0 and 6 240 -> 10 ms), lie outside W2's reach (the first line is never placed, line 38
-only on the new document); 37 `unchanged`. Stored mode asked 39 records by id and one ladder;
+only on the new document); k89YEt8hocI `review` (aligner overrun region: 1 pass, its window 21
+segment pass; the only one of the 39 songs' 2 247 Viterbi passes in the region); 36
+`unchanged`. Stored mode asked 39 records by id and one ladder;
 ladder mode asked 39 ladders and gave the same verdicts. The worker's own replay of each song then
 stored a document equal to the preview's, 39 of 39 (`generated_at` aside), in both modes. Unit
 tests put every threshold exactly on its value and one millisecond (or one step) either side;
@@ -409,9 +423,10 @@ synthetic log-probabilities (working files `onizleme/`), three inputs break it:
   length is too long for CTC" (an earlier archive song's failure);
 - targets with no repeated neighbour (R = 0) and T < 2L - 2: its back-pointer buffers, (2L + 2)
   (T - L) bits, are smaller than what its band writes (its own bookkeeping, swept exactly). Deep
-  overruns crash or break the path (25 samples at T = L: 15 crashes, 9 paths that do not spell the
-  text, `y != t`; at 1.3 L: 17 / 5 / 3 valid), shallow ones mostly come back valid (1.9 L: 3 crashes,
-  22 valid); at T = L (the exact fit) it segfaults every time without a repeat;
+  overruns crash or break the path (25 samples each, 30-200 targets: at T = L + 1, 15 crashes,
+  9 paths that do not spell the text, `y != t`, 1 valid; at T = 1.3 L, 17 / 5 / 3), shallow ones
+  mostly come back valid (T = 1.9 L: 3 crashes, 22 valid; 2.5 L: 25 valid); at T = L, the exact
+  fit, it segfaulted in 60 of 60 samples without a repeat (1-11 targets);
 - a NaN frame: 40 % of the paths do not spell the text, in this message's shape.
 
 6cvfHn9qeEw cannot be settled from here: a dense window without a doubled letter (the second case)
@@ -419,15 +434,23 @@ is the likeliest; it is deterministic for the same window plan, text and emissio
 reprocess on the same image would most likely meet it again, and on the CPU worker it may crash
 the process instead. Since this change `alignment._viterbi` refuses, before the library runs,
 T < L + R, the exact fit without a repeat and non-finite emissions, and turns `get_spans`'
-AssertionError into the same error: `alignment_failed` (permanent, like the job's other alignment
-dead ends; a new record or a code change, both through a reprocess, is what helps), naming the
-window's sample range, the pass, T, L and R. The wider overrun is logged, not refused: a pilot song
-(k89YEt8hocI, window 21, segment pass, T = 286, L = 147) sits in it and its stored document came
-from that pass; refusing the region failed its job in the first draft. Proven: main == the branch
+AssertionError (or the IndexError of a path that runs out of tokens) into the same error,
+`AlignerRefusal`: `alignment_failed` (permanent, like the job's other alignment dead ends; a new
+record or a code change, both through a reprocess, is what helps), naming the window's sample
+range, the pass, T, L and R. The wider overrun is logged, not refused, in this release: a pilot
+song (k89YEt8hocI, window 21, segment pass, T = 286, L = 147) sits in it and its stored document
+came from that pass; refusing the region failed its job in the first draft. The log line names the
+song and the job and the real repeat count (`<type>:<id> (job <uuid>): window i (samples a-b),
+<pass> pass: the aligner library writes past its buffers here (T, L, R)`), so the region can be
+counted per song from production logs; the preview makes such a song `review`. The real fix for
+those windows is a separate, measured timing step. Proven: main == the branch
 (off, record, replay) on the 39 songs, every job completed, 39 replays rebuilt; the real library
 on every boundary (refused at L + R - 1, at the exact fit without a repeat where it segfaults, at
 a NaN frame; aligned like before at L + R with a repeat and L + R + 1); mutations of the guard all
-caught. Next time, the error message itself carries the window, the pass, T, L and R.
+caught; the boundaries on the compiled library are a slow test
+(`tests/test_viterbi_guard_library.py`: a refused input never reaches its `forced_align`, the
+segfaulting call is never made, and the library's own targets are the guard's), to re-run on every
+bump of its pin. Next time, the error message itself carries the window, the pass, T, L and R.
 
 ## What is left
 

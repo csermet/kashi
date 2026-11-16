@@ -962,6 +962,18 @@ def test_a_refresh_without_its_confirmation_is_never_an_id_to_refresh():
                                  "c": "refresh not confirmed by the ladder"}
 
 
+def test_a_stored_record_refresh_without_its_ladder_pass_is_unconfirmed(db_session, audio,
+                                                                        monkeypatch, get_record):
+    from kashi_server.db.engine import SessionLocal
+
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)
+    with SessionLocal() as s:
+        row = preview.preview_song(preview.read_only(s), SONG, lyrics="stored", confirm=False)
+    assert row["verdict"] == rules.REFRESH and row["refresh_confirmed"] is False
+    assert preview.summarize([row])["refresh_ids"] == []
+
+
 def test_every_refresh_row_says_whether_its_reprocess_s_lyrics_confirmed_it(db_session, audio,
                                                                            monkeypatch,
                                                                            get_record):
@@ -1032,9 +1044,13 @@ def test_a_source_id_run_keeps_the_cursor_s_frontier(db_session, audio, monkeypa
     assert _main(monkeypatch, tmp_path, "--out", str(out), "--limit", "2") == 0
     assert _lines(out)[-1]["summary"]["next_after"] == "songB0000001"
     assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", "--source-id",
-                 "songA0000001") == 0
+                 "songC0000001") == 0  # a song past the frontier, given by hand
     summary = _lines(out)[-1]["summary"]
     assert summary["next_after"] == "songB0000001"  # not the given song
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", "--source-id",
+                 "songA0000001") == 0  # read back, the given segment still moves no cursor
+    summary = _lines(out)[-1]["summary"]
+    assert summary["next_after"] == "songB0000001"
     assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", "--after",
                  summary["next_after"]) == 0
     assert _lines(out)[-1]["summary"]["next_after"] == "songC0000001"
