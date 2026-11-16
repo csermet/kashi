@@ -3,7 +3,7 @@
 A job reads the audio at a handful of places, and everything after them is code over what those
 places returned: the aligner's emissions over the 16 kHz stem (the whole track for the sheet
 shift and the vote, one slice per window), the stem's length, its onsets (line QA), its level
-envelope (pipeline/level.py: one byte per 20 ms frame, read by no rule yet), the mix's
+envelope (pipeline/level.py: a level and a zero-crossing count per 20 ms frame), the mix's
 beats / energy / sections, and the download's duration. Emissions are text-independent: a slice's
 emissions depend on the stem, the checkpoint and its revision, and the slice's sample range,
 never on the lyrics.
@@ -59,7 +59,9 @@ logger = logging.getLogger(__name__)
 #: 2 (review round, 2026-11-16): meta names the track's digest, the download's format facts and
 #: the recorder's provenance; the key names the separation this job did and ffmpeg.
 #: 3 (2026-11-16): meta carries the stem's level envelope (`envelope`), which every replay reads.
-EVIDENCE_FORMAT = 3
+#: 4 (2026-11-16, review): the envelope also carries each frame's zero-crossing count and the
+#: loudest frame's exact mean square; a replay binds its frame count to the track's samples.
+EVIDENCE_FORMAT = 4
 
 #: What OUR code that computes each recorded value looks like, by version. Bump the matching
 #: entry whenever that code changes: `alignment._emit`, `_emissions`, `_load_track` (emissions);
@@ -68,7 +70,7 @@ EVIDENCE_FORMAT = 3
 #: format choice and duration (stem); `level` (envelope). Stored evidence from another version
 #: is refused, so the next job runs in full. tests/test_evidence.py pins a hash of that source to
 #: these numbers.
-EVIDENCE_CODE: dict[str, int] = {"emissions": 1, "onsets": 1, "mix": 1, "stem": 1, "envelope": 1}
+EVIDENCE_CODE: dict[str, int] = {"emissions": 1, "onsets": 1, "mix": 1, "stem": 1, "envelope": 2}
 
 #: The aligner input's sample rate (alignment.SAMPLE_RATE, which load_audio produces).
 SAMPLE_RATE = 16_000
@@ -843,24 +845,36 @@ def onsets(compute: Callable[[], list[int] | None]) -> list[int] | None:
     return value
 
 
+def _pack_bytes(data: bytes) -> str:
+    return base64.b64encode(zlib.compress(bytes(data), 9)).decode("ascii")
+
+
 def envelope(compute: Callable[[], Any]) -> Any:
-    """The aligner track's level envelope (pipeline/level.py), kept as its bytes: zlib, then
-    base64 into the meta. None comes only from a failed read (`extractor_failed`, so the record
-    is not stored); a silent track is a value."""
+    """The aligner track's level envelope (pipeline/level.py), kept as its bytes (levels and
+    crossings: zlib, then base64) and the loudest frame's [sum of squares, samples] in the meta.
+    None comes only from a failed read (`extractor_failed`, so the record is not stored); a silent
+    track is a value. A replay serves it only when both byte strings decode to `frames` bytes and
+    `frames` is the track's own frame count (ceil(track_samples / 320)): an envelope of another
+    wav would put the rule's silence on another clock."""
     session = current()
     if session is None:
         return compute()
     if isinstance(session, Replayer):
-        from kashi_server.pipeline.level import Envelope
+        from kashi_server.pipeline.level import FRAME_SAMPLES, STEP_MS, Envelope
 
         recorded = session.meta("envelope")
         try:
             levels = zlib.decompress(base64.b64decode(recorded["levels"], validate=True))
+            crossings = zlib.decompress(base64.b64decode(recorded["crossings"], validate=True))
+            total, count = (int(v) for v in recorded["loudest"])
+            frames, step_ms = int(recorded["frames"]), int(recorded["step_ms"])
         except (ValueError, zlib.error, KeyError, TypeError) as exc:
             raise EvidenceMissing(f"the recorded envelope does not decode ({exc})") from None
-        if len(levels) != recorded.get("frames"):
+        if len(levels) != frames or len(crossings) != frames:
             raise EvidenceMissing("the recorded envelope does not match its frame count")
-        return Envelope(levels, step_ms=int(recorded["step_ms"]))
+        if step_ms != STEP_MS or frames != -(-int(session.meta("track_samples")) // FRAME_SAMPLES):
+            raise EvidenceMissing("the recorded envelope is not the track's")
+        return Envelope(levels, step_ms=step_ms, crossings=crossings, loudest=(total, count))
     assert isinstance(session, Recorder)
     value = compute()
     if value is None:
@@ -868,7 +882,8 @@ def envelope(compute: Callable[[], Any]) -> Any:
     with _guarded(session, "the envelope"):
         session.meta["envelope"] = {
             "step_ms": value.step_ms, "unit_db": 0.5, "frames": len(value.levels),
-            "levels": base64.b64encode(zlib.compress(bytes(value.levels), 9)).decode("ascii"),
+            "levels": _pack_bytes(value.levels), "crossings": _pack_bytes(value.crossings),
+            "loudest": [int(value.loudest[0]), int(value.loudest[1])],
         }
     return value
 

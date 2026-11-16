@@ -1,8 +1,10 @@
 """pipeline/evidence.py: what a full job records, what a replay serves, and every way a replay must
 refuse (the job then runs in full). Pure: numpy arrays stand in for torch tensors, no database."""
 
+import base64
 import hashlib
 import inspect
+import zlib
 from types import SimpleNamespace
 
 import numpy as np
@@ -66,7 +68,8 @@ VERSIONS = {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0",
 BEATS = Beats(bpm=118.3, confidence=0.71, times_ms=[500, 1007, 1514], downbeat_indices=[0])
 ENERGY = Energy(rate_hz=4, values=[3, 50, 99, 0])
 SECTIONS = [Section("high", 1000, 4000), Section("chorus", 2000, 9000)]
-ENVELOPE = Envelope(bytes([0, 1, 254, 255, 7] * 120))
+ENVELOPE = Envelope(bytes([0, 1, 254, 255, 7] * 120), crossings=bytes([3, 0, 255, 40, 9] * 120),
+                    loudest=(123_456_789_012, 320))  # N / 320 = 600 frames
 
 
 def _record(spans=SPANS, revision="abc123", track=None):
@@ -512,7 +515,8 @@ PINNED = {
     ("onsets", 1): "9c9e3e3df887bad8",
     ("mix", 1): "c87a490b071edbc4",
     ("stem", 1): "bdbfb7499d44e949837d0602",
-    ("envelope", 1): "f6419a3fdba48eab",  # pipeline/level.py (2026-11-16)
+    # pipeline/level.py: 1 (2026-11-16); 2 (review): crossings, the loudest frame, integer steps
+    ("envelope", 2): "4745c0e7b7a924d1",
 }
 
 
@@ -731,11 +735,31 @@ def test_the_envelope_is_kept_compact_and_replays_byte_for_byte():
     recorder, seen = _record()
     stored = recorder.pack().meta["envelope"]
     assert stored["frames"] == len(ENVELOPE.levels) and stored["step_ms"] == 20
-    assert set(stored) == {"step_ms", "unit_db", "frames", "levels"}
+    assert set(stored) == {"step_ms", "unit_db", "frames", "levels", "crossings", "loudest"}
+    assert stored["loudest"] == [123_456_789_012, 320]
     assert len(stored["levels"]) < len(ENVELOPE.levels)  # zlib + base64 of a repetitive signal
+    assert len(stored["crossings"]) < len(ENVELOPE.crossings)
     with evidence.active(evidence.Replayer(recorder.pack())):
         served = evidence.envelope(lambda: pytest.fail("read the wav"))
     assert served == seen["envelope"] == ENVELOPE
+
+
+def _repacked(e, cut):
+    """The stored envelope with `cut` frames taken off both byte strings, consistently."""
+    def strings(name):
+        return zlib.decompress(base64.b64decode(e[name]))[: len(ENVELOPE.levels) - cut]
+
+    return {**e, "frames": e["frames"] - cut, "levels": evidence._pack_bytes(strings("levels")),
+            "crossings": evidence._pack_bytes(strings("crossings"))}
+
+
+def _replay_envelope(meta_change):
+    recorder, _ = _record()
+    record = recorder.pack()
+    meta = {**record.meta, **meta_change(record.meta)}
+    bad = evidence.Evidence(record.source_type, record.source_id, record.key, meta, record.blob)
+    with evidence.active(evidence.Replayer(bad)):
+        return evidence.envelope(lambda: pytest.fail("read the wav"))
 
 
 @pytest.mark.parametrize("tamper", [
@@ -743,14 +767,30 @@ def test_the_envelope_is_kept_compact_and_replays_byte_for_byte():
     lambda e: {**e, "levels": e["levels"][:-4]},
     lambda e: {**e, "levels": "not base64 !"},
     lambda e: {k: v for k, v in e.items() if k != "levels"},
+    lambda e: {**e, "crossings": evidence._pack_bytes(ENVELOPE.crossings[:-1])},
+    lambda e: {k: v for k, v in e.items() if k != "crossings"},
+    lambda e: {k: v for k, v in e.items() if k != "loudest"},
+    lambda e: {**e, "loudest": [1, 2, 3]},
+    lambda e: {**e, "step_ms": 10},
+    lambda e: _repacked(e, 1),  # decodes, but 599 frames are not this track's 600
 ])
-def test_an_envelope_that_does_not_decode_to_its_frames_is_missing(tamper):
-    recorder, _ = _record()
-    record = recorder.pack()
-    meta = {**record.meta, "envelope": tamper(record.meta["envelope"])}
-    bad = evidence.Evidence(record.source_type, record.source_id, record.key, meta, record.blob)
-    with evidence.active(evidence.Replayer(bad)), pytest.raises(evidence.EvidenceMissing):
-        evidence.envelope(lambda: pytest.fail("read the wav"))
+def test_an_envelope_that_does_not_decode_to_the_track_s_frames_is_missing(tamper):
+    with pytest.raises(evidence.EvidenceMissing):
+        _replay_envelope(lambda meta: {"envelope": tamper(meta["envelope"])})
+
+
+@pytest.mark.parametrize(("samples", "served"), [
+    (N - 320, False), (N - 319, True), (N, True), (N + 1, False)])
+def test_the_envelope_s_frames_are_the_track_s_frames(samples, served):
+    # 600 frames cover a track of 191 681 .. 192 000 samples (the last frame over what it has)
+    def run():
+        return _replay_envelope(lambda meta: {"track_samples": samples})
+
+    if served:
+        assert run() == ENVELOPE
+    else:
+        with pytest.raises(evidence.EvidenceMissing):
+            run()
 
 
 def test_a_failed_envelope_is_never_recorded():
