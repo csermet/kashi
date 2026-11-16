@@ -44,9 +44,17 @@ export function effectLevelLabel(level: EffectLevel): string {
  * Two scopes, not four (client review step E.3, 2026-11-14): the owner uses
  * "All colors", and "Keep background" (`fixed-bg`) and "Keep background &
  * text" (`fixed-text`) had no user while every new effect had to be right in
- * all four. A settings file that still names one of them lands on `full`,
- * the nearest kept scope: both themed the text and effect colours, which
- * `full` does too.
+ * all four. What those two showed (overlay 0.31.0, paletteToCssVars and its
+ * test): the background stock, the text white - base text has been pinned
+ * white in every scope since 0.2.4 - and only the effect colours themed; the
+ * two rendered identically. Neither kept scope reproduces that: `full` would
+ * turn the background tint back on, the one thing both names asked to keep
+ * off; `none` keeps background and text as they were and returns the effect
+ * colours to stock. A stored `fixed-bg` / `fixed-text` therefore reads as
+ * `none` (review E.3 follow-up, 2026-11-16): a removed setting falls toward
+ * stock, never toward more theming than the user chose. The move is lossy by
+ * design: the settings file is rewritten on exit, so an older overlay
+ * started afterwards reads `none` too, not the scope the user had picked.
  *
  * (The sweep's second base dialect, `fill_style: neutral`, went in the same
  * step: one dialect is left, so there is nothing to choose. settings-logic.ts
@@ -58,9 +66,11 @@ export const THEME_SCOPES: readonly ThemeScope[] = ['full', 'none'];
 
 export const DEFAULT_THEME_SCOPE: ThemeScope = 'full';
 
-/** Untrusted value → scope; the removed scopes and garbage both land on `full`. */
+/** Untrusted value → scope: the removed fixed scopes read as `none`, garbage as the default. */
 export function parseThemeScope(value: unknown): ThemeScope {
-  return value === 'none' ? 'none' : DEFAULT_THEME_SCOPE;
+  return value === 'none' || value === 'fixed-bg' || value === 'fixed-text'
+    ? 'none'
+    : DEFAULT_THEME_SCOPE;
 }
 
 export function themeScopeLabel(scope: ThemeScope): string {

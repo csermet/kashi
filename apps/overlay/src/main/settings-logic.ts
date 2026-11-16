@@ -94,7 +94,8 @@ export interface StoredSettings {
   /**
    * How much of the album palette themes the box (Faz 4 saha turu). Two
    * scopes since client review E.3; a stored `fixed-bg` / `fixed-text` reads
-   * as `full` (parseThemeScope).
+   * as `none`, which keeps the stock background those two kept
+   * (parseThemeScope, effect-level.ts). Rewritten on exit: no way back.
    */
   theme_scope: ThemeScope;
   /**

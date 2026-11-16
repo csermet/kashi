@@ -347,12 +347,14 @@ describe('settings migration: the knobs removed in client review E.3', () => {
   const old = (patch: Record<string, unknown>) =>
     JSON.stringify({ ...DEFAULT_SETTINGS, effect_level: 'hype', box_alpha: 0.9, ...patch });
 
-  it('a removed theme scope lands on "All colors", in memory and in the saved file', () => {
+  it('a removed theme scope lands on "Off" (the stock background it kept), in memory and in the saved file', () => {
     for (const removed of ['fixed-bg', 'fixed-text']) {
       const parsed = parseSettings(old({ theme_scope: removed }));
-      expect(parsed.theme_scope, removed).toBe('full');
-      expect(JSON.parse(serializeSettings(parsed)).theme_scope, removed).toBe('full');
+      expect(parsed.theme_scope, removed).toBe('none');
+      expect(JSON.parse(serializeSettings(parsed)).theme_scope, removed).toBe('none');
     }
+    // Garbage still lands on the default, not on "Off".
+    expect(parseSettings(old({ theme_scope: 'fixed' })).theme_scope).toBe('full');
   });
 
   it('a stored fill_style goes silently: no key in memory, none in the saved file', () => {
@@ -365,7 +367,7 @@ describe('settings migration: the knobs removed in client review E.3', () => {
 
   it('nothing else moves: every other value of the old file survives', () => {
     const parsed = parseSettings(old({ theme_scope: 'fixed-bg', fill_style: 'neutral' }));
-    expect(parsed).toEqual({ ...DEFAULT_SETTINGS, effect_level: 'hype', box_alpha: 0.9 });
+    expect(parsed).toEqual({ ...DEFAULT_SETTINGS, effect_level: 'hype', box_alpha: 0.9, theme_scope: 'none' });
   });
 
   it("an unknown key a NEWER build wrote still survives (the round-trip rule's other half)", () => {

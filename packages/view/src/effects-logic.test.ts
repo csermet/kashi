@@ -68,11 +68,13 @@ describe('parseEffectLevel', () => {
     expect(effectLevelLabel('hype')).toBe('Hype');
   });
 
-  it('parses theme scopes, defaulting garbage and the removed scopes to full', () => {
+  it('parses theme scopes: the removed fixed scopes read as none, garbage as full', () => {
     expect(parseThemeScope('full')).toBe('full');
     expect(parseThemeScope('none')).toBe('none');
-    expect(parseThemeScope('fixed-bg')).toBe('full');
-    expect(parseThemeScope('fixed-text')).toBe('full');
+    // Both kept the stock background (0.31.0); none keeps it, full would not.
+    expect(parseThemeScope('fixed-bg')).toBe('none');
+    expect(parseThemeScope('fixed-text')).toBe('none');
+    expect(parseThemeScope('fixed')).toBe('full');
     expect(parseThemeScope('ULTRA')).toBe('full');
     expect(parseThemeScope(undefined)).toBe('full');
   });
