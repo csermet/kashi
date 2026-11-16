@@ -104,8 +104,9 @@ separates vocals, force-aligns the LRCLIB text against them, extracts a beat
 grid and an album palette, stores a small JSON — and deletes the audio.
 A deployment that sets `EVIDENCE_MODE` (off by default) also keeps, for YouTube
 songs only, what the aligner read off the audio — not audio: its per-frame
-output, the vocal onsets and the beat/energy features, about 2 MB a song — so a
-later reprocess can rebuild the document without fetching the song again
+output, the vocal onsets, the vocal stem's loudness every 20 ms and the
+beat/energy features, about 2 MB a song — so a later reprocess can rebuild the
+document without fetching the song again
 ([design](docs/research/refresh-from-evidence-2026-11.md)). The audio is still
 deleted, and nothing is kept for uploads.
 

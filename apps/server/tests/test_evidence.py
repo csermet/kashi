@@ -11,6 +11,7 @@ import pytest
 from kashi_server.pipeline import evidence
 from kashi_server.pipeline.beats import Beats
 from kashi_server.pipeline.energy import Energy, Section
+from kashi_server.pipeline.level import Envelope
 
 N = 16_000 * 12  # a 12 s track
 
@@ -65,6 +66,7 @@ VERSIONS = {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0",
 BEATS = Beats(bpm=118.3, confidence=0.71, times_ms=[500, 1007, 1514], downbeat_indices=[0])
 ENERGY = Energy(rate_hz=4, values=[3, 50, 99, 0])
 SECTIONS = [Section("high", 1000, 4000), Section("chorus", 2000, 9000)]
+ENVELOPE = Envelope(bytes([0, 1, 254, 255, 7] * 120))
 
 
 def _record(spans=SPANS, revision="abc123", track=None):
@@ -92,6 +94,7 @@ def _record(spans=SPANS, revision="abc123", track=None):
         seen["emissions"].append(
             evidence.emissions(_model(), again, True, emit, _stride_of, revision))
         seen["onsets"] = evidence.onsets(lambda: [120, 480, 960])
+        seen["envelope"] = evidence.envelope(lambda: ENVELOPE)
         seen["mix"] = evidence.mix_features(lambda: (BEATS, ENERGY, SECTIONS))
     seen["calls"] = calls
     return recorder, seen
@@ -119,6 +122,7 @@ def _replay(record, spans=SPANS, revision="abc123", name="org/aligner-eng"):
         out["emissions"].append(
             evidence.emissions(_model(name), loaded, True, forbidden, _stride_of, revision))
         out["onsets"] = evidence.onsets(lambda: pytest.fail("onsets"))
+        out["envelope"] = evidence.envelope(lambda: pytest.fail("envelope"))
         out["mix"] = evidence.mix_features(lambda: pytest.fail("mix"))
     return out
 
@@ -267,6 +271,7 @@ def test_replay_serves_exactly_what_the_job_read(tmp_path):
     assert (out["download"].abr, out["download"].acodec) == (130.9, "opus")
     assert out["wav_s"] == 12.0
     assert out["onsets"] == [120, 480, 960]
+    assert out["envelope"] == ENVELOPE
     assert out["mix"] == (BEATS, ENERGY, SECTIONS)
 
 
@@ -338,6 +343,7 @@ def test_a_record_lacking_what_every_replay_reads_is_refused_before_it_starts(na
          "track_sha256": lambda: evidence.Replayer(stripped).meta("track_sha256"),
          "wav_duration_s": lambda: evidence.wav_duration(lambda: None),
          "onsets": lambda: evidence.onsets(lambda: None),
+         "envelope": lambda: evidence.envelope(lambda: None),
          "mix": lambda: evidence.mix_features(lambda: (None, None, None))}[name]()
 
 
@@ -479,7 +485,7 @@ def test_changing_code_that_computes_evidence_bumps_its_version():
     """Stored evidence is only as good as the code that computed it. When one of these changes,
     bump the matching EVIDENCE_CODE entry (stored records then refuse and the next job of each
     song runs in full); a change that cannot alter a value (a comment) updates the pin only."""
-    from kashi_server.pipeline import alignment, beats, download, energy, onsets, structure
+    from kashi_server.pipeline import alignment, beats, download, energy, level, onsets, structure
     from kashi_server.vdl_kit import ytdlp_opts
     from kashi_server.worker import process
 
@@ -494,6 +500,7 @@ def test_changing_code_that_computes_evidence_bumps_its_version():
             process._decode, process._separate_vocals, process._mix_back,
             process._aligner_decode, download.download_audio, download._probe_duration_s)
         + hashlib.sha256(repr(ytdlp_opts.AUDIO_FORMAT_TIERED).encode()).hexdigest()[:8],
+        ("envelope", evidence.EVIDENCE_CODE["envelope"]): _source_hash(level),
     }
     assert pins == PINNED, "evidence code changed: bump EVIDENCE_CODE (or the pin, for a no-op)"
 
@@ -505,6 +512,7 @@ PINNED = {
     ("onsets", 1): "9c9e3e3df887bad8",
     ("mix", 1): "c87a490b071edbc4",
     ("stem", 1): "bdbfb7499d44e949837d0602",
+    ("envelope", 1): "f6419a3fdba48eab",  # pipeline/level.py (2026-11-16)
 }
 
 
@@ -686,7 +694,7 @@ def test_a_recording_that_never_aligned_reports_what_it_lacks():
     with evidence.active(recorder):
         evidence.download(lambda: SimpleNamespace(duration_s=1.0, abr=1.0, acodec="opus"), None)
         evidence.mix_features(lambda: (None, None, None))
-    assert recorder.missing() == ["track_samples", "track_sha256", "onsets"]
+    assert recorder.missing() == ["track_samples", "track_sha256", "onsets", "envelope"]
     complete, _ = _record()
     assert complete.missing() == []
 
@@ -714,3 +722,45 @@ def test_the_ready_line_names_the_evidence_mode(monkeypatch):
     assert "evidence" not in off
     monkeypatch.setattr(settings, "evidence_mode", "replay")
     assert main._config_note() == off + ", evidence replay"
+
+
+# --- the level envelope (2026-11-16) ---------------------------------------------------------
+
+
+def test_the_envelope_is_kept_compact_and_replays_byte_for_byte():
+    recorder, seen = _record()
+    stored = recorder.pack().meta["envelope"]
+    assert stored["frames"] == len(ENVELOPE.levels) and stored["step_ms"] == 20
+    assert set(stored) == {"step_ms", "unit_db", "frames", "levels"}
+    assert len(stored["levels"]) < len(ENVELOPE.levels)  # zlib + base64 of a repetitive signal
+    with evidence.active(evidence.Replayer(recorder.pack())):
+        served = evidence.envelope(lambda: pytest.fail("read the wav"))
+    assert served == seen["envelope"] == ENVELOPE
+
+
+@pytest.mark.parametrize("tamper", [
+    lambda e: {**e, "frames": e["frames"] + 1},
+    lambda e: {**e, "levels": e["levels"][:-4]},
+    lambda e: {**e, "levels": "not base64 !"},
+    lambda e: {k: v for k, v in e.items() if k != "levels"},
+])
+def test_an_envelope_that_does_not_decode_to_its_frames_is_missing(tamper):
+    recorder, _ = _record()
+    record = recorder.pack()
+    meta = {**record.meta, "envelope": tamper(record.meta["envelope"])}
+    bad = evidence.Evidence(record.source_type, record.source_id, record.key, meta, record.blob)
+    with evidence.active(evidence.Replayer(bad)), pytest.raises(evidence.EvidenceMissing):
+        evidence.envelope(lambda: pytest.fail("read the wav"))
+
+
+def test_a_failed_envelope_is_never_recorded():
+    """None comes only from a failed read (level_envelope says so through extractor_failed):
+    nothing is kept, so the record lacks what every replay reads."""
+    recorder = evidence.Recorder("youtube", "vid", {})
+    with evidence.active(recorder):
+        assert evidence.envelope(lambda: None) is None
+    assert "envelope" not in recorder.meta and "envelope" in recorder.missing()
+
+
+def test_without_a_session_the_envelope_is_the_computation():
+    assert evidence.envelope(lambda: ENVELOPE) is ENVELOPE

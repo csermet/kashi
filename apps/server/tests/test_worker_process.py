@@ -427,7 +427,7 @@ def test_windowed_flag_forwards_the_lrclib_anchors(db_session, job, scratch, mon
     )
     seen: dict = {}
 
-    def spy_align(wav, texts, lang, synced_starts_ms=None):
+    def spy_align(wav, texts, lang, synced_starts_ms=None, envelope=None):
         seen["anchors"] = synced_starts_ms
         return _align_result(0.8)
 
@@ -463,7 +463,7 @@ def test_a_shifted_sheet_reaches_the_aligner_and_line_qa(db_session, job, scratc
     monkeypatch.setattr(wp, "shift_sheet", lambda texts, starts, tokens: ([8_000], [moved]))
     seen: dict = {}
 
-    def spy_align(wav, texts, lang, synced_starts_ms=None):
+    def spy_align(wav, texts, lang, synced_starts_ms=None, envelope=None):
         seen["anchors"] = synced_starts_ms
         return _align_result(0.8)
 
