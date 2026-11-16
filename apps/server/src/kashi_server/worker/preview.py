@@ -2,19 +2,21 @@
 stored document, with nothing written (docs/research/refresh-from-evidence-2026-11.md).
 
     python -m kashi_server.worker.preview [--source-id ID ...] [--limit N] [--after ID]
-        [--out FILE] [--documents DIR] [--lyrics stored|ladder] [--lrclib-gap-s S]
+        [--out FILE [--append]] [--documents DIR] [--lyrics stored|ladder] [--lrclib-gap-s S]
+        [--beside-live-jobs]
 
 For each YouTube song with a stored document and stored evidence (or the songs given), in
 source-id order: the worker's own job code (`process._run_pipeline`, `persist=False`) runs under a
 `Replayer` of the song's evidence, on an in-memory job built as a reprocess builds one (the latest
 job's hints, the song's override; worker/backfill.py), whatever `settings.evidence_mode` says. The
 document it builds is compared with the stored one (worker/preview_rules.py) and judged:
-`refresh`, `unchanged`, `keep` (a veto, or the persist guard), `sheet changed`, `needs a full job`
-or `failed`. The last line is a JSON summary with the counts and the ids to refresh, one admin
-reprocess call each.
+`refresh`, `unchanged`, `review` (for a person), `keep` (a veto, or the persist guard),
+`sheet changed`, `needs a full job` or `failed`. The last line is a JSON summary with the counts,
+the ids to refresh (one admin reprocess call each) and what a worker needs for those reprocesses
+to replay.
 
 Nothing is written, by construction:
-- every read (hints, override, stored document, evidence) goes through a session whose
+- every read (hints, override, stored document, evidence, live jobs) goes through a session whose
   transactions are READ ONLY (`read_only`): the database refuses any write;
 - the job code gets a `PreviewSession`, which cannot reach the database at all: the in-memory
   job's heartbeats are answered as touching no row, commit and flush have nothing to do, anything
@@ -29,26 +31,37 @@ nightcore clock, a duration conflict, a slice another window plan cuts, the by-e
 reported as `needs a full job: <reason>`; nothing is downloaded, separated or aligned.
 
 Lyrics: `--lyrics stored` (default) asks lrclib for the one record the stored document names, by
-id (one request a song, through the worker's gateway: lrclib.net, then the mirror when it is busy)
-— the preview then measures the release on the same sheet, but cannot see the ladder choosing
-another record today. `--lyrics ladder` runs the lookup ladder exactly as a reprocess would (up
-to five requests a song). An override's lyrics are always the override's. Requests to lrclib.net
-are at least `--lrclib-gap-s` apart (default 0.5 s, the top of the gap lrclib asks for in batch
-work). No preview can run without the record: its stamps cut the windows and judge line QA, and
-neither the document nor the evidence keeps them.
+id: the release is measured on the same sheet. A song that comes out `refresh` that way is then
+previewed AGAIN with the lookup ladder, exactly as its reprocess will run it, and stays `refresh`
+only when the ladder builds the same document on the same record; otherwise its verdict says what
+the ladder did (another record, the by-ear rung, a failure). `--lyrics ladder` runs the ladder for
+every song. An override's lyrics are always the override's. Requests to lrclib.net are at least
+`--lrclib-gap-s` apart (default 0.5 s, the top of the gap lrclib asks for in batch work). No
+preview can run without the record: its stamps cut the windows and judge line QA, and neither the
+document nor the evidence keeps them.
 
-Exit codes: 0 the run finished; 2 the database schema is behind this code; 143 stopped by
-SIGTERM (the summary still says what was previewed).
+The report carries numbers and fixed reasons only: line indexes, times, error classes; never lyric
+text, titles or exception messages (those go to the log).
+
+Exit codes: 0 the run finished; 2 the database schema is behind this code; 3 `--out` exists
+(resume with `--append`); 4 a job is live (refused at the start, or stopped between two songs;
+`--beside-live-jobs` previews anyway); 5 the database went away; 128 + the signal's number when
+stopped by SIGHUP (129), SIGINT (130) or SIGTERM (143). Every exit after the start writes the
+summary of what was previewed.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
+import resource
 import shutil
+import signal
 import sys
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -59,7 +72,7 @@ from sqlalchemy.orm import Session
 
 from kashi_server import overrides
 from kashi_server.config import settings
-from kashi_server.db.models import ProcessedTrack, TrackEvidence
+from kashi_server.db.models import LIVE_STATUSES, Job, ProcessedTrack, TrackEvidence
 from kashi_server.pipeline import evidence
 from kashi_server.pipeline.document import stored_document_kept
 from kashi_server.vdl_kit.errors import PipelineError, is_transient_error
@@ -72,15 +85,29 @@ logger = logging.getLogger(__name__)
 #: worker's own orphan sweep of `job-*`).
 DIR_PREFIX = "job-preview-"
 LYRICS_MODES = ("stored", "ladder")
-EXIT_OK, EXIT_SCHEMA, EXIT_TERMINATED = 0, 2, 143
+EXIT_OK, EXIT_SCHEMA, EXIT_OUT_EXISTS, EXIT_LIVE_JOBS, EXIT_DATABASE = 0, 2, 3, 4, 5
+#: Signals that stop a run with its summary written; the exit code is 128 + the signal's number.
+STOP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
 
 #: The one statement the job code sends through its session that a preview answers itself: the
 #: lease heartbeat of its in-memory job (queue.heartbeat), which would touch no row anyway.
 _HEARTBEAT = "UPDATE jobs SET lease_expires_at"
+#: overrides.override_lyrics' own words for a pinned record that cannot serve lyrics: in `stored`
+#: mode the pin is the preview's.
+_PIN_FAILURE = "song override: pinned lrclib record"
 
 
 class PreviewWriteError(RuntimeError):
     """The job code reached for the database during a preview."""
+
+
+class Stopped(BaseException):  # noqa: N818 - like KeyboardInterrupt: not caught by `except Exception`
+    """A stop signal during a preview: unwinds the song (its scratch is deleted), then the run
+    ends with its summary."""
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(signum)
+        self.signum = signum
 
 
 class _NoRow:
@@ -167,6 +194,14 @@ def without_evidence(s: Session) -> int:
     )
 
 
+def live_jobs(s: Session) -> int:
+    """Jobs queued or running: a worker that runs one may be separating, the step that needs its
+    container's memory (a preview beside it shares that limit)."""
+    return int(
+        s.scalar(select(func.count()).select_from(Job).where(Job.status.in_(LIVE_STATUSES))) or 0
+    )
+
+
 def _stored(s: Session, source_id: str) -> Any:
     """The stored row as the persist guard reads it."""
     return s.execute(
@@ -213,7 +248,9 @@ def _no_audio() -> Any:
 
 
 def _build(job: Any, replayer: evidence.Replayer, pinned: bool) -> tuple[dict | None, tuple]:
-    """(the document the job code builds from the evidence, None) or (None, (verdict, why))."""
+    """(the document the job code builds from the evidence, ()) or (None, (verdict, why)). The
+    reasons are fixed words and error classes: an exception's message can carry a title or a
+    line of the lyrics, so it goes to the log only."""
     from kashi_server.worker import process
 
     tmp = settings.data_dir / f"{DIR_PREFIX}{job.id}"
@@ -225,32 +262,37 @@ def _build(job: Any, replayer: evidence.Replayer, pinned: bool) -> tuple[dict | 
             )
     except PreviewWriteError:
         raise
+    except evidence.EvidenceChanged:
+        return None, (rules.FAILED, "evidence replaced while it was read: preview the song again")
     except evidence.EvidenceMissing as exc:
+        # Our own reasons (which slice, which pass, which key field): no lyrics, no title.
         return None, (rules.FULL_JOB, str(exc))
     except PipelineError as exc:
-        why = f"{exc.error_type}: {exc.message[:200]}"
+        logger.info("preview %s: %s: %s", job.source_id, exc.error_type, exc.message[:300])
         if is_transient_error(exc.error_type):
-            return None, (rules.FAILED, why)
-        if pinned and exc.error_type == "other":
-            return None, (rules.FAILED, f"the stored document's lyrics record: {why}")
-        return None, (rules.FULL_JOB, why)
+            return None, (rules.FAILED, f"transient {exc.error_type}")
+        if pinned and exc.error_type == "other" and exc.message.startswith(_PIN_FAILURE):
+            return None, (rules.FAILED, "the stored document's lyrics record is gone or unusable")
+        return None, (rules.FULL_JOB, f"pipeline error {exc.error_type}")
     except OperationalError:
         raise
     except Exception as exc:  # noqa: BLE001 - as in a replay: a fault costs a full job
         logger.warning("preview %s: the replay failed", job.source_id, exc_info=True)
-        return None, (rules.FULL_JOB, f"the replay failed ({type(exc).__name__}: {str(exc)[:200]})")
+        return None, (rules.FULL_JOB, f"replay fault {type(exc).__name__}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if doc is None:
-        why = f"lrclib unavailable: a reprocess now would be deferred ({job.error_message})"
-        return None, (rules.FAILED, why[:300])
+        return None, (rules.FAILED, "lrclib unavailable: a reprocess now would be deferred")
     return doc, ()
 
 
-def _preview(s: Session, source_id: str, mode: str, documents: Path | None) -> dict:
+def _preview(
+    s: Session, source_id: str, mode: str, documents: Path | None
+) -> tuple[dict, dict | None]:
+    """(the row's fields, the document built or None)."""
     stored = _stored(s, source_id)
     if stored is None:
-        return {"verdict": rules.FAILED, "detail": "no stored document"}
+        return {"verdict": rules.FAILED, "detail": "no stored document"}, None
     out: dict[str, Any] = {"old_pipeline": stored.pipeline_version}
     hints = backfill._latest_hints(s, "youtube", source_id)
     if hints is None:
@@ -258,11 +300,11 @@ def _preview(s: Session, source_id: str, mode: str, documents: Path | None) -> d
             **out,
             "verdict": rules.FAILED,
             "detail": "no job history: a reprocess has no hints to replay",
-        }
+        }, None
     job = backfill._job_for(s, "youtube", source_id, hints)
     never = backfill._never_recorded(stored.document, job.options or {})
     if never is not None:
-        return {**out, "verdict": rules.FULL_JOB, "detail": never}
+        return {**out, "verdict": rules.FULL_JOB, "detail": never}, None
     from kashi_server.worker import process
 
     record = evidence.DbStore(s).load("youtube", source_id)
@@ -270,19 +312,19 @@ def _preview(s: Session, source_id: str, mode: str, documents: Path | None) -> d
         record, settings, separate_first=process._separates_first(job)
     )
     if replayer is None or record is None:
-        return {**out, "verdict": rules.FULL_JOB, "detail": why}
+        return {**out, "verdict": rules.FULL_JOB, "detail": why}, None
     conflict = evidence.duration_conflict(record, process._plausible_hint(job.hints))
     if conflict is not None:
         return {
             **out,
             "verdict": rules.FULL_JOB,
             "detail": f"{conflict}: the audio behind the id may have changed",
-        }
+        }, None
     out["lyrics"] = _lyrics(job, stored.document, mode)
     doc, failure = _build(job, replayer, pinned=out["lyrics"].startswith("record"))
     out["served"] = dict(sorted(replayer.served.items()))
     if doc is None:
-        return {**out, "verdict": failure[0], "detail": failure[1]}
+        return {**out, "verdict": failure[0], "detail": failure[1]}, None
     if documents is not None:
         documents.mkdir(parents=True, exist_ok=True)
         (documents / f"{source_id}.json").write_text(
@@ -294,14 +336,60 @@ def _preview(s: Session, source_id: str, mode: str, documents: Path | None) -> d
     guard = stored_document_kept(stored, overrides.find(s, "youtube", source_id), job, doc)
     comparison = rules.compare(stored.document, doc, envelope)
     verdict, detail = rules.verdict(comparison, guard)
-    return {**out, "verdict": verdict, "detail": detail, **comparison}
+    return {**out, "verdict": verdict, "detail": detail, **comparison}, doc
+
+
+def _same_document(a: dict, b: dict) -> bool:
+    return {k: v for k, v in a.items() if k != "generated_at"} == {
+        k: v for k, v in b.items() if k != "generated_at"
+    }
+
+
+def confirmed(row: dict, doc: dict, ladder: dict, ladder_doc: dict | None) -> dict:
+    """The ladder's word on a `stored`-mode `refresh`: the fields that replace the row's verdict.
+    It stays `refresh` only when the ladder also says `refresh`, on the same lyrics record, with
+    the same document (`generated_at` aside); else the verdict is the ladder's own (another record
+    is a changed sheet, the by-ear rung a full job, weather a failure), or `review` when the ladder
+    says `refresh` with another document."""
+    record = (doc.get("alignment") or {}).get("lyrics_source_id")
+    ladder_record = (
+        None
+        if ladder_doc is None
+        else ((ladder_doc.get("alignment") or {}).get("lyrics_source_id"))
+    )
+    same = (
+        ladder["verdict"] == rules.REFRESH
+        and ladder_doc is not None
+        and ladder_record == record
+        and _same_document(doc, ladder_doc)
+    )
+    note = {"verdict": ladder["verdict"], "lyrics_record": ladder_record, "confirmed": same}
+    if same:
+        return {"ladder": note}
+    if ladder["verdict"] == rules.REFRESH:
+        return {
+            "ladder": note,
+            "verdict": rules.REVIEW,
+            "detail": "the ladder builds another document than the stored record does",
+        }
+    return {
+        "ladder": note,
+        "verdict": ladder["verdict"],
+        "detail": f"ladder: {ladder.get('detail') or ladder['verdict']}",
+    }
 
 
 def preview_song(
-    s: Session, source_id: str, *, lyrics: str = "stored", documents: Path | None = None
+    s: Session,
+    source_id: str,
+    *,
+    lyrics: str = "stored",
+    documents: Path | None = None,
+    confirm: bool = True,
 ) -> dict:
-    """One song's preview row (numbers only: line indexes and times, no lyric text). `s` only
-    reads (see `read_only`); its transaction ends with the song."""
+    """One song's preview row (numbers and fixed reasons only). `s` only reads (see
+    `read_only`); its transaction ends with the song. In `stored` mode a `refresh` on the stored
+    record is previewed again with the ladder (`confirmed`)."""
     if lyrics not in LYRICS_MODES:
         raise ValueError(f"lyrics mode {lyrics!r} is not one of {LYRICS_MODES}")
     started = time.monotonic()
@@ -310,12 +398,22 @@ def preview_song(
     # without a row, and `--after` this id resumes past it.
     logger.info("preview of %s starts", source_id)
     try:
-        row.update(_preview(s, source_id, lyrics, documents))
+        fields, doc = _preview(s, source_id, lyrics, documents)
+        row.update(fields)
+        if (
+            confirm
+            and doc is not None
+            and row["verdict"] == rules.REFRESH
+            and str(row.get("lyrics", "")).startswith("record")
+        ):
+            s.rollback()
+            ladder, ladder_doc = _preview(s, source_id, "ladder", None)
+            row.update(confirmed(row, doc, ladder, ladder_doc))
     except OperationalError:
         raise
     except Exception as exc:  # noqa: BLE001 - one song's fault must not stop the run
         logger.warning("preview %s failed", source_id, exc_info=True)
-        row.update(verdict=rules.FAILED, detail=f"{type(exc).__name__}: {str(exc)[:200]}")
+        row.update(verdict=rules.FAILED, detail=f"preview fault {type(exc).__name__}")
     finally:
         s.rollback()
     row["seconds"] = round(time.monotonic() - started, 2)
@@ -330,6 +428,7 @@ def summarize(rows: list[dict]) -> dict:
         for name in (
             rules.REFRESH,
             rules.UNCHANGED,
+            rules.REVIEW,
             rules.VETOED,
             rules.SHEET,
             rules.FULL_JOB,
@@ -338,12 +437,14 @@ def summarize(rows: list[dict]) -> dict:
     }
     vetoes: dict[str, int] = {}
     others: dict[str, dict[str, str]] = {
+        "review": {},
         "keep": {},
         "sheet_changed": {},
         "needs_full_job": {},
         "failed": {},
     }
     bucket = {
+        rules.REVIEW: "review",
         rules.VETOED: "keep",
         rules.SHEET: "sheet_changed",
         rules.FULL_JOB: "needs_full_job",
@@ -394,13 +495,64 @@ def lrclib_requests() -> dict[str, int]:
     return out
 
 
+def replay_requirements() -> dict:
+    """What a worker needs for a reprocess of a `refresh` song to replay instead of downloading:
+    the mode, and the evidence key this image records and replays (a worker of another image or
+    configuration logs `key differs at ...` and downloads)."""
+    return {
+        "evidence_mode": "replay",
+        "this_environment_evidence_mode": settings.evidence_mode,
+        "key": evidence.expected_key(settings, separate_first=settings.separation_mode == "always"),
+    }
+
+
+def peak_rss_mb() -> float:
+    """This process's peak resident memory so far (Linux reports KiB)."""
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+
+
+def rows_in(path: Path) -> tuple[list[dict], int]:
+    """(the song rows of an earlier out file, its number of segments)."""
+    rows: list[dict] = []
+    segments = 0
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            if "segment" in item:
+                segments += 1
+            elif "source_id" in item:
+                rows.append(item)
+    return rows, segments
+
+
+def whole(earlier: list[dict], rows: list[dict]) -> list[dict]:
+    """Every song once, its latest row winning, in source-id order."""
+    latest = {row["source_id"]: row for row in [*earlier, *rows]}
+    return [latest[key] for key in sorted(latest)]
+
+
+@contextlib.contextmanager
+def _stop_signals_raise() -> Iterator[None]:
+    def handler(signum: int, _frame: Any) -> None:
+        raise Stopped(signum)
+
+    previous = {sig: signal.signal(sig, handler) for sig in STOP_SIGNALS}
+    try:
+        yield
+    finally:
+        for sig, handler_before in previous.items():
+            signal.signal(sig, handler_before)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="What a reprocess would store, with nothing "
-        "written: rebuilt from stored evidence and "
-        "compared with the stored document."
+        description="What a reprocess would store, with nothing written: rebuilt from stored "
+        "evidence and compared with the stored document."
     )
-    parser.add_argument("--source-id", nargs="*", default=None, help="these songs only")
+    parser.add_argument("--source-id", nargs="+", default=None, help="these songs only")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--after", default=None, help="songs after this id (a previous next_after)")
     parser.add_argument(
@@ -408,7 +560,13 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="JSON lines, one per song, then the summary (default: "
-        "<data_dir>/preview-<UTC time>.jsonl)",
+        "<data_dir>/preview-<UTC time>.jsonl); never overwritten",
+    )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help="continue an earlier --out: a segment marker, the rows, and a summary of the whole "
+        "file (each song's latest row)",
     )
     parser.add_argument(
         "--documents",
@@ -423,6 +581,12 @@ def main(argv: list[str] | None = None) -> int:
         default=0.5,
         help="at least this long between two requests to lrclib.net",
     )
+    parser.add_argument(
+        "--beside-live-jobs",
+        action="store_true",
+        help="preview even while jobs are queued or running (a preview shares the worker "
+        "container's memory)",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -436,47 +600,109 @@ def main(argv: list[str] | None = None) -> int:
     if gap is not None:
         print(f"preview refused: database schema behind this code: {gap}", file=sys.stderr)
         return EXIT_SCHEMA
-    settings.lrclib_request_gap_s = max(settings.lrclib_request_gap_s, args.lrclib_gap_s)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_path: Path = args.out or settings.data_dir / f"preview-{stamp}.jsonl"
+    if out_path.exists() and not args.append:
+        print(f"preview refused: {out_path} exists (continue it with --append)", file=sys.stderr)
+        return EXIT_OUT_EXISTS
+    earlier, segments = rows_in(out_path) if out_path.exists() else ([], 0)
+    with SessionLocal() as s:
+        live = live_jobs(read_only(s))
+        s.rollback()
+    if live and not args.beside_live_jobs:
+        print(
+            f"preview refused: {live} job(s) queued or running; a preview shares the worker "
+            "container's memory (--beside-live-jobs to preview anyway)",
+            file=sys.stderr,
+        )
+        return EXIT_LIVE_JOBS
+    settings.lrclib_request_gap_s = max(settings.lrclib_request_gap_s, args.lrclib_gap_s)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    replay = replay_requirements()
     print(
         f"preview: pipeline {PIPELINE_VERSION}, lyrics {args.lyrics}, rows to {out_path}",
         flush=True,
     )
+    if replay["this_environment_evidence_mode"] != "replay":
+        print(
+            f"note: EVIDENCE_MODE here is {replay['this_environment_evidence_mode']!r}: a worker "
+            "configured like this downloads on reprocess; refresh from workers in 'replay' with "
+            "the summary's replay.key, and reprocess ONE id first (its log must say 'rebuilt from "
+            "stored evidence, no download')",
+            flush=True,
+        )
     rows: list[dict] = []
     code = EXIT_OK
     started = time.monotonic()
     requests_before = lrclib_requests()
     missing = None
-    with open(out_path, "w") as out:
+    with open(out_path, "a") as out:
+        out.write(
+            json.dumps(
+                {
+                    "segment": {
+                        "started": stamp,
+                        "pipeline": PIPELINE_VERSION,
+                        "lyrics": args.lyrics,
+                        "after": args.after,
+                        "limit": args.limit,
+                        "source_ids": len(args.source_id or []),
+                    }
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        out.flush()
         try:
-            with backfill._sigterm_raises(), SessionLocal() as s:
+            with _stop_signals_raise(), SessionLocal() as s:
                 read_only(s)
                 ids = args.source_id or candidates(s, args.limit, args.after)
                 if not args.source_id:
                     missing = without_evidence(s)
-                    s.rollback()
+                s.rollback()
                 for source_id in ids:
+                    if not args.beside_live_jobs and live_jobs(s):
+                        s.rollback()
+                        print(
+                            "preview stopped: a job went live (resume with --after and --append)",
+                            flush=True,
+                        )
+                        code = EXIT_LIVE_JOBS
+                        break
+                    s.rollback()
                     row = preview_song(s, source_id, lyrics=args.lyrics, documents=args.documents)
                     rows.append(row)
                     out.write(json.dumps(row, sort_keys=True) + "\n")
                     out.flush()
                     detail = f" ({row['detail']})" if row.get("detail") else ""
                     print(f"{source_id}: {row['verdict']}{detail}", flush=True)
-        except backfill.Terminated:
-            code = EXIT_TERMINATED
+        except Stopped as stop:
+            code = 128 + stop.signum
+        except OperationalError:
+            logger.exception("preview stopped: the database went away")
+            code = EXIT_DATABASE
         requests_after = lrclib_requests()
+        everything = whole(earlier, rows)
         summary = {
             "pipeline": PIPELINE_VERSION,
             "lyrics": args.lyrics,
-            **summarize(rows),
+            **summarize(everything),
+            "next_after": rows[-1]["source_id"]
+            if rows
+            else (earlier[-1]["source_id"] if earlier else args.after),
+            "segments": segments + 1,
             "without_evidence": missing,
-            "lrclib_requests": {
-                k: v - requests_before.get(k, 0) for k, v in sorted(requests_after.items())
+            "replay": replay,
+            "this_run": {
+                "songs": len(rows),
+                "lrclib_requests": {
+                    k: v - requests_before.get(k, 0) for k, v in sorted(requests_after.items())
+                },
+                "seconds": round(time.monotonic() - started, 1),
+                "peak_rss_mb": peak_rss_mb(),
+                "exit_code": code,
             },
-            "seconds": round(time.monotonic() - started, 1),
-            "terminated": code == EXIT_TERMINATED,
         }
         out.write(json.dumps({"summary": summary}, sort_keys=True) + "\n")
     print(f"preview summary {json.dumps(summary)}", flush=True)

@@ -3,6 +3,8 @@ from the stored evidence with nothing written and no audio read, compared and ju
 its evidence and the stand-in aligner are test_worker_evidence's."""
 
 import json
+import os
+import signal
 import types
 import uuid
 
@@ -18,7 +20,8 @@ from kashi_server import queue
 from kashi_server.config import settings
 from kashi_server.db.models import Job, ProcessedTrack, SongOverride
 from kashi_server.pipeline import document, evidence
-from kashi_server.pipeline.alignment import AlignResult
+from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
+from kashi_server.pipeline.level import Envelope
 from kashi_server.vdl_kit.errors import PipelineError
 from kashi_server.version import PIPELINE_VERSION
 from kashi_server.worker import preview
@@ -30,6 +33,9 @@ RECORD = {"id": 77, "trackName": "T", "artistName": "A", "duration": SECONDS,
           "plainLyrics": "\n".join(LINES),
           "syncedLyrics": "[00:01.00] hello world\n[00:09.00] again here"}
 TABLES = ("jobs", "processed_tracks", "track_evidence", "song_overrides", "uploaded_audio")
+GONE = 78  # a record lrclib no longer serves
+ALBUM = {"source": "album_art", "primary": "#102030", "secondary": "#203040",
+         "background": "#000000", "text": "#ffffff", "accent": "#405060"}
 
 
 def _snapshot(s):
@@ -80,7 +86,7 @@ def get_record(monkeypatch):
 
     def fetch(record_id, base_url):
         calls.append(record_id)
-        return dict(RECORD, id=record_id) if record_id == RECORD["id"] else None
+        return None if record_id == GONE else dict(RECORD, id=record_id)
 
     monkeypatch.setattr(wp, "fetch_record", fetch)
     return calls
@@ -143,10 +149,23 @@ def test_a_sheet_offset_without_the_override_s_lyrics_takes_the_ladder(db_sessio
 def test_a_record_the_stored_document_names_that_is_gone_fails(db_session, audio, monkeypatch,
                                                                get_record):
     _run(db_session, monkeypatch, "record")
-    _set_document(db_session, lambda d: d["alignment"].update(lyrics_source_id=78))
+    _set_document(db_session, lambda d: d["alignment"].update(lyrics_source_id=GONE))
     row = _preview(db_session, lyrics="stored")
-    assert get_record == [78]
-    assert row["verdict"] == rules.FAILED and "the stored document's lyrics record" in row["detail"]
+    assert get_record == [GONE]
+    assert (row["verdict"], row["detail"]) == (
+        rules.FAILED, "the stored document's lyrics record is gone or unusable")
+
+
+def test_another_error_in_stored_mode_is_not_blamed_on_the_record(db_session, audio, monkeypatch,
+                                                                  get_record):
+    _run(db_session, monkeypatch, "record")
+
+    def other(doc):
+        raise PipelineError("other", "something else went wrong")
+
+    monkeypatch.setattr(wp, "validate_document", other)
+    row = _preview(db_session, lyrics="stored")
+    assert (row["verdict"], row["detail"]) == (rules.FULL_JOB, "pipeline error other")
 
 
 # --- nothing is written -------------------------------------------------------------------------
@@ -187,7 +206,8 @@ def test_a_preview_cannot_write(db_session, audio, monkeypatch, tmp_path):
     finally:
         event.remove(engine, "before_cursor_execute", only_reads)
     assert row["verdict"] == rules.UNCHANGED, row
-    assert json.loads(out.read_text().splitlines()[0])["verdict"] == rules.UNCHANGED
+    lines = [json.loads(line) for line in out.read_text().splitlines()]
+    assert "segment" in lines[0] and lines[1]["verdict"] == rules.UNCHANGED
     assert any(s.startswith("SET TRANSACTION READ ONLY") for s in statements)
     assert audio.total() == 0, audio.reads
     assert settings.lrclib_request_gap_s == 0.5  # batch work: the top of lrclib's asked gap
@@ -290,7 +310,7 @@ def test_a_replay_fault_needs_a_full_job(db_session, audio, monkeypatch):
     _run(db_session, monkeypatch, "record")
     audio.fail_align = True
     row = _preview(db_session)
-    assert row["verdict"] == rules.FULL_JOB and row["detail"].startswith("the replay failed")
+    assert (row["verdict"], row["detail"]) == (rules.FULL_JOB, "replay fault RuntimeError")
 
 
 def test_a_permanent_error_in_the_replay_needs_a_full_job(db_session, audio, monkeypatch):
@@ -301,7 +321,7 @@ def test_a_permanent_error_in_the_replay_needs_a_full_job(db_session, audio, mon
 
     monkeypatch.setattr(wp, "validate_document", invalid)
     row = _preview(db_session)
-    assert row["verdict"] == rules.FULL_JOB and row["detail"].startswith("alignment_failed")
+    assert (row["verdict"], row["detail"]) == (rules.FULL_JOB, "pipeline error alignment_failed")
 
 
 # --- failures ------------------------------------------------------------------------------------
@@ -311,7 +331,7 @@ def test_weather_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):
     _run(db_session, monkeypatch, "record")
     audio.weather = True
     row = _preview(db_session)
-    assert row["verdict"] == rules.FAILED and row["detail"].startswith("network")
+    assert (row["verdict"], row["detail"]) == (rules.FAILED, "transient network")
 
 
 def test_lrclib_unavailable_is_a_failure_and_nothing_is_deferred(db_session, audio, monkeypatch):
@@ -500,10 +520,17 @@ def test_the_command_previews_the_songs_with_evidence(db_session, audio, monkeyp
     summary = json.loads(printed.rsplit("preview summary ", 1)[1])
     assert summary["verdicts"][rules.UNCHANGED] == 1 and summary["unchanged_ids"] == [SONG]
     assert summary["refresh_ids"] == [] and summary["without_evidence"] == 1
-    assert summary["next_after"] == SONG and summary["terminated"] is False
+    assert summary["next_after"] == SONG and summary["this_run"]["exit_code"] == 0
+    assert summary["segments"] == 1 and summary["this_run"]["peak_rss_mb"] > 0
+    replay = summary["replay"]
+    assert replay["evidence_mode"] == "replay" and replay["this_environment_evidence_mode"] == "off"
+    assert replay["key"] == evidence.expected_key(
+        settings, separate_first=settings.separation_mode == "always")
+    assert "note: EVIDENCE_MODE here is 'off'" in printed
     (out,) = tmp_path.glob("preview-*.jsonl")
     lines = out.read_text().splitlines()
-    assert json.loads(lines[0])["source_id"] == SONG and "summary" in json.loads(lines[-1])
+    assert "segment" in json.loads(lines[0]) and json.loads(lines[1])["source_id"] == SONG
+    assert "summary" in json.loads(lines[-1])
     assert list(tmp_path.glob(f"{preview.DIR_PREFIX}*")) == []  # its scratch is gone
     db_session.rollback()
     assert db_session.scalar(select(func.count()).select_from(ProcessedTrack)) == 2
@@ -536,8 +563,8 @@ def test_the_summary_lists_what_to_refresh_and_why_not_the_rest():
     ]
     summary = preview.summarize(rows)
     assert summary["refresh_ids"] == ["a", "e"] and summary["unchanged_ids"] == ["f"]
-    assert summary["verdicts"] == {rules.REFRESH: 2, rules.UNCHANGED: 1, "keep": 2,
-                                   rules.SHEET: 0, rules.FULL_JOB: 1, rules.FAILED: 0}
+    assert summary["verdicts"] == {rules.REFRESH: 2, rules.UNCHANGED: 1, rules.REVIEW: 0,
+                                   "keep": 2, rules.SHEET: 0, rules.FULL_JOB: 1, rules.FAILED: 0}
     assert summary["vetoes"] == {"W1": 1, "W3": 1}
     assert summary["keep"] == {"b": "veto: W1, W3", "c": "guard: stale: x"}
     assert summary["needs_full_job"] == {"d": "no evidence stored"}
@@ -561,3 +588,342 @@ def test_the_summary_adds_up_the_songs_judged_on_the_same_sheet():
     assert totals == {"songs": 2, "old": {"lines": 6, "dwell_under_120": 4},
                       "new": {"lines": 6, "dwell_under_120": 6},
                       "moved_lines": {"over_100": 3, "over_500": 2, "over_1500": 1}}
+
+
+# --- round 2: the ladder confirms a stored-mode refresh ------------------------------------------
+
+
+def _older(doc, line=1, by=700):
+    """The stored document as an older build left it: one line `by` ms earlier."""
+    doc["pipeline_version"] = "2.34.0"
+    for word in doc["lines"][line].get("words") or []:
+        word["start_ms"] -= by
+        word["end_ms"] -= by
+    doc["lines"][line]["start_ms"] -= by
+
+
+@pytest.fixture
+def ladder_calls(monkeypatch):
+    """Every ladder lookup, counted; the record it finds is test_worker_evidence's (77)."""
+    calls = []
+    found = wp.fetch_lyrics
+
+    def fetch(hints, base_url):
+        calls.append(hints.get("title"))
+        return found(hints, base_url=base_url)  # the worker's own call shape
+
+    monkeypatch.setattr(wp, "fetch_lyrics", fetch)
+    return calls
+
+
+def test_a_stored_mode_refresh_is_confirmed_by_the_ladder(db_session, audio, monkeypatch,
+                                                         get_record, ladder_calls):
+    _run(db_session, monkeypatch, "record")
+    ladder_calls.clear()
+    _set_document(db_session, _older)
+    row = _preview(db_session, lyrics="stored")
+    assert get_record == [77] and len(ladder_calls) == 1
+    assert row["verdict"] == rules.REFRESH and row["lyrics"] == "record 77"
+    assert row["ladder"] == {"verdict": rules.REFRESH, "lyrics_record": 77, "confirmed": True}
+
+
+def test_only_a_refresh_asks_the_ladder(db_session, audio, monkeypatch, get_record, ladder_calls):
+    _run(db_session, monkeypatch, "record")
+    ladder_calls.clear()
+    row = _preview(db_session, lyrics="stored")
+    assert row["verdict"] == rules.UNCHANGED and ladder_calls == [] and "ladder" not in row
+
+
+def test_the_ladder_choosing_another_record_is_a_changed_sheet(db_session, audio, monkeypatch,
+                                                               get_record, ladder_calls):
+    _run(db_session, monkeypatch, "record")
+
+    def older_on_76(doc):
+        _older(doc)
+        doc["alignment"]["lyrics_source_id"] = 76
+
+    _set_document(db_session, older_on_76)
+    row = _preview(db_session, lyrics="stored")
+    assert get_record == [76]
+    assert (row["verdict"], row["detail"]) == (rules.SHEET, "ladder: lyrics record 76 -> 77")
+    assert row["ladder"]["confirmed"] is False and row["ladder"]["lyrics_record"] == 77
+
+
+def test_a_ladder_that_needs_the_by_ear_rung_is_a_full_job(db_session, audio, monkeypatch,
+                                                           get_record):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)
+
+    def miss(hints, base_url):
+        raise PipelineError("lyrics_not_found", "no record")
+
+    monkeypatch.setattr(wp, "fetch_lyrics", miss)
+    monkeypatch.setattr(wp, "search_candidates", lambda query, base_url: [RECORD])
+    row = _preview(db_session, lyrics="stored")
+    assert (row["verdict"], row["detail"]) == (rules.FULL_JOB, "ladder: the by-ear rung")
+
+
+def test_ladder_weather_fails_the_confirmation(db_session, audio, monkeypatch, get_record):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)
+
+    def busy(hints, base_url):
+        raise PipelineError("lrclib_unavailable", "503")
+
+    monkeypatch.setattr(wp, "fetch_lyrics", busy)
+    row = _preview(db_session, lyrics="stored")
+    assert row["verdict"] == rules.FAILED and row["detail"].startswith("ladder: lrclib unavailable")
+
+
+def test_a_ladder_building_another_document_on_the_same_record_is_review(db_session, audio,
+                                                                        monkeypatch, get_record):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)
+    palettes = iter([dict(ALBUM), dict(ALBUM, primary="#ffffff")])  # the two passes differ
+    monkeypatch.setattr(wp, "extract_palette", lambda url: next(palettes))
+    row = _preview(db_session, lyrics="stored")
+    assert row["verdict"] == rules.REVIEW and row["ladder"]["confirmed"] is False
+    assert row["detail"] == "the ladder builds another document than the stored record does"
+
+
+# --- round 2: W1, W2, W4 and review end to end ---------------------------------------------------
+
+
+def _rebuild_with(monkeypatch, change):
+    """The stand-in aligner's result, changed by `change(words_per_line)` (in a replay only)."""
+    stand_in = wp.align
+
+    def changed(*a, **kw):
+        from kashi_server.pipeline import evidence as ev
+
+        result = stand_in(*a, **kw)
+        if not ev.replaying():
+            return result
+        words = change([list(chunk) for chunk in result.words_per_line])
+        lines = [LineTiming(chunk[0].start_ms, chunk[-1].end_ms, line.text, line.score)
+                 for chunk, line in zip(words, result.lines, strict=True)]
+        return AlignResult(sync="word", lines=lines, words_per_line=words,
+                           quality_score=result.quality_score, windowed=True,
+                           model_name=result.model_name)
+
+    monkeypatch.setattr(wp, "align", changed)
+
+
+def test_w1_end_to_end(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "record")
+
+    def pile(words):
+        first = words[0][0]
+        words[0] = [AlignedWord(first.start_ms + 10 * k, first.start_ms + 10 * k + 10, "w", 0.8)
+                    for k in range(5)]
+        return words
+
+    _rebuild_with(monkeypatch, pile)
+    row = _preview(db_session)
+    assert (row["verdict"], row["detail"]) == (rules.VETOED, "veto: W1")
+    assert row["w1"]["words"] == 5 and row["w1"]["line"] == 0
+
+
+def test_w4_end_to_end(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, lambda d: _older(d, by=300))
+
+    def rush(words):
+        a, b = words[1][0], words[1][1]
+        words[1] = [a, AlignedWord(a.start_ms + 50, b.end_ms, b.text, b.prob)]
+        return words
+
+    _rebuild_with(monkeypatch, rush)
+    row = _preview(db_session)
+    assert (row["verdict"], row["detail"]) == (rules.VETOED, "veto: W4")
+    assert row["w4"] == [{"line": 1, "dwell_old_ms": 300, "dwell_new_ms": 50}]
+
+
+def test_w2_end_to_end(db_session, audio, monkeypatch):
+    """The voice returns at 11 000 ms on the recorded envelope; the stored document starts line 1
+    there, the rebuild ~3 s earlier."""
+    frames = 16_000 * SECONDS // 320
+    levels = bytes([100] * 550 + [0] * 10 + [100] * (frames - 560))
+    monkeypatch.setattr(wp, "level_envelope", lambda path: Envelope(
+        levels, crossings=bytes(frames), loudest=(10**9, 320)))
+    recorded = _run(db_session, monkeypatch, "record")
+    by = recorded["lines"][1]["start_ms"] - 11_000
+    _set_document(db_session, lambda d: _older(d, by=by))
+    row = _preview(db_session)
+    assert row["voice"]["returns"] == 1 and row["voice"]["placed_old"] == 1
+    assert abs(by) > 1500
+    assert row["w2"]["voice_ms"] == 11_000 and row["w2"]["away_ms"] == abs(by)
+    assert (row["verdict"], row["detail"]) == (rules.VETOED, "veto: W2")
+
+
+def test_a_move_w2_cannot_judge_is_review(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, lambda d: _older(d, line=0, by=-1600))  # line 0 is never placed
+    row = _preview(db_session)
+    assert row["w2_unjudged"] == [0]
+    assert (row["verdict"], row["detail"]) == (
+        rules.REVIEW, "line(s) 0 moved > 1500 ms where W2 cannot judge")
+
+
+def test_a_palette_falling_back_is_review(db_session, audio, monkeypatch):
+    calls = []
+
+    def album(url):
+        calls.append(url)
+        return dict(ALBUM)
+
+    monkeypatch.setattr(wp, "extract_palette", album)
+    _run(db_session, monkeypatch, "record")
+
+    def fails(url):
+        calls.append(url)
+        return dict(document_default_palette())
+
+    monkeypatch.setattr(wp, "extract_palette", fails)
+    calls.clear()
+    row = _preview(db_session)
+    assert len(calls) == 1  # fetched live, not from evidence
+    assert (row["verdict"], row["detail"]) == (
+        rules.REVIEW, "palette would fall back to the default")
+    assert row["differs"] == ["palette"]
+
+
+def document_default_palette():
+    from kashi_server.pipeline.palette import DEFAULT_PALETTE
+
+    return DEFAULT_PALETTE
+
+
+# --- round 2: the command ------------------------------------------------------------------------
+
+
+def _main(monkeypatch, tmp_path, *args):
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "lrclib_request_gap_s", 0.0)
+    return preview.main(["--lyrics", "ladder", *args])
+
+
+def _lines(path):
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_out_is_never_overwritten_and_append_sums_up_the_whole_file(db_session, audio,
+                                                                     monkeypatch, tmp_path):
+    _run(db_session, monkeypatch, "record")
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == 0
+    first = out.read_text()
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == preview.EXIT_OUT_EXISTS
+    assert out.read_text() == first
+    _set_document(db_session, _older)
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--append") == 0
+    lines = _lines(out)
+    assert [("segment" in x, "source_id" in x, "summary" in x) for x in lines] == [
+        (True, False, False), (False, True, False), (False, False, True),
+        (True, False, False), (False, True, False), (False, False, True)]
+    summary = lines[-1]["summary"]
+    assert summary["segments"] == 2 and summary["songs"] == 1  # the song's latest row
+    assert summary["refresh_ids"] == [SONG] and summary["this_run"]["songs"] == 1
+
+
+def test_live_jobs_refuse_the_run_or_stop_it(db_session, audio, monkeypatch, tmp_path):
+    _run(db_session, monkeypatch, "record")
+    _job(db_session)  # claimed: running
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == preview.EXIT_LIVE_JOBS
+    assert not out.exists()
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--beside-live-jobs") == 0
+    answers = iter([0, 1])
+    monkeypatch.setattr(preview, "live_jobs", lambda s: next(answers))
+    out2 = tmp_path / "rows2.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out2)) == preview.EXIT_LIVE_JOBS
+    summary = _lines(out2)[-1]["summary"]
+    assert summary["songs"] == 0 and summary["this_run"]["exit_code"] == preview.EXIT_LIVE_JOBS
+
+
+@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP])
+def test_a_stop_signal_ends_the_run_with_its_summary(db_session, audio, monkeypatch, tmp_path,
+                                                     sig):
+    _run(db_session, monkeypatch, "record")
+    audio.on_replay = lambda: os.kill(os.getpid(), sig)
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == 128 + sig
+    summary = _lines(out)[-1]["summary"]
+    assert summary["songs"] == 0 and summary["this_run"]["exit_code"] == 128 + sig
+    assert list(tmp_path.glob(f"{preview.DIR_PREFIX}*")) == []  # the song's scratch is gone
+    assert signal.getsignal(sig) is not None  # the handler before the run is back
+
+
+def test_the_database_going_away_ends_the_run_with_its_summary(db_session, audio, monkeypatch,
+                                                               tmp_path):
+    from sqlalchemy.exc import OperationalError
+
+    _run(db_session, monkeypatch, "record")
+
+    def gone(*_a, **_k):
+        raise OperationalError("SELECT 1", {}, Exception("server closed the connection"))
+
+    monkeypatch.setattr(preview, "preview_song", gone)
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out)) == preview.EXIT_DATABASE
+    assert _lines(out)[-1]["summary"]["this_run"]["exit_code"] == preview.EXIT_DATABASE
+
+
+def test_after_and_limit_through_the_command(db_session, audio, monkeypatch, tmp_path):
+    for song in ("songA0000001", "songB0000001", "songC0000001"):
+        monkeypatch.setattr(settings, "evidence_mode", "record")
+        job = _job(db_session, source_id=song)
+        wp.process_job(db_session, job)
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--after", "songA0000001",
+                 "--limit", "1") == 0
+    assert [x["source_id"] for x in _lines(out) if "source_id" in x] == ["songB0000001"]
+
+
+def test_source_id_needs_at_least_one_id(monkeypatch, tmp_path):
+    with pytest.raises(SystemExit) as stop:
+        preview.main(["--source-id"])
+    assert stop.value.code == 2
+
+
+# --- round 2: the report carries no free text ----------------------------------------------------
+
+
+@pytest.mark.parametrize("raised,detail", [
+    (PipelineError("alignment_failed", "no lyrics for SECRETARTIST - hello world"),
+     "pipeline error alignment_failed"),
+    (PipelineError("network", "SECRETARTIST hello world"), "transient network"),
+    (RuntimeError("SECRETARTIST hello world"), "replay fault RuntimeError"),
+])
+def test_failure_rows_carry_no_title_or_lyrics(db_session, audio, monkeypatch, raised, detail):
+    _run(db_session, monkeypatch, "record")
+
+    def fail(doc):
+        raise raised
+
+    monkeypatch.setattr(wp, "validate_document", fail)
+    row = _preview(db_session)
+    assert row["detail"] == detail
+    text = json.dumps(row)
+    assert "SECRETARTIST" not in text and "hello" not in text
+
+
+def test_evidence_replaced_while_read_fails_instead_of_asking_a_full_job(db_session, audio,
+                                                                         monkeypatch):
+    _run(db_session, monkeypatch, "record")
+    load = evidence.DbStore.load
+
+    def replaced(self, source_type, source_id):
+        record = load(self, source_type, source_id)
+        assert record is not None
+
+        def changed():
+            raise evidence.EvidenceChanged("the stored record changed while it was read")
+
+        record.load_blob = changed
+        return record
+
+    monkeypatch.setattr(evidence.DbStore, "load", replaced)
+    row = _preview(db_session)
+    assert (row["verdict"], row["detail"]) == (
+        rules.FAILED, "evidence replaced while it was read: preview the song again")

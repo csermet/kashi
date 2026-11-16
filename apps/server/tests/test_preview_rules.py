@@ -381,3 +381,71 @@ def test_every_veto_is_named_in_the_detail():
     old = _doc([_line(1000, [1000 + 200 * k for k in range(5)]), _line(5000, [5000, 5500])])
     new = _doc([_line(1000, [1000 + 10 * k for k in range(5)]), _line(5000)])
     assert r.verdict(r.compare(old, new, None)) == (r.VETOED, "veto: W1, W3")
+
+
+# --- round 2: what W2 cannot judge, the palette, older documents ----------------------------------
+
+
+@pytest.mark.parametrize("d,unjudged", [(1500, []), (1501, [1]), (-1500, []), (-1501, [1])])
+def test_a_move_past_1500_ms_without_a_stored_reference_is_unjudged(d, unjudged):
+    old = _doc([_line(1000, [1000], end=1300), _line(5000, [5000, 5600])])  # no envelope: unplaced
+    new = _doc([_line(1000, [1000], end=1300), _line(5000 + d, [5000 + d, 5600 + d])])
+    comparison = r.compare(old, new, None)
+    assert comparison["w2_unjudged"] == unjudged
+    assert r.verdict(comparison)[0] == (r.REVIEW if unjudged else r.REFRESH)
+
+
+def test_a_line_the_stored_document_places_is_judged_not_reviewed():
+    comparison = _w2(0, 1499)  # placed on the stored document, 1 499 ms farther: no veto
+    assert comparison["w2_unjudged"] == [] and r.verdict(comparison)[0] == r.REFRESH
+    reviewed = _w2(1600, 0)  # placed only on the new document (moved toward the voice)
+    assert reviewed["w2_unjudged"] == [1]
+    assert r.verdict(reviewed) == (r.REVIEW, "line(s) 1 moved > 1500 ms where W2 cannot judge")
+
+
+def test_the_first_line_is_never_judged_by_w2():
+    old = _doc([_line(1000, [1000, 1500]), _line(9000, [9000])])
+    new = _doc([_line(3000, [3000, 3500]), _line(9000, [9000])])
+    assert r.compare(old, new, _env([0] * 600))["w2_unjudged"] == [0]
+
+
+@pytest.mark.parametrize("old_source,new_source,review", [
+    ("album_art", "default", True), ("default", "default", False), (None, "default", False),
+    ("album_art", "album_art", False),
+])
+def test_a_palette_falling_back_to_the_default_is_review(old_source, new_source, review):
+    old = _doc([_line(1000, [1000])])
+    if old_source:
+        old["palette"] = {"source": old_source, "primary": "#000001"}
+    new = {**old, "pipeline_version": "2.35.0",
+           "palette": {"source": new_source, "primary": "#e84545"}}
+    comparison = r.compare(old, new, None)
+    assert comparison["palette_falls_back"] is review
+    expected = (r.REVIEW, "palette would fall back to the default") if review else (r.REFRESH, "")
+    assert r.verdict(comparison) == expected
+
+
+def test_a_document_older_than_the_speed_factor_reads_as_one():
+    old = _doc([_line(1000, [1000])])
+    del old["alignment"]["speed_factor"]
+    assert r.sheet_changes(old, _doc([_line(1000, [1000])])) == []
+    assert r.sheet_changes(old, _doc([_line(1000, [1000])], speed_factor=1.25)) == [
+        "speed factor None -> 1.25"]
+
+
+def test_inline_tags_stripped_are_the_same_line():
+    old = _doc([_line(1000, [1000], text="<00:01.00>la <00:01.50>la")])
+    assert r.sheet_changes(old, _doc([_line(1000, [1000], text="la la")])) == []
+    assert r.sheet_changes(old, _doc([_line(1000, [1000], text="la lo")])) == [
+        "text of 1 line(s), first line 0"]
+    tagged_new = _doc([_line(1000, [1000], text="<00:01.00>la la")])
+    assert r.sheet_changes(_doc([_line(1000, [1000], text="la la")]), tagged_new) == [
+        "text of 1 line(s), first line 0"]  # only the stored side is stripped
+
+
+def test_the_review_comes_after_the_vetoes_and_before_refresh():
+    old = _doc([_line(1000, [1000 + 200 * k for k in range(5)]), _line(5000, [5000, 5500])])
+    piled = _doc([_line(1000, [1000 + 10 * k for k in range(5)]), _line(7000, [7000, 7500])])
+    assert r.verdict(r.compare(old, piled, None)) == (r.VETOED, "veto: W1")
+    moved = _doc([_line(1000, [1000 + 200 * k for k in range(5)]), _line(7000, [7000, 7500])])
+    assert r.verdict(r.compare(old, moved, None))[0] == r.REVIEW

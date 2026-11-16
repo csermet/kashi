@@ -23,8 +23,21 @@ stem (librosa RMS over 128 ms windows, 16 ms apart); this one reads 20 ms frames
 rule moved a word, it moved it out of silence on this same envelope, so this witness cannot argue
 with that rule's own moves; it watches every other move (carries, sheet shifts, regroups).
 
+W2 judges only the lines the STORED document lets the witness place: the reference taken on the new
+document lies within LINE_VOICE_MAX_MS of the new start, so it can never put the new start more
+than VETO_AWAY_MS farther away; the first line, and every line inside continuous singing, are never
+placed. A line start that moves more than VETO_AWAY_MS without such a reference is therefore
+`review`: neither vetoed nor refreshed, listed for a person.
+
+A rebuild whose palette is the fallback (the artwork fetch failed: the palette is fetched live, it
+is not evidence) while the stored one was read off the artwork is `review` too: a reprocess would
+store the default colours over the album's.
+
 A sheet that changed (another lyrics record, source or clock, another line count, any line's text)
-is reported and never judged by these measures: they pair lines by index.
+is reported and never judged by these measures: they pair lines by index. A document that predates
+`alignment.speed_factor` reads as 1.0 (what every document without it was aligned on), and a line
+whose stored text, with its inline time tags stripped (pipeline 2.34.0), equals the new text is the
+same line.
 
 Every list in the output carries line indexes and times only, never lyric text.
 """
@@ -36,6 +49,7 @@ from typing import Any
 
 from kashi_server.pipeline.alignment import FIRST_HEARD_MIN_SILENCE_MS, FIRST_HEARD_SILENCE_DB
 from kashi_server.pipeline.level import Envelope
+from kashi_server.pipeline.lrclib import strip_inline_tags
 
 #: W1: words of one line form a run while each starts less than this after the one before it.
 RUN_STEP_MS = 60
@@ -68,8 +82,12 @@ FULL_JOB = "needs a full job"
 GUARDED = "keep"  # the persist guard would keep the stored document (detail: "guard: ...")
 SHEET = "sheet changed"
 VETOED = "keep"  # detail: "veto: W1, ..."
+REVIEW = "review"  # a move W2 cannot judge, a palette falling back: for a person, not refreshed
 UNCHANGED = "unchanged"
 REFRESH = "refresh"
+
+#: The palette's `source` when the artwork could not be read (pipeline/palette.DEFAULT_PALETTE).
+DEFAULT_PALETTE_SOURCE = "default"
 
 #: Document fields a rebuild always changes: they say when and by which version, not what.
 STAMP_FIELDS = ("generated_at", "pipeline_version")
@@ -120,10 +138,19 @@ def shape(doc: dict) -> dict:
     return out
 
 
+#: What an absent alignment field means (a document older than the field).
+FIELD_DEFAULTS = {"speed_factor": 1.0}
+
+
+def _same_text(stored: str | None, new: str | None) -> bool:
+    """The same line: equal, or equal once the stored text's inline time tags are stripped."""
+    return stored == new or (stored is not None and strip_inline_tags(stored) == new)
+
+
 def sheet_changes(old: dict, new: dict) -> list[str]:
     """Why the two documents are not on the same sheet: the lyrics record, its source, the clock
-    (speed factor), the line count, and the index of the first line whose text differs. []: the
-    same sheet, so lines pair by index."""
+    (speed factor; absent = 1.0), the line count, and the index of the first line whose text
+    differs (inline tags aside). []: the same sheet, so lines pair by index."""
     a, b = old.get("alignment") or {}, new.get("alignment") or {}
     out = []
     for name, label in (
@@ -131,14 +158,17 @@ def sheet_changes(old: dict, new: dict) -> list[str]:
         ("lyrics_source_id", "lyrics record"),
         ("speed_factor", "speed factor"),
     ):
-        if a.get(name) != b.get(name):
+        default = FIELD_DEFAULTS.get(name)
+        if a.get(name, default) != b.get(name, default):
             out.append(f"{label} {a.get(name)} -> {b.get(name)}")
     la, lb = _lines(old), _lines(new)
     if len(la) != len(lb):
         out.append(f"line count {len(la)} -> {len(lb)}")
     else:
         texts = [
-            i for i, (x, y) in enumerate(zip(la, lb, strict=True)) if x.get("text") != y.get("text")
+            i
+            for i, (x, y) in enumerate(zip(la, lb, strict=True))
+            if not _same_text(x.get("text"), y.get("text"))
         ]
         if texts:
             out.append(f"text of {len(texts)} line(s), first line {texts[0]}")
@@ -229,6 +259,13 @@ def placed_on_voice(doc: dict, returns: list[int]) -> dict[int, int]:
     return out
 
 
+def palette_falls_back(old: dict, new: dict) -> bool:
+    """The rebuild's palette is the default fallback while the stored one is not."""
+    source_old = (old.get("palette") or {}).get("source")
+    source_new = (new.get("palette") or {}).get("source")
+    return source_new == DEFAULT_PALETTE_SOURCE and source_old not in (None, DEFAULT_PALETTE_SOURCE)
+
+
 def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
     """Everything the verdict reads, and the report around it (numbers only)."""
     out: dict[str, Any] = {
@@ -239,6 +276,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         "old": shape(old),
         "new": shape(new),
         "sheet": sheet_changes(old, new),
+        "palette_falls_back": palette_falls_back(old, new),
     }
     if out["sheet"]:
         return out
@@ -251,6 +289,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
     lost: list[int] = []
     gained: list[int] = []
     w4: list[dict] = []
+    unjudged: list[int] = []
     for i, (a, b) in enumerate(zip(la, lb, strict=True)):
         wa, wb = _words(a), _words(b)
         for k0, k1 in new_runs(wa, wb):
@@ -284,6 +323,8 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
                 row["lead_old_ms"] = silent_lead(envelope, a["start_ms"])
                 row["lead_new_ms"] = silent_lead(envelope, b["start_ms"])
             moved.append(row)
+            if abs(d) > VETO_AWAY_MS and i not in on_old:
+                unjudged.append(i)
             if len(wa) > 1 and len(wb) > 1:
                 dwell_old = wa[1]["start_ms"] - wa[0]["start_ms"]
                 dwell_new = wb[1]["start_ms"] - wb[0]["start_ms"]
@@ -304,6 +345,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         "envelope": envelope is not None,
     }
     out["w1"], out["w2"], out["w3"], out["w4"] = w1, w2, lost, w4
+    out["w2_unjudged"] = unjudged
     return out
 
 
@@ -321,10 +363,23 @@ def vetoes(comparison: dict) -> list[str]:
     return out
 
 
+def reviews(comparison: dict) -> list[str]:
+    """What a person must look at before the song is refreshed (none of it a veto)."""
+    out = []
+    unjudged = comparison.get("w2_unjudged") or []
+    if unjudged:
+        lines = ", ".join(str(i) for i in unjudged)
+        out.append(f"line(s) {lines} moved > {VETO_AWAY_MS} ms where W2 cannot judge")
+    if comparison.get("palette_falls_back"):
+        out.append("palette would fall back to the default")
+    return out
+
+
 def verdict(comparison: dict, guard: tuple[str, str] | None = None) -> tuple[str, str]:
     """(verdict, detail) for a built document: the persist guard first (a reprocess would keep the
-    stored document whatever it measures), then a changed sheet, then the vetoes; a document that
-    differs only in when and by which version it was made is `unchanged`."""
+    stored document whatever it measures), then a changed sheet, then the vetoes, then what needs a
+    person (`review`); a document that differs only in when and by which version it was made is
+    `unchanged`."""
     if guard is not None:
         return GUARDED, f"guard: {guard[0]}: {guard[1]}"
     if comparison["sheet"]:
@@ -332,6 +387,9 @@ def verdict(comparison: dict, guard: tuple[str, str] | None = None) -> tuple[str
     fired = vetoes(comparison)
     if fired:
         return VETOED, "veto: " + ", ".join(fired)
+    review = reviews(comparison)
+    if review:
+        return REVIEW, "; ".join(review)
     if not comparison["differs"]:
         return UNCHANGED, ""
     return REFRESH, ""

@@ -96,6 +96,11 @@ class EvidenceMissing(Exception):  # noqa: N818 - a reason to run the job in ful
     """The replay cannot serve this exactly; the job must run in full."""
 
 
+class EvidenceChanged(EvidenceMissing):
+    """The stored record was replaced while it was read (a back-fill or a job wrote it): the job
+    runs in full like for any EvidenceMissing; a preview reads the song again instead."""
+
+
 # --- arrays ---------------------------------------------------------------------------------
 
 
@@ -470,7 +475,7 @@ class DbStore:
                 )
             ).scalar()
             if value is None:
-                raise EvidenceMissing("the stored record changed while it was read")
+                raise EvidenceChanged("the stored record changed while it was read")
             return bytes(value)
 
         return Evidence(source_type, source_id, row.key, row.meta, load_blob=blob)
