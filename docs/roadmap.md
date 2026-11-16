@@ -81,7 +81,13 @@ seconds before its line now starts where the voice returns (8 lines in 6 of 287 
 same complaint over continuous singing is open, `toptan-gozden-gecirme-2026-11.md`, "Release
 2.35.0"), and the stem's level envelope is part of the evidence a job can keep. Next: back-fill the
 archive's evidence with this build, switch the workers to `replay`, then let the archive follow
-2.35.0 without downloads.
+2.35.0 without downloads. Server 0.41.0 (pipeline unchanged) adds the step before that: a preview
+that builds what a replay would store, compares it with the stored document and gives each song a
+verdict without writing anything (`refresh-from-evidence-2026-11.md`, "Preview before refresh") —
+the archive step of the acceptance order, in the cluster and over every song with evidence — and a
+guard in front of the aligner library, which was found to write outside its buffer on short
+windows without a repeated letter (refused where it always crashes, logged elsewhere; aligning
+those windows safely is an open timing step).
 D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
