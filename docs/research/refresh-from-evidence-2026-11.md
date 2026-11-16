@@ -205,9 +205,15 @@ change: documents do not change.
   uploads, the stem code outside the pin, the missing identity check, the queued back-fill job,
   scratch left by a killed back-fill, a cursor-less candidate list, a value required that some
   jobs never read, the identity check's loop, torn reads, recorder faults failing jobs. Each fix
-  came with a test that fails without it; one-line mutations of the new code: MUT3.
-- **Final proof:** P4-RESULT
-- **Gate:** GATE3
+  came with a test that fails without it. One-line mutations of the new code (every earlier one
+  kept, one for each fix): 96 of 96 make the tests fail; the one that first survived (the store
+  without its "job completed" check, hidden by the missing-values check) got its own test.
+- **Final proof** on the merged code: main == off == record == replay, 39/39 (replay 1.74 s a song,
+  77.5 MB of evidence); then, with the evidence emptied, the back-fill command stored 39 of 39, added
+  no job and left every stored document byte-identical, and the replay from its records equals off,
+  39/39.
+- **Gate:** pytest (DB tests against a throwaway Postgres 17), ruff, pyright and check-versions,
+  all clean; no TypeScript, schema or codegen change.
 
 ## What is left
 
