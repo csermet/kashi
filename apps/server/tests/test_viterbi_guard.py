@@ -37,11 +37,9 @@ def _brute_overruns(targets, T):
     written = []
     for t in range(1, T):
         if T - t <= L + R:
-            if start % 2 == 1:
-                if start // 2 + 1 >= L:
-                    return True
-                if targets[start // 2] != targets[start // 2 + 1]:
-                    start += 1
+            after = targets[start // 2 + 1] if start // 2 + 1 < L else None
+            if start % 2 == 1 and targets[start // 2] != after:
+                start += 1
             start += 1
         if t <= L + R:
             if end % 2 == 0 and end < 2 * L and targets[end // 2 - 1] != targets[end // 2]:

@@ -789,8 +789,7 @@ def library_overruns(n_frames: int, targets: list[int]) -> bool:
     band: its own band bookkeeping, line for line, without the scores (one pass over the frames).
     Only targets in which no id repeats its neighbour overrun them, below about two frames a
     target; measured on the compiled library there: SIGSEGV, SIGABRT, or a path that does not spell
-    the text (get_spans' `AssertionError: n != i`). A read past the targets, which the bookkeeping
-    would make at its last state, counts as an overrun too (no sweep reached one)."""
+    the text (get_spans' `AssertionError: n != i`)."""
     n_targets = len(targets)
     n_states = 2 * n_targets + 1
     repeats = _repeats(targets)
@@ -800,11 +799,11 @@ def library_overruns(n_frames: int, targets: list[int]) -> bool:
     seek = 0
     for t in range(1, n_frames):
         if n_frames - t <= n_targets + repeats:
-            if start % 2 == 1:
-                if start // 2 + 1 >= n_targets:
-                    return True
-                if targets[start // 2] != targets[start // 2 + 1]:
-                    start += 1
+            # The C++ reads targets[start / 2 + 1] here even at the last target (one past the
+            # end: unknown memory, taken as different); no sweep of the bookkeeping got there.
+            after = targets[start // 2 + 1] if start // 2 + 1 < n_targets else None
+            if start % 2 == 1 and targets[start // 2] != after:
+                start += 1
             start += 1
         if t <= n_targets + repeats:
             if end % 2 == 0 and end < 2 * n_targets and targets[end // 2 - 1] != targets[end // 2]:
