@@ -361,8 +361,9 @@ def test_no_document_or_no_job_history_fails(db_session, audio, monkeypatch):
 # --- the comparison and the verdict, wired -------------------------------------------------------
 
 
-def test_a_moved_line_is_reported_and_refreshed(db_session, audio, monkeypatch):
+def test_a_moved_line_is_reported_and_refreshed(db_session, audio, monkeypatch, ladder_calls):
     _run(db_session, monkeypatch, "record")
+    ladder_calls.clear()
 
     def older(doc):
         doc["pipeline_version"] = "2.34.0"
@@ -374,6 +375,7 @@ def test_a_moved_line_is_reported_and_refreshed(db_session, audio, monkeypatch):
     old = _set_document(db_session, older)
     row = _preview(db_session)
     assert row["verdict"] == rules.REFRESH and row["detail"] == ""
+    assert len(ladder_calls) == 1 and "ladder" not in row  # a ladder-mode refresh: one pass
     assert row["pipeline"] == ["2.34.0", PIPELINE_VERSION] and row["old_pipeline"] == "2.34.0"
     assert row["moved"]["over_500"] == 1 and row["moved"]["largest"]["d_ms"] == 700
     (moved,) = row["moved_lines"]
@@ -927,3 +929,19 @@ def test_evidence_replaced_while_read_fails_instead_of_asking_a_full_job(db_sess
     row = _preview(db_session)
     assert (row["verdict"], row["detail"]) == (
         rules.FAILED, "evidence replaced while it was read: preview the song again")
+
+
+def test_a_record_replaced_between_its_meta_and_its_arrays_is_evidence_changed(db_session, audio,
+                                                                              monkeypatch):
+    """The store's own check (another writer between the two reads) raises the subclass the
+    preview reports as `failed`; a job still runs in full on it (an EvidenceMissing)."""
+    _run(db_session, monkeypatch, "record")
+    db_session.rollback()
+    record = evidence.DbStore(db_session).load("youtube", SONG)
+    assert record is not None
+    db_session.execute(sql("UPDATE track_evidence SET updated_at = clock_timestamp() + "
+                           "interval '1 second'"))
+    db_session.commit()
+    with pytest.raises(evidence.EvidenceChanged):
+        record.blob  # noqa: B018 - reading it is the test
+    assert issubclass(evidence.EvidenceChanged, evidence.EvidenceMissing)
