@@ -29,6 +29,26 @@ const tightenCsp = (): Plugin => ({
   },
 });
 
+/** The renderer's dev-only drawings, folded in at build time (define below). */
+export const DEV_ONLY_FLAGS = ['KASHI_LATENCY_MARKER', 'KASHI_FX_DEBUG'] as const;
+/**
+ * A renderer built with a dev-only drawing on says so in every page's head
+ * (`<meta name="kashi-dev-only-build" content="<flags>">`), so the packer can
+ * refuse what it is about to ship: build/after-pack.cjs searches the packed
+ * app for this tag, whatever the packer's own environment says. A normal
+ * build carries no tag.
+ */
+export const markDevOnlyBuild = (): Plugin => ({
+  name: 'kashi-mark-dev-only-build',
+  apply: 'build',
+  transformIndexHtml(html) {
+    const on = DEV_ONLY_FLAGS.filter((flag) => buildFlag(process.env[flag]));
+    if (on.length === 0) return html;
+    if (!html.includes('<head>')) throw new Error('markDevOnlyBuild: no <head> to mark');
+    return html.replace('<head>', `<head>\n    <meta name="kashi-dev-only-build" content="${on.join(' ')}" />`);
+  },
+});
+
 export default defineConfig({
   main: {
     build: {
@@ -50,16 +70,17 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [tightenCsp()],
+    plugins: [tightenCsp(), markDevOnlyBuild()],
     // Dev-only boundary visualizer for the particle layer (Faz 6.7 P5). The
     // renderer is sandboxed and has no process.env, so the switch is folded in
     // at build time: `KASHI_FX_DEBUG=1 pnpm dev` draws the box and window
     // bounds, and a normal build folds it to `false` so the outline cannot be
     // drawn in a shipped app.
     // `KASHI_LATENCY_MARKER=1 electron-vite build` (the chain-latency
-    // measurement, src/renderer/src/latency-marker.ts) draws a black/white
+    // measurement, packages/view/src/latency-marker.ts) draws a black/white
     // code block in the window's top-left corner on every word activation, for
-    // a screen recording to read. Folded to `false` in every normal build.
+    // a screen recording to read. Folded to `false` in every normal build;
+    // a build with either on is tagged (markDevOnlyBuild) and cannot be packed.
     define: {
       __KASHI_FX_DEBUG__: JSON.stringify(buildFlag(process.env['KASHI_FX_DEBUG'])),
       __KASHI_LATENCY_MARKER__: JSON.stringify(buildFlag(process.env['KASHI_LATENCY_MARKER'])),
