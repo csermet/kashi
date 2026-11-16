@@ -787,9 +787,12 @@ def library_overruns(n_frames: int, targets: list[int]) -> bool:
     """Whether ctc_forced_aligner's compiled Viterbi (forced_align_impl.cpp at the pinned commit)
     would write past its back-pointer buffers, (2L + 2) * (T - L) bits each, which it fills band by
     band: its own band bookkeeping, line for line, without the scores (one pass over the frames).
-    Only targets in which no id repeats its neighbour overrun them, below about two frames a
-    target; measured on the compiled library there: SIGSEGV, SIGABRT, or a path that does not spell
-    the text (get_spans' `AssertionError: n != i`)."""
+    Only targets in which no id repeats its neighbour overrun them, below 2L - 2 frames (L >= 3).
+    Measured on the compiled library there: deep overruns (T near L) crash (SIGSEGV, SIGABRT) or
+    return a path that does not spell the text (get_spans' `AssertionError: n != i`); shallow ones
+    (T near 2L) mostly come back valid, the extra bits landing in the allocation's slack. Not
+    refused (a pilot song's window sits in it and its document is the one stored): logged, so the
+    region can be decided on with numbers."""
     n_targets = len(targets)
     n_states = 2 * n_targets + 1
     repeats = _repeats(targets)
@@ -822,15 +825,17 @@ def library_overruns(n_frames: int, targets: list[int]) -> bool:
 def viterbi_refusal(log_probs, targets: list[int]) -> str | None:
     """Why the library's Viterbi must not run over these log-probabilities for these targets, or
     None: fewer frames than the targets need (T < L + R; the library raises "targets length is too
-    long for CTC"), buffers it would overrun (`library_overruns`), or values that are not all
-    finite (a NaN frame makes it return a path that does not spell the text)."""
+    long for CTC"), exactly as many with no repeated letter (T == L + R, R == 0: its back-pointer
+    buffers are empty and it segfaults), or values that are not all finite (a NaN frame makes it
+    return a path that does not spell the text)."""
     import numpy as np
 
     n_frames = int(log_probs.shape[0])
-    if targets and n_frames < len(targets) + _repeats(targets):
+    repeats = _repeats(targets)
+    if targets and n_frames < len(targets) + repeats:
         return "the text needs more frames than the audio has"
-    if targets and library_overruns(n_frames, targets):
-        return "the aligner library would overrun its buffers (no repeated letter, too few frames)"
+    if targets and repeats == 0 and n_frames == len(targets):
+        return "the text fills the audio exactly with no repeated letter (the library crashes)"
     if not np.isfinite(np.asarray(log_probs)).all():
         return "the emissions are not all finite"
     return None
@@ -871,11 +876,12 @@ def _viterbi(
     _hold_line_starts); `tally` counts what that did. `letters` (2.35.0)
     gives each row its `"first_letter"` (_first_letters).
 
-    Guarded: what the library cannot do safely (`viterbi_refusal`, checked before its Viterbi
+    Guarded: what the library cannot do at all (`viterbi_refusal`, checked before its Viterbi
     whenever the tokenizer has the vocabulary get_alignments reads) and a path that does not spell
     the text (get_spans' own AssertionError) raise one PipelineError naming the window, the pass,
-    T, L and R, instead of a segfault, a heap overrun or an uncaught AssertionError. Every input
-    the library handles safely today passes untouched."""
+    T, L and R, instead of a RuntimeError, a segfault or an uncaught AssertionError; a pass in
+    which the library overruns its buffers (`library_overruns`) is logged. Every input the library
+    completes today passes untouched."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         get_alignments,
         get_spans,
@@ -905,6 +911,12 @@ def _viterbi(
         refusal = viterbi_refusal(_numpy_log_probs(emissions), targets)
         if refusal is not None:
             raise _refused(star_frequency, refusal, n_frames, targets)
+        if library_overruns(n_frames, targets):
+            logger.warning(
+                "%s, %s pass: the aligner library writes past its buffers here "
+                "(T=%d, L=%d, R=0); a crash or an unreadable path would come from it",
+                _VITERBI_WHERE.get(), star_frequency, n_frames, len(targets),
+            )
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     floors: list[tuple[int, int, int]] = []
     if starts_ms and any(starts_ms):

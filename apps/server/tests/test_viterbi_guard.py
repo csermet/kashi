@@ -118,10 +118,12 @@ def test_the_refusal_at_l_plus_r_minus_one_l_plus_r_and_l_plus_r_plus_one(repeat
     why = alignment.viterbi_refusal(_lp(L + R + slack), targets)
     if slack < 0:
         assert why == "the text needs more frames than the audio has"
-    elif repeat:
-        assert why is None  # the library handles these today
+    elif slack == 0 and not repeat:
+        assert (
+            why == "the text fills the audio exactly with no repeated letter (the library crashes)"
+        )
     else:
-        assert why is not None and why.startswith("the aligner library would overrun")
+        assert why is None  # the library completes these today
 
 
 def test_non_finite_emissions_are_refused_and_finite_ones_are_not():
@@ -187,6 +189,7 @@ def _library(calls, *, spans_assert=False):
 def _run_viterbi(monkeypatch, texts, T, **lp_kw):
     calls = []
     monkeypatch.setitem(sys.modules, "ctc_forced_aligner", _library(calls))
+    monkeypatch.setattr(alignment.logger, "disabled", False)  # alembic's fileConfig disables it
     try:
         alignment._viterbi(_lp(T, **lp_kw), 20.0, Tokenizer(), texts, "eng", "edges", False)
     except PipelineError as exc:
@@ -196,15 +199,18 @@ def _run_viterbi(monkeypatch, texts, T, **lp_kw):
 
 @pytest.mark.parametrize("text,repeat", [("abcd efgh", False), ("abbd efgh", True)])
 @pytest.mark.parametrize("slack", [-1, 0, 1])
-def test_viterbi_refuses_before_the_library_or_calls_it(monkeypatch, text, repeat, slack):
+def test_viterbi_refuses_before_the_library_or_calls_it(monkeypatch, caplog, text, repeat, slack):
     targets = alignment.viterbi_targets(
         ["<star>", " ".join(text.split()[0]), "<star>", " ".join(text.split()[1])], Tokenizer()
     )
     L, R = len(targets), sum(1 for i in range(1, len(targets)) if targets[i] == targets[i - 1])
     assert R == int(repeat)
-    calls, error = _run_viterbi(monkeypatch, [text], L + R + slack)
-    refused = slack < 0 or not repeat  # without a repeat, L + R + 1 < 2L - 2 here: an overrun
+    with caplog.at_level("WARNING", logger=alignment.logger.name):
+        calls, error = _run_viterbi(monkeypatch, [text], L + R + slack)
+    refused = slack < 0 or (slack == 0 and not repeat)
     assert (error is not None) is refused
+    overrun = not repeat and slack > 0  # L + 1 < 2L - 2: logged, not refused
+    assert ("writes past its buffers" in caplog.text) is overrun
     if refused:
         assert calls == []  # the library was never called: no segfault can happen
         assert error is not None and error.error_type == "alignment_failed"
@@ -212,6 +218,26 @@ def test_viterbi_refuses_before_the_library_or_calls_it(monkeypatch, text, repea
         assert error.message.startswith("whole track, edges pass: ")
     else:
         assert calls == ["get_alignments", "get_spans", "postprocess_results"]
+
+
+def test_the_overrun_region_is_logged_and_the_library_still_runs(monkeypatch, caplog):
+    """k89YEt8hocI's window 21 (a pilot song, segment pass): T = 286, L = 147, R = 0 overruns the
+    library's buffers by its own bookkeeping, and main stores the document it made. Logged only."""
+    targets = _alternating(147)
+    assert alignment.library_overruns(286, targets)
+    assert alignment.viterbi_refusal(_lp(286), targets) is None
+    text = "abcd efgh"  # 10 targets, no repeat: T = 15 is inside 2L - 2 = 18
+    with caplog.at_level("WARNING", logger=alignment.logger.name):
+        calls, error = _run_viterbi(monkeypatch, [text], 15)
+    assert error is None and calls[0] == "get_alignments"
+    assert (
+        "whole track, edges pass: the aligner library writes past its buffers here" in caplog.text
+    )
+    assert "(T=15, L=10, R=0)" in caplog.text
+    caplog.clear()
+    with caplog.at_level("WARNING", logger=alignment.logger.name):
+        _run_viterbi(monkeypatch, [text], 18)  # 2L - 2: inside the buffers
+    assert "writes past its buffers" not in caplog.text
 
 
 def test_a_nan_frame_is_refused_before_the_library(monkeypatch):
