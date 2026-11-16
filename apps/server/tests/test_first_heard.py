@@ -157,6 +157,21 @@ def test_the_first_line_counts_too_and_an_empty_line_is_skipped():
     assert n == 1 and out[0]["start"] == pytest.approx(1.5)
 
 
+def test_an_empty_line_lends_its_stamp_and_ad_lib_flag_to_nobody():
+    # line 1 is empty; line 2's first word (row 2) would move to 2 700 ms, 2 550 past line 2's
+    # own stamp (0) net of QA's median offset (150): out of the band. Without the skip, the empty
+    # line would judge row 2 with ITS stamp (None) and move it.
+    rows = [_row("ab", 0.2, heard=[0.2]), _row("ab", 0.5, heard=[0.5]),
+            _row("ab", 0.3, heard=[2.7]), _row("ab", 3.5, heard=[3.5])]
+    band = {"line_words": (2, 0, 2), "drift_ms": 2_500, "doc_offset": lambda text: 0}
+    out, n = _run(rows, stamps=[200, None, 0], **band)
+    assert n == 0 and out[2]["start"] == pytest.approx(0.3)
+    # the ad-lib flag: line 2 is an ad-lib and stays, whatever the empty line before it says
+    out, n = _run(rows, adlib=[False, False, True], line_words=(2, 0, 2))
+    assert n == 0 and out[2]["start"] == pytest.approx(0.3)
+    assert _run(rows, adlib=[False, True, False], line_words=(2, 0, 2))[1] == 1
+
+
 def test_rows_that_are_no_word_are_not_counted():
     rows = [{"text": "<star>", "start": 0.0, "end": 0.1}, _row("ab", 0.2, heard=[0.2]),
             {"text": " ", "start": 0.3, "end": 0.3}, _row("ab", 0.5, heard=[0.5]),
@@ -225,13 +240,50 @@ def test_v5_needs_nine_tenths_of_the_span_quiet(quiet, moved):
 
 
 def test_v5_reads_the_span_up_to_the_lead_before_the_new_start():
-    # frames from 500 ms (onset 1 000 - lead 500) on are the word's own onset region: voiced there
-    # is fine; one more voiced frame inside the span, at 480 ms, makes it 9 of 10
+    # the span is [300, 500): frames 15..24. Frames from 500 ms (onset 1 000 - lead 500) on are
+    # the word's own onset region and are not read, whether quiet or voiced: with 23 and 24
+    # voiced the span is 8 of 10 quiet and the word stays, even when [500, 1 000) is all quiet
+    # (counted, it would make 33 of 35); with only 24 voiced it is 9 of 10 and the word moves
     rows = _stream(0.3, [1.0])
-    voiced_after = _env(set(range(15, 25)) | set())
-    assert _v5(rows, Envelope(voiced_after.levels[:25] + bytes([10] * 375)))[1] == 1
-    assert _v5(rows, _env(set(range(15, 24))))[1] == 1  # frame 24 (480 ms) voiced: 0.9
-    assert _v5(rows, _env(set(range(15, 23))))[1] == 0  # 23 and 24 voiced: 0.8
+    region = set(range(25, 50))
+    assert _v5(rows, _env(set(range(15, 23)) | region))[1] == 0
+    assert _v5(rows, _env(set(range(15, 23))))[1] == 0
+    assert _v5(rows, _env(set(range(15, 24)) | region))[1] == 1
+    assert _v5(rows, _env(set(range(15, 24))))[1] == 1
+
+
+@pytest.mark.parametrize(("start_s", "moved"), [(0.351, False), (0.350, True), (0.349, True)])
+def test_v5_the_silent_span_lasts_the_witness_s_shortest_silence(start_s, moved):
+    # onset 1 000, lead 500: the span is [start, 500); it must last 150 ms (start <= 350 ms);
+    # every frame quiet, so only the span's length decides
+    rows = _stream(start_s, [1.0])
+    out, n = _v5(rows, _env(set(range(400))), min_silence_ms=150)
+    assert n == int(moved)
+    assert out[2]["start"] == pytest.approx(1.0 if moved else start_s)
+
+
+@pytest.mark.parametrize(("quiet", "moved"), [(set(range(15, 25)), 1), (set(range(15, 23)), 0)])
+def test_v5_moves_the_same_words_on_a_recorded_then_replayed_envelope(quiet, moved):
+    """The rule itself, on the envelope a job records and the one a replay serves back."""
+    from kashi_server.pipeline import evidence
+
+    heard = _env(quiet)
+    heard = Envelope(heard.levels, crossings=bytes(range(200)) * 2, loudest=(10**9, 320))
+    recorder = evidence.Recorder("youtube", "vid", {})
+    with evidence.active(recorder):
+        recorded = evidence.envelope(lambda: heard)
+    recorder.meta["track_samples"] = 400 * 320 - 7  # the track the envelope was made of
+    with evidence.active(evidence.Replayer(recorder.pack())):
+        replayed = evidence.envelope(lambda: pytest.fail("read the wav"))
+    rows = _stream(0.3, [1.0])
+    live, again = _v5(rows, recorded), _v5(rows, replayed)
+    assert replayed == recorded and live == again and live[1] == moved
+
+
+def test_v5_a_span_past_the_envelope_s_end_is_no_evidence():
+    rows = _stream(0.3, [1.0])
+    assert _v5(rows, _env(set(range(15)), n=15))[1] == 0  # the envelope ends at 300 ms
+    assert _v5(rows, _env(set(range(25)), n=25))[1] == 1  # it covers the span exactly
 
 
 def test_v5_a_frame_exactly_on_the_threshold_is_not_silence():
@@ -302,10 +354,32 @@ def test_the_median_counts_only_the_stamped_lines():
 
 def test_other_keys_ride_along():
     rows = _stream(0.6, [1.2])
-    rows[2] = {**rows[2], "star": "edges", "held": 0.3, "window": 4}
+    rows[2] = {**rows[2], "end": 1.5, "star": "edges", "held": 0.3, "window": 4}
     out, _ = _run(rows)
-    assert {k: out[2][k] for k in ("star", "held", "window", "text")} == {
-        "star": "edges", "held": 0.3, "window": 4, "text": "ab"}
+    assert {k: out[2][k] for k in ("star", "held", "window", "text", "end")} == {
+        "star": "edges", "held": 0.3, "window": 4, "text": "ab", "end": 1.5}
+
+
+@pytest.mark.parametrize(("held", "left"), [(1.0, 0.6), (0.4, 0.0), (0.3, 0.0), (None, None)])
+def test_an_end_that_follows_the_start_takes_it_from_the_held_cut(held, left):
+    # end 0.8 -> 1.2 (0 ms long): the 0.4 s the end moved comes off "held", as in unpile_starts,
+    # so restore_held_ends cannot carry the word past its uncut end (0.8 + held)
+    rows = _stream(0.6, [1.2])
+    if held is not None:
+        rows[2] = {**rows[2], "held": held}
+    out, n = _run(rows)
+    assert n == 1 and out[2]["start"] == out[2]["end"] == pytest.approx(1.2)
+    if held is None:
+        assert "held" not in out[2]
+    else:
+        assert out[2]["held"] == pytest.approx(left)
+
+
+def test_the_last_word_of_the_stream_moves_with_no_next_word_to_leave_room_for():
+    rows = [_row("ab", 0.2, heard=[0.2]), _row("ab", 0.5, heard=[0.5]),
+            _row("ab", 1.0, heard=[3.0])]
+    out, n = _run(rows, line_words=(2, 1))
+    assert n == 1 and out[2]["start"] == pytest.approx(3.0)
 
 
 # --- the evidence: alignment._first_letters, _heard_at ------------------------------------------
@@ -423,6 +497,42 @@ def test_align_windows_carries_both_window_passes_letters_onto_the_edges_clock(m
     assert rows[1]["heard_at"] == pytest.approx([3.5])
 
 
+def test_align_windows_hears_with_edges_alone_when_the_passes_do_not_pair(monkeypatch):
+    def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride,
+                    edges_starts=None, segment_starts=None, tally=None, letters=False):
+        assert letters
+        edges = [{"text": "ab", "start": 0.1, "end": 0.3, "score": -0.1,
+                  "first_letter": [0.9, -0.2]},
+                 {"text": "ab", "start": 1.5, "end": 1.7, "score": -0.1,
+                  "first_letter": [1.5, -0.2]}]
+        segment = [{"text": "ab", "start": 0.5, "end": 0.6, "score": -0.1,
+                    "first_letter": [0.5, -0.1]}]  # one word short: no pairing
+        return edges, segment
+
+    monkeypatch.setattr(alignment, "_align_slice_hybrid", fake_hybrid)
+    window = Window(2_000, 6_000, [0, 1], 2_350, 5_650)
+    rows = alignment._align_windows(None, None, FakeAudio(8 * 16_000), [window], ["ab", "ab"],
+                                    "eng", True, exact_stride=True, letters=True)
+    assert [r["heard_at"] for r in rows] == [pytest.approx([2.9]), pytest.approx([3.5])]
+
+
+@pytest.mark.parametrize(("star", "back_s"), [("segment", 0.07), ("edges", 0.0)])
+def test_align_windows_single_pass_stars_carry_their_letter_on_the_edges_clock(
+        monkeypatch, star, back_s):
+    def fake_texts(model, tokenizer, audio, texts, language, star="segment", romanize=True, *,
+                   exact_stride=False, starts_ms=None, tally=None, letters=False):
+        assert letters
+        return [{"text": "ab", "start": 0.5, "end": 0.7, "score": -0.1,
+                 "first_letter": [0.8, -0.2]}]
+
+    monkeypatch.setattr(alignment, "_align_texts", fake_texts)
+    window = Window(2_000, 6_000, [0], 2_350, 5_650)
+    rows = alignment._align_windows(None, None, FakeAudio(8 * 16_000), [window], ["ab"], "eng",
+                                    True, exact_stride=True, star=star, letters=True)
+    assert rows[0]["start"] == pytest.approx(2.5 - back_s)
+    assert rows[0]["heard_at"] == pytest.approx([2.8 - back_s])
+
+
 def test_align_windows_without_letters_carries_none(monkeypatch):
     def fake_hybrid(model, tokenizer, piece, texts, language, *, romanize, exact_stride,
                     edges_starts=None, segment_starts=None, tally=None, letters=False):
@@ -457,19 +567,37 @@ def _align(monkeypatch, **kwargs):
         return [{"text": "x", "start": 0.0, "end": 0.1, "score": -0.1}]
 
     def fake_rule(results, whole, line_words, lead_ms, edges_lead_ms, floor, *, stamps, drift_ms,
-                  envelope, silence_db, silence_share, doc_offset, adlib):
+                  envelope, silence_db, silence_share, min_silence_ms, doc_offset, adlib):
+        seen["order"].append(("rule", id(results)))
         seen["rule"].append((len(results), whole[0]["text"], line_words, lead_ms, edges_lead_ms,
                              floor, stamps, drift_ms))
-        seen["v5"] = (envelope, silence_db, silence_share, doc_offset("you"), doc_offset("uh"),
-                      doc_offset("2"), adlib)
-        return results, 0
+        seen["v5"] = (envelope, silence_db, silence_share, min_silence_ms, doc_offset("you"),
+                      doc_offset("uh"), doc_offset("2"), adlib)
+        out = list(results)
+        seen["order"].append(("rule out", id(out)))
+        return out, 0
 
+    def spy(name, real, index=0):
+        def call(*a, **k):
+            seen["order"].append((name, id(a[index])))
+            value = real(*a, **k)
+            seen["order"].append((f"{name} out", id(value[0] if isinstance(value, tuple)
+                                                     else value)))
+            return value
+        return call
+
+    seen["order"] = []
     monkeypatch.setattr(alignment, "_align_slice_hybrid", fake_hybrid)
     monkeypatch.setattr(alignment, "_align_texts", fake_texts)
     monkeypatch.setattr(alignment, "start_at_heard_onset", fake_rule)
-    alignment.align("x.wav", ["you ready", "you ready", "get your sexy on", "uh yes"], "eng",
-                    [2_000, 4_000, 5_000, 9_000], "m", True, -50,
-                    {"vowel": -80, "sonorant": -20, "plosive": -30, "fricative": -50}, **kwargs)
+    monkeypatch.setattr(alignment, "whole_track_vote", spy("vote", alignment.whole_track_vote))
+    monkeypatch.setattr(alignment, "unpile_starts", spy("unpile", alignment.unpile_starts))
+    monkeypatch.setattr(alignment, "regroup_words_into_lines",
+                        spy("regroup", alignment.regroup_words_into_lines, index=1))
+    seen["result"] = alignment.align(
+        "x.wav", ["you ready", "you ready", "get your sexy on", "uh yes"], "eng",
+        [2_000, 4_000, 5_000, 9_000], "m", True, -50,
+        {"vowel": -80, "sonorant": -20, "plosive": -30, "fricative": -50}, **kwargs)
     return seen
 
 
@@ -479,13 +607,26 @@ def test_align_runs_the_rule_last_with_the_whole_track_pass_and_the_line_counts(
     assert seen["hybrid"] == [True] and seen["whole"] == [True]
     assert seen["rule"] == [(10, "x", [2, 2, 4, 2], 500, 70, FLOOR, [2_000, 4_000, 5_000, 9_000],
                              2_500)]
+    # after the vote and the unpile, on what the unpile returned; regroup reads what it returns
+    names = [name for name, _ in seen["order"]]
+    assert names == ["vote", "vote out", "unpile", "unpile out", "rule", "rule out", "regroup",
+                     "regroup out"]
+    ids = dict(seen["order"])
+    assert ids["rule"] == ids["unpile out"] and ids["regroup"] == ids["rule out"]
     # the document clock: the path's 70 ms lead on top of each initial's offset, and on the plain
     # offset for a word with no initial class
-    assert seen["v5"] == (marker, -25.0, 0.9, -20 + 70, -80 + 70, -50 + 70,
+    assert seen["v5"] == (marker, -25.0, 0.9, 150, -20 + 70, -80 + 70, -50 + 70,
                           [False, False, False, False])
     assert alignment.FIRST_HEARD_DEFAULT == alignment.FIRST_HEARD_LEAD_MS == 500
     assert alignment.FIRST_LETTER_FLOOR == pytest.approx(math.log(0.001))
     assert (alignment.FIRST_HEARD_SILENCE_DB, alignment.FIRST_HEARD_SILENCE_SHARE) == (-25.0, 0.9)
+
+
+def test_the_silence_line_and_its_shortest_span_are_the_voice_witness_s():
+    from audit import analysis  # the worker image does not ship audit/: the values are copies
+
+    assert alignment.FIRST_HEARD_SILENCE_DB == analysis.SILENCE_DB
+    assert alignment.FIRST_HEARD_MIN_SILENCE_MS == analysis.MIN_SILENCE_MS == 150
 
 
 def test_align_marks_the_ad_lib_lines_for_the_rule(monkeypatch):
@@ -512,5 +653,12 @@ def test_align_marks_the_ad_lib_lines_for_the_rule(monkeypatch):
 
 
 def test_none_reproduces_2_34_0(monkeypatch):
-    seen = _align(monkeypatch, first_heard_ms=None)
-    assert seen == {"hybrid": [False], "whole": [False], "rule": []}
+    """None asks no pass for letters, never calls the rule, and gives exactly what the default
+    path gives when the rule changes nothing (the 39-song differential, off == main 24b1e7f, is
+    the proof on real documents)."""
+    off = _align(monkeypatch, first_heard_ms=None)
+    assert (off["hybrid"], off["whole"], off["rule"]) == ([False], [False], [])
+    assert [name for name, _ in off["order"]] == ["vote", "vote out", "unpile", "unpile out",
+                                                  "regroup", "regroup out"]
+    on = _align(monkeypatch)
+    assert on["rule"] and on["result"] == off["result"]

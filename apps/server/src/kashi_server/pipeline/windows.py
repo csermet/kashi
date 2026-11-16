@@ -559,7 +559,8 @@ def start_at_heard_onset(
     edges_lead_ms: int = 0, floor: float = float("-inf"), min_gap_ms: int = VOTE_MIN_GAP_MS,
     stamps: list[int | None] | None = None, drift_ms: int | None = None,
     *, envelope: Any = None, silence_db: float | None = None, silence_share: float = 1.0,
-    doc_offset: Callable[[str], int] | None = None, adlib: list[bool] | None = None,
+    min_silence_ms: int = 0, doc_offset: Callable[[str], int] | None = None,
+    adlib: list[bool] | None = None,
 ) -> tuple[list[dict], int]:
     """2.35.0: a line's first word starts at most `lead_ms` before the
     earliest place a pass hears its first letter, when the whole-track pass
@@ -585,7 +586,16 @@ def start_at_heard_onset(
     takes the earliest heard time when its start lies MORE than `lead_ms`
     before it, and that time still leaves the next word `min_gap_ms` (the
     overlay's short dwell), both in whole ms; the end follows only when the
-    new start passes it. Nothing else moves. The whole-track pass must hear
+    new start passes it, and then the word is 0 ms long (its end is the new
+    start; restore_held_ends gives it its `"held"` cut back, which shrinks by
+    what the end took, as in unpile_starts). This function changes no other
+    row; the steps after it read the moved start, so these can change too:
+    the previous word's and line's end (regroup and restore_held_ends stop
+    them at the next start, now later), an ad-lib line's hold before the moved
+    line (line_qa ends it before the next line), and line QA's median offset
+    over the line starts, which can flag or clear a line sitting near the
+    drift band's edge (the band below is checked around the median as it is
+    BEFORE any move). The whole-track pass must hear
     the letter too, no more than `lead_ms` after that earliest time: the two
     window passes read the same emissions, and a window's weak first letter
     can be sung where it sits (Q_mQxKviRJM 4:00, log-prob -7.0 on the voice's
@@ -609,13 +619,19 @@ def start_at_heard_onset(
     level `envelope` (pipeline/level.py) must lie under `silence_db` (dB re
     the track's loudest frame) on at least `silence_share` of the 20 ms
     frames from the old start to the new start minus `lead_ms` (the word's own
-    onset region, where its voice returns before the letter is heard). A first
-    word over voiced audio keeps its start: held notes, pick-up words and the
-    lines whose other words locked late look alike there (the owner's blind
-    clips and the bench, 2026-11-16), and so does every word when there is no
-    envelope. Lines `adlib` marks are left to line QA (its ad-lib snap moves
-    them onto their anchors as a block). Returns (rows, starts moved); a
-    stream regroup could not walk comes back untouched."""
+    onset region, where its voice returns before the letter is heard), and
+    that span must last `min_silence_ms` (the voice witness's own shortest
+    silence; one 20 ms frame is no evidence). A first word over voiced audio
+    keeps its start: held notes, pick-up words and the lines whose other words
+    locked late look alike there (the owner's blind clips and the bench,
+    2026-11-16), and so does every word when there is no envelope. The
+    envelope is the wav the first pass aligns: the vocal stem under the
+    production separation mode ("always"); under "second_pass" or "off" it is
+    the MIX's, which is rarely 25 dB under its loudest frame while the band
+    plays, so the rule then almost never moves a word. Lines `adlib` marks are
+    left to line QA (its ad-lib snap moves them onto their anchors as a block).
+    Returns (rows, starts moved); a stream regroup could not walk comes back
+    untouched."""
     idx = [i for i, row in enumerate(results) if _is_word(row)]
     if sum(line_words) != len(idx):
         return results, 0
@@ -651,11 +667,16 @@ def start_at_heard_onset(
             if onset_ms + shift - stamp - qa_offset > drift_ms:
                 continue
         if silence_db is not None:
-            quiet = None if envelope is None else envelope.quiet_share(
-                _start_ms(row), onset_ms - lead_ms, silence_db)
+            span = (_start_ms(row), onset_ms - lead_ms)
+            quiet = None if envelope is None or span[1] - span[0] < min_silence_ms else (
+                envelope.quiet_share(span[0], span[1], silence_db))
             if quiet is None or quiet < silence_share:
                 continue  # the word may be sung where it starts: no evidence it is early
-        out[idx[k]] = {**row, "start": onset, "end": max(float(row["end"]), onset)}
+        end = max(float(row["end"]), onset)
+        moved_row = {**row, "start": onset, "end": end}
+        if "held" in row:  # what the end took back comes off the held cut (as unpile_starts)
+            moved_row["held"] = max(0.0, float(row["held"]) - (end - float(row["end"])))
+        out[idx[k]] = moved_row
         moved += 1
     return out, moved
 

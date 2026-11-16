@@ -861,13 +861,23 @@
 # QA reads it (document clock, around QA's median offset), the line is no
 # ad-lib, and the vocal stem is silent where the word used to wait: under -25
 # dB re its loudest frame (the audit voice witness's silence line) on at least
-# 9 in 10 of the 20 ms frames from the old start to 500 ms before the new one
+# 9 in 10 of the 20 ms frames from the old start to 500 ms before the new one,
+# a span of at least 150 ms (the witness's shortest silence)
 # (windows.start_at_heard_onset, alignment._first_letters; align
 # `first_heard_ms`, None = 2.34.0; 500 is the owner's ~1 s bound minus the
-# overlay's 500 ms lead). Nothing else moves. The stem's level envelope
+# overlay's 500 ms lead). The rule changes no other word; what reads the moved
+# start can change with it: the previous word's and line's end (they stop at
+# the next start, now later), an ad-lib hold before the line, and line QA's
+# median offset, which can flag or clear a line at the drift band's edge (one
+# '♪' line in the 287-song archive). Known: a moved word whose old end lies
+# before its new start comes out 0 ms long, then restore_held_ends gives it
+# its held cut (shrunk by what the end took). The stem's level envelope
 # (pipeline/level.py) reaches align() from the worker and is kept as evidence
-# (EVIDENCE_FORMAT 3), so a replay moves the same words without audio; with no
-# envelope nothing moves. Two mechanisms put such a word seconds early: the
+# (EVIDENCE_FORMAT 4), so a replay moves the same words without audio; with no
+# envelope nothing moves. It is the envelope of the wav the first pass aligns:
+# the vocal stem under separation_mode "always" (production); under
+# "second_pass" or "off" the mix's, and the rule then rarely moves a word.
+# Two mechanisms put such a word seconds early: the
 # edges span starts halfway into the blank before it and the hybrid and the
 # vote compare that padded start with the other passes' letter (GOSSIP's
 # stampless line 38, 6.8 s), or the window passes park the word's first letter

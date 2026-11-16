@@ -666,9 +666,10 @@ LINE_REGION_DEFAULT: int | None = LINE_REGION_MS
 #: hears its first letter, when the whole-track pass hears it no more than
 #: this much later (windows.start_at_heard_onset). The owner's bound
 #: (2026-11-14): a line may arrive about 1 s before it is sung, and the
-#: overlay already shows a line up to 500 ms before its start (packages/view
-#: findDisplayLine), so 500 ms is what the start itself may lead by. None
-#: reproduces 2.34.0.
+#: overlay already shows a line up to 500 ms before its start
+#: (apps/overlay/src/renderer/src/view-logic.ts: findDisplayLine,
+#: LINE_LEAD_IN_MS = 500), so 500 ms is what the start itself may lead by.
+#: None reproduces 2.34.0.
 FIRST_HEARD_LEAD_MS = 500
 FIRST_HEARD_DEFAULT: int | None = FIRST_HEARD_LEAD_MS
 #: A pass hears a word's first letter where the letter's log-prob reaches
@@ -684,6 +685,11 @@ FIRST_HEARD_SILENCE_DB = -25.0
 #: lead. Not fitted: a sung pause may still carry a breath or the separator's bleed, a tenth of it
 #: at most; a held syllable or the next phrase covers far more.
 FIRST_HEARD_SILENCE_SHARE = 0.9
+#: ... and that span lasts at least this: the voice witness's shortest silence
+#: (audit.analysis.MIN_SILENCE_MS, "shorter dips are consonants and breaths inside a phrase"). A
+#: copy, because the worker image does not ship apps/server/audit; tests pin both values to the
+#: witness's.
+FIRST_HEARD_MIN_SILENCE_MS = 150
 
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
@@ -1285,7 +1291,9 @@ def align(
     reproduces 2.34.0. `envelope` is the track's level envelope
     (pipeline/level.py, the worker computes it from the same wav and keeps it
     as evidence): that rule moves a word only out of silence, and without an
-    envelope it moves nothing."""
+    envelope it moves nothing. It is the envelope of `wav_path`: the vocal
+    stem under separation_mode "always" (production), the mix under
+    "second_pass" (first pass) or "off", where the rule then rarely moves."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -1389,6 +1397,7 @@ def align(
                 stamps=synced_starts_ms, drift_ms=DRIFT_THRESHOLD_MS,
                 envelope=envelope, silence_db=FIRST_HEARD_SILENCE_DB,
                 silence_share=FIRST_HEARD_SILENCE_SHARE,
+                min_silence_ms=FIRST_HEARD_MIN_SILENCE_MS,
                 doc_offset=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
                 adlib=[is_adlib(text) for text in line_texts],
             )
