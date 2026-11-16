@@ -20,6 +20,7 @@ from pathlib import Path
 from kashi_server.pipeline import evidence, japanese
 from kashi_server.pipeline.asr import greedy_ctc_decode, usable_columns
 from kashi_server.pipeline.japanese import PreparedLine, prepare_line
+from kashi_server.pipeline.level import Envelope
 from kashi_server.pipeline.trellis import forced_align_cut, letter_bounds_cuts
 from kashi_server.pipeline.windows import (
     LINE_REGION_MS,
@@ -1244,6 +1245,7 @@ def align(
     line_region_ms: int | None = LINE_REGION_DEFAULT,
     vote_order: bool = VOTE_ORDER_DEFAULT,
     first_heard_ms: int | None = FIRST_HEARD_DEFAULT,
+    envelope: Envelope | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -1272,7 +1274,10 @@ def align(
     `keep_order`); False reproduces 2.32.0. `first_heard_ms` (2.35.0) starts a
     line's first word no more than that many ms before the earliest place a
     pass hears its first letter (windows.start_at_heard_onset); None
-    reproduces 2.34.0."""
+    reproduces 2.34.0. `envelope` is the track's level envelope
+    (pipeline/level.py, the worker computes it from the same wav and keeps it
+    as evidence); no rule reads it yet."""
+    del envelope  # handed over for the rules to come; the alignment does not read it yet
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:

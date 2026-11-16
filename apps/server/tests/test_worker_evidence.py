@@ -20,6 +20,7 @@ from kashi_server.pipeline.alignment import AlignedWord, AlignResult, LineTiming
 from kashi_server.pipeline.beats import Beats
 from kashi_server.pipeline.download import DownloadResult
 from kashi_server.pipeline.energy import Energy, Section
+from kashi_server.pipeline.level import Envelope
 from kashi_server.pipeline.lrclib import LyricsText
 from kashi_server.vdl_kit.errors import PipelineError
 from kashi_server.worker import process as wp
@@ -97,6 +98,10 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
         a.read("onsets")
         return [990, 9_020]
 
+    def envelope(path):
+        a.read("envelope")
+        return Envelope(bytes([0, 9, 30, 70] * (N // 320 // 4)))
+
     def mix(path):
         a.read("mix")
         return (Beats(120.0, 0.5, [0, 500, 1000], [0]), Energy(2, [10, 20] * SECONDS),
@@ -135,6 +140,9 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
             em, stride = alignment._emissions(model, track[..., lo:hi], exact_stride=True)
             first = int(np.argmax(np.asarray(em)[:, 0]))  # placed by the emissions themselves
             start = round(lo / 16 + first * stride)
+            # the envelope handed over moves the word: a replay serving another one shows
+            heard = kw.get("envelope")
+            start += 0 if heard is None else heard.levels[(lo // 320) + 2]
             words.append([AlignedWord(start, start + 300, text.split()[0], 0.8),
                           AlignedWord(start + 300, start + 600, text.split()[1], 0.8)])
         alignment._emissions(model, track, exact_stride=True)  # the vote's whole-track pass
@@ -149,6 +157,7 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
     monkeypatch.setattr(wp, "_decode", decode)
     monkeypatch.setattr(wp, "_wav_duration_s", wav_duration)
     monkeypatch.setattr(wp, "detect_onsets", onsets)
+    monkeypatch.setattr(wp, "level_envelope", envelope)
     monkeypatch.setattr(wp, "_mix_features", mix)
     monkeypatch.setattr(wp, "heard_tokens", heard)
     monkeypatch.setattr(wp, "align", align)
@@ -527,6 +536,39 @@ def test_a_failed_onset_detection_is_not_stored(db_session, audio, monkeypatch, 
     assert _row(db_session) is None
     assert "evidence not stored (onset detection failed)" in log.text
     assert failed["sync"] == off["sync"]
+
+
+def test_a_failed_level_envelope_is_not_stored(db_session, audio, monkeypatch, log):
+    """The level envelope (2026-11-16) like the onsets: the job ships, its evidence does not."""
+    def failing(path):
+        evidence.extractor_failed("level envelope")
+        return None
+
+    monkeypatch.setattr(wp, "level_envelope", failing)
+    _run(db_session, monkeypatch, "record")
+    assert _row(db_session) is None
+    assert "evidence not stored (level envelope failed)" in log.text
+
+
+def test_the_envelope_reaches_the_aligner_and_is_kept(db_session, audio, monkeypatch):
+    """The aligner is handed the envelope of the wav it aligns (the stand-in moves its words by it),
+    and the record keeps exactly that envelope."""
+    seen = []
+    real = wp.align
+
+    def spy(wav, line_texts, language, synced_starts_ms=None, **kw):
+        seen.append(kw.get("envelope"))
+        return real(wav, line_texts, language, synced_starts_ms, **kw)
+
+    monkeypatch.setattr(wp, "align", spy)
+    _run(db_session, monkeypatch, "record")
+    assert len(seen) == 1 and seen[0] is not None
+    stored = _row(db_session).meta["envelope"]
+    assert stored["frames"] == len(seen[0].levels) == N // 320
+    record = evidence.DbStore(db_session).load("youtube", "evidVid01")
+    assert record is not None
+    with evidence.active(evidence.Replayer(record)):
+        assert evidence.envelope(lambda: pytest.fail("read the wav")) == seen[0]
 
 
 def test_a_job_with_other_windows_keeps_the_stored_ones(db_session, audio, monkeypatch):

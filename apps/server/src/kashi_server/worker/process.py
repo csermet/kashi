@@ -51,6 +51,7 @@ from kashi_server.pipeline.document import (
 from kashi_server.pipeline.download import DownloadResult, download_audio
 from kashi_server.pipeline.energy import Energy, Section, extract_energy
 from kashi_server.pipeline.langid import detect_language
+from kashi_server.pipeline.level import level_envelope
 from kashi_server.pipeline.line_qa import LineQAOutcome, apply_line_qa, restore_held_ends
 from kashi_server.pipeline.lrclib import (
     LyricsText,
@@ -419,7 +420,11 @@ def _align_stage(
             )
             anchors = None
     extra = align_kwargs or {}
-    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors, **extra)
+    # The track's level envelope (pipeline/level.py), handed to the aligner beside the audio it
+    # describes; kept as evidence like the onsets.
+    envelope = evidence.envelope(lambda: level_envelope(wav))
+    result = align(wav, lyrics.line_texts, language, synced_starts_ms=anchors,
+                   envelope=envelope, **extra)
 
     if (
         result.quality_score < SECOND_PASS_QUALITY_GATE
@@ -438,7 +443,8 @@ def _align_stage(
         queue.set_status(s, job, "aligning")
         s.commit()
         vocal_wav = _decode(vocals, tmp / "align-vocals.wav", rate=16000, tempo=tempo)
-        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors, **extra)
+        second = align(vocal_wav, lyrics.line_texts, language, synced_starts_ms=anchors,
+                       envelope=level_envelope(vocal_wav), **extra)
         if second.quality_score > result.quality_score:
             return second, True, vocal_wav
     return result, False, wav

@@ -2,7 +2,8 @@
 
 A job reads the audio at a handful of places, and everything after them is code over what those
 places returned: the aligner's emissions over the 16 kHz stem (the whole track for the sheet
-shift and the vote, one slice per window), the stem's length, its onsets (line QA), the mix's
+shift and the vote, one slice per window), the stem's length, its onsets (line QA), its level
+envelope (pipeline/level.py: one byte per 20 ms frame, read by no rule yet), the mix's
 beats / energy / sections, and the download's duration. Emissions are text-independent: a slice's
 emissions depend on the stem, the checkpoint and its revision, and the slice's sample range,
 never on the lyrics.
@@ -33,6 +34,7 @@ Design note: docs/research/refresh-from-evidence-2026-11.md.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import functools
 import hashlib
@@ -56,15 +58,17 @@ logger = logging.getLogger(__name__)
 #: Layout of a stored record (key, meta, blob). A reader refuses any other value.
 #: 2 (review round, 2026-11-16): meta names the track's digest, the download's format facts and
 #: the recorder's provenance; the key names the separation this job did and ffmpeg.
-EVIDENCE_FORMAT = 2
+#: 3 (2026-11-16): meta carries the stem's level envelope (`envelope`), which every replay reads.
+EVIDENCE_FORMAT = 3
 
 #: What OUR code that computes each recorded value looks like, by version. Bump the matching
 #: entry whenever that code changes: `alignment._emit`, `_emissions`, `_load_track` (emissions);
 #: `onsets` (onsets); `process._mix_features` and the beats / energy / structure modules (mix);
 #: `process._decode`, `_separate_vocals`, `_mix_back`, `_aligner_decode` and the download's
-#: format choice and duration (stem). Stored evidence from another version is refused, so the
-#: next job runs in full. tests/test_evidence.py pins a hash of that source to these numbers.
-EVIDENCE_CODE: dict[str, int] = {"emissions": 1, "onsets": 1, "mix": 1, "stem": 1}
+#: format choice and duration (stem); `level` (envelope). Stored evidence from another version
+#: is refused, so the next job runs in full. tests/test_evidence.py pins a hash of that source to
+#: these numbers.
+EVIDENCE_CODE: dict[str, int] = {"emissions": 1, "onsets": 1, "mix": 1, "stem": 1, "envelope": 1}
 
 #: The aligner input's sample rate (alignment.SAMPLE_RATE, which load_audio produces).
 SAMPLE_RATE = 16_000
@@ -79,7 +83,7 @@ DURATION_TOLERANCE_S = 3.0
 #: has counted the job). The aligner wav's duration is not among them: a job reads it only for
 #: stamped lyrics with a record length (plain lyrics and LRC-text overrides have none), and a
 #: replay that needs it and lacks it stops before alignment.
-REQUIRED_META = ("download", "track_samples", "track_sha256", "onsets", "mix")
+REQUIRED_META = ("download", "track_samples", "track_sha256", "onsets", "envelope", "mix")
 
 #: A merged record keeps the stored slices of earlier window plans up to this multiple of the new
 #: record's own size (a row must not grow by one plan per stamp change forever).
@@ -836,6 +840,36 @@ def onsets(compute: Callable[[], list[int] | None]) -> list[int] | None:
     value = compute()
     with _guarded(session, "the onsets"):
         session.meta["onsets"] = None if value is None else [int(t) for t in value]
+    return value
+
+
+def envelope(compute: Callable[[], Any]) -> Any:
+    """The aligner track's level envelope (pipeline/level.py), kept as its bytes: zlib, then
+    base64 into the meta. None comes only from a failed read (`extractor_failed`, so the record
+    is not stored); a silent track is a value."""
+    session = current()
+    if session is None:
+        return compute()
+    if isinstance(session, Replayer):
+        from kashi_server.pipeline.level import Envelope
+
+        recorded = session.meta("envelope")
+        try:
+            levels = zlib.decompress(base64.b64decode(recorded["levels"], validate=True))
+        except (ValueError, zlib.error, KeyError, TypeError) as exc:
+            raise EvidenceMissing(f"the recorded envelope does not decode ({exc})") from None
+        if len(levels) != recorded.get("frames"):
+            raise EvidenceMissing("the recorded envelope does not match its frame count")
+        return Envelope(levels, step_ms=int(recorded["step_ms"]))
+    assert isinstance(session, Recorder)
+    value = compute()
+    if value is None:
+        return None
+    with _guarded(session, "the envelope"):
+        session.meta["envelope"] = {
+            "step_ms": value.step_ms, "unit_db": 0.5, "frames": len(value.levels),
+            "levels": base64.b64encode(zlib.compress(bytes(value.levels), 9)).decode("ascii"),
+        }
     return value
 
 
