@@ -39,6 +39,7 @@ import {
   paletteToCssVars,
   planLineFills,
   planLineFillsByIdentity,
+  planPassFills,
   planSweepSpans,
   planWordFills,
   relativeLuminance,
@@ -839,6 +840,7 @@ describe('held-note sweep (client review E.2)', () => {
       lineMedianFactor: 2.5,
       spanDwellFraction: 0.8,
       lineFinal: true,
+      lineFinalPauseMs: 750,
     });
   });
 
@@ -975,6 +977,67 @@ describe('held-note sweep (client review E.2)', () => {
     expect(lineFinalDwellMs([line(0, 1000, 800)], 0)).toBeUndefined();
   });
 
+  it('counts at most 750 ms of the pause past the last word\'s measured end', () => {
+    const line = (start: number, end: number, lastStart: number, lastEnd = end) => ({
+      start_ms: start,
+      end_ms: end,
+      text: 'x',
+      words: [
+        { start_ms: start, end_ms: lastStart, text: 'a' },
+        { start_ms: lastStart, end_ms: lastEnd, text: 'b' },
+      ],
+    });
+    // Last word 800-1000; the next line takes over 500 ms before its start.
+    // Takeover 1 749 / 1 750 (= end + 750) / 1 751: 949, 950, then bounded at 950.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(2249, 3000, 2500)], 0)).toBe(949);
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(2250, 3000, 2500)], 0)).toBe(950);
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(2251, 3000, 2500)], 0)).toBe(950);
+    // A pause of exactly 5 000 ms is still held on screen: bounded all the same.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(6000, 7000, 6500)], 0)).toBe(950);
+    // The bound counts from the WORD's measured end, not the line's.
+    expect(lineFinalDwellMs([line(0, 1000, 800, 900), line(4000, 5000, 4500)], 0)).toBe(850);
+    // A word stored 0 ms long gets the pause allowance alone.
+    expect(lineFinalDwellMs([line(0, 1000, 1000), line(4000, 5000, 4500)], 0)).toBe(750);
+  });
+
+  it('a line-final word measured 250 ms clears the floor across a long pause; 249 ms does not', () => {
+    // Inner dwells 300/300 (threshold 1 000); a 4 s pause follows the line.
+    const lines = (lastMs: number) => [
+      {
+        start_ms: 0,
+        end_ms: 600 + lastMs,
+        text: 'ka lo mi',
+        words: at([0, 300, 600], [200, 200, lastMs]),
+      },
+      { start_ms: 4600 + lastMs, end_ms: 5000 + lastMs, text: 'nu', words: at([4600 + lastMs], [400]) },
+    ];
+    const plan = (lastMs: number) => {
+      const doc = lines(lastMs);
+      return planLineFills(doc[0]!.words, false, 'hype', lineFinalDwellMs(doc, 0)).held;
+    };
+    expect(plan(250)).toEqual([false, false, true]);
+    expect(plan(249)).toEqual([false, false, false]);
+  });
+
+  it('a longer pause does not lengthen the line-final sweep (a line 2.35.0 moves later)', () => {
+    // Sung 400 ms at 600; the next line moved from 1 900 to 3 900 (silence).
+    const doc = (nextStart: number) => [
+      { start_ms: 0, end_ms: 1000, text: 'ka lo mi', words: at([0, 300, 600], [200, 200, 400]) },
+      { start_ms: nextStart, end_ms: nextStart + 400, text: 'nu', words: at([nextStart], [400]) },
+    ];
+    const spanOf = (nextStart: number) => {
+      const lines = doc(nextStart);
+      const dwell = lineFinalDwellMs(lines, 0);
+      const plan = planLineFills(lines[0]!.words, false, 'hype', dwell);
+      return planPassFills(lines[0]!.words, plan, dwell).spans[2];
+    };
+    // Before the move the next line takes over at the line's end: 400 ms, no held note.
+    expect(lineFinalDwellMs(doc(1500), 0)).toBe(400);
+    // After it: 400 + 750 = 1 150 ms counted, swept over 0.8 x 1 150 = 920 ms (not 1 920).
+    expect(spanOf(3900)).toEqual({ start_ms: 600, end_ms: 1520 });
+    expect(spanOf(5500)).toEqual({ start_ms: 600, end_ms: 1520 });
+  });
+
   it('decides held notes by line identity, sweeping each pass over its own span', () => {
     const pass = (start: number, satoDwell: number) => ({
       start_ms: start,
@@ -1001,7 +1064,7 @@ describe('held-note sweep (client review E.2)', () => {
     expect(planFillsByLineIdentity(lines, 'hype')[0]).toEqual([false, true, false, false]);
   });
 
-  it('a pass whose own dwell is past the ceiling sweeps over its own span', () => {
+  it('a pass whose own dwell is past the ceiling pops; 5 000 ms still sweeps', () => {
     const pass = (start: number, satoDwell: number) => ({
       start_ms: start,
       end_ms: start + satoDwell + 1100,
@@ -1013,16 +1076,77 @@ describe('held-note sweep (client review E.2)', () => {
         { start_ms: start + 600 + satoDwell, end_ms: start + 1100 + satoDwell, text: 'nefa' },
       ],
     });
-    // Group median 1 500: held. The third pass dwells 20 s on "sato".
-    const lines = [pass(0, 1500), pass(30_000, 1500), pass(60_000, 20_000)];
+    // Group median 1 500: held. The third pass dwells 20 s on "sato", the fourth 5 001, the
+    // fifth exactly 5 000.
+    const lines = [
+      pass(0, 1500),
+      pass(30_000, 1500),
+      pass(60_000, 20_000),
+      pass(90_000, 5001),
+      pass(120_000, 5000),
+    ];
     const plans = planLineFillsByIdentity(lines, 'hype');
     expect(plans[2]?.held).toEqual([false, true, false, false]);
+    // The span stays the word's own; the pass pops it instead of a 200 ms flash.
     expect(planSweepSpans(lines[2]!.words, plans[2]!.held)[1]).toEqual({
       start_ms: 60_300,
       end_ms: 60_500,
     });
-    expect(planSweepSpans(lines[2]!.words, plans[2]!.held, undefined)[1]?.end_ms).not.toBe(
-      60_300 + 0.8 * 20_000,
-    );
+    expect(planPassFills(lines[2]!.words, plans[2]!).sweep).toEqual([false, false, false, false]);
+    expect(planPassFills(lines[3]!.words, plans[3]!).sweep).toEqual([false, false, false, false]);
+    expect(planPassFills(lines[4]!.words, plans[4]!)).toEqual({
+      sweep: [false, true, false, false],
+      spans: [
+        { start_ms: 120_000, end_ms: 120_300 },
+        { start_ms: 120_300, end_ms: 124_300 }, // 0.8 x 5 000
+        { start_ms: 125_300, end_ms: 125_600 },
+        { start_ms: 125_600, end_ms: 126_100 },
+      ],
+    });
+    // The pass that measured the note normally sweeps it.
+    expect(planPassFills(lines[0]!.words, plans[0]!).sweep).toEqual([false, true, false, false]);
+  });
+
+  it('a group-held last word pops in the pass an interlude follows', () => {
+    // "nefa" closes the line; the first two passes are followed by the next pass after a
+    // 1.3 s pause (dwell 300 + 750 = 1 050, held by the group), the third by a 6.3 s break.
+    const pass = (start: number) => ({
+      start_ms: start,
+      end_ms: start + 900,
+      text: 'lumi sato nefa',
+      words: [
+        { start_ms: start, end_ms: start + 300, text: 'lumi' },
+        { start_ms: start + 300, end_ms: start + 600, text: 'sato' },
+        { start_ms: start + 600, end_ms: start + 900, text: 'nefa' },
+      ],
+    });
+    const tolu = { start_ms: 11_600, end_ms: 12_000, text: 'tolu', words: at([11_600], [400]) };
+    const lines = [pass(0), pass(2_200), pass(4_400), tolu];
+    const plans = planLineFillsByIdentity(lines, 'hype');
+    expect(plans[2]?.held).toEqual([false, false, true]);
+    expect(lineFinalDwellMs(lines, 2)).toBeUndefined();
+    expect(planPassFills(lines[2]!.words, plans[2]!, lineFinalDwellMs(lines, 2)).sweep).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(planPassFills(lines[0]!.words, plans[0]!, lineFinalDwellMs(lines, 0))).toEqual({
+      sweep: [false, false, true],
+      spans: [
+        { start_ms: 0, end_ms: 300 },
+        { start_ms: 300, end_ms: 600 },
+        { start_ms: 600, end_ms: 1440 }, // 600 + 0.8 x 1 050
+      ],
+    });
+  });
+
+  it('a pass keeps every sweep that is not a held note, dwell or no dwell', () => {
+    // A sustained line end (run rule) with an interlude after it still sweeps its own span.
+    const words = at([0, 300, 600], [200, 200, 900]);
+    const plan = planLineFills(words, false, 'hype', undefined);
+    expect(planPassFills(words, plan, undefined).sweep).toEqual([false, false, true]);
+    // Ad-lib lines sweep every word.
+    const adlib = planLineFills(words, true, 'hype', undefined);
+    expect(planPassFills(words, adlib, undefined).sweep).toEqual([true, true, true]);
   });
 });

@@ -35,7 +35,7 @@ import {
   paletteToCssVars,
   planLineFills,
   planLineFillsByIdentity,
-  planSweepSpans,
+  planPassFills,
   primaryFxHit,
   quantizedEnergy,
   resolveFxProfile,
@@ -601,14 +601,11 @@ export function createLyricsView(
     for (const [index, plan] of sharedFillPlans.entries()) {
       const words = lines[index]?.words;
       if (!plan || !words || words.length === 0) continue;
-      const own = planLineFills(
-        words,
-        lines[index]?.adlib === true,
-        effectLevel,
-        lineFinalDwellMs(lines, index),
-      );
+      const finalDwell = lineFinalDwellMs(lines, index);
+      const own = planLineFills(words, lines[index]?.adlib === true, effectLevel, finalDwell);
       if (own.sweep.join() !== plan.sweep.join()) corrected += 1;
-      held += plan.held.filter(Boolean).length;
+      const pass = planPassFills(words, plan, finalDwell);
+      held += plan.held.filter((isHeld, i) => isHeld && pass.sweep[i] === true).length;
     }
     if (sharedFillPlans.length > 0) {
       host.log(
@@ -631,13 +628,15 @@ export function createLyricsView(
     // because the aligner measured the same word 273 ms one time and 1092 ms
     // the next (field report 2026-08-13). The per-instance call remains the
     // fallback for a line that belongs to no group. The SPAN each word sweeps
-    // over is this instance's own (a held note's runs past its measured end).
+    // over is this instance's own (a held note's runs past its measured end),
+    // and a held note with no usable dwell in this instance pops (planPassFills).
     const finalDwell = lineFinalDwellMs(lines, lineIndex);
     const plan =
       sharedFillPlans[lineIndex] ??
       planLineFills(words, lines[lineIndex]?.adlib === true, effectLevel, finalDwell);
-    fillPlan = plan.sweep;
-    sweepSpans = planSweepSpans(words, plan.held, finalDwell);
+    const pass = planPassFills(words, plan, finalDwell);
+    fillPlan = pass.sweep;
+    sweepSpans = pass.spans;
     const fxHits = fxIndex.get(lineIndex) ?? [];
     // The halo's colour is NOT chosen here: ambientColors() takes the line's
     // primary hit itself, so a two-category line cannot repaint it mid-line.

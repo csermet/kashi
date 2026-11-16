@@ -220,6 +220,19 @@ export const FILL_MIN_RUN = 2;
  *     running until the next line takes the display over — never into an
  *     interlude or the outro hold, which have no next word. One flag turns
  *     that part off;
+ *   - `lineFinalPauseMs` (client review E.3, 2026-11-16): a line-final dwell
+ *     runs on into the PAUSE before the next line, and nothing in a document
+ *     tells a held note from a pause. So it counts at most this much past the
+ *     word's measured end (lineFinalDwellMs): the fill then runs at most
+ *     0.8 x 750 - 0.2 x duration <= 600 ms past the measured end, a last word
+ *     measured under 250 ms never qualifies, a pause up to 1 250 ms (750 + the
+ *     500 ms lead-in) is judged as before, and a longer one no longer
+ *     lengthens the sweep — including the silent span pipeline 2.35.0 puts in
+ *     front of a line whose first word it moves later. Measured on the 39
+ *     stem songs' 2.35.0 documents: unbounded, 35 of 116 line-final sweeps
+ *     kept filling over 0.5 s after the voice stopped (21 over 1 s) and the
+ *     sweep grew ~0.8 x the pause, while the voice past the measured end
+ *     stopped growing at ~0.7-1.3 s; 750 was chosen on those same songs;
  *   - `maxDwellMs`: a dwell past 5 s is no held note but a hole in the
  *     document (a word left lit across a break). Over the 306 live documents
  *     (2026-11-13), sweeps on dwells above 5 s sat on silence (voiced share of
@@ -232,6 +245,7 @@ export const HELD_NOTE_SWEEP = {
   lineMedianFactor: 2.5,
   spanDwellFraction: 0.8,
   lineFinal: true,
+  lineFinalPauseMs: 750,
 } as const;
 
 interface TimedWord {
@@ -309,9 +323,11 @@ export function wordDwells(words: readonly TimedWord[], finalDwellMs?: number): 
 }
 
 /**
- * The line-final word's dwell: from its start until the next line takes the
- * display over. Undefined when the line gives way to the interlude mark or to
- * the outro hold (no next word), or has no words.
+ * The line-final word's dwell as the held-note rule reads it: from its start
+ * until the next line takes the display over, but no further than
+ * HELD_NOTE_SWEEP.lineFinalPauseMs past its measured end (the rest is the
+ * pause before the next line, not a note). Undefined when the line gives way
+ * to the interlude mark or to the outro hold (no next word), or has no words.
  */
 export function lineFinalDwellMs(
   lines: readonly LineWithWords[],
@@ -321,7 +337,8 @@ export function lineFinalDwellMs(
   const last = words?.[words.length - 1];
   if (!last) return undefined;
   const takeover = nextLineTakeoverMs(lines, index, last.start_ms);
-  return takeover === undefined ? undefined : takeover - last.start_ms;
+  if (takeover === undefined) return undefined;
+  return Math.min(takeover, last.end_ms + HELD_NOTE_SWEEP.lineFinalPauseMs) - last.start_ms;
 }
 
 /** Middle value (mean of the two middle ones for an even count); null when empty. */
@@ -359,11 +376,15 @@ function heldNotes(
   return held;
 }
 
+/** A dwell the held-note span can be drawn from: present and not a hole. */
+function usableDwell(dwell: number | null | undefined): dwell is number {
+  return dwell !== null && dwell !== undefined && dwell <= HELD_NOTE_SWEEP.maxDwellMs;
+}
+
 /**
  * The span each word's sweep runs over: its own [start, end], or for a held
- * note [start, max(end, start + spanDwellFraction x dwell)]. A pass whose own
- * dwell is past maxDwellMs keeps its own span even when its line's group
- * holds the note: the group decides the look, never a 20 s crawl.
+ * note [start, max(end, start + spanDwellFraction x dwell)]. A held word
+ * whose own dwell is unusable keeps its own span here; planPassFills pops it.
  */
 export function planSweepSpans(
   words: readonly TimedWord[],
@@ -373,12 +394,7 @@ export function planSweepSpans(
   const dwells = wordDwells(words, finalDwellMs);
   return words.map((word, i) => {
     const dwell = dwells[i];
-    if (
-      held[i] !== true ||
-      dwell === null ||
-      dwell === undefined ||
-      dwell > HELD_NOTE_SWEEP.maxDwellMs
-    ) {
+    if (held[i] !== true || !usableDwell(dwell)) {
       return { start_ms: word.start_ms, end_ms: word.end_ms };
     }
     return {
@@ -386,6 +402,31 @@ export function planSweepSpans(
       end_ms: Math.max(word.end_ms, word.start_ms + HELD_NOTE_SWEEP.spanDwellFraction * dwell),
     };
   });
+}
+
+/**
+ * What ONE pass of a line sweeps, and over which spans: the line's plan (its
+ * identity group's, or its own) applied to this pass's own timing. A held
+ * note the plan decided from the group's medians but whose dwell in THIS pass
+ * is unusable — absent (an interlude or the outro hold follows) or past
+ * maxDwellMs (a hole in the document) — pops in this pass. Swept over its
+ * measured span instead it flashed (a 140 ms sweep) or crawled over the hole
+ * (a 9.6 s one) on the 2.35.0 documents of the 39 stem songs (client review
+ * E.3): a pop asserts no duration. The view and the golden harness both build
+ * a pass from this, so they cannot disagree.
+ */
+export function planPassFills(
+  words: readonly TimedWord[],
+  plan: LineFillPlan,
+  finalDwellMs?: number,
+): { sweep: boolean[]; spans: { start_ms: number; end_ms: number }[] } {
+  const dwells = wordDwells(words, finalDwellMs);
+  return {
+    sweep: words.map(
+      (_, i) => plan.sweep[i] === true && (plan.held[i] !== true || usableDwell(dwells[i])),
+    ),
+    spans: planSweepSpans(words, plan.held, finalDwellMs),
+  };
 }
 
 /** Letters only, so "music", "(music," and "music)" are one word repeated. */
@@ -953,8 +994,9 @@ export function fxWordColor(
  * different number of words means the lines are not really the same line.
  *
  * Held notes (HELD_NOTE_SWEEP) are decided the same way, from the group's
- * median dwell of each word and of its line-final word; each pass still
- * sweeps over its own measured span (planSweepSpans).
+ * median dwell of each word and of its line-final word; each pass sweeps over
+ * its own dwell's span, or pops where its own dwell is unusable
+ * (planPassFills).
  */
 export function planLineFillsByIdentity(
   lines: readonly IdentityLine[],

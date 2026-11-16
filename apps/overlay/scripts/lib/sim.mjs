@@ -26,7 +26,8 @@ export function linePlan(R, ctx, lineIndex) {
   const words = line?.words ?? [];
   const finalDwell = R.effects.lineFinalDwellMs(lines, lineIndex);
   const plan = plans[lineIndex] ?? R.effects.planLineFills(words, line?.adlib === true, level, finalDwell);
-  return { ...plan, spans: R.effects.planSweepSpans(words, plan.held, finalDwell) };
+  // The pass's own flags and spans (a held note with no usable dwell here pops).
+  return { ...plan, ...R.effects.planPassFills(words, plan, finalDwell) };
 }
 
 /**
