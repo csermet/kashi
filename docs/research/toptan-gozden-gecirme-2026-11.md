@@ -645,6 +645,54 @@ order above against pre-registered gates (working files `surum-zamanlama/`).
   Toz Pembe's opening 20.1 s later: the two moves the owner preferred blind). The first finished
   documents were read before the feed went on. Working files `yenileme-2.34/`.
 
+## Release 2.35.0: a first word that waits in silence (2026-11-16)
+
+The owner, on the refreshed documents in the new overlay build: "the line ends and the display
+jumps to the next line at once, which then sits there waiting — everywhere", with GOSSIP 2:00 and
+2:23 as examples. The display rule was not the cause (a short gap holds the previous line and the
+next arrives at most 500 ms early): in the document the line's FIRST word sat glued to the previous
+line's end and the rest of the line came seconds later. Working files `kopuk-ilk-kelime/`; the
+rule, its numbers and the labelled moments are in the 2.35.0 paragraph of `version.py`.
+
+- **How common, and how often false.** On the 36 refreshed songs 42 of 1 925 lines had a first
+  word a second or more ahead of its line (54 on 2.31.0). The same count on human word times
+  (79 Jamendo songs, 3 204 lines): the HUMAN times are detached on 71 lines (2.2 %), the pipeline
+  on 92 — 61 on both, and of the 31 pipeline-only ones the first word is within 200 ms of the human
+  start on 21 and more than 500 ms early on 3. So a detached first word is mostly real (a pick-up
+  or held word, sung where it is); the false ones are a small class, and "everywhere" is not
+  explained by them. That part of the report stays open; more moments from the owner are needed.
+- **Four candidates that read the emissions only.** "Move the first word to where a pass hears its
+  first letter" in four tightenings; the fourth passed every bar on the 39 local songs (4 lines
+  moved) and then failed the order above: archive rig 25 lines in 18 songs, one song vetoed (a
+  one-word line lost its word: the stamp guard was compared on the wrong clock), two more short
+  words than 2.34.0; human truth, 6 line starts moved, 4 better and 2 worse (a first word that was
+  right pulled to a line whose other words had locked late). The owner's eight blind clips, drawn
+  by rule: both of his own GOSSIP moments for the candidate; over the five lines moved through
+  continuous singing, the candidate 3 (one weak) and the old document 2. Where the voice is
+  continuous nothing in the emissions separates a right move from a wrong one.
+- **The fifth, shipped:** the fourth plus an independent witness — the word moves only when the
+  vocal stem is silent where it used to wait (the audit voice witness's own line and shortest
+  silence), with the stamp guard on the document clock and ad-lib lines skipped. Pre-registered,
+  then: 39 songs, 2 lines move (GOSSIP's opening and its 2:24 line, 6.8 s); archive rig, 8 lines in
+  6 songs against a stated 8-10, every one on a silent stem, stem silence under the moved starts
+  15.4 s → 63 ms, short words 4 861 → 4 860, no veto; human truth at ±400 ms identical to 2.34.0 on
+  79 of 79 songs, at +3 s two line starts move onto the human start (−1.22 s → −26 ms, −1.24 s →
+  −19 ms). Disclosed: the "9 frames in 10" share was written down after one check's output had
+  been seen; the voice-witness bar passed by 0.001 (one line, GOSSIP 2:24, starts 0.5 s after the
+  voice returns — the owner chose it blind).
+- **Left open on purpose:** the owner's own 2:00 example (voiced) does not move. The labelled
+  moments (his five voiced clips, the bench's moves against human truth, two archive lines) are
+  listed in `version.py` for the next attempt. Also seen and not addressed: a held word lit as if two words (Best Night 0:50, both
+  builds); a moved word can be stored 0 ms long (its display dwell is ≥ 120 ms).
+- **What the rule needed changed what is kept.** It reads the stem's level, so the level envelope
+  (one byte per 20 ms, exact integer arithmetic, plus the loudest frame's absolute level and a
+  zero-crossing count per frame that no rule reads yet) became a runtime signal and part of the
+  stored evidence before any archive evidence was recorded
+  (`refresh-from-evidence-2026-11.md`); a replay moves the same words without audio (39 of 39).
+- **Reviewer** (static read): safe to merge; its points on the envelope (absolute reference, a
+  frame count bound to the track, integer-exact steps), the shortest silent span and four toothless
+  tests were taken before the release, with every document of the three sets unchanged.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.

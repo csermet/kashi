@@ -73,8 +73,15 @@ left to the session: (1) an archive refresh from stored stems, without downloadi
 branches and the Android probe; (3) the duration-term experiment for words the model cannot place.
 (1) is built as a refresh from stored evidence, not stems (owner, 2026-11-16;
 `docs/research/refresh-from-evidence-2026-11.md`) and merged with `EVIDENCE_MODE` off; before it is
-used, the nightly dump leaves the evidence table's data out, the GPU helper back-fills the archive,
-and the workers switch to `replay`.
+used, the nightly dump leaves the evidence table's data out (done 2026-11-16), the GPU helper
+back-fills the archive, and the workers switch to `replay`.
+
+**State on 2026-11-16.** Server 0.40.0 / pipeline 2.35.0: a line's first word that waited in silence
+seconds before its line now starts where the voice returns (8 lines in 6 of 287 archive songs; the
+same complaint over continuous singing is open, `toptan-gozden-gecirme-2026-11.md`, "Release
+2.35.0"), and the stem's level envelope is part of the evidence a job can keep. Next: back-fill the
+archive's evidence with this build, switch the workers to `replay`, then let the archive follow
+2.35.0 without downloads.
 D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
