@@ -126,13 +126,15 @@ docker run --rm --gpus all --ipc=host --env-file kashi-worker.env -v kashi-bench
 What a reprocess would store for each song with evidence, compared with what is stored and judged
 by the archive rig's vetoes, with nothing written: no job, no document, no evidence; reads only,
 in read-only transactions (`docs/research/refresh-from-evidence-2026-11.md`, "Preview before
-refresh"). CPU only: no GPU, no audio, no download; about 1.7 s a song plus one lrclib request and
-the artwork fetch, so ~15 min for 425 songs.
+refresh"). CPU only: no GPU, no audio, no download; about 1.7 s a song plus its lrclib requests
+and the artwork fetch, so ~15 min for 425 songs; 542 MB at peak on the 39 pilot songs.
 
 It previews the code of the image it runs in. For the deployed release: a shell in the cluster
 worker's container (its environment has the database, the lrclib settings and the model cache; the
 tokenizer is all it loads). For a candidate: a one-off container of the candidate's image with the
-same environment, never the deployed worker. Mind the threads on a shared node:
+same environment, never the deployed worker. It shares the container's memory with the worker:
+run it while no job is queued or running (it refuses otherwise, and stops between two songs when a
+job goes live; `--beside-live-jobs` previews anyway). Mind the threads on a shared node:
 
 ```bash
 OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratch/preview.jsonl
@@ -140,20 +142,29 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
 
 - **Options:** `--source-id ID ...` (given songs, with or without evidence), `--limit N`,
   `--after ID` (the summary's `next_after`), `--out FILE` (default
-  `<data_dir>/preview-<UTC time>.jsonl`; the root filesystem may be read-only, the scratch volume
-  is not), `--documents DIR` (each built document too: they carry lyric text), `--lyrics stored`
-  (default: the record the stored document names, one request a song) or `ladder` (the lookup as a
-  reprocess runs it), `--lrclib-gap-s` (default 0.5 s between requests to lrclib.net).
+  `<data_dir>/preview-<UTC time>.jsonl`; never overwritten; the root filesystem may be read-only,
+  the scratch volume is not), `--append` (continue that file: a segment line, the rows, and a
+  summary of the whole file, each song's latest row), `--documents DIR` (each built document too:
+  they carry lyric text), `--lyrics stored` (default: the record the stored document names, then
+  a ladder pass for each `refresh`) or `ladder` (the lookup as a reprocess runs it, every song),
+  `--lrclib-gap-s` (default 0.5 s between requests to lrclib.net), `--beside-live-jobs`.
+- **lrclib requests:** stored mode one by-id request a song (a title with a nightcore marker: up to
+  two searches and one more by-id), plus each `refresh`'s ladder pass (1-5 requests, up to 5 more
+  for the composite-title fallback); ladder mode that ladder pass for every song.
 - **Output:** one line a song on stdout (`<id>: <verdict> (<detail>)`), one JSON line a song in the
-  out file (numbers only), and last a JSON summary: counts per verdict, `refresh_ids`,
-  `unchanged_ids`, why the rest are kept or need a full job, the vetoes, the counts summed over the
-  songs on the same sheet, `without_evidence`, the lrclib requests made.
-- **Then:** each id of `refresh_ids` takes one admin reprocess call; with the workers in `replay`
-  it is rebuilt without a download. A `needs a full job` song downloads on its reprocess.
-- **Exit codes:** 0 ran, 2 database schema behind the image, 143 stopped by SIGTERM (the summary is
-  still written). Its scratch directories (`job-preview-*`, empty during a replay) are deleted per
-  song and matched by the worker's own sweep.
-- **A crash** inside the aligner library (its forced alignment reads past its buffers when a
-  window's letters fill its frames exactly) ends the process without a row for that song: the last
-  `preview of <id> starts` line on stderr names it, and `--after <id>` resumes past it.
-
+  out file (numbers and fixed reasons only), and last a JSON summary: counts per verdict,
+  `refresh_ids`, `unchanged_ids`, the `review` list for a person, why the rest are kept or need a
+  full job, the vetoes, the counts summed over the songs on the same sheet, `without_evidence`,
+  `replay` (what a worker needs for these reprocesses to replay: the mode and the evidence key, and
+  this environment's mode) and `this_run` (lrclib requests, seconds, peak memory, exit code).
+- **Then, the canary first:** reprocess ONE id of `refresh_ids` (one admin reprocess call) on the
+  workers in `replay`; its log must say `rebuilt from stored evidence, no download`, not
+  `key differs at …` or `full job (…)`. Only then feed the rest, one call each.
+- **Exit codes:** 0 ran, 2 database schema behind the image, 3 `--out` exists (continue it with
+  `--append`), 4 a job is live (refused, or stopped between two songs), 5 the database went away,
+  129 / 130 / 143 stopped by SIGHUP / SIGINT / SIGTERM; every exit after the start writes the
+  summary of what was previewed. Its scratch directories (`job-preview-*`, empty during a replay)
+  are deleted per song and matched by the worker's own sweep.
+- **A crash** inside the aligner library ends the process without a row for that song (the job
+  code refuses the inputs known to crash it; others may exist): the last `preview of <id> starts`
+  line on stderr names it, and `--after <id> --append` resumes past it into the same file.

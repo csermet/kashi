@@ -282,31 +282,45 @@ rules in `worker/preview_rules.py`; how to run it: `docs/gpu-worker.md`).
   a player length more than 3 s from the record's, a slice another window plan cuts, the by-ear
   rung, a non-transient error or a fault inside the replay) is `needs a full job: <reason>`; nothing
   is downloaded, separated or aligned.
-- **Lyrics.** `--lyrics stored` (default) asks lrclib for the one record the stored document names,
-  by id (one request a song; lrclib.net, the mirror when it is busy): the release is measured on
-  the same sheet, and an edited record shows as a changed sheet, but the ladder choosing another
-  record today is not seen; `--lyrics ladder` runs the ladder exactly as a reprocess does (up to
-  five requests a song). An override's lyrics are always the override's. There is no preview
+- **Lyrics, in two passes.** `--lyrics stored` (default) asks lrclib for the one record the stored
+  document names, by id: the release is measured on the same sheet. A reprocess runs the lookup
+  ladder, though, and the ladder may pick another record today, or miss and need the by-ear rung.
+  So every song that comes out `refresh` this way is previewed again with the ladder, exactly as
+  its reprocess will run, and stays `refresh` only when the ladder builds the same document on the
+  same record; otherwise its verdict is the ladder's (another record: `sheet changed`; the by-ear
+  rung: `needs a full job`; lrclib weather: `failed`), or `review` when the ladder says refresh
+  with another document. `refresh_ids` come from the confirmed songs only. `--lyrics ladder` runs
+  the ladder for every song. An override's lyrics are always the override's. There is no preview
   without a request: the stamps that cut the windows and judge line QA live only in the record.
-  Requests to lrclib.net are at least 0.5 s apart (`--lrclib-gap-s`; lrclib asks 200-500 ms in
-  batch work).
-- **What it reports**, per song and numbers only (line indexes and times, never lyric text): the
-  pipeline versions; which document fields differ; the sheet (lyrics source, record, speed factor,
-  line count, line texts); line and word counts, wordless lines, words starting before the word
-  before them, lines ending after the next starts, words whose successor in the line starts
-  0 ms / < 60 ms / < 120 ms after them (the 2.34.0 refresh's definitions); line starts moved
-  > 100 / 500 / 1 500 ms with the largest, and for each moved start the silent lead before and
-  after it (ms to the first 20 ms envelope frame at or above -25 dB re the loudest frame,
-  `alignment.FIRST_HEARD_SILENCE_DB`); lines that lost or gained word timings; W1-W4 below. The
-  summary: counts per verdict, the ids to refresh (one admin reprocess call each), why the others
-  are not, the vetoes, the counts summed over the songs judged on the same sheet, and the lrclib
-  requests made.
+- **Requests.** Stored mode: one by-id request a song; a title with a nightcore marker adds the
+  detection's search (one, or two when the first finds nothing plausible) and, when it finds a
+  factor, a second by-id (then the song needs a full job). Each `refresh` adds its ladder pass:
+  1-5 requests (the exact get; a search when the get's record is another edit; when nothing is
+  found a search, a free-text search and, for a multi-artist hint, both again with the primary
+  artist), up to 5 more when the composite-title fallback runs the ladder again, plus the marker
+  searches again. `--lyrics ladder`: that ladder pass for every song. lrclib.net requests are at
+  least 0.5 s apart (`--lrclib-gap-s`; lrclib asks 200-500 ms in batch work); a busy lrclib.net
+  sends them to the mirror through the worker's breaker.
+- **What it reports**, per song and numbers or fixed reasons only (line indexes, times, error
+  classes; never lyric text, a title or an exception's message, which go to the log): the pipeline
+  versions; which document fields differ; the sheet (lyrics source, record, speed factor, line
+  count, line texts; an absent speed factor reads 1.0, and stored text whose inline time tags
+  stripped equals the new text is the same line); line and word counts, wordless lines, words
+  starting before the word before them, lines ending after the next starts, words whose successor
+  in the line starts 0 ms / < 60 ms / < 120 ms after them (the 2.34.0 refresh's definitions); line
+  starts moved > 100 / 500 / 1 500 ms with the largest, and for each moved start the silent lead
+  before and after it (ms to the first 20 ms envelope frame at or above -25 dB re the loudest
+  frame, `alignment.FIRST_HEARD_SILENCE_DB`); lines that lost or gained word timings; W1-W4 and
+  the moves W2 cannot judge. The summary: counts per verdict, the ids to refresh, why the others
+  are not, the vetoes, the counts summed over the songs judged on the same sheet, what a worker
+  needs for the reprocesses to replay (`replay`: the mode and the evidence key this image records
+  and replays, and this environment's mode), the lrclib requests, the peak memory, the exit code.
 
 **The verdict, first match wins.** Rules in the code; thresholds the archive rig's vetoes, written
 before the 2.34.0 and 2.35.0 runs, not tuned here:
 
 1. `failed`: the preview could not tell (lrclib weather, no stored document, no job history, the
-   stored document's record gone).
+   stored document's record gone, evidence replaced while it was read).
 2. `needs a full job: <reason>` (above).
 3. `keep (guard: ...)`: the persist guard would keep the stored document (a newer pipeline's, an
    override's build this run does not apply, a regression).
@@ -318,59 +332,111 @@ before the 2.34.0 and 2.35.0 runs, not tuned here:
    W3 a line with text that had word timings and has none;
    W4 a moved line (start more than 100 ms away) whose first word now lights < 120 ms before its
    second word and lit >= 120 ms before.
-6. `unchanged`: the document differs only in `generated_at` and `pipeline_version` (a reprocess
+6. `review (...)`: for a person, out of `refresh_ids`: a line start moved more than 1 500 ms that
+   W2 cannot judge (below), or a rebuilt palette that is the default while the stored one was read
+   off the album art (the palette is fetched live, it is not evidence: a failed artwork fetch would
+   overwrite the album's colours).
+7. `unchanged`: the document differs only in `generated_at` and `pipeline_version` (a reprocess
    would only restamp it: not listed for refresh).
-7. `refresh`.
+8. `refresh` (in stored mode: confirmed by the ladder).
 
-**W2's witness is the envelope.** The rig's W2 is the audit voice witness: a line that follows
->= 500 ms of document silence is placed on the voice's return nearest its first word when that
-return is within 1.5 s, the voice returning where the stem's level reaches -25 dB re its loudest
-frame after >= 150 ms under it. The preview applies that definition to the stored envelope (20 ms
-mean-square frames) instead of the audit's contour (librosa RMS over 128 ms windows every 16 ms,
-read by tools that are not in the image); tests check both steps against the audit's own code on
-the same frames. Not chosen: "a start moved more than 1.5 s whose silent lead grows", which cannot
-see a start moved late past the voice's return (its lead stays 0). Caveat: the 2.35.0 rule moves a
-first word only out of silence on this same envelope at this same line, so W2 cannot argue with
-that rule's own moves; it watches every other move (carries, sheet shifts, regroups). The rig's
-witness shared most of that: the rule took its line from it.
+**W2's witness is the envelope, and what it can judge.** The rig's W2 is the audit voice witness:
+a line that follows >= 500 ms of document silence is placed on the voice's return nearest its first
+word when that return is within 1.5 s, the voice returning where the stem's level reaches -25 dB re
+its loudest frame after >= 150 ms under it. The preview applies that definition to the stored
+envelope (20 ms mean-square frames) instead of the audit's contour (librosa RMS over 128 ms windows
+every 16 ms, read by tools that are not in the image); tests check both steps against the audit's
+own code on the same frames. W2 judges only the lines the STORED document lets the witness place:
+a reference taken on the new document lies within 1.5 s of the new start, so it can never put that
+start more than 1.5 s farther away; the first line, and every line inside continuous singing, are
+never placed. A move of more than 1.5 s anywhere else is therefore `review`, listing the lines.
+Not chosen: "a start moved more than 1.5 s whose silent lead grows", which cannot see a start
+moved late past the voice's return (its lead stays 0). Caveat: the 2.35.0 rule moves a first word
+only out of silence on this same envelope at this same line, so W2 cannot argue with that rule's
+own moves; it watches every other move (carries, sheet shifts, regroups).
 
 **Proof** (the 39 pilot and hold-out songs through the worker's `process_job` against a throwaway
-Postgres 17, working files `kashi-gozden-gecirme/onizleme/`). Evidence recorded, then every stored
-document replaced by the 2.34.0 build's. The preview of all 39 (evidence mode off, every audio
-reader made to raise) took 65.9 s, 1.7 s a song, and left nine tables identical (row counts and
-content hashes). Its verdicts are the 2.35.0 release's own footprint: GOSSIP `refresh` (line 0
-12 430 -> 14 380 ms, silent lead 1 690 -> 0 ms; line 38 144 080 -> 150 850 ms, 6 240 -> 10 ms; no
-veto) and 38 `unchanged`. Then the worker's own replay of each song stored a document equal to the
-preview's, 39 of 39 (`generated_at` aside), in both lyrics modes. Unit tests put every threshold
-exactly on its value and one millisecond (or one step) either side; one-line mutations of the new
-code: 69 of 70 make a test fail, the 70th is equivalent (the witness's first silence starting at
-0 ms or at the first frame, which starts at 0 ms). The summed counts of the 39 songs (877 words
-under 120 ms, 40 at 0 ms, 6 overlapping lines, 1 wordless line on both sides) are the 2.35.0
-release's own numbers. The persist guard's extraction equals main's
-`persist_processed_track` on 26 040 seeded and boundary cases (statements, counters, log lines),
-and that harness reports each of four one-line mutations of the new guard.
+Postgres 17; working files `kashi-gozden-gecirme/onizleme/`). Evidence recorded, then every stored
+document replaced by the 2.34.0 build's, one song's line 5 moved 300 ms more. The preview of all 39
+(evidence mode off, every audio reader made to raise) took 67 s, 1.7 s a song, at a peak of 542 MB
+(the harness's process, torch loaded), and left nine tables identical (row counts and content
+hashes). Its verdicts: the seeded song `refresh`, confirmed by its ladder pass on the same record;
+GOSSIP `review`: lines 0 and 38, the 2.35.0 rule's two moves (1 950 and 6 770 ms; silent leads
+1 690 -> 0 and 6 240 -> 10 ms), lie outside W2's reach (the first line is never placed, line 38
+only on the new document); 37 `unchanged`. Stored mode asked 39 records by id and one ladder;
+ladder mode asked 39 ladders and gave the same verdicts. The worker's own replay of each song then
+stored a document equal to the preview's, 39 of 39 (`generated_at` aside), in both modes. Unit
+tests put every threshold exactly on its value and one millisecond (or one step) either side;
+one-line mutations, first round 69 of 70 and second round 46 of 47 make a test fail, the two others
+equivalent (the witness's first silence starting at 0 ms or at the first frame, which starts at
+0 ms; "the same record" next to "the same document", which carries the record). The persist
+guard's extraction equals main's `persist_processed_track` on 26 040 seeded and boundary cases
+(statements, counters, log lines), and that harness reports each of four one-line mutations of the
+new guard. On real archive documents the sheet comparison finds the same sheet on the 36 songs
+refreshed from 2.31.0 to 2.34.0 on 2026-11-14, 36 of 36 (one carried inline tags), and none of 277
+archive documents (2.31.0 and older) lacks a field it reads.
 
 **What it cannot see.** Songs without evidence (not back-filled, a nightcore clock, uploads) and
 releases that change what is read off the audio (the aligner, its revision, the separator, a window
 plan that cuts new slices: those songs read `needs a full job`); audio swapped behind an id with
-unchanged hints. In the default mode, the lyrics ladder's choice today. The audit's own voice
-contour and the ear witness, human word times (the bench) and the owner's ear (clips). And it
-previews the code it runs: a candidate is previewed by running the candidate's image with the
-deployment's database and model cache, never by the deployed worker.
+unchanged hints. The audit's own voice contour and the ear witness, human word times (the bench)
+and the owner's ear (clips). It previews the code it runs: a candidate is previewed by running the
+candidate's image with the deployment's database and model cache, never by the deployed worker.
+And whether a reprocess will replay at all: that is the worker's mode and image (the summary says
+what they must be; the canary below checks it).
 
 **The release order with it.** (1) The archive step runs in the cluster on every song with
-evidence, before any document changes: the candidate image's preview gives the per-song vetoes and,
-summed over the songs on the same sheet, the counts the rig's aggregate bars read. (2) The desktop
-still runs what the preview cannot: the independent voice and ear witnesses' bars, candidates that
-change the emissions, (3) human truth with the bench in shipped mode, and (4) at most eight blind
-clips; then (5) the reviewer and the tag. After the rollout the deployed image's preview lists the
-ids to refresh; a reprocess of each (with `replay` on) stores the document previewed, unless the
-lyrics ladder picks another record or the song's override changes in between.
+evidence, before any document changes: the candidate image's preview gives the per-song vetoes, the
+`review` list for a person and, summed over the songs on the same sheet, the counts the rig's
+aggregate bars read. (2) The desktop still runs what the preview cannot: the independent voice and
+ear witnesses' bars, candidates that change the emissions, (3) human truth with the bench in
+shipped mode, and (4) at most eight blind clips; then (5) the reviewer and the tag. After the
+rollout: the deployed image's preview lists the ids to refresh; the canary, one of them reprocessed
+on a worker in `replay`, must log `rebuilt from stored evidence, no download` before the rest are
+fed; each reprocess then stores the document previewed, unless the ladder's answer or the song's
+override changes in between.
+
+## The aligner library's limits: the back-fill's `AssertionError: n != i` (2026-11-16)
+
+One back-fill song failed inside its job with `AssertionError: n != i` (no traceback kept). The
+assertion is ctc-forced-aligner's own (`get_spans`, at the pinned commit): the Viterbi path's
+letter (`n`) is not the text's next letter (`i`), i.e. the path does not spell the text. The text
+route is closed (the library drops characters its vocabulary lacks from the targets but not from
+`get_spans`, and `_fit_to_vocab` and uroman leave none). Measured on the compiled library with
+synthetic log-probabilities (working files `onizleme/`), three inputs break it:
+
+- fewer frames than the targets need (T < L + R, R the repeated neighbours): it raises "targets
+  length is too long for CTC" (an earlier archive song's failure);
+- targets with no repeated neighbour (R = 0) and T < 2L - 2: its back-pointer buffers, (2L + 2)
+  (T - L) bits, are smaller than what its band writes (its own bookkeeping, swept exactly). Deep
+  overruns crash or break the path (25 samples at T = L: 15 crashes, 9 paths that do not spell the
+  text, `y != t`; at 1.3 L: 17 / 5 / 3 valid), shallow ones mostly come back valid (1.9 L: 3 crashes,
+  22 valid); at T = L (the exact fit) it segfaults every time without a repeat;
+- a NaN frame: 40 % of the paths do not spell the text, in this message's shape.
+
+6cvfHn9qeEw cannot be settled from here: a dense window without a doubled letter (the second case)
+is the likeliest; it is deterministic for the same window plan, text and emissions, so an ordinary
+reprocess on the same image would most likely meet it again, and on the CPU worker it may crash
+the process instead. Since this change `alignment._viterbi` refuses, before the library runs,
+T < L + R, the exact fit without a repeat and non-finite emissions, and turns `get_spans`'
+AssertionError into the same error: `alignment_failed` (permanent, like the job's other alignment
+dead ends; a new record or a code change, both through a reprocess, is what helps), naming the
+window's sample range, the pass, T, L and R. The wider overrun is logged, not refused: a pilot song
+(k89YEt8hocI, window 21, segment pass, T = 286, L = 147) sits in it and its stored document came
+from that pass; refusing the region failed its job in the first draft. Proven: main == the branch
+(off, record, replay) on the 39 songs, every job completed, 39 replays rebuilt; the real library
+on every boundary (refused at L + R - 1, at the exact fit without a repeat where it segfaults, at
+a NaN frame; aligned like before at L + R with a repeat and L + R + 1); mutations of the guard all
+caught. Next time, the error message itself carries the window, the pass, T, L and R.
 
 ## What is left
 
 - The preview's first archive run (after the back-fill; then a candidate image's preview before the
   next timing release).
+- A reprocess overwrites a stored album-art palette with the default when the artwork fetch fails
+  (the preview reports it as `review`); the persist guard could keep the stored one.
+- The aligner library's buffer overrun without a repeated letter (logged now): refuse it, or align
+  such windows another way, once the log says how often it happens.
 - The back-fill on the GPU helper is under way (180 songs recorded by the evening of 2026-11-16);
   a cluster replay of what it recorded (checks above) and a worker metric for replays and
   fallbacks have not run.
