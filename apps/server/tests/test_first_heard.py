@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from kashi_server.pipeline import alignment
+from kashi_server.pipeline.level import Envelope
 from kashi_server.pipeline.windows import Window, start_at_heard_onset
 
 FLOOR = alignment.FIRST_LETTER_FLOOR
@@ -196,6 +197,92 @@ def test_without_a_drift_bound_the_stamps_are_not_read():
     assert n == 1 and out[2]["start"] == pytest.approx(7.0)
 
 
+# --- v5: only out of silence, the band on the document clock, ad-libs left to line QA ---------
+
+
+def _env(quiet_frames: set[int], n: int = 400, quiet: int = 60, loud: int = 10) -> Envelope:
+    """20 ms frames: `quiet_frames` at -30 dB (60 half-dB steps), the rest at -5 dB."""
+    return Envelope(bytes(quiet if k in quiet_frames else loud for k in range(n)))
+
+
+def _v5(rows, env, **kwargs):
+    return _run(rows, envelope=env, silence_db=-25.0, silence_share=0.9, **kwargs)
+
+
+def test_v5_moves_a_start_that_sits_in_silence():
+    # start 300 ms, onset 1 000 ms: the span [300, 500) is frames 15..24
+    rows = _stream(0.3, [1.0])
+    out, n = _v5(rows, _env(set(range(15, 25))))
+    assert n == 1 and out[2]["start"] == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(("quiet", "moved"), [(9, True), (8, False)])
+def test_v5_needs_nine_tenths_of_the_span_quiet(quiet, moved):
+    rows = _stream(0.3, [1.0])
+    out, n = _v5(rows, _env(set(range(15, 15 + quiet))))  # 10 frames in the span
+    assert n == int(moved)
+    assert out[2]["start"] == pytest.approx(1.0 if moved else 0.3)
+
+
+def test_v5_reads_the_span_up_to_the_lead_before_the_new_start():
+    # frames from 500 ms (onset 1 000 - lead 500) on are the word's own onset region: voiced there
+    # is fine; one more voiced frame inside the span, at 480 ms, makes it 9 of 10
+    rows = _stream(0.3, [1.0])
+    voiced_after = _env(set(range(15, 25)) | set())
+    assert _v5(rows, Envelope(voiced_after.levels[:25] + bytes([10] * 375)))[1] == 1
+    assert _v5(rows, _env(set(range(15, 24))))[1] == 1  # frame 24 (480 ms) voiced: 0.9
+    assert _v5(rows, _env(set(range(15, 23))))[1] == 0  # 23 and 24 voiced: 0.8
+
+
+def test_v5_a_frame_exactly_on_the_threshold_is_not_silence():
+    rows = _stream(0.3, [1.0])
+    on_line = Envelope(bytes(50 if 15 <= k < 25 else 10 for k in range(400)))  # -25.0 dB
+    under = Envelope(bytes(51 if 15 <= k < 25 else 10 for k in range(400)))  # -25.5 dB
+    assert _v5(rows, on_line)[1] == 0
+    assert _v5(rows, under)[1] == 1
+
+
+def test_v5_without_an_envelope_moves_nothing():
+    rows = _stream(0.3, [1.0])
+    out, n = _v5(rows, None)
+    assert n == 0 and out[2]["start"] == pytest.approx(0.3)
+
+
+def test_v5_leaves_ad_lib_lines_to_line_qa():
+    rows = _stream(0.3, [1.0])
+    out, n = _v5(rows, _env(set(range(15, 25))), adlib=[False, True])
+    assert n == 0
+    assert _v5(rows, _env(set(range(15, 25))), adlib=[False, False])[1] == 1
+
+
+@pytest.mark.parametrize(("onset_s", "moved"), [(2.459, True), (2.460, True), (2.461, False)])
+def test_the_band_is_read_on_the_document_clock(onset_s, moved):
+    # KAWASAKI in miniature: the word's lateness correction (+40 ms) puts the document start 40 ms
+    # later than the stream's; line QA's median offset is 0 here (two of the three stamped lines
+    # sit on their stamps on the document clock)
+    rows = [_row("ab", -0.04, heard=[-0.04]), _row("ab", 0.1, heard=[0.1]),
+            _row("ab", 0.3, heard=[onset_s]), _row("ab", 2.8, heard=[2.8]),
+            _row("ab", 3.0, heard=[3.0])]
+    out, n = _run(rows, line_words=(2, 2, 1), stamps=[0, 0, 3_040], drift_ms=2_500,
+                  doc_offset=lambda text: 40)
+    assert n == int(moved)
+
+
+def test_the_band_follows_line_qa_s_median_offset():
+    # three stamped lines run 300 ms late on the document clock: QA's median offset is +300, so a
+    # move to 2 700 ms past the stamp (2 400 net of the offset) is inside the band
+    rows = [_row("ab", 1.3, heard=[1.3]), _row("ab", 1.4, heard=[1.4]),
+            _row("ab", 0.3, heard=[2.7]), _row("ab", 3.0, heard=[3.0]),
+            _row("ab", 5.3, heard=[5.3]), _row("ab", 5.4, heard=[5.4])]
+    rows[2]["start"] = 0.3
+    stamps = [1_000, 0, 5_000]
+    out, n = _run(rows, line_words=(2, 2, 2), stamps=stamps, drift_ms=2_500,
+                  doc_offset=lambda text: 0)
+    assert n == 1 and out[2]["start"] == pytest.approx(2.7)
+    out, n = _run(rows, line_words=(2, 2, 2), stamps=stamps, drift_ms=2_500)  # edges clock (v4)
+    assert n == 0
+
+
 def test_other_keys_ride_along():
     rows = _stream(0.6, [1.2])
     rows[2] = {**rows[2], "star": "edges", "held": 0.3, "window": 4}
@@ -352,26 +439,57 @@ def _align(monkeypatch, **kwargs):
         seen["whole"].append(letters)
         return [{"text": "x", "start": 0.0, "end": 0.1, "score": -0.1}]
 
-    def fake_rule(results, whole, line_words, lead_ms, edges_lead_ms, floor, *, stamps, drift_ms):
+    def fake_rule(results, whole, line_words, lead_ms, edges_lead_ms, floor, *, stamps, drift_ms,
+                  envelope, silence_db, silence_share, doc_offset, adlib):
         seen["rule"].append((len(results), whole[0]["text"], line_words, lead_ms, edges_lead_ms,
                              floor, stamps, drift_ms))
+        seen["v5"] = (envelope, silence_db, silence_share, doc_offset("you"), doc_offset("uh"),
+                      adlib)
         return results, 0
 
     monkeypatch.setattr(alignment, "_align_slice_hybrid", fake_hybrid)
     monkeypatch.setattr(alignment, "_align_texts", fake_texts)
     monkeypatch.setattr(alignment, "start_at_heard_onset", fake_rule)
     alignment.align("x.wav", ["you ready", "you ready", "get your sexy on", "uh yes"], "eng",
-                    [2_000, 4_000, 5_000, 9_000], "m", True, -50, None, **kwargs)
+                    [2_000, 4_000, 5_000, 9_000], "m", True, -50,
+                    {"vowel": -80, "sonorant": -20, "plosive": -30, "fricative": -50}, **kwargs)
     return seen
 
 
 def test_align_runs_the_rule_last_with_the_whole_track_pass_and_the_line_counts(monkeypatch):
-    seen = _align(monkeypatch)
+    marker = Envelope(b"\x00")
+    seen = _align(monkeypatch, envelope=marker)
     assert seen["hybrid"] == [True] and seen["whole"] == [True]
     assert seen["rule"] == [(10, "x", [2, 2, 4, 2], 500, 70, FLOOR, [2_000, 4_000, 5_000, 9_000],
                              2_500)]
+    # the document clock: the path's 70 ms lead on top of each initial's offset
+    assert seen["v5"] == (marker, -25.0, 0.9, -20 + 70, -80 + 70, [False, False, False, False])
     assert alignment.FIRST_HEARD_DEFAULT == alignment.FIRST_HEARD_LEAD_MS == 500
     assert alignment.FIRST_LETTER_FLOOR == pytest.approx(math.log(0.001))
+    assert (alignment.FIRST_HEARD_SILENCE_DB, alignment.FIRST_HEARD_SILENCE_SHARE) == (-25.0, 0.9)
+
+
+def test_align_marks_the_ad_lib_lines_for_the_rule(monkeypatch):
+    seen: dict = {}
+    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", types.SimpleNamespace(
+        load_audio=lambda *a, **k: FakeAudio(12 * 16_000)))
+    model = types.SimpleNamespace(dtype=None, device="cpu")
+    monkeypatch.setattr(alignment, "_load_model", lambda name: (model, object()))
+    def hybrid(*a, **k):
+        rows = [{"text": w, "start": 0.5, "end": 0.6, "score": -0.1}
+                for w in " ".join(a[3]).split()]
+        return rows, rows
+
+    def rule(results, *a, **k):
+        seen["adlib"] = k["adlib"]
+        return results, 0
+
+    monkeypatch.setattr(alignment, "_align_slice_hybrid", hybrid)
+    monkeypatch.setattr(alignment, "_align_texts", lambda *a, **k: [])
+    monkeypatch.setattr(alignment, "start_at_heard_onset", rule)
+    alignment.align("x.wav", ["oh oh oh", "you ready", "la la", "uh yes"], "eng",
+                    [2_000, 4_000, 5_000, 9_000], "m", True, -50, None)
+    assert seen["adlib"] == [True, False, True, False]
 
 
 def test_none_reproduces_2_34_0(monkeypatch):

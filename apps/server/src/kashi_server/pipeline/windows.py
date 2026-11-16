@@ -24,7 +24,10 @@ Design notes (research round 2026-07-11):
   (also keeps the stamp-free warmup fixture on the old path).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from statistics import median
+from typing import Any
 
 PAD_MS = 350
 MIN_WINDOW_MS = 4000
@@ -555,6 +558,8 @@ def start_at_heard_onset(
     results: list[dict], whole: list[dict], line_words: list[int], lead_ms: int,
     edges_lead_ms: int = 0, floor: float = float("-inf"), min_gap_ms: int = VOTE_MIN_GAP_MS,
     stamps: list[int | None] | None = None, drift_ms: int | None = None,
+    *, envelope: Any = None, silence_db: float | None = None, silence_share: float = 1.0,
+    doc_offset: Callable[[str], int] | None = None, adlib: list[bool] | None = None,
 ) -> tuple[list[dict], int]:
     """2.35.0: a line's first word starts at most `lead_ms` before the
     earliest place a pass hears its first letter, when the whole-track pass
@@ -591,11 +596,26 @@ def start_at_heard_onset(
     moves. With `stamps` (each line's lrclib start or None, in the order of
     `line_words`) a stamped line is not moved more than `drift_ms` past its
     stamp: line QA flags such a line as lost and snaps it back (the threshold
-    is line_qa.DRIFT_THRESHOLD_MS, read here on the edges clock, without QA's
-    median offset). A one-word line whose whole-track letter sat 8 s later,
-    just before the next line, lost its word that way (Bwsr24D7HWY 0:11,
-    2.35.0 measurement). Returns (rows, starts moved); a stream regroup could
-    not walk comes back untouched."""
+    is line_qa.DRIFT_THRESHOLD_MS). A one-word line whose whole-track letter
+    sat 8 s later, just before the next line, lost its word that way
+    (Bwsr24D7HWY 0:11, 2.35.0 measurement). With `doc_offset` (the path's
+    lateness correction of a word, as shift_result applies it) the band is
+    read as line QA reads it: on the document clock, around QA's median
+    offset (the median over the stamped lines of first word + its offset -
+    stamp, taken before any move); without it on the edges clock (v4, whose
+    KAWASAKI line landed just past the band and lost its word).
+
+    v5 (2.35.0) moves only out of silence: with `silence_db` set, the stem's
+    level `envelope` (pipeline/level.py) must lie under `silence_db` (dB re
+    the track's loudest frame) on at least `silence_share` of the 20 ms
+    frames from the old start to the new start minus `lead_ms` (the word's own
+    onset region, where its voice returns before the letter is heard). A first
+    word over voiced audio keeps its start: held notes, pick-up words and the
+    lines whose other words locked late look alike there (the owner's blind
+    clips and the bench, 2026-11-16), and so does every word when there is no
+    envelope. Lines `adlib` marks are left to line QA (its ad-lib snap moves
+    them onto their anchors as a block). Returns (rows, starts moved); a
+    stream regroup could not walk comes back untouched."""
     idx = [i for i, row in enumerate(results) if _is_word(row)]
     if sum(line_words) != len(idx):
         return results, 0
@@ -606,10 +626,11 @@ def start_at_heard_onset(
     back_s = edges_lead_ms / 1000
     out = list(results)
     moved = 0
+    qa_offset = _qa_offset(results, idx, line_words, stamps, doc_offset)
     at = 0
     for line, count in enumerate(line_words):
         k, at = at, at + count
-        if count == 0:
+        if count == 0 or (adlib is not None and line < len(adlib) and adlib[line]):
             continue
         row = out[idx[k]]
         stamp = stamps[line] if stamps is not None and line < len(stamps) else None
@@ -625,11 +646,35 @@ def start_at_heard_onset(
             continue
         if k + 1 < len(idx) and onset_ms > _start_ms(out[idx[k + 1]]) - min_gap_ms:
             continue
-        if stamp is not None and drift_ms is not None and onset_ms > stamp + drift_ms:
-            continue
+        if stamp is not None and drift_ms is not None:
+            shift = 0 if doc_offset is None else doc_offset(str(row.get("text", "")))
+            if onset_ms + shift - stamp - qa_offset > drift_ms:
+                continue
+        if silence_db is not None:
+            quiet = None if envelope is None else envelope.quiet_share(
+                _start_ms(row), onset_ms - lead_ms, silence_db)
+            if quiet is None or quiet < silence_share:
+                continue  # the word may be sung where it starts: no evidence it is early
         out[idx[k]] = {**row, "start": onset, "end": max(float(row["end"]), onset)}
         moved += 1
     return out, moved
+
+
+def _qa_offset(results: list[dict], idx: list[int], line_words: list[int],
+               stamps: list[int | None] | None, doc_offset: Callable[[str], int] | None) -> int:
+    """Line QA's median offset as it will read it (line_qa.apply_line_qa): the median, over the
+    stamped lines with words, of the line's start on the document clock (its first word plus the
+    word's lateness correction) minus its stamp; 0 without stamps or without `doc_offset`."""
+    if stamps is None or doc_offset is None:
+        return 0
+    deviations, at = [], 0
+    for line, count in enumerate(line_words):
+        k, at = at, at + count
+        stamp = stamps[line] if line < len(stamps) else None
+        if count and stamp is not None:
+            row = results[idx[k]]
+            deviations.append(_start_ms(row) + doc_offset(str(row.get("text", ""))) - stamp)
+    return round(median(deviations)) if deviations else 0
 
 
 def _piled_words(starts_ms: list[int], min_words: int, span_ms: int) -> int:

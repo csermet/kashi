@@ -676,6 +676,14 @@ FIRST_HEARD_DEFAULT: int | None = FIRST_HEARD_LEAD_MS
 #: letter it cannot place on silence far below that (GOSSIP 0:12 and 2:00:
 #: -9.9, and -7.7 / -8.1); a weak letter that is sung sits above it.
 FIRST_LETTER_FLOOR = math.log(0.001)
+#: v5 (2.35.0): a first word moves only out of silence (windows.start_at_heard_onset): the stem's
+#: level envelope (pipeline/level.py) under this, in dB re the track's loudest frame — the audit
+#: voice witness's own silence line (audit.analysis.SILENCE_DB) —
+FIRST_HEARD_SILENCE_DB = -25.0
+#: on at least this share of the 20 ms frames between the old start and the new one minus the
+#: lead. Not fitted: a sung pause may still carry a breath or the separator's bleed, a tenth of it
+#: at most; a held syllable or the next phrase covers far more.
+FIRST_HEARD_SILENCE_SHARE = 0.9
 
 
 def exact_stride_ms(n_samples: int, n_frames: int, library_stride: float) -> float:
@@ -1276,8 +1284,8 @@ def align(
     pass hears its first letter (windows.start_at_heard_onset); None
     reproduces 2.34.0. `envelope` is the track's level envelope
     (pipeline/level.py, the worker computes it from the same wav and keeps it
-    as evidence); no rule reads it yet."""
-    del envelope  # handed over for the rules to come; the alignment does not read it yet
+    as evidence): that rule moves a word only out of silence, and without an
+    envelope it moves nothing."""
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -1370,8 +1378,8 @@ def align(
                 logger.info("piled starts: %d run(s), %d word(s) back on the edges clock",
                             runs, moved)
         if first_heard_ms is not None:
-            # line_qa imports this module; its drift threshold is read at run time.
-            from kashi_server.pipeline.line_qa import DRIFT_THRESHOLD_MS
+            # line_qa imports this module; its threshold and predicate are read at run time.
+            from kashi_server.pipeline.line_qa import DRIFT_THRESHOLD_MS, is_adlib
 
             results, heard = start_at_heard_onset(
                 results, whole,
@@ -1379,6 +1387,10 @@ def align(
                     line_texts, plans, strict=True)],
                 first_heard_ms, lead_ms, FIRST_LETTER_FLOOR,
                 stamps=synced_starts_ms, drift_ms=DRIFT_THRESHOLD_MS,
+                envelope=envelope, silence_db=FIRST_HEARD_SILENCE_DB,
+                silence_share=FIRST_HEARD_SILENCE_SHARE,
+                doc_offset=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
+                adlib=[is_adlib(text) for text in line_texts],
             )
             if heard:
                 logger.info("line starts at their first heard letter (%d ms): %d line(s)",
