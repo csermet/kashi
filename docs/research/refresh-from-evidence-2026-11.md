@@ -381,9 +381,10 @@ segment pass; the only one of the 39 songs' 2 247 Viterbi passes in the region);
 ladder mode asked 39 ladders and gave the same verdicts. The worker's own replay of each song then
 stored a document equal to the preview's, 39 of 39 (`generated_at` aside), in both modes. Unit
 tests put every threshold exactly on its value and one millisecond (or one step) either side;
-one-line mutations, first round 69 of 70 and second round 46 of 47 make a test fail, the two others
-equivalent (the witness's first silence starting at 0 ms or at the first frame, which starts at
-0 ms; "the same record" next to "the same document", which carries the record). The persist
+one-line mutations, 69 of 70 in the first round and 61 of 62 in the later two (the guard's star
+id caught by the slow real-library test) make a test fail, the two others equivalent (the
+witness's first silence starting at 0 ms or at the first frame, which starts at 0 ms; "the same
+record" next to "the same document", which carries the record). The persist
 guard's extraction equals main's `persist_processed_track` on 26 040 seeded and boundary cases
 (statements, counters, log lines), and that harness reports each of four one-line mutations of the
 new guard. On real archive documents the sheet comparison finds the same sheet on the 36 songs
