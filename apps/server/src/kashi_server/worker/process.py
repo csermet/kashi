@@ -192,16 +192,27 @@ def credible_duration_hint(hints: dict | None) -> int | None:
     The Sinsirella gate itself is untouched: every hint that could describe
     a real track is still compared against the downloaded audio.
     """
+    value = _plausible_hint(hints)
+    if value is not None:
+        return value
     value = (hints or {}).get("duration_ms")
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        return None
-    if value > settings.max_track_duration_s * 1000:
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         IMPLAUSIBLE_DURATION_HINTS.inc()
         logger.warning(
             "discarding impossible duration hint: %dms exceeds the %ds track ceiling",
             value,
             settings.max_track_duration_s,
         )
+    return None
+
+
+def _plausible_hint(hints: dict | None) -> int | None:
+    """`credible_duration_hint` without its counter and warning: the evidence path reads the hint
+    too, and a job's one implausible hint must not be counted once more for it."""
+    value = (hints or {}).get("duration_ms")
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return None
+    if value > settings.max_track_duration_s * 1000:
         return None
     return value
 
@@ -925,6 +936,9 @@ def _record(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> bool:
         job.source_type, job.source_id, _evidence_key(job),
         made_by=evidence.provenance(settings, PIPELINE_VERSION),
     )
+    # The player's length this record is made under: a replay compares its own job's hint with it
+    # (evidence.duration_conflict).
+    recorder.meta["hint_duration_ms"] = _plausible_hint(job.hints)
     with evidence.active(recorder):
         _run_pipeline(s, job, tmp, persist=persist)
     return _store_evidence(s, job, recorder)
@@ -941,11 +955,16 @@ def _replay(s: Session, job: Job, tmp: Path) -> bool:
         s.rollback()
         logger.warning("job %s: stored evidence unreadable — full job", job.id, exc_info=True)
         return False
+    if (job.options or {}).get("speed_factor") is not None:
+        # A stated nightcore clock: the replay would stop at it after the branch's own lrclib
+        # searches, and the full job would search again.
+        logger.info("job %s: full job (a nightcore clock)", job.id)
+        return False
     replayer, why = evidence.replayer_for(stored, settings, separate_first=_separates_first(job))
     if replayer is None or stored is None:
         logger.info("job %s: full job (%s)", job.id, why)
         return False
-    conflict = evidence.duration_conflict(stored, credible_duration_hint(job.hints))
+    conflict = evidence.duration_conflict(stored, _plausible_hint(job.hints))
     if conflict is not None:
         logger.info("job %s: full job (%s: the audio behind the id may have changed)", job.id,
                     conflict)
@@ -991,6 +1010,10 @@ def _store_evidence(s: Session, job: Job, recorder: evidence.Recorder) -> bool:
         return False
     if not recorder.usable:
         logger.info("job %s: evidence not stored (%s)", job.id, recorder.why_not)
+        return False
+    missing = recorder.missing()
+    if missing:  # an unaligned job (the lyricsfile fast path): nothing a replay could serve
+        logger.info("job %s: evidence not stored (never read %s)", job.id, ", ".join(missing))
         return False
     try:
         store = evidence.DbStore(s)

@@ -485,7 +485,8 @@ def test_changing_code_that_computes_evidence_bumps_its_version():
 
     pins = {
         ("emissions", evidence.EVIDENCE_CODE["emissions"]): _source_hash(
-            alignment._emit, alignment._emissions, alignment._load_track),
+            alignment._emit, alignment._emissions, alignment._load_track,
+            alignment._load_checkpoint),
         ("onsets", evidence.EVIDENCE_CODE["onsets"]): _source_hash(onsets),
         ("mix", evidence.EVIDENCE_CODE["mix"]): _source_hash(
             process._mix_features, beats, energy, structure),
@@ -500,7 +501,7 @@ def test_changing_code_that_computes_evidence_bumps_its_version():
 PINNED = {
     # 2026-11-16 (review round): onsets / mix re-pinned for the extractor_failed line, a change
     # no value can see; emissions and stem pin more of the code that makes them.
-    ("emissions", 1): "dd3308e81dac775e",
+    ("emissions", 1): "33ae3ef375f64bae",  # + _load_checkpoint (second review round)
     ("onsets", 1): "9c9e3e3df887bad8",
     ("mix", 1): "c87a490b071edbc4",
     ("stem", 1): "bdbfb7499d44e949837d0602",
@@ -619,3 +620,97 @@ def test_a_superseded_revision_is_not_merged():
     new, _ = _record(revision="def456", spans=[(0, N)])
     merged = evidence.merged(old.pack(), new.pack())
     assert {e["revision"] for e in merged.meta["emissions"]} == {"def456"}
+
+
+
+# --- second review round (2026-11-16) -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("damage", ["trailing", "truncated", "garbage", "other"])
+def test_an_index_applied_to_other_bytes_is_missing(damage):
+    """Finding 5: zlib ignores trailing bytes, so an index read before another writer replaced the
+    blob could decode a slice of the other record."""
+    a = (np.arange(64, dtype=np.float32) / 7).reshape(16, 4)
+    blob = evidence.encode_array(a)
+    bad = {"trailing": blob + evidence.encode_array(a),
+           "truncated": blob[:-3],
+           "garbage": b"not zlib at all",
+           "other": evidence.encode_array(a[:8])}[damage]
+    with pytest.raises(evidence.EvidenceMissing):
+        evidence.decode_array(bad, "float32", (16, 4))
+
+
+@pytest.mark.parametrize("recorded_hint,hint_ms,conflict", [
+    (25_000, 25_000, False), (25_000, 28_000, False), (25_000, 28_001, True),
+    (25_000, 21_999, True), (25_000, 12_300, True), (None, 12_300, False), (None, 25_000, True),
+    (25_000, None, False),
+])
+def test_the_player_hint_is_compared_with_the_recorded_one(recorded_hint, hint_ms, conflict):
+    """Finding 4: hint against the recorded job's hint (the download sits 12.3 s); without one,
+    against the download."""
+    recorder, _ = _record()
+    recorder.meta["hint_duration_ms"] = recorded_hint
+    found = evidence.duration_conflict(recorder.pack(), hint_ms)
+    assert (found is not None) == conflict
+
+
+def test_a_key_library_without_a_version_is_neither_recorded_nor_replayed():
+    """Finding 8: None would equal None after either side changed."""
+    unknown = {**VERSIONS, "ffmpeg": None}
+    recorder = evidence.Recorder(
+        "youtube", "vid", evidence.expected_key(_settings(), unknown, separate_first=True))
+    assert not recorder.usable and recorder.why_not == "no version for ffmpeg"
+    good, _ = _record()
+    replayer, why = evidence.replayer_for(good.pack(), _settings(), unknown, separate_first=True)
+    assert replayer is None and why == "no version for ffmpeg"
+
+
+def test_a_recorder_fault_costs_the_record_not_the_job(monkeypatch):
+    """Finding 6: the recorder's own work fails; the computation's result still reaches the job."""
+    def broken(audio):
+        raise MemoryError("digest")
+
+    monkeypatch.setattr(evidence, "_digest", broken)
+    recorder = evidence.Recorder("youtube", "vid", {})
+    t = _track()
+    with evidence.active(recorder):
+        assert evidence.track(lambda: t) is t
+        em, _ = evidence.emissions(_model(), t[0:16_000], True, _fake_emit([]), _stride_of, "r")
+        assert np.asarray(em).shape[1] == 4
+    assert not recorder.usable and recorder.why_not == "recorder fault in the track: MemoryError"
+
+
+def test_a_recording_that_never_aligned_reports_what_it_lacks():
+    """Finding 3: such a record must not be stored over a complete one."""
+    recorder = evidence.Recorder("youtube", "vid", {})
+    with evidence.active(recorder):
+        evidence.download(lambda: SimpleNamespace(duration_s=1.0, abr=1.0, acodec="opus"), None)
+        evidence.mix_features(lambda: (None, None, None))
+    assert recorder.missing() == ["track_samples", "track_sha256", "onsets"]
+    complete, _ = _record()
+    assert complete.missing() == []
+
+
+def test_a_merged_record_is_capped():
+    """Finding 10: a row must not grow by one plan per stamp change forever."""
+    stored = None
+    kept = []
+    for start in range(2, 9):
+        plan, _ = _record(spans=[(0, N), (16_000 * start, 16_000 * (start + 3))])
+        new = plan.pack()
+        stored = evidence.merged(stored, new)
+        kept.append(len(stored.meta["emissions"]))
+        assert len(stored.blob) <= evidence.MERGE_CAP_FACTOR * len(new.blob)
+    assert max(kept) > 2  # earlier plans were kept, up to the cap
+
+
+def test_the_ready_line_names_the_evidence_mode(monkeypatch):
+    """Finding 10: a worker with a mode on says so where the pipeline settings are named."""
+    from kashi_server.config import settings
+    from kashi_server.worker import main
+
+    monkeypatch.setattr(settings, "evidence_mode", "off")
+    off = main._config_note()
+    assert "evidence" not in off
+    monkeypatch.setattr(settings, "evidence_mode", "replay")
+    assert main._config_note() == off + ", evidence replay"

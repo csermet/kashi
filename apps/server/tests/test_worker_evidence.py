@@ -32,6 +32,10 @@ MODEL = "org/aligner-eng"
 PALETTE = {"source": "default", "primary": "#e84545", "secondary": "#f5d76e",
            "background": "#1a1a2e", "text": "#ffffff", "accent": "#903749"}
 TRACK = np.random.default_rng(11).standard_normal(N).astype(np.float32)
+#: The key libraries as the image has them (the dev install has neither the aligner library nor
+#: the separator, and a key library without a version is never recorded).
+VERSIONS = {"ctc-forced-aligner": "0.3.0+264e7a1", "librosa": "0.11.0",
+            "audio-separator": "0.44.3", "ffmpeg": "8.1.2", "torch": "2.9.1+cpu"}
 VOCALS = np.random.default_rng(12).standard_normal(N).astype(np.float32)  # a second-pass stem
 
 
@@ -45,6 +49,8 @@ class Audio:
         self.weather = False
         self.mix_quality = 0.8  # the first pass's score; under 0.5 a second_pass job runs again
         self.on_replay = None  # called inside a replay's alignment (a cancel, ...)
+        self.on_align = None  # called inside every alignment (a SIGTERM, ...)
+        self.fail_download: set[str] = set()
 
     def read(self, kind: str) -> None:
         self.reads[kind] = self.reads.get(kind, 0) + 1
@@ -66,9 +72,12 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
     monkeypatch.setattr(settings, "separation_mode", "always")
     monkeypatch.setattr(settings, "windowed_alignment", True)
     monkeypatch.setattr(settings, "align_model_revisions", {MODEL: "rev-1"})
+    monkeypatch.setattr(evidence, "runtime_versions", lambda: dict(VERSIONS))
 
     def download(source_id, dest_dir, **kw):
         a.read("download")
+        if source_id in a.fail_download:
+            raise PipelineError("copyright", "blocked in the test")
         return DownloadResult(path=dest_dir / "audio.webm", abr=129.5, acodec="opus",
                               duration_s=float(SECONDS), info={})
 
@@ -117,6 +126,8 @@ def audio(tmp_path, monkeypatch, lrclib_has_no_record):
             raise PipelineError("network", "connection reset")
         if a.on_replay is not None and evidence.replaying():
             a.on_replay()
+        if a.on_align is not None:
+            a.on_align()
         model = _model()
         track = alignment._load_track(wav, model)
         words = []
@@ -272,7 +283,7 @@ def test_a_nightcore_clock_runs_in_full_and_is_not_stored(db_session, audio, mon
     audio.reads.clear()
     _run(db_session, monkeypatch, "replay", {"speed_factor": 1.25, "lyrics_text": "\n".join(LINES)})
     assert audio.reads["download"] == 1
-    assert "replay stopped (a nightcore clock)" in log.text
+    assert "full job (a nightcore clock)" in log.text
     assert "evidence not stored (a nightcore clock)" in log.text
     assert _row(db_session).updated_at == before
 
@@ -606,3 +617,261 @@ def test_the_store_reads_the_key_before_the_arrays(db_session, audio, monkeypatc
         assert any("emissions" in st for st in statements)
     finally:
         event.remove(engine, "before_cursor_execute", seen)
+
+
+
+# --- second review round (2026-11-16) -----------------------------------------------------------
+
+
+def _song(db_session, monkeypatch, mode, source_id, options=None):
+    """A job for one of several songs (`_run` reads the only stored document)."""
+    monkeypatch.setattr(settings, "evidence_mode", mode)
+    job = _job(db_session, options, source_id=source_id)
+    wp.process_job(db_session, job)
+    db_session.refresh(job)
+    return job
+
+
+@pytest.mark.parametrize("lyrics", ["plain", "stamps without a record length"])
+def test_lyrics_without_a_record_length_record_and_replay(db_session, audio, monkeypatch, lyrics):
+    """Finding 3: plain lyrics and an LRC-text override never read the aligner wav's duration; a
+    record of them must replay (it was refused forever: "evidence lacks wav_duration_s")."""
+    sheet = (LyricsText(LINES, "\n".join(LINES), 77, False) if lyrics == "plain"
+             else LyricsText(LINES, "\n".join(LINES), 77, True, list(STAMPS)))
+    monkeypatch.setattr(wp, "fetch_lyrics", lambda hints, base_url: sheet)
+    recorded = _run(db_session, monkeypatch, "record")
+    assert "wav_duration_s" not in _row(db_session).meta
+    audio.reads.clear()
+    assert _run(db_session, monkeypatch, "replay") == recorded
+    assert audio.total() == 0
+
+
+def test_a_recording_that_never_aligned_is_not_stored(db_session, audio, monkeypatch, log):
+    """Finding 3: nor may it replace a complete record."""
+    _run(db_session, monkeypatch, "record")
+    before = _row(db_session).updated_at
+    job = _job(db_session)
+    job.status = "completed"
+    partial = evidence.Recorder("youtube", "evidVid01", wp._evidence_key(job))
+    with evidence.active(partial):
+        evidence.download(lambda: DownloadResult(path=None, abr=1.0, acodec="opus",  # type: ignore[arg-type]
+                                                 duration_s=20.0, info={}), None)
+        evidence.mix_features(lambda: (None, None, None))
+    assert wp._store_evidence(db_session, job, partial) is False
+    assert "never read track_samples, track_sha256, onsets" in log.text
+    assert _row(db_session).updated_at == before
+
+
+def test_a_song_whose_player_always_disagrees_replays(db_session, audio, monkeypatch):
+    """Finding 4: the player says 30 s, the download 20 s (inside the 30 s client-edit gate): the
+    record carries the player's 30 s and a replay under the same hint is served."""
+    _run(db_session, monkeypatch, "record", hints={"duration_ms": 30_000})
+    assert _row(db_session).meta["hint_duration_ms"] == 30_000
+    audio.reads.clear()
+    _run(db_session, monkeypatch, "replay", hints={"duration_ms": 30_000})
+    assert audio.total() == 0
+    _run(db_session, monkeypatch, "replay", hints={"duration_ms": 33_001})  # the player changed
+    assert audio.reads["download"] == 1
+
+
+def test_a_record_without_a_hint_is_compared_with_its_download(db_session, audio, monkeypatch):
+    _run(db_session, monkeypatch, "record")
+    audio.reads.clear()
+    _run(db_session, monkeypatch, "replay", hints={"duration_ms": 30_000})  # 10 s off: refetch
+    assert audio.reads["download"] == 1
+    assert _row(db_session).meta["hint_duration_ms"] == 30_000  # re-recorded under it
+    audio.reads.clear()
+    _run(db_session, monkeypatch, "replay", hints={"duration_ms": 30_000})
+    assert audio.total() == 0
+
+
+def test_a_record_replaced_while_it_is_read_is_not_mixed_with_the_new_one(db_session, audio,
+                                                                          monkeypatch):
+    """Finding 5: the key and the index are read first, the arrays later; a writer in between."""
+    _run(db_session, monkeypatch, "record")
+    store = evidence.DbStore(db_session)
+    stale = store.load("youtube", "evidVid01")
+    assert stale is not None
+    audio.slices = [(0, 16_000 * 9 + 1), (16_000 * 8, N)]  # another writer, another record
+    _run(db_session, monkeypatch, "record")
+    with pytest.raises(evidence.EvidenceMissing, match="changed while it was read"):
+        stale.array(stale.meta["emissions"][0])
+    new = evidence.Evidence("youtube", "evidVid01", stale.key, dict(stale.meta), b"new")
+    assert evidence.merged(stale, new) is new  # nothing of the torn read is copied
+
+
+def test_a_recorder_fault_does_not_fail_the_job(db_session, audio, monkeypatch, log):
+    """Finding 6: the job ends as a full job ends; only its record is lost."""
+    off = _run(db_session, monkeypatch, "off")
+
+    def broken(audio_array):
+        raise MemoryError("digest")
+
+    monkeypatch.setattr(evidence, "_digest", broken)
+    assert _run(db_session, monkeypatch, "record") == off
+    assert _row(db_session) is None
+    assert "recorder fault in the track" in log.text
+
+
+def test_an_implausible_hint_is_counted_once_per_job_in_a_replay(db_session, audio, monkeypatch):
+    """Finding 9."""
+    def counted():
+        return wp.IMPLAUSIBLE_DURATION_HINTS._value.get()
+
+    impossible = {"duration_ms": 5_000_000}
+    before = counted()
+    _run(db_session, monkeypatch, "off", hints=impossible)
+    per_job = counted() - before
+    _run(db_session, monkeypatch, "record", hints=impossible)
+    before = counted()
+    audio.reads.clear()
+    _run(db_session, monkeypatch, "replay", hints=impossible)
+    assert audio.total() == 0
+    assert counted() - before == per_job
+
+
+def test_a_stated_nightcore_clock_searches_lrclib_once(db_session, audio, monkeypatch):
+    """Finding 9: the replay would search for the original song, stop at the clock, and the full
+    job would search again."""
+    searches: list = []
+    monkeypatch.setattr(wp, "search_candidates",
+                        lambda query, base_url: searches.append(query) or [])
+    off = _job(db_session, {"speed_factor": 1.25})
+    monkeypatch.setattr(settings, "evidence_mode", "off")
+    wp.process_job(db_session, off)
+    per_job = len(searches)
+    assert per_job > 0
+    _run(db_session, monkeypatch, "record")
+    searches.clear()
+    replayed = _job(db_session, {"speed_factor": 1.25})
+    monkeypatch.setattr(settings, "evidence_mode", "replay")
+    wp.process_job(db_session, replayed)
+    assert len(searches) == per_job
+
+
+# --- the back-fill command's failure paths (findings 1, 2, 7) -----------------------------------
+
+
+def test_backfill_reports_every_failure_path(db_session, audio, monkeypatch):
+    from kashi_server.worker import backfill
+
+    _run(db_session, monkeypatch, "off")
+
+    def busy(hints, base_url):
+        raise PipelineError("lrclib_unavailable", "503")
+
+    with monkeypatch.context() as m:
+        m.setattr(wp, "fetch_lyrics", busy)
+        assert backfill.backfill_song(db_session, "evidVid01") == (
+            "not stored: the job ended queued (lrclib_unavailable)")  # finding 7: no TypeError
+    audio.fail_download = {"evidVid01"}
+    assert backfill.backfill_song(db_session, "evidVid01").startswith("failed: copyright")
+    audio.fail_download = set()
+
+    def crash():
+        raise RuntimeError("a fault")
+
+    audio.on_align = crash
+    assert backfill.backfill_song(db_session, "evidVid01") == "failed: RuntimeError: a fault"
+    audio.on_align = None
+    assert list(settings.data_dir.glob("job-*")) == []  # every path deleted its audio
+    assert _row(db_session) is None
+
+
+def test_the_backfill_scratch_dir_is_one_the_worker_sweeps(db_session, audio, monkeypatch):
+    """Finding 1: a run killed outright leaves its dir to the worker's orphan sweep too."""
+    import os
+    import time
+
+    from kashi_server.worker import backfill
+    from kashi_server.worker.main import ORPHAN_MAX_AGE_S, sweep_orphans
+
+    _run(db_session, monkeypatch, "off")
+    seen: list = []
+
+    def remember():
+        seen.extend(settings.data_dir.glob(f"{backfill.DIR_PREFIX}*"))
+
+    audio.on_align = remember
+    assert backfill.backfill_song(db_session, "evidVid01") == "stored"
+    assert len(seen) == 1 and not seen[0].exists()
+    left = settings.data_dir / f"{backfill.DIR_PREFIX}killed"
+    left.mkdir()
+    (left / "audio.webm").write_bytes(b"x")
+    old = time.time() - ORPHAN_MAX_AGE_S - 60
+    os.utime(left, (old, old))
+    assert sweep_orphans(settings.data_dir) == 1 and not left.exists()
+
+
+def test_a_backfill_start_sweeps_what_a_killed_run_left(db_session, audio, monkeypatch, capsys):
+    from kashi_server.worker import backfill
+
+    _run(db_session, monkeypatch, "off")
+    left = settings.data_dir / f"{backfill.DIR_PREFIX}killed"
+    left.mkdir()
+    (left / "stem.wav").write_bytes(b"x")
+    assert backfill.main(["--source-id", "evidVid01"]) == backfill.EXIT_OK
+    assert not left.exists()
+
+
+def test_sigterm_mid_song_deletes_its_audio_and_stops(db_session, audio, monkeypatch, capsys):
+    import os
+    import signal
+
+    from kashi_server.worker import backfill
+
+    for song in ("evidA", "evidB"):
+        assert _song(db_session, monkeypatch, "off", song).status == "completed"
+    received: list = []
+    previous = signal.signal(signal.SIGTERM, lambda *a: received.append(a))  # never the default
+    try:
+        audio.on_align = lambda: os.kill(os.getpid(), signal.SIGTERM)
+        code = backfill.main(["--limit", "5"])
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    out = capsys.readouterr().out
+    assert code == backfill.EXIT_TERMINATED
+    assert received == []  # the back-fill's own handler took it
+    assert list(settings.data_dir.glob("job-*")) == []
+    assert '"tried": 0' in out and '"terminated": true' in out
+
+
+def test_one_backfill_at_a_time(db_session, audio, monkeypatch, capsys):
+    from kashi_server.worker import backfill
+
+    with backfill._lock(settings.data_dir) as held:
+        assert held
+        assert backfill.main(["--limit", "5"]) == backfill.EXIT_LOCKED
+
+
+def test_a_song_that_always_fails_does_not_hold_the_backfill(db_session, audio, monkeypatch,
+                                                             capsys):
+    """Finding 2: source-id order after the previous run's cursor; a summary and an exit code a
+    wrapper can read."""
+    import json
+
+    from kashi_server.worker import backfill
+
+    for song in ("evidA", "evidB"):
+        _song(db_session, monkeypatch, "off", song)
+    audio.fail_download = {"evidA"}
+    assert backfill.main(["--limit", "1"]) == backfill.EXIT_NONE_STORED
+    summary = json.loads(capsys.readouterr().out.split("back-fill summary ")[-1])
+    assert summary == {"tried": 1, "stored": 0, "not_stored": 0, "failed": 1,
+                       "next_after": "evidA", "terminated": False}
+    assert backfill.main(["--limit", "1", "--after", summary["next_after"]]) == backfill.EXIT_OK
+    assert '"next_after": "evidB"' in capsys.readouterr().out
+    assert backfill.candidates(db_session, 5) == ["evidA"]  # B is done; A waits for the next lap
+    assert backfill.candidates(db_session, 5, after="evidA") == ["evidA"]
+
+
+def test_a_nightcore_song_is_never_a_backfill_candidate(db_session, audio, monkeypatch):
+    from kashi_server.worker import backfill
+
+    monkeypatch.setattr(wp, "_wav_duration_s", lambda p: SECONDS * 1.25)
+    job = _song(db_session, monkeypatch, "off", "evidNc",
+                {"speed_factor": 1.25, "lyrics_text": "\n".join(LINES)})
+    assert job.status == "completed"
+    assert backfill.candidates(db_session, 5) == []
+    assert backfill.backfill_song(db_session, "evidNc") == (
+        "skipped: never recorded (a nightcore clock)")

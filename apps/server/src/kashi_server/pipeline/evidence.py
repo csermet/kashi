@@ -75,9 +75,16 @@ SAMPLE_RATE = 16_000
 #: lrclib ladder's own duration tolerance; client hints are whole seconds, probes are exact.
 DURATION_TOLERANCE_S = 3.0
 
-#: What every replay reads (a record without one of them is refused before it starts, so a replay
-#: cannot stop after line QA has counted the job).
-REQUIRED_META = ("download", "track_samples", "track_sha256", "wav_duration_s", "onsets", "mix")
+#: What every aligned job reads, so what every replay reads: a record without one of them is never
+#: stored, and one without them is refused before a replay starts (it cannot stop after line QA
+#: has counted the job). The aligner wav's duration is not among them: a job reads it only for
+#: stamped lyrics with a record length (plain lyrics and LRC-text overrides have none), and a
+#: replay that needs it and lacks it stops before alignment.
+REQUIRED_META = ("download", "track_samples", "track_sha256", "onsets", "mix")
+
+#: A merged record keeps the stored slices of earlier window plans up to this multiple of the new
+#: record's own size (a row must not grow by one plan per stamp change forever).
+MERGE_CAP_FACTOR = 2.0
 
 
 class EvidenceMissing(Exception):  # noqa: N818 - a reason to run the job in full, not an error
@@ -100,10 +107,21 @@ def encode_array(array: Any) -> bytes:
 
 
 def decode_array(blob: bytes, dtype: str, shape: tuple[int, ...]) -> Any:
+    """The array `encode_array` wrote, or EvidenceMissing when the bytes are not exactly one such
+    stream of exactly this size (zlib itself ignores trailing bytes: an index applied to another
+    record's blob could otherwise decode)."""
     import numpy as np
 
     item = np.dtype(dtype).itemsize
-    planes = np.frombuffer(zlib.decompress(blob), dtype=np.uint8).reshape(item, -1)
+    size = item * math.prod(shape)
+    stream = zlib.decompressobj()
+    try:
+        raw = stream.decompress(blob)
+    except zlib.error as exc:
+        raise EvidenceMissing(f"an encoded array does not decode ({exc})") from None
+    if not stream.eof or stream.unused_data or len(raw) != size:
+        raise EvidenceMissing("an encoded array does not match its index")
+    planes = np.frombuffer(raw, dtype=np.uint8).reshape(item, -1)
     return np.ascontiguousarray(planes.T).reshape(-1).view(np.dtype(dtype)).reshape(shape)
 
 
@@ -283,18 +301,35 @@ def provenance(settings: Any, pipeline_version: str) -> dict:
     }
 
 
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
 def duration_conflict(evidence: Evidence, hint_ms: int | None) -> str | None:
-    """Why the record cannot be the audio this job's player plays, or None. The only identity a
-    replay can check without downloading: a credible duration hint against the recorded download
-    duration (`DURATION_TOLERANCE_S`). No hint: nothing to compare."""
+    """Why the record may not be the audio this job's player plays, or None: the one identity a
+    replay can check without fetching. The job's credible duration hint is compared with the hint
+    the record was made under (`hint_duration_ms`) — the player's own number on both sides, so a
+    song whose player and download always disagreed by a few seconds is not refused forever — and,
+    when the record was made without a hint, with the recorded download's duration. Beyond
+    `DURATION_TOLERANCE_S` the job runs in full (and records again). No hint: nothing to compare.
+    What it catches: a job whose player reports another length than the record's (an admin
+    reprocess with corrected hints, a re-ingest after a failure). What it cannot: audio swapped
+    behind the id while the hints stay as they were (a reprocess reuses the latest job's hints) —
+    only `fresh_audio` covers that."""
     if hint_ms is None:
         return None
-    recorded = (evidence.meta.get("download") or {}).get("duration_s")
-    if not isinstance(recorded, int | float) or isinstance(recorded, bool):
-        return None
-    if abs(hint_ms / 1000 - float(recorded)) > DURATION_TOLERANCE_S:
-        return (f"the player's {hint_ms / 1000:.1f} s is not the recorded download's "
-                f"{float(recorded):.1f} s")
+    recorded_hint = _number(evidence.meta.get("hint_duration_ms"))
+    if recorded_hint is not None:
+        reference, what = recorded_hint / 1000, "the recorded job's player"
+    else:
+        downloaded = _number((evidence.meta.get("download") or {}).get("duration_s"))
+        if downloaded is None:
+            return None
+        reference, what = downloaded, "the recorded download"
+    if abs(hint_ms / 1000 - reference) > DURATION_TOLERANCE_S:
+        return f"the player's {hint_ms / 1000:.1f} s is not {what}'s {reference:.1f} s"
     return None
 
 
@@ -347,10 +382,17 @@ def merged(stored: Evidence | None, new: Evidence) -> Evidence:
     index = [dict(e) for e in new.meta.get("emissions", [])]
     parts = [new.blob]
     offset = len(new.blob)
-    for entry in stored.meta.get("emissions", []):
+    cap = MERGE_CAP_FACTOR * len(new.blob)
+    try:
+        stored_blob = stored.blob
+    except EvidenceMissing:  # replaced while read: nothing of it can be trusted
+        return new
+    for entry in stored.meta.get("emissions", []):  # the most recently recorded first
         if entry_key(entry) in have or (entry["checkpoint"], entry["revision"]) not in models:
             continue
-        part = stored.blob[entry["offset"] : entry["offset"] + entry["length"]]
+        if offset + entry["length"] > cap:
+            break
+        part = stored_blob[entry["offset"] : entry["offset"] + entry["length"]]
         index.append({**entry, "offset": offset, "length": len(part)})
         parts.append(part)
         offset += len(part)
@@ -404,20 +446,26 @@ class DbStore:
         from kashi_server.db.models import TrackEvidence
 
         row = self.session.execute(
-            select(TrackEvidence.key, TrackEvidence.meta).where(
+            select(TrackEvidence.key, TrackEvidence.meta, TrackEvidence.updated_at).where(
                 TrackEvidence.source_type == source_type, TrackEvidence.source_id == source_id
             )
         ).first()
         if row is None:
             return None
+        token = row.updated_at
 
         def blob() -> bytes:
+            # The arrays of THIS version of the row: another writer (a back-fill beside a live
+            # job) may have replaced it since the key and the index were read.
             value = self.session.execute(
                 select(TrackEvidence.emissions).where(
                     TrackEvidence.source_type == source_type,
                     TrackEvidence.source_id == source_id,
+                    TrackEvidence.updated_at == token,
                 )
-            ).scalar_one()
+            ).scalar()
+            if value is None:
+                raise EvidenceMissing("the stored record changed while it was read")
             return bytes(value)
 
         return Evidence(source_type, source_id, row.key, row.meta, load_blob=blob)
@@ -458,6 +506,17 @@ class _Session:
     replaying: bool = False
 
 
+@contextlib.contextmanager
+def _guarded(session: Any, what: str) -> Iterator[None]:
+    """The recorder's own work (never the computation it wraps): a fault there must cost the
+    record, not the job (review finding 6)."""
+    try:
+        yield
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("evidence recorder fault in %s", what, exc_info=True)
+        session.refuse(f"recorder fault in {what}: {type(exc).__name__}")
+
+
 @dataclass
 class Recorder(_Session):
     """A full job's audio boundaries, kept. `usable` turns False when the job read audio this
@@ -476,9 +535,18 @@ class Recorder(_Session):
     why_not: str | None = None
     _tracks: list[tuple[Any, str]] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        unknown = unversioned(self.key)
+        if unknown:
+            self.refuse(f"no version for {', '.join(unknown)}")
+
     def refuse(self, reason: str) -> None:
         if self.usable:
             self.usable, self.why_not = False, reason
+
+    def missing(self) -> list[str]:
+        """What every replay reads that this recording never saw (an unaligned job)."""
+        return [name for name in REQUIRED_META if name not in self.meta]
 
     def span(self, audio: Any) -> tuple[str, int, int] | None:
         """(the track's digest, first sample, end sample) of a view of a loaded track."""
@@ -582,6 +650,13 @@ class Replayer(_Session):
         )
 
 
+def unversioned(key: dict) -> list[str]:
+    """Key libraries whose version could not be read: None would equal None on the other side
+    after either changed (review finding 8, like an unpinned checkpoint)."""
+    libraries = key.get("libraries") if isinstance(key, dict) else None
+    return sorted(name for name, value in (libraries or {}).items() if value is None)
+
+
 def replayer_for(evidence: Evidence | None, settings: Any,
                  versions: dict[str, str | None] | None = None, *,
                  separate_first: bool) -> tuple[Replayer | None, str]:
@@ -589,8 +664,12 @@ def replayer_for(evidence: Evidence | None, settings: Any,
     does not) separate first, else (None, why not)."""
     if evidence is None:
         return None, "no evidence stored"
+    expected = expected_key(settings, versions, separate_first=separate_first)
+    unknown = unversioned(expected)
+    if unknown:
+        return None, f"no version for {', '.join(unknown)}"
     difference = key_difference(
-        evidence.key, expected_key(settings, versions, separate_first=separate_first)
+        evidence.key, expected
     )
     if difference is not None:
         return None, f"key differs at {difference}"
@@ -637,27 +716,30 @@ def emissions(model: Any, audio: Any, exact_stride: bool, compute: Callable[...,
     assert isinstance(session, Recorder)
     if revision is None:
         session.refuse(f"{name} has no pinned revision")
-    span = session.span(audio)
-    key = None if span is None else (name, revision, *span)
-    if key is not None and key in session.arrays:  # the second whole-track pass of a job
-        array = session.arrays[key]
-        n, frames = int(audio.shape[-1]), int(array.shape[0])
-        lib = library_stride(n, frames)
-        return _tensor(array.copy()), (stride_of(n, frames, lib) if exact_stride else lib)
+    key = None
+    with _guarded(session, "emissions"):
+        span = session.span(audio)
+        key = None if span is None else (name, revision, *span)
+        if key is not None and key in session.arrays:  # the second whole-track pass of a job
+            array = session.arrays[key]
+            n, frames = int(audio.shape[-1]), int(array.shape[0])
+            lib = library_stride(n, frames)
+            return _tensor(array.copy()), (stride_of(n, frames, lib) if exact_stride else lib)
     em, stride = compute(model, audio, exact_stride=exact_stride)
     if key is None:
         session.refuse("emissions over audio that is no view of the loaded track")
         return em, stride
-    array = _numpy(em)
-    if array.ndim == 3 and array.shape[0] == 1:
-        array = array[0]
-    n, frames = int(audio.shape[-1]), int(array.shape[0])
-    lib = library_stride(n, frames)
-    expected = stride_of(n, frames, lib) if exact_stride else lib
-    if expected != stride or type(expected) is not type(stride):
-        session.refuse(f"frame step {stride!r} is not the derived {expected!r}")
-    session.arrays[key] = array
-    session.order.append(key)
+    with _guarded(session, "emissions"):
+        array = _numpy(em)
+        if array.ndim == 3 and array.shape[0] == 1:
+            array = array[0]
+        n, frames = int(audio.shape[-1]), int(array.shape[0])
+        lib = library_stride(n, frames)
+        expected = stride_of(n, frames, lib) if exact_stride else lib
+        if expected != stride or type(expected) is not type(stride):
+            session.refuse(f"frame step {stride!r} is not the derived {expected!r}")
+        session.arrays[key] = array
+        session.order.append(key)
     return em, stride
 
 
@@ -670,7 +752,8 @@ def track(compute: Callable[[], Any]) -> Any:
         return session.track()
     assert isinstance(session, Recorder)
     audio = compute()
-    session.add_track(audio)
+    with _guarded(session, "the track"):
+        session.add_track(audio)
     return audio
 
 
@@ -697,9 +780,10 @@ def download(compute: Callable[[], Any], placeholder: Path) -> Any:
                               duration_s=recorded["duration_s"], info={})
     assert isinstance(session, Recorder)
     result = compute()
-    session.meta["download"] = {"duration_s": result.duration_s, "abr": result.abr,
-                                "acodec": result.acodec,
-                                "facts": _download_facts(getattr(result, "info", None))}
+    with _guarded(session, "the download"):
+        session.meta["download"] = {"duration_s": result.duration_s, "abr": result.abr,
+                                    "acodec": result.acodec,
+                                    "facts": _download_facts(getattr(result, "info", None))}
     return result
 
 
@@ -733,9 +817,10 @@ def wav_duration(compute: Callable[[], float]) -> float:
         return float(session.meta("wav_duration_s"))
     assert isinstance(session, Recorder)
     value = compute()
-    if "wav_duration_s" in session.meta and session.meta["wav_duration_s"] != value:
-        session.refuse("two different aligner wav durations")
-    session.meta["wav_duration_s"] = value
+    with _guarded(session, "the wav duration"):
+        if "wav_duration_s" in session.meta and session.meta["wav_duration_s"] != value:
+            session.refuse("two different aligner wav durations")
+        session.meta["wav_duration_s"] = value
     return value
 
 
@@ -750,7 +835,8 @@ def onsets(compute: Callable[[], list[int] | None]) -> list[int] | None:
         return None if value is None else list(value)
     assert isinstance(session, Recorder)
     value = compute()
-    session.meta["onsets"] = None if value is None else list(value)
+    with _guarded(session, "the onsets"):
+        session.meta["onsets"] = None if value is None else [int(t) for t in value]
     return value
 
 
@@ -771,6 +857,12 @@ def mix_features(compute: Callable[[], tuple]) -> tuple:
         return beats, energy, sections
     assert isinstance(session, Recorder)
     beats, energy, sections = compute()
+    with _guarded(session, "the mix features"):
+        _record_mix(session, beats, energy, sections)
+    return beats, energy, sections
+
+
+def _record_mix(session: Recorder, beats: Any, energy: Any, sections: Any) -> None:
     session.meta["mix"] = {
         "beats": None if beats is None else {
             "bpm": beats.bpm, "confidence": beats.confidence,
@@ -780,7 +872,6 @@ def mix_features(compute: Callable[[], tuple]) -> tuple:
         "sections": None if sections is None else [
             {"type": s.type, "start_ms": s.start_ms, "end_ms": s.end_ms} for s in sections],
     }
-    return beats, energy, sections
 
 
 def extractor_failed(what: str) -> None:

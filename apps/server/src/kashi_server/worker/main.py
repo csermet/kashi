@@ -162,9 +162,14 @@ def _config_note() -> str:
     from kashi_server.config import pipeline_overrides
 
     overridden = pipeline_overrides(settings)
-    if not overridden:
-        return "code-default configuration"
-    return f"env overrides {', '.join(overridden)} (not what the version names)"
+    note = (
+        "code-default configuration"
+        if not overridden
+        else f"env overrides {', '.join(overridden)} (not what the version names)"
+    )
+    if settings.evidence_mode != "off":  # refresh without download (pipeline/evidence.py)
+        note += f", evidence {settings.evidence_mode}"
+    return note
 
 
 def _environment_defaults() -> None:
