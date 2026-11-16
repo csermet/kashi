@@ -667,7 +667,7 @@ LINE_REGION_DEFAULT: int | None = LINE_REGION_MS
 #: this much later (windows.start_at_heard_onset). The owner's bound
 #: (2026-11-14): a line may arrive about 1 s before it is sung, and the
 #: overlay already shows a line up to 500 ms before its start
-#: (apps/overlay/src/renderer/src/view-logic.ts: findDisplayLine,
+#: (packages/view/src/view-logic.ts: findDisplayLine,
 #: LINE_LEAD_IN_MS = 500), so 500 ms is what the start itself may lead by.
 #: None reproduces 2.34.0.
 FIRST_HEARD_LEAD_MS = 500

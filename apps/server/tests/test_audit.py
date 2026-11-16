@@ -116,7 +116,7 @@ def test_base_lead_is_the_overlays():
     # The overlay adds a hidden 200 ms under the user's number; a change on one
     # side only would shift every audit picture against what users see.
     ts = (Path(__file__).resolve().parents[3]
-          / "apps/overlay/src/shared/timing-offset.ts").read_text()
+          / "packages/view/src/timing-offset.ts").read_text()
     match = re.search(r"^export const BASE_LEAD_MS = (\d+);$", ts, re.M)
     assert match is not None
     assert int(match.group(1)) == BASE_LEAD_MS
