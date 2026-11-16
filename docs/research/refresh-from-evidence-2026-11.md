@@ -215,6 +215,30 @@ change: documents do not change.
 - **Gate:** pytest (DB tests against a throwaway Postgres 17), ruff, pyright and check-versions,
   all clean; no TypeScript, schema or codegen change.
 
+## Addendum: the stem's level envelope (2026-11-16, EVIDENCE_FORMAT 3)
+
+A rule that asks "is the voice silent here?" needs the stem, which a replay never reads; so the
+envelope became evidence before any rule read it (`pipeline/level.py`, EVIDENCE_CODE `envelope` 1).
+
+- **Definition.** The aligner's own 16 kHz mono int16 wav, 320-sample (20 ms) frames from sample 0,
+  the last frame over the samples it has; per frame the mean square, exact (int64 sums of the
+  int16 squares, one division); dB re the track's loudest frame, `-20·log10(ms/max)` rounded half
+  up to half-dB steps in one byte (0 = the loudest, 255 = at or below -127.5 dB and digital
+  silence). Deterministic across CPU and GPU workers because it never touches torch or float
+  vector maths: integers until one scalar `math.log10` per frame; a test pins the bytes of a
+  synthetic signal. Read as "the share of the frames starting in [t0, t1) below X dB".
+- **Recorded** in the evidence meta as `{step_ms, unit_db, frames, levels}` (`levels` zlib +
+  base64), in REQUIRED_META; a replay checks it decodes to `frames` bytes, else the record is
+  missing it. An envelope that failed (the wav not the aligner's format, unreadable) is reported
+  with `extractor_failed` and the job records nothing, never an empty envelope.
+- **Size:** 9 518 frames a song on the 39 (190 s), 8.6 kB stored (max 11.6 kB): 0.4 % of a record.
+- **Proof** (39 songs, worker `process_job`, throwaway Postgres): main 24b1e7f == the branch
+  with the mode off == record == replay, 39/39; every replay rebuilt from evidence with every
+  audio reader, `level_envelope` included, made to raise. 18 one-line mutations of the new code
+  (quantizer, frame sums, share boundaries, format check, failure report, replay frame check,
+  REQUIRED_META, the version pin, recorder, the hand-over to the aligner, the second pass's own
+  envelope): 18 of 18 make the tests fail (the last one after its test was added).
+
 ## What is left
 
 - The back-fill on the GPU helper and a cluster replay of what it recorded have not run (checks

@@ -305,6 +305,36 @@ def test_second_pass_runs_on_low_quality_and_keeps_the_better_result(
     assert doc["alignment"]["quality_score"] == pytest.approx(0.7)
 
 
+def test_the_second_pass_reads_the_envelope_of_the_audio_it_aligns(
+    db_session, job, scratch, monkeypatch
+):
+    """Each pass hands the aligner the level envelope of its own wav: the
+    separated vocals are not the first pass's audio."""
+    real_align_stage = wp._align_stage
+    _happy_stages(monkeypatch, scratch)
+    from kashi_server.config import settings
+    from kashi_server.pipeline.level import Envelope
+
+    monkeypatch.setattr(settings, "separation_mode", "second_pass")
+    monkeypatch.setattr(wp, "_align_stage", real_align_stage)
+    monkeypatch.setattr(wp, "_decode", lambda src, dest, rate, **kw: dest)
+    monkeypatch.setattr(wp, "detect_language", lambda text: "eng")
+    monkeypatch.setattr(wp, "_separate_vocals", lambda audio, tmp: tmp / "vocals.wav")
+    monkeypatch.setattr(wp, "level_envelope", lambda wav: Envelope(Path(wav).name.encode()))
+    seen: list[tuple[str, bytes]] = []
+    results = iter([_align_result(0.2), _align_result(0.7)])
+
+    def spy_align(wav, texts, lang, envelope=None, **kw):
+        seen.append((Path(wav).name, envelope.levels))
+        return next(results)
+
+    monkeypatch.setattr(wp, "align", spy_align)
+    wp.process_job(db_session, job)
+    assert len(seen) == 2
+    assert [levels.decode() for _, levels in seen] == [name for name, _ in seen]
+    assert seen[0][0] != seen[1][0]
+
+
 def test_second_pass_worse_result_is_discarded(db_session, job, scratch, monkeypatch):
     real_align_stage = wp._align_stage
     _happy_stages(monkeypatch, scratch)
