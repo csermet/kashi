@@ -3,6 +3,7 @@ from the stored evidence with nothing written and no audio read, compared and ju
 its evidence and the stand-in aligner are test_worker_evidence's."""
 
 import json
+import types
 import uuid
 
 import pytest
@@ -10,14 +11,8 @@ from sqlalchemy import event, func, select
 from sqlalchemy import text as sql
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
-from test_worker_evidence import (  # noqa: F401  (the evidence fixtures)
-    LINES,
-    SECONDS,
-    _job,
-    _run,
-    audio,
-    log,
-)
+from test_worker_evidence import LINES, SECONDS, _job, _run
+from test_worker_evidence import audio as evidence_audio  # noqa: F401  (registers the fixture)
 
 from kashi_server import queue
 from kashi_server.config import settings
@@ -55,7 +50,9 @@ def _preview(db_session, lyrics="ladder", **kw):
 
     db_session.rollback()
     with SessionLocal() as s:
-        return preview.preview_song(preview.read_only(s), SONG, lyrics=lyrics, **kw)
+        row = preview.preview_song(preview.read_only(s), SONG, lyrics=lyrics, **kw)
+        assert not s.in_transaction()  # no snapshot held from one song to the next
+        return row
 
 
 def _set_document(db_session, change):
@@ -68,6 +65,12 @@ def _set_document(db_session, change):
                        {"d": json.dumps(doc), "v": doc["pipeline_version"]})
     db_session.commit()
     return doc
+
+
+@pytest.fixture
+def audio(evidence_audio):  # noqa: F811  (the imported fixture, by its name)
+    """test_worker_evidence's song: every read of its audio, by kind."""
+    return evidence_audio
 
 
 @pytest.fixture
@@ -187,6 +190,7 @@ def test_a_preview_cannot_write(db_session, audio, monkeypatch, tmp_path):
     assert json.loads(out.read_text().splitlines()[0])["verdict"] == rules.UNCHANGED
     assert any(s.startswith("SET TRANSACTION READ ONLY") for s in statements)
     assert audio.total() == 0, audio.reads
+    assert settings.lrclib_request_gap_s == 0.5  # batch work: the top of lrclib's asked gap
     assert _snapshot(db_session) == before
 
 
@@ -300,7 +304,7 @@ def test_a_permanent_error_in_the_replay_needs_a_full_job(db_session, audio, mon
     assert row["verdict"] == rules.FULL_JOB and row["detail"].startswith("alignment_failed")
 
 
-# --- failures --------------------------------------------------------------------------------------
+# --- failures ------------------------------------------------------------------------------------
 
 
 def test_weather_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):
@@ -334,7 +338,7 @@ def test_no_document_or_no_job_history_fails(db_session, audio, monkeypatch):
     assert row["verdict"] == rules.FAILED and row["detail"].startswith("no job history")
 
 
-# --- the comparison and the verdict, wired ---------------------------------------------------------
+# --- the comparison and the verdict, wired -------------------------------------------------------
 
 
 def test_a_moved_line_is_reported_and_refreshed(db_session, audio, monkeypatch):
@@ -396,7 +400,7 @@ def test_rows_carry_no_lyric_text(db_session, audio, monkeypatch):
     assert not any(word in text for line in LINES for word in line.split())
 
 
-# --- the persist guard's one copy ------------------------------------------------------------------
+# --- the persist guard's one copy ----------------------------------------------------------------
 
 
 def test_the_guard_answer_is_the_one_persist_acts_on(db_session, audio, monkeypatch):
@@ -416,7 +420,61 @@ def test_the_guard_answer_is_the_one_persist_acts_on(db_session, audio, monkeypa
     assert document.stored_document_kept(stored, None, forced, no_words) is None
 
 
-# --- the command -----------------------------------------------------------------------------------
+class _GuardSession:
+    """persist_processed_track's two reads (the override row, the stored row) answered from memory;
+    any further statement is recorded as a write."""
+
+    def __init__(self, override, existing):
+        self.answers = [override, existing]
+        self.writes = []
+
+    def execute(self, statement, params=None):
+        if self.answers:
+            row = self.answers.pop(0)
+        else:
+            self.writes.append(str(statement))
+            row = None
+        return types.SimpleNamespace(first=lambda: row)
+
+
+@pytest.mark.parametrize("kind", ["stale", "override", "regression"])
+def test_each_guard_keeps_counts_and_says_its_own(kind, caplog):
+    """The extracted decision drives persist's own counters and log lines, one per guard."""
+    from prometheus_client import REGISTRY
+    from test_persist_guard import _job as guard_job
+    from test_persist_guard import _real_doc
+
+    job = guard_job()
+    good, worse = _real_doc(job, 40, 0.93), _real_doc(job, 4, 0.93)
+    existing = types.SimpleNamespace(document=good, etag="e1", pipeline_version=PIPELINE_VERSION,
+                                     pipeline_major=2)
+    override = None
+    if kind == "stale":
+        existing.pipeline_version = "9.9.9"
+    if kind == "override":
+        override = types.SimpleNamespace(lrclib_id=5, lyrics_text=None, speed_factor=None,
+                                         offset_ms=None, applied_etag="e1")
+    names = {"stale": "kashi_persist_stale_writes_kept_total",
+             "override": "kashi_persist_override_builds_kept_total",
+             "regression": "kashi_persist_regressions_kept_total"}
+    before = {k: REGISTRY.get_sample_value(n) or 0.0 for k, n in names.items()}
+    session = _GuardSession(override, existing)
+    with caplog.at_level("WARNING", logger="kashi_server.pipeline.document"):
+        stored = document.persist_processed_track(session, job,  # type: ignore[arg-type]
+                                                  worse if kind == "regression" else good)
+    assert stored == "e1" and session.writes == []
+    after = {k: REGISTRY.get_sample_value(n) or 0.0 for k, n in names.items()}
+    assert {k: after[k] - before[k] for k in names} == {k: float(k == kind) for k in names}
+    said = {"stale": "(a stale worker image?)", "override": "built under the song's override",
+            "regression": "the new one regresses it"}
+    assert said[kind] in caplog.text
+    assert sum(text in caplog.text for text in said.values()) == 1
+    kept = document.stored_document_kept(existing, override, job,
+                                         worse if kind == "regression" else good)
+    assert kept is not None and kept[0] == kind
+
+
+# --- the command ---------------------------------------------------------------------------------
 
 
 def test_the_command_previews_the_songs_with_evidence(db_session, audio, monkeypatch, tmp_path,
@@ -479,3 +537,22 @@ def test_the_summary_lists_what_to_refresh_and_why_not_the_rest():
     assert summary["keep"] == {"b": "veto: W1, W3", "c": "guard: stale: x"}
     assert summary["needs_full_job"] == {"d": "no evidence stored"}
     assert summary["next_after"] == "f"
+    assert summary["same_sheet_totals"] == {"songs": 0, "old": {}, "new": {},
+                                            "moved_lines": {"over_100": 0, "over_500": 0,
+                                                            "over_1500": 0}}
+
+
+def test_the_summary_adds_up_the_songs_judged_on_the_same_sheet():
+    old = {"lines": 3, "dwell_under_120": 2}
+    rows = [
+        {"source_id": "a", "verdict": rules.REFRESH, "old": old, "new": {"lines": 3,
+         "dwell_under_120": 1}, "moved": {"over_100": 2, "over_500": 1, "over_1500": 0}},
+        {"source_id": "b", "verdict": rules.SHEET, "old": old, "new": {"lines": 4,
+         "dwell_under_120": 9}},
+        {"source_id": "c", "verdict": rules.VETOED, "old": old, "new": {"lines": 3,
+         "dwell_under_120": 5}, "moved": {"over_100": 1, "over_500": 1, "over_1500": 1}},
+    ]
+    totals = preview.summarize(rows)["same_sheet_totals"]
+    assert totals == {"songs": 2, "old": {"lines": 6, "dwell_under_120": 4},
+                      "new": {"lines": 6, "dwell_under_120": 6},
+                      "moved_lines": {"over_100": 3, "over_500": 2, "over_1500": 1}}

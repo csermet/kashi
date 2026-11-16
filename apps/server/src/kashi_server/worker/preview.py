@@ -354,9 +354,22 @@ def summarize(rows: list[dict]) -> dict:
         if verdict == rules.VETOED and row.get("detail", "").startswith("veto: "):
             for name in row["detail"][len("veto: ") :].split(", "):
                 vetoes[name] = vetoes.get(name, 0) + 1
+    # The archive-wide counts (the rig's aggregate view), over the songs judged on the same sheet.
+    same_sheet = [row for row in rows if "moved" in row]
+    totals: dict[str, Any] = {"songs": len(same_sheet)}
+    for side in ("old", "new"):
+        totals[side] = {}
+        for row in same_sheet:
+            for name, value in row[side].items():
+                totals[side][name] = totals[side].get(name, 0) + value
+    totals["moved_lines"] = {
+        key: sum(row["moved"][key] for row in same_sheet)
+        for key in (f"over_{rules.MOVED_MS}", *(f"over_{far}" for far in rules.MOVED_FAR_MS))
+    }
     return {
         "songs": len(rows),
         "verdicts": verdicts,
+        "same_sheet_totals": totals,
         "refresh_ids": [r["source_id"] for r in rows if r["verdict"] == rules.REFRESH],
         "unchanged_ids": [r["source_id"] for r in rows if r["verdict"] == rules.UNCHANGED],
         "vetoes": dict(sorted(vetoes.items())),

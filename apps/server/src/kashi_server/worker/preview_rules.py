@@ -219,7 +219,7 @@ def placed_on_voice(doc: dict, returns: list[int]) -> dict[int, int]:
         start = words[0]["start_ms"] if words else None
         if start is not None and previous_end is not None and start - previous_end >= LINE_GAP_MS:
             at = bisect.bisect_left(returns, start)
-            near = min(returns[max(0, at - 1) : at + 1], key=lambda v: abs(v - start))
+            near = min(returns[max(0, at - 1) : at + 1], key=lambda v, t=start: abs(v - t))
             if abs(start - near) <= LINE_VOICE_MAX_MS:
                 out[index] = near
         if words or previous_end is None:
@@ -296,7 +296,6 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         "largest": largest,
     }
     out["moved_lines"] = moved
-    out["lost_words"] = lost
     out["gained_words"] = gained
     out["voice"] = {
         "returns": len(returns),

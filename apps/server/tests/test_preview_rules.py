@@ -104,6 +104,8 @@ def test_another_record_source_or_clock_is_another_sheet(field, value):
 def test_a_line_count_or_a_line_text_is_another_sheet():
     old = _doc([_line(1000, [1000]), _line(2000, [2000])])
     assert r.sheet_changes(old, _doc([_line(1000, [1000])])) == ["line count 2 -> 1"]
+    longer = _doc([_line(1000, [1000]), _line(2000, [2000]), _line(3000, [3000])])
+    assert r.sheet_changes(old, longer) == ["line count 2 -> 3"]
     other = _doc([_line(1000, [1000]), _line(2000, [2000], text="la lo")])
     assert r.sheet_changes(old, other) == ["text of 1 line(s), first line 1"]
     assert r.verdict(r.compare(old, other, None)) == (r.SHEET, "text of 1 line(s), first line 1")
@@ -159,6 +161,12 @@ def test_w3_a_line_that_lost_its_words():
     assert back["w3"] == [] and back["gained_words"] == [1] and r.vetoes(back) == []
 
 
+def test_w3_a_line_wordless_on_both_sides_lost_nothing():
+    old = _doc([_line(1000, [1000, 1500]), _line(3000)])
+    comparison = r.compare(old, _doc([_line(1000, [1000, 1500]), _line(3000)]), None)
+    assert comparison["w3"] == [] and comparison["gained_words"] == []
+
+
 def test_w3_a_line_without_text_cannot_lose_words():
     old = _doc([_line(1000, [1000], text=" ")])
     assert r.compare(old, _doc([_line(1000, text=" ")]), None)["w3"] == []
@@ -199,7 +207,7 @@ def test_w4_only_on_a_moved_line():
     assert r.compare(old, new, None)["w4"] == []
 
 
-# --- the envelope: silent lead, the voice's return, W2 ---------------------------------------------
+# --- the envelope: silent lead, the voice's return, W2 -------------------------------------------
 
 
 @pytest.mark.parametrize("level,voiced", [(49, True), (50, True), (51, False)])
@@ -248,6 +256,11 @@ def test_a_wordless_line_keeps_the_silence_open_but_its_end_counts():
     assert r.placed_on_voice(doc, [5000]) == {}  # 5 000 - 4 800 < 500
 
 
+def test_a_wordless_line_ending_early_does_not_shorten_the_stretch():
+    doc = _doc([_line(1000, [1000], end=4800), _line(1400, end=2000), _line(5000, [5000])])
+    assert r.placed_on_voice(doc, [5000]) == {}  # 5 000 - 4 800 < 500, the wordless 2 000 aside
+
+
 def _w2(away_old, away_new):
     """Line 1 placed on a voice return at 5 000 ms on the stored document; its start moves from
     5 000 - away_old to 5 000 - away_new (both earlier than the voice)."""
@@ -281,6 +294,17 @@ def test_w2_reads_the_reference_on_the_new_document_when_the_old_is_not_placed()
     comparison = r.compare(old, new, env)
     assert comparison["w2"]["away_ms"] == 1400 - 200
     assert comparison["voice"]["placed_old"] == 0 and comparison["voice"]["placed_new"] == 1
+
+
+def test_w2_the_reference_is_the_stored_document_s_when_both_are_placed():
+    levels = [QUIET] * 250 + [VOICED] * 50 + [QUIET] * 150 + [VOICED] * 100  # 5 000 and 9 000
+    env = _env(levels)
+    old = _doc([_line(1000, [1000], end=1300), _line(5000, [5000, 5600])])
+    new = _doc([_line(1000, [1000], end=1300), _line(9000, [9000, 9600])])
+    comparison = r.compare(old, new, env)
+    assert (comparison["voice"]["placed_old"], comparison["voice"]["placed_new"]) == (1, 1)
+    assert comparison["w2"]["voice_ms"] == 5000 and comparison["w2"]["away_ms"] == 4000
+    assert "W2" in r.vetoes(comparison)
 
 
 def test_without_an_envelope_w2_cannot_fire():
