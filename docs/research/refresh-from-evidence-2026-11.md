@@ -215,29 +215,49 @@ change: documents do not change.
 - **Gate:** pytest (DB tests against a throwaway Postgres 17), ruff, pyright and check-versions,
   all clean; no TypeScript, schema or codegen change.
 
-## Addendum: the stem's level envelope (2026-11-16, EVIDENCE_FORMAT 3)
+## Addendum: the stem's level envelope (2026-11-16, EVIDENCE_FORMAT 4)
 
 A rule that asks "is the voice silent here?" needs the stem, which a replay never reads; so the
-envelope became evidence before any rule read it (`pipeline/level.py`, EVIDENCE_CODE `envelope` 1).
+envelope became evidence before any rule read it (`pipeline/level.py`, EVIDENCE_CODE `envelope` 2;
+format 3 / code 1 was its first draft, never deployed).
 
-- **Definition.** The aligner's own 16 kHz mono int16 wav, 320-sample (20 ms) frames from sample 0,
-  the last frame over the samples it has; per frame the mean square, exact (int64 sums of the
-  int16 squares, one division); dB re the track's loudest frame, `-20·log10(ms/max)` rounded half
-  up to half-dB steps in one byte (0 = the loudest, 255 = at or below -127.5 dB and digital
-  silence). Deterministic across CPU and GPU workers because it never touches torch or float
-  vector maths: integers until one scalar `math.log10` per frame; a test pins the bytes of a
-  synthetic signal. Read as "the share of the frames starting in [t0, t1) below X dB".
-- **Recorded** in the evidence meta as `{step_ms, unit_db, frames, levels}` (`levels` zlib +
-  base64), in REQUIRED_META; a replay checks it decodes to `frames` bytes, else the record is
-  missing it. An envelope that failed (the wav not the aligner's format, unreadable) is reported
-  with `extractor_failed` and the job records nothing, never an empty envelope.
-- **Size:** 9 518 frames a song on the 39 (190 s), 8.6 kB stored (max 11.6 kB): 0.4 % of a record.
-- **Proof** (39 songs, worker `process_job`, throwaway Postgres): main 24b1e7f == the branch
-  with the mode off == record == replay, 39/39; every replay rebuilt from evidence with every
-  audio reader, `level_envelope` included, made to raise. 18 one-line mutations of the new code
-  (quantizer, frame sums, share boundaries, format check, failure report, replay frame check,
-  REQUIRED_META, the version pin, recorder, the hand-over to the aligner, the second pass's own
-  envelope): 18 of 18 make the tests fail (the last one after its test was added).
+- **Definition.** The aligner's own 16 kHz mono int16 wav (on the 39 songs `wave` reads exactly the
+  samples the aligner's `load_audio` hands the model: same count, same values), 320-sample (20 ms)
+  frames from sample 0, the last frame over the samples it has. Per frame, one byte each:
+  - the mean square in half-dB steps under the loudest frame, rounded half up (0 = the loudest,
+    255 = 127.25 dB under it or quieter, digital silence included);
+  - the zero-crossing count over the pairs of neighbouring samples inside the frame (a sample of 0
+    counts as non-negative), capped at 255 (a full frame has at most 319).
+  Per track, the loudest frame's mean square as an exact fraction (sum of squared samples, sample
+  count), which puts the levels back on a dBFS scale.
+- **Exact.** Integer sums and counts; a frame's step is found by comparing its mean square, as an
+  exact fraction of the loudest, with a fixed table of 255 integer edges
+  (`floor(10^(-(j + 0.5)/20) · 2^96)`, computed with the decimal module, whose ln and exp are
+  correctly rounded in software). No floating point decides a byte, so every worker produces the
+  same bytes; tests pin the table and the bytes of a synthetic signal. The first draft's float
+  quantizer gave the same `levels` on the pinned signal and on all 39 songs, byte for byte.
+- **Not audio.** 16 bits per 320 samples, no phase, no spectrum; the crossing count is one coarse
+  brightness cue (fundamental, formants and noise mixed), no pitch track. Kept for the voiced class
+  a later rule may take on; nothing reads it, nor the loudest frame, yet.
+- **Recorded** in the evidence meta as `{step_ms, unit_db, frames, levels, crossings, loudest}`
+  (byte strings zlib + base64), in REQUIRED_META. A replay serves it only when both byte strings
+  decode to `frames` bytes and `frames == ceil(track_samples / 320)`: an envelope of another wav would
+  put a rule's silence on another clock. An envelope that failed (the wav not the aligner's format,
+  unreadable, a short read) is reported with `extractor_failed` and the job records nothing.
+- **Memory.** The wav is read 1 024 frames (20.5 s) at a time; the first draft held the whole track
+  as 64-bit samples (~9x the wav, ~350 MB at the 20-minute cap).
+- **Size:** 9 518 frames a song on the 39 (190 s); stored, the levels take 8.6 kB and the
+  crossings 10.0 kB a song (max 24.6 kB together): about 0.9 % of a record.
+- **Proof** (39 songs, worker `process_job`, throwaway Postgres): main 24b1e7f == the branch with
+  the mode off == record == replay, 39/39; every replay rebuilt from evidence with every audio
+  reader, `level_envelope` included, made to raise; every stored envelope has
+  `frames == ceil(track_samples / 320)`. One-line mutations of the
+  code (step edges, the tie rule, the loudest frame and its ties, frame sizes, the tail frame, the
+  crossing sign convention and cap, the short read, the dBFS scale, share boundaries, the format
+  check, the failure report, the replay's frame and track checks, REQUIRED_META, the version pin,
+  the recorder, the hand-over to the aligner, the second pass's own envelope): 33 of 33 make the
+  tests fail (the source-hash pin excluded from every one but its own; one, the tail frame's zero,
+  after its test was added).
 
 ## What is left
 
