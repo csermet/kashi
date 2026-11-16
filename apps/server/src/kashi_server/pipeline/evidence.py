@@ -28,8 +28,7 @@ takes the real computation as `compute` and calls it as given when no session is
 the mode off the pipeline does exactly what it did (the callers look `compute` up at call time,
 which keeps the test and harness seams working).
 
-Design note: "Refresh without download" (2026-11-15; working files indirmesiz-yenileme, to move
-into docs/research after review).
+Design note: docs/research/refresh-from-evidence-2026-11.md.
 """
 
 from __future__ import annotations

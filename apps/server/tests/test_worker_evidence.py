@@ -875,3 +875,19 @@ def test_a_nightcore_song_is_never_a_backfill_candidate(db_session, audio, monke
     assert backfill.candidates(db_session, 5) == []
     assert backfill.backfill_song(db_session, "evidNc") == (
         "skipped: never recorded (a nightcore clock)")
+
+
+def test_evidence_of_a_job_that_did_not_complete_is_not_stored(db_session, audio, monkeypatch):
+    """A complete recording whose job did not complete (a mutation survivor of round 2: every
+    normal path that leaves a job unfinished also leaves its recording incomplete)."""
+    captured: dict = {}
+    real = wp._store_evidence
+    monkeypatch.setattr(wp, "_store_evidence",
+                        lambda s, job, rec: bool(captured.setdefault("rec", rec)) and False)
+    _run(db_session, monkeypatch, "record")
+    monkeypatch.setattr(wp, "_store_evidence", real)
+    assert captured["rec"].missing() == [] and captured["rec"].usable
+    unfinished = _job(db_session)
+    assert unfinished.status != "completed"
+    assert real(db_session, unfinished, captured["rec"]) is False
+    assert _row(db_session) is None

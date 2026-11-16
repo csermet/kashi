@@ -71,6 +71,10 @@ on a real Windows window: `client-foundations` (held-note sweep, golden frames, 
 `client-shared-view` (fewer knobs, the renderer as `packages/view`). Next, in the order the owner
 left to the session: (1) an archive refresh from stored stems, without downloading; (2) the client
 branches and the Android probe; (3) the duration-term experiment for words the model cannot place.
+(1) is built as a refresh from stored evidence, not stems (owner, 2026-11-16;
+`docs/research/refresh-from-evidence-2026-11.md`) and merged with `EVIDENCE_MODE` off; before it is
+used, the nightly dump leaves the evidence table's data out, the GPU helper back-fills the archive,
+and the workers switch to `replay`.
 D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
