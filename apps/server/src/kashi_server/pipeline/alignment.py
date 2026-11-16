@@ -10,10 +10,13 @@ If the token accounting ever fails to line up, the job does NOT fail: we emit a
 line-level document instead (the overlay already renders those).
 """
 
+import contextlib
 import logging
 import math
 import os
 import unicodedata
+from collections.abc import Iterator
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -766,6 +769,153 @@ def _load_track(wav_path: Path, model):
 LineStarts = list[tuple[float, float] | None]
 
 
+#: Which audio a Viterbi pass reads, for the guard's error: set per window by `_align_windows`.
+_VITERBI_WHERE: ContextVar[str] = ContextVar("viterbi_where", default="whole track")
+#: Which song (and job) the passes belong to, for the overrun log line: set by the job code for
+#: its run (`viterbi_song`); empty outside a job.
+_VITERBI_SONG: ContextVar[str] = ContextVar("viterbi_song", default="")
+#: Where a caller collects the passes that ran in the library's overrun region (`overruns`).
+_OVERRUN_SINK: ContextVar[list | None] = ContextVar("overrun_sink", default=None)
+
+
+class AlignerRefusal(PipelineError):
+    """The guard's refusal: `alignment_failed`, raised before the library runs or for a path it
+    cannot read. A job treats it like any other PipelineError of that class; the refresh preview
+    tells it apart (a full job would fail the same way)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("alignment_failed", message)
+
+
+@contextlib.contextmanager
+def viterbi_song(label: str) -> Iterator[None]:
+    """Name the song (and job) of the Viterbi passes run inside, for the overrun log line."""
+    token = _VITERBI_SONG.set(label)
+    try:
+        yield
+    finally:
+        _VITERBI_SONG.reset(token)
+
+
+@contextlib.contextmanager
+def overruns() -> Iterator[list[dict]]:
+    """Collect every Viterbi pass run inside that falls in the library's overrun region
+    (`library_overruns`): {where, pass, T, L, R} each."""
+    sink: list[dict] = []
+    token = _OVERRUN_SINK.set(sink)
+    try:
+        yield sink
+    finally:
+        _OVERRUN_SINK.reset(token)
+
+
+def viterbi_targets(tokens_starred: list[str], tokenizer) -> list[int]:
+    """The target ids ctc_forced_aligner's get_alignments builds from these tokens: one per
+    character its lower-cased vocabulary knows, `<star>` the id after the vocabulary."""
+    dictionary = {k.lower(): v for k, v in tokenizer.get_vocab().items()}
+    dictionary[STAR_TOKEN] = len(dictionary)
+    return [dictionary[c] for c in " ".join(tokens_starred).split(" ") if c in dictionary]
+
+
+def _repeats(targets: list[int]) -> int:
+    return sum(1 for i in range(1, len(targets)) if targets[i] == targets[i - 1])
+
+
+def library_overruns(n_frames: int, targets: list[int]) -> bool:
+    """Whether ctc_forced_aligner's compiled Viterbi (forced_align_impl.cpp at the pinned commit)
+    would write past its back-pointer buffers, (2L + 2) * (T - L) bits each, which it fills band by
+    band: its own band bookkeeping, line for line, without the scores (one pass over the frames).
+    Only targets in which no id repeats its neighbour overrun them, below 2L - 2 frames (L >= 3).
+    Measured on the compiled library there: deep overruns (T near L) crash (SIGSEGV, SIGABRT) or
+    return a path that does not spell the text (get_spans' `AssertionError: n != i`); shallow ones
+    (T near 2L) mostly come back valid, the extra bits landing in the allocation's slack. Not
+    refused (a pilot song's window sits in it and its document is the one stored): logged, so the
+    region can be decided on with numbers."""
+    n_targets = len(targets)
+    n_states = 2 * n_targets + 1
+    repeats = _repeats(targets)
+    size = (n_states + 1) * (n_frames - n_targets)
+    start = 0 if n_frames - (n_targets + repeats) > 0 else 1
+    end = 1 if n_states == 1 else 2
+    seek = 0
+    for t in range(1, n_frames):
+        if n_frames - t <= n_targets + repeats:
+            # The C++ reads targets[start / 2 + 1] here even at the last target (one past the
+            # end: unknown memory, taken as different); no sweep of the bookkeeping got there.
+            after = targets[start // 2 + 1] if start // 2 + 1 < n_targets else None
+            if start % 2 == 1 and targets[start // 2] != after:
+                start += 1
+            start += 1
+        if t <= n_targets + repeats:
+            if end % 2 == 0 and end < 2 * n_targets and targets[end // 2 - 1] != targets[end // 2]:
+                end += 1
+            end += 1
+        first = start
+        if start == 0:
+            first += 1
+            seek += 1
+        if end > first and seek + (end - first) > size:
+            return True
+        seek += end - first  # the C++ adds this signed difference to an unsigned counter
+    return False
+
+
+def viterbi_refusal(log_probs, targets: list[int]) -> str | None:
+    """Why the library's Viterbi must not run over these log-probabilities for these targets, or
+    None: fewer frames than the targets need (T < L + R; the library raises "targets length is too
+    long for CTC"), exactly as many with no repeated letter (T == L + R, R == 0: its back-pointer
+    buffers are empty and it segfaults), or values that are not all finite (a NaN frame makes it
+    return a path that does not spell the text)."""
+    import numpy as np
+
+    n_frames = int(log_probs.shape[0])
+    repeats = _repeats(targets)
+    if targets and n_frames < len(targets) + repeats:
+        return "the text needs more frames than the audio has"
+    if targets and repeats == 0 and n_frames == len(targets):
+        return "the text fills the audio exactly with no repeated letter (the library crashes)"
+    if not np.isfinite(np.asarray(log_probs)).all():
+        return "the emissions are not all finite"
+    return None
+
+
+def _note_overrun(star_frequency: str, n_frames: int, targets: list[int]) -> None:
+    """A pass in the library's overrun region: logged with the song, the window, the pass, T, L
+    and R, and handed to the `overruns()` sink when one is open."""
+    hit = {"where": _VITERBI_WHERE.get(), "pass": star_frequency, "T": n_frames,
+           "L": len(targets), "R": _repeats(targets)}
+    song = _VITERBI_SONG.get()
+    logger.warning(
+        "%s%s, %s pass: the aligner library writes past its buffers here "
+        "(T=%d, L=%d, R=%d); a crash or an unreadable path would come from it",
+        f"{song}: " if song else "", hit["where"], star_frequency, n_frames, hit["L"], hit["R"],
+    )
+    sink = _OVERRUN_SINK.get()
+    if sink is not None:
+        sink.append(hit)
+
+
+def _numpy_log_probs(emissions):
+    """The emissions as a numpy array (torch on any device, or numpy), for the guard to read."""
+    import numpy as np
+
+    if hasattr(emissions, "detach"):
+        emissions = emissions.detach().cpu().float().numpy()
+    return np.asarray(emissions)
+
+
+def _refused(star_frequency: str, why: str, n_frames: int, targets: list[int] | None):
+    """One classified error for whatever the guard refuses. `alignment_failed`, the class of the
+    job's other alignment dead ends (no segments, no words after regrouping, a document the schema
+    refuses): permanent, because the same window plan, text and emissions fail the same way on
+    every retry; a new lyrics record or a code change is what can help, and both arrive through a
+    reprocess, which the 7-day block does not stop."""
+    sizes = "?" if targets is None else f"{len(targets)}, R={_repeats(targets)}"
+    return AlignerRefusal(
+        f"{_VITERBI_WHERE.get()}, {star_frequency} pass: {why} (T={n_frames}, L={sizes})"
+    )
+
+
 def _viterbi(
     emissions, stride, tokenizer, texts: list[str], language: str,
     star_frequency: str = "segment", romanize: bool = True,
@@ -777,7 +927,15 @@ def _viterbi(
     the emissions came from; star rows are already dropped by the library.
     `starts_ms` holds each text's first letter in a region (V1,
     _hold_line_starts); `tally` counts what that did. `letters` (2.35.0)
-    gives each row its `"first_letter"` (_first_letters)."""
+    gives each row its `"first_letter"` (_first_letters).
+
+    Guarded: what the library cannot do at all (`viterbi_refusal`, checked before its Viterbi
+    whenever the tokenizer has the vocabulary get_alignments reads) and a path that does not spell
+    the text (get_spans' AssertionError, or the IndexError of a path that runs out of tokens)
+    raise one AlignerRefusal (`alignment_failed`) naming the window, the pass, T, L and R, instead
+    of a RuntimeError, a segfault or an uncaught error; a pass in which the library overruns its
+    buffers (`library_overruns`) is logged with the song and handed to an `overruns()` sink. Every
+    input the library completes today passes untouched."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
         get_alignments,
         get_spans,
@@ -798,6 +956,17 @@ def _viterbi(
         split_size="word",
         star_frequency=star_frequency,
     )
+    # The library's preprocess_text hands back a list of space-joined letters and its
+    # get_alignments reads the tokenizer's vocabulary; anything else is not its Viterbi.
+    library_shaped = isinstance(tokens_starred, list) and hasattr(tokenizer, "get_vocab")
+    targets = viterbi_targets(tokens_starred, tokenizer) if library_shaped else None
+    n_frames = int(emissions.shape[0])
+    if targets is not None:
+        refusal = viterbi_refusal(_numpy_log_probs(emissions), targets)
+        if refusal is not None:
+            raise _refused(star_frequency, refusal, n_frames, targets)
+        if library_overruns(n_frames, targets):
+            _note_overrun(star_frequency, n_frames, targets)
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     floors: list[tuple[int, int, int]] = []
     if starts_ms and any(starts_ms):
@@ -807,7 +976,12 @@ def _viterbi(
         )
         if held is not None:
             segments, scores, floors = held
-    spans = get_spans(tokens_starred, segments, blank)
+    try:
+        spans = get_spans(tokens_starred, segments, blank)
+    except (AssertionError, IndexError) as exc:  # a path that does not spell the text
+        raise _refused(
+            star_frequency, "the Viterbi path does not spell the text", n_frames, targets
+        ) from exc
     results = postprocess_results(text_starred, spans, stride, scores)
     # A word's span starts halfway into the blank before it (get_spans), so
     # after a long silence the reported start can precede the region its
@@ -1125,7 +1299,17 @@ def _window_line_starts(
     return edges, segment
 
 
-def _align_windows(
+def _align_windows(*args, **kwargs) -> list[dict]:
+    """`_align_windows_each`, with the guard's window label (`_VITERBI_WHERE`) set per window
+    and put back as it was afterwards, also when a window fails."""
+    outer = _VITERBI_WHERE.set(_VITERBI_WHERE.get())
+    try:
+        return _align_windows_each(*args, **kwargs)
+    finally:
+        _VITERBI_WHERE.reset(outer)
+
+
+def _align_windows_each(
     model, tokenizer, audio, plan, align_texts, language, romanize, *,
     exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT, hybrid_t_ms: int = HYBRID_T_MS,
     synced_starts_ms: list[int | None] | None = None, line_region_ms: int | None = None,
@@ -1153,6 +1337,10 @@ def _align_windows(
     edges_lead_ms = WINDOWED_LEAD_MS if exact_stride else 0
     merged: list[dict] = []
     for index, window in enumerate(plan):
+        _VITERBI_WHERE.set(
+            f"window {index} (samples {window.slice_start_ms * SAMPLES_PER_MS}"
+            f"-{window.slice_end_ms * SAMPLES_PER_MS})"
+        )
         piece = audio[
             ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
         ]
