@@ -88,6 +88,17 @@ the archive step of the acceptance order, in the cluster and over every song wit
 guard in front of the aligner library, which was found to write outside its buffer on short
 windows without a repeated letter (refused where it always crashes, logged elsewhere; aligning
 those windows safely is an open timing step).
+
+**State on 2026-11-17.** The archive follows releases without downloads: evidence recorded for 400
+of 425 songs, the workers in `EVIDENCE_MODE=replay`, and 269 documents rebuilt on 2.35.0 from
+evidence after a preview judged each song (`toptan-gozden-gecirme-2026-11.md`, "The archive follows
+a release without downloads"); 52 stay on their stored document by veto and 25 wait for a look.
+The client branch is on `main` (held-note sweep bounded to 750 ms of pause after the owner's blind
+clips; overlay still 0.31.0, not released). Open, in no fixed order: the vetoes' breadth (W4) and a
+missing order-violation veto; the aligner library's safe region, established with bounds checks;
+the voiced class of early first words (GOSSIP 2:00, Black Widow 0:12); a server-side "held until"
+for line-final words; the stray one-letter word on '♪' lines; a reprocess losing an album-art
+palette when the artwork fetch fails; an overlay release.
 D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large

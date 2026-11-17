@@ -693,6 +693,40 @@ rule, its numbers and the labelled moments are in the 2.35.0 paragraph of `versi
   frame count bound to the track, integer-exact steps), the shortest silent span and four toothless
   tests were taken before the release, with every document of the three sets unchanged.
 
+## The archive follows a release without downloads (2026-11-17)
+
+The first use of `refresh-from-evidence-2026-11.md` end to end, on the live archive (425 YouTube
+documents, most built by 2.31.0, some as old as 2.8.0). Working files `onizleme/`.
+
+- **Back-fill.** The GPU helper recorded evidence for 400 songs (795 MB, ~25 s a song, no stored
+  document touched, no job queued); every row carries the key the cluster worker expects. 12 cannot
+  be recorded (8 videos gone, 3 offered at 128 kbps only, 1 the aligner refuses: its text needs
+  more frames than a window has) and 13 are never candidates (a nightcore clock). Transient
+  download and cookie failures passed on the wrap-round.
+- **Preview** (server 0.41.0, in the worker's container, 19 min, 743 lrclib requests, nothing
+  written): refresh 269, unchanged 33, keep 52 (vetoes W1 11, W2 12, W3 2, W4 39, overlapping;
+  one by the persist guard: every worded line would be lost), review 26 (a line start moved more
+  than 1.5 s where the envelope witness cannot judge; an aligner pass in the library's overrun
+  region), sheet changed 9, needs a full job 11 (9 whose stored record is not the one the lookup
+  finds today, so its window slices are not in the evidence). The four songs the desktop rig had
+  vetoed for 2.34.0 and that are in this set came out `keep` again.
+- **Refresh.** One canary, then the rest one at a time through the ordinary admin reprocess on
+  workers in `EVIDENCE_MODE=replay`: 268 songs in 22 min (4.9 s a song with its lookup), every one
+  logged `rebuilt from stored evidence, no download`. **The stored documents' counts equal the
+  preview's on 268 of 268.** Before → after on those songs: words whose successor starts within
+  120 ms 4 657 → 3 547 (share 0.0509 → 0.0386; fewer on 210 songs, more on 9), 0 ms words 357 →
+  141, wordless lines 173 → 79, words starting before their predecessor 12 → 8, lines ending past
+  the next line's start 52 → 24. Held back by hand: one `refresh` song with a NEW order violation,
+  which no veto names (a veto to add). Refreshed by hand from `review`: GOSSIP, whose two moved
+  starts are the ones the owner chose blind.
+- **Open.** W4 (a moved line whose first word now flashes) keeps 39 songs on documents that are
+  worse by every count; it was written for the lines one rule moves and is applied here to every
+  line a five-release jump moves. It was not loosened after seeing the numbers: a narrower W4 is to
+  be stated first and checked with a few blind clips. The other 25 `review` songs wait for a look
+  (three of them move a start onto the voice's return by 1.5-1.8 s of silence). The aligner
+  library's overrun region held 3 of the 400 songs, one of them the song whose back-fill had died
+  with `AssertionError: n != i` and passed on the retry.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.
