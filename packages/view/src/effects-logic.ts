@@ -1,0 +1,1072 @@
+/**
+ * Pure effect-engine logic (Faz 4): palette → CSS variables, beat usability,
+ * and the frame-loop beat cursor. DOM-free so every rule is unit-tested; the
+ * class/variable writes live in main.ts.
+ */
+import type { EffectLevel, ThemeScope } from './effect-level.js';
+import { nextLineTakeoverMs } from './view-logic.js';
+import {
+  NEUTRAL_BG_TRIPLET,
+  bestHueDonor,
+  hasUsableHue,
+  hexToOklch,
+  toneAccent,
+  toneBackground,
+  toneFx,
+  toneFxParticle,
+  tonePrimary,
+  tonePlain,
+  toneSecondary,
+  type Oklch,
+} from './color-tone.js';
+
+/** Shapes as they arrive over IPC — untrusted, everything optional. */
+export interface PaletteLike {
+  primary?: unknown;
+  secondary?: unknown;
+  background?: unknown;
+  text?: unknown;
+  accent?: unknown;
+}
+
+export interface BeatsLike {
+  bpm?: unknown;
+  confidence?: unknown;
+  times_ms?: unknown;
+  downbeat_indices?: unknown;
+}
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Defaults equal the pre-Faz-4 look (white text, the box's dark blue-black):
+ * a missing/partial/invalid palette falls back per field and the overlay
+ * renders exactly as v0.1.x did.
+ */
+export const DEFAULT_PALETTE_VARS: Readonly<Record<string, string>> = {
+  '--kashi-primary': '#ffffff',
+  '--kashi-secondary': '#ffffff',
+  '--kashi-bg-rgb': '8, 10, 18',
+  '--kashi-text': '#ffffff',
+  '--kashi-plain': '#ffffff',
+  '--kashi-accent': '#ffffff',
+};
+
+/**
+ * Field feedback (2026-07-12): light album backgrounds made lyrics unreadable
+ * and even the valid ones read too bright. The box background is CLAMPED
+ * dark — any palette background above this luminance is darkened onto it.
+ */
+export const BG_MAX_LUMINANCE = 0.1;
+/**
+ * Readability rule: text-carrying colors must reach this WCAG contrast ratio
+ * against the (clamped) background color or they fall back to white. 3:1 is
+ * the large-text threshold — the lyric is 28 px bold and additionally backed
+ * by a text-shadow.
+ */
+export const TEXT_CONTRAST_MIN = 3;
+
+function channel(hex: string, index: number): number {
+  return Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+}
+
+function toHex(r: number, g: number, b: number): string {
+  const h = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
+/** WCAG relative luminance of a #rrggbb color (0 = black, 1 = white). */
+export function relativeLuminance(hex: string): number {
+  const linear = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return (
+    0.2126 * linear(channel(hex, 0)) +
+    0.7152 * linear(channel(hex, 1)) +
+    0.0722 * linear(channel(hex, 2))
+  );
+}
+
+/** WCAG contrast ratio between two colors (1..21). */
+export function contrastRatio(hexA: string, hexB: string): number {
+  const a = relativeLuminance(hexA);
+  const b = relativeLuminance(hexB);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/**
+ * Darken a color until its luminance is at most BG_MAX_LUMINANCE, keeping the
+ * hue (channels scale together). Deterministic and testable.
+ */
+export function clampBackground(hex: string): string {
+  let r = channel(hex, 0);
+  let g = channel(hex, 1);
+  let b = channel(hex, 2);
+  let out = toHex(r, g, b);
+  for (let i = 0; i < 16 && relativeLuminance(out) > BG_MAX_LUMINANCE; i += 1) {
+    r *= 0.85;
+    g *= 0.85;
+    b *= 0.85;
+    out = toHex(r, g, b);
+  }
+  return out;
+}
+
+function validHex(value: unknown): string | null {
+  return typeof value === 'string' && HEX_COLOR.test(value) ? value : null;
+}
+
+function parseSlot(value: unknown): Oklch | null {
+  const hex = validHex(value);
+  return hex === null ? null : hexToOklch(hex);
+}
+
+/**
+ * Map an (untrusted) palette onto the CSS variables the stylesheet consumes,
+ * through the TONE-MAPPING pipeline (color-tone.ts): only the HUE of each
+ * extracted color survives; brightness/saturation render at fixed bands, so
+ * a theme can never be muddy, washed-out, or unreadable (field turu 2).
+ *
+ * Rules preserved from 0.2.3: every input validated against #rrggbb (R-7);
+ * background emitted as an "r, g, b" triplet composed with the user's box
+ * alpha; scope `none` keeps every default; base text stays white (differentiation
+ * from the primary is guaranteed by construction: ΔE_OK ≥ ~0.19). The WCAG
+ * check remains as a backstop that provably never fires with today's bands.
+ */
+export function paletteToCssVars(
+  palette: PaletteLike | undefined,
+  scope: ThemeScope = 'full',
+): Record<string, string> {
+  const vars = { ...DEFAULT_PALETTE_VARS };
+  if (!palette || scope === 'none') return vars;
+
+  // Donor pass: the most chromatic slot lends its hue to neutral slots so
+  // B&W-with-one-accent covers theme coherently. `text` is excluded — the
+  // server only ever emits synthetic #ffffff/#111111 there.
+  const slots = {
+    primary: parseSlot(palette.primary),
+    accent: parseSlot(palette.accent),
+    secondary: parseSlot(palette.secondary),
+    background: parseSlot(palette.background),
+  };
+  const donor = bestHueDonor([slots.primary, slots.accent, slots.secondary, slots.background]);
+  const resolve = (slot: Oklch | null): Oklch | null =>
+    slot && hasUsableHue(slot) ? slot : donor;
+
+  const bg = resolve(slots.background);
+  const bgHex = bg ? toneBackground(bg) : null;
+  vars['--kashi-bg-rgb'] = bgHex
+    ? `${channel(bgHex, 0)}, ${channel(bgHex, 1)}, ${channel(bgHex, 2)}`
+    : NEUTRAL_BG_TRIPLET;
+
+  // Base text is pinned white (see module note) — DEFAULT_PALETTE_VARS value.
+
+  // Effect colors (active word / sweep tail / glow); a neutral palette with
+  // no donor keeps them stock white.
+  const primarySource = resolve(slots.primary);
+  if (primarySource) {
+    const primary = tonePrimary(primarySource);
+    vars['--kashi-primary'] = primary.hex;
+    vars['--kashi-secondary'] = toneSecondary(primary.c, primary.h);
+    vars['--kashi-plain'] = tonePlain(primary.c, primary.h);
+  }
+  const accentSource = resolve(slots.accent);
+  if (accentSource) vars['--kashi-accent'] = toneAccent(accentSource);
+
+  // Backstop (belt): measured floor across the bands is ~8:1 — this cannot
+  // fire today, but a future band retune must not silently ship unreadable.
+  if (bgHex && contrastRatio(vars['--kashi-primary']!, bgHex) < TEXT_CONTRAST_MIN) {
+    vars['--kashi-primary'] = DEFAULT_PALETTE_VARS['--kashi-primary']!;
+    vars['--kashi-secondary'] = DEFAULT_PALETTE_VARS['--kashi-secondary']!;
+    vars['--kashi-plain'] = DEFAULT_PALETTE_VARS['--kashi-plain']!;
+  }
+  return vars;
+}
+
+/**
+ * Sustained-fill (Faz 4 "ooh-ooh" aesthetics): long-held words sweep left to
+ * right continuously instead of the discrete word jump. Held this long =
+ * "sustained".
+ */
+export const FILL_MIN_WORD_DURATION_MS = 800;
+/** Mid-line sustained words only sweep in runs at least this long. */
+export const FILL_MIN_RUN = 2;
+
+/**
+ * Held-note sweep (client review step E.2, 2026-11-13). The owner asked for a
+ * slow left-to-right sweep on a held note. The rules above sweep a held word
+ * only at the line end or in a run, and they judge "held" by the word's
+ * measured duration, which the aligner often collapses: a sung ~1.4 s "aah"
+ * came back as 636 ms. This rule judges by DWELL instead — how long the
+ * renderer keeps the word lit, which is until the next word starts — and only
+ * for a word the rules above leave popping:
+ *
+ *   dwell >= max(minDwellMs, lineMedianFactor x median dwell of the line's
+ *                OTHER non-final words)
+ *
+ * and sweeps it over [start, max(end, start + spanDwellFraction x dwell)], so
+ * a collapsed duration cannot turn the sweep into a flash.
+ *
+ * Details the review left open, decided here:
+ *   - the median leaves the word itself out. With it in, a line of two or
+ *     three words can never qualify (D >= 2.5 x mean(D, d) has no solution) —
+ *     an exclusion nobody chose. A line with no other dwell has the floor only;
+ *   - back-to-back repeats keep their single answer (unanimity, 2026-08-13):
+ *     a repeat takes the held sweep only when every member qualifies;
+ *   - `lineFinal`: the review names non-final words. The owner's own example
+ *     is a line-final word whose duration collapsed, so the same test also
+ *     applies to a line-final word that does not sweep today, its dwell
+ *     running until the next line takes the display over — never into an
+ *     interlude or the outro hold, which have no next word. One flag turns
+ *     that part off;
+ *   - `lineFinalPauseMs` (client review E.3, 2026-11-16): a line-final dwell
+ *     runs on into the PAUSE before the next line, and nothing in a document
+ *     tells a held note from a pause. So it counts at most this much past the
+ *     word's measured end (lineFinalDwellMs): the fill then runs at most
+ *     0.8 x 750 - 0.2 x duration <= 600 ms past the measured end, a last word
+ *     measured under 250 ms never qualifies, a pause up to 1 250 ms (750 + the
+ *     500 ms lead-in) is judged as before, and a longer one no longer
+ *     lengthens the sweep — including the silent span pipeline 2.35.0 puts in
+ *     front of a line whose first word it moves later. Measured on the 39
+ *     stem songs' 2.35.0 documents: unbounded, 35 of 116 line-final sweeps
+ *     kept filling over 0.5 s after the voice stopped (21 over 1 s) and the
+ *     sweep grew ~0.8 x the pause, while the voice past the measured end
+ *     stopped growing at ~0.7-1.3 s; 750 was chosen on those same songs;
+ *   - `maxDwellMs`: a dwell past 5 s is no held note but a hole in the
+ *     document (a word left lit across a break). Over the 306 live documents
+ *     (2026-11-13), sweeps on dwells above 5 s sat on silence (voiced share of
+ *     the extension 0.00-0.03 against 0.69-1.00 below), and a 16-25 s crawl
+ *     would assert a duration nobody sings; such a word keeps popping.
+ */
+export const HELD_NOTE_SWEEP = {
+  minDwellMs: 1000,
+  maxDwellMs: 5000,
+  lineMedianFactor: 2.5,
+  spanDwellFraction: 0.8,
+  lineFinal: true,
+  lineFinalPauseMs: 750,
+} as const;
+
+interface TimedWord {
+  start_ms: number;
+  end_ms: number;
+  text?: string;
+}
+
+interface LineWithWords {
+  start_ms: number;
+  end_ms: number;
+  words?: readonly TimedWord[];
+}
+
+/** Which words of a line sweep, and which of those are held notes. */
+export interface LineFillPlan {
+  /** Every word that sweeps: ad-lib, line-end hold, runs, held notes. */
+  sweep: boolean[];
+  /** The held notes among them: they sweep over the longer dwell span. */
+  held: boolean[];
+}
+
+/**
+ * Which words of the ACTIVE line sweep (field feedback 2026-07-12: per-word
+ * alternation between sweep and pop reads as random). Line-level plan:
+ *   - ad-lib line → every word sweeps (one coherent gesture);
+ *   - otherwise a sustained LAST word sweeps (line-end hold), and mid-line
+ *     sustained words sweep only as a consecutive run of >= FILL_MIN_RUN;
+ *   - a word those rules leave popping sweeps when its dwell makes it a held
+ *     note (HELD_NOTE_SWEEP).
+ * `finalDwellMs` is the last word's dwell (lineFinalDwellMs), absent when
+ * nothing follows it on screen. Computed once per line, not per frame.
+ */
+export function planLineFills(
+  words: readonly TimedWord[],
+  lineAdlib: boolean,
+  level: EffectLevel,
+  finalDwellMs?: number,
+): LineFillPlan {
+  if (level === 'off' || words.length === 0) {
+    return { sweep: words.map(() => false), held: words.map(() => false) };
+  }
+  if (lineAdlib) return { sweep: words.map(() => true), held: words.map(() => false) };
+  const longEnough = (i: number): boolean => {
+    const word = words[i];
+    return word !== undefined && word.end_ms - word.start_ms >= FILL_MIN_WORD_DURATION_MS;
+  };
+  const sustained = words.map((_, i) => longEnough(i));
+  unifyRepeats(words, sustained, longEnough);
+  const runs = sweepRuns(sustained);
+  const held = heldNotes(words, runs, finalDwellMs);
+  return { sweep: runs.map((swept, i) => swept || held[i] === true), held };
+}
+
+/** The sweep plan alone: planLineFills().sweep. */
+export function planWordFills(
+  words: readonly TimedWord[],
+  lineAdlib: boolean,
+  level: EffectLevel,
+  finalDwellMs?: number,
+): boolean[] {
+  return planLineFills(words, lineAdlib, level, finalDwellMs).sweep;
+}
+
+/**
+ * How long the renderer keeps each word lit: until the next word starts. The
+ * last word's comes from the caller (`finalDwellMs`), or null.
+ */
+export function wordDwells(words: readonly TimedWord[], finalDwellMs?: number): (number | null)[] {
+  return words.map((word, i) => {
+    const next = words[i + 1];
+    if (next) return next.start_ms - word.start_ms;
+    return finalDwellMs ?? null;
+  });
+}
+
+/**
+ * The line-final word's dwell as the held-note rule reads it: from its start
+ * until the next line takes the display over, but no further than
+ * HELD_NOTE_SWEEP.lineFinalPauseMs past its measured end (the rest is the
+ * pause before the next line, not a note). Undefined when the line gives way
+ * to the interlude mark or to the outro hold (no next word), or has no words.
+ */
+export function lineFinalDwellMs(
+  lines: readonly LineWithWords[],
+  index: number,
+): number | undefined {
+  const words = lines[index]?.words;
+  const last = words?.[words.length - 1];
+  if (!last) return undefined;
+  const takeover = nextLineTakeoverMs(lines, index, last.start_ms);
+  if (takeover === undefined) return undefined;
+  return Math.min(takeover, last.end_ms + HELD_NOTE_SWEEP.lineFinalPauseMs) - last.start_ms;
+}
+
+/** Middle value (mean of the two middle ones for an even count); null when empty. */
+function medianOf(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[middle] as number;
+  return ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
+}
+
+/** The held notes among the words `runs` leaves popping (HELD_NOTE_SWEEP). */
+function heldNotes(
+  words: readonly TimedWord[],
+  runs: readonly boolean[],
+  finalDwellMs: number | undefined,
+): boolean[] {
+  const dwells = wordDwells(words, finalDwellMs);
+  const last = words.length - 1;
+  const inner = dwells.slice(0, last) as number[];
+  const qualifies = (i: number): boolean => {
+    if (runs[i] === true) return false;
+    if (i === last && !HELD_NOTE_SWEEP.lineFinal) return false;
+    const dwell = dwells[i];
+    if (dwell === null || dwell === undefined || dwell > HELD_NOTE_SWEEP.maxDwellMs) return false;
+    const typical = medianOf(inner.filter((_, j) => j !== i));
+    const threshold = Math.max(
+      HELD_NOTE_SWEEP.minDwellMs,
+      typical === null ? 0 : HELD_NOTE_SWEEP.lineMedianFactor * typical,
+    );
+    return dwell >= threshold;
+  };
+  const held = words.map((_, i) => qualifies(i));
+  unifyRepeats(words, held, qualifies);
+  return held;
+}
+
+/** A dwell the held-note span can be drawn from: present and not a hole. */
+function usableDwell(dwell: number | null | undefined): dwell is number {
+  return dwell !== null && dwell !== undefined && dwell <= HELD_NOTE_SWEEP.maxDwellMs;
+}
+
+/**
+ * The span each word's sweep runs over: its own [start, end], or for a held
+ * note [start, max(end, start + spanDwellFraction x dwell)]. A held word
+ * whose own dwell is unusable keeps its own span here; planPassFills pops it.
+ */
+export function planSweepSpans(
+  words: readonly TimedWord[],
+  held: readonly boolean[],
+  finalDwellMs?: number,
+): { start_ms: number; end_ms: number }[] {
+  const dwells = wordDwells(words, finalDwellMs);
+  return words.map((word, i) => {
+    const dwell = dwells[i];
+    if (held[i] !== true || !usableDwell(dwell)) {
+      return { start_ms: word.start_ms, end_ms: word.end_ms };
+    }
+    return {
+      start_ms: word.start_ms,
+      end_ms: Math.max(word.end_ms, word.start_ms + HELD_NOTE_SWEEP.spanDwellFraction * dwell),
+    };
+  });
+}
+
+/**
+ * What ONE pass of a line sweeps, and over which spans: the line's plan (its
+ * identity group's, or its own) applied to this pass's own timing. A held
+ * note the plan decided from the group's medians but whose dwell in THIS pass
+ * is unusable — absent (an interlude or the outro hold follows) or past
+ * maxDwellMs (a hole in the document) — pops in this pass. Swept over its
+ * measured span instead it flashed (a 140 ms sweep) or crawled over the hole
+ * (a 9.6 s one) on the 2.35.0 documents of the 39 stem songs (client review
+ * E.3): a pop asserts no duration. The view and the golden harness both build
+ * a pass from this, so they cannot disagree.
+ */
+export function planPassFills(
+  words: readonly TimedWord[],
+  plan: LineFillPlan,
+  finalDwellMs?: number,
+): { sweep: boolean[]; spans: { start_ms: number; end_ms: number }[] } {
+  const dwells = wordDwells(words, finalDwellMs);
+  return {
+    sweep: words.map(
+      (_, i) => plan.sweep[i] === true && (plan.held[i] !== true || usableDwell(dwells[i])),
+    ),
+    spans: planSweepSpans(words, plan.held, finalDwellMs),
+  };
+}
+
+/** Letters only, so "music", "(music," and "music)" are one word repeated. */
+function repeatKey(text: string | undefined): string {
+  return (text ?? '').toLowerCase().replace(/[^\p{L}]/gu, '');
+}
+
+/** Give every back-to-back repeat of one word a single answer, in place. */
+function unifyRepeats(
+  words: readonly TimedWord[],
+  flags: boolean[],
+  qualifies: (index: number) => boolean,
+): void {
+  // A word REPEATED back to back is one gesture, so it gets one answer (field
+  // report 2026-08-13, Rihanna "(music, music, music, music)"): five identical
+  // words straddled the threshold at 714/892/1029/1029/903 ms and rendered two
+  // popping next to three sweeping, which reads as arbitrary — the ear hears no
+  // such distinction. The run's own middle decides for all of it, so one
+  // clipped measurement cannot split a hook down the middle. Punctuation is
+  // ignored: "music", "(music," and "music)" are the same word.
+  for (let start = 0; start < words.length; ) {
+    const key = repeatKey(words[start]?.text);
+    let end = start;
+    while (end + 1 < words.length && key && repeatKey(words[end + 1]?.text) === key) end += 1;
+    if (end > start) {
+      // UNANIMOUS, not majority (Caner's call, 2026-08-13): a sweep ASSERTS a
+      // duration — it draws the word being consumed over exactly that long — so
+      // sweeping a word whose measurement is wrong puts the error on screen.
+      // A pop asserts nothing. When one member of a repeat came back short, the
+      // run's timing is the thing in doubt, and the whole run should decline to
+      // make a claim about it. "The run is only as trustworthy as its weakest
+      // measurement." The held-note rule takes the same answer.
+      let together = true;
+      for (let i = start; i <= end; i += 1) together = together && qualifies(i);
+      for (let i = start; i <= end; i += 1) flags[i] = together;
+    }
+    start = end + 1;
+  }
+}
+
+/** Sustained runs that sweep: long enough, or reaching the line end. */
+function sweepRuns(sustained: readonly boolean[]): boolean[] {
+  const plan = sustained.map(() => false);
+  let runStart = -1;
+  for (let i = 0; i <= sustained.length; i += 1) {
+    if (i < sustained.length && sustained[i]) {
+      if (runStart < 0) runStart = i;
+      continue;
+    }
+    if (runStart >= 0) {
+      const runEnd = i - 1; // inclusive
+      const runLength = i - runStart;
+      // A run counts when it is long enough, or when it reaches the line end.
+      if (runLength >= FILL_MIN_RUN || runEnd === sustained.length - 1) {
+        plan.fill(true, runStart, runEnd + 1);
+      }
+      runStart = -1;
+    }
+  }
+  return plan;
+}
+
+/** 0..1 progress of the sweep across the word at clock position `pos`. */
+export function fillProgress(word: { start_ms: number; end_ms: number }, pos: number): number {
+  const span = word.end_ms - word.start_ms;
+  if (span <= 0) return 1;
+  return Math.min(1, Math.max(0, (pos - word.start_ms) / span));
+}
+
+export const BEAT_CONFIDENCE_GATE = 0.5;
+/** A beat is "active" inside [t-30, t+60] ms — a ~90 ms pulse per beat. */
+export const BEAT_WINDOW_BEFORE_MS = 30;
+export const BEAT_WINDOW_AFTER_MS = 60;
+/**
+ * A forward jump beyond this re-seeks by binary search instead of scanning.
+ * Above the clock's seek-snap threshold (1500 ms) so slew never triggers it.
+ */
+export const BEAT_RESYNC_JUMP_MS = 2000;
+
+/** Beat pulse only at `full`, only with a usable, confident grid. */
+export function beatsUsable(level: EffectLevel, beats: BeatsLike | undefined): boolean {
+  if ((level !== 'full' && level !== 'hype') || !beats) return false;
+  const times = beats.times_ms;
+  if (!Array.isArray(times) || times.length === 0) return false;
+  // Monotonicity too: BeatCursor binary-searches this array — unsorted
+  // times silently break the pulse (retro 4.5 #13).
+  if (
+    !times.every(
+      (t, i) =>
+        typeof t === 'number' && Number.isFinite(t) && (i === 0 || t >= (times[i - 1] as number))
+    )
+  ) {
+    return false;
+  }
+  // Missing confidence → conservative off (the schema always writes it today).
+  return typeof beats.confidence === 'number' && beats.confidence >= BEAT_CONFIDENCE_GATE;
+}
+
+export interface BeatFrame {
+  active: boolean;
+  down: boolean;
+}
+
+export const BEAT_IDLE: BeatFrame = { active: false, down: false };
+
+/**
+ * Monotonic beat cursor: O(1) per frame while the position moves forward
+ * (the common case), binary-search re-seek on seeks/backward jumps. Class
+ * removal is position math too — no setTimeout in the render path.
+ */
+export class BeatCursor {
+  private readonly times: number[];
+  private readonly downs: Set<number>;
+  /** Index of the first beat whose window has not fully passed. */
+  private idx = 0;
+  private lastPos = Number.NEGATIVE_INFINITY;
+
+  constructor(times: number[], downbeatIndices: readonly number[] = []) {
+    this.times = times;
+    this.downs = new Set(downbeatIndices);
+  }
+
+  frame(pos: number): BeatFrame {
+    if (pos < this.lastPos || pos - this.lastPos > BEAT_RESYNC_JUMP_MS) {
+      this.reseek(pos);
+    }
+    this.lastPos = pos;
+    while (this.idx < this.times.length && (this.times[this.idx] ?? 0) + BEAT_WINDOW_AFTER_MS < pos) {
+      this.idx += 1;
+    }
+    const t = this.times[this.idx];
+    if (t === undefined) return BEAT_IDLE;
+    const active = pos >= t - BEAT_WINDOW_BEFORE_MS && pos <= t + BEAT_WINDOW_AFTER_MS;
+    if (!active) return BEAT_IDLE;
+    return { active: true, down: this.downs.has(this.idx) };
+  }
+
+  private reseek(pos: number): void {
+    let lo = 0;
+    let hi = this.times.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((this.times[mid] ?? 0) + BEAT_WINDOW_AFTER_MS < pos) lo = mid + 1;
+      else hi = mid;
+    }
+    this.idx = lo;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Semantic word effects (Faz 6 P4) — consuming the server's fx block.
+
+import type {
+  AlignmentData,
+  EnergyData,
+  FxData,
+  LyricLine,
+  SectionData,
+} from './lyrics.js';
+import {
+  ARCHETYPE_PROFILES,
+  GENERIC_PROFILE,
+  type ArchetypeName,
+  type EmissionProfile,
+} from './fx-particles-logic.js';
+import type { ParticleShape } from './fx-textures.js';
+
+export interface FxWordEffect {
+  tag: string;
+  intensity: number;
+}
+
+/**
+ * Which categories get a behaviour of their own, and which shape carries it.
+ *
+ * Eight hero tags out of the lexicon's 24. The rest keep the generic profile
+ * on purpose: an archetype is only worth having if you can name what it means
+ * ("poison spills and sinks"), and inventing eighteen more meanings would give
+ * the eye nothing to learn. The remaining sixteen get archetypes when the
+ * field tour says which ones are missed.
+ *
+ * `shape` overrides the archetype's default texture where the category and the
+ * motion disagree — money falls like water but should not look like a drop.
+ */
+export const FX_ARCHETYPES: ReadonlyMap<string, { archetype: ArchetypeName; shape?: ParticleShape }> =
+  new Map([
+    ['explosion', { archetype: 'burst' as const }],
+    ['fire', { archetype: 'burst' as const }],
+    ['electric', { archetype: 'spark' as const }],
+    ['money', { archetype: 'fall' as const, shape: 'disc' as const }],
+    ['water', { archetype: 'fall' as const }],
+    ['poison', { archetype: 'smoke' as const }],
+    ['shine', { archetype: 'twinkle' as const }],
+    ['love', { archetype: 'drift' as const }],
+  ]);
+
+/**
+ * The emission profile a tag should burst with. Unknown or unmapped tags get
+ * the generic one, so every category always has an answer.
+ */
+export function resolveFxProfile(
+  tag: string | null | undefined,
+  intensity?: number,
+): EmissionProfile {
+  const entry = tag ? FX_ARCHETYPES.get(tag) : undefined;
+  if (!entry) return genericProfileFor(intensity);
+  const profile = ARCHETYPE_PROFILES[entry.archetype];
+  return entry.shape ? { ...profile, shapes: [entry.shape] } : profile;
+}
+
+/**
+ * The uncategorised sixteen, scaled by how strong the category is.
+ *
+ * They all burst identically today, which makes the least distinctive group
+ * the most uniform one as well. The lexicon already grades them — a category
+ * meaning `death` weighs more than one meaning `phone` — so a thud and a
+ * rattle can differ for free.
+ *
+ * The weight comes from the document's own `intensity`, NOT from a table
+ * copied into the client: duplicating the lexicon here would create a second
+ * source that drifts from the server's the first time a category is retuned.
+ *
+ * Deliberately NOT applied to the hero archetypes: intensity is a constant per
+ * category, so it produces no variety WITHIN one, and the heroes already carry
+ * their character in their own profiles.
+ */
+export function genericProfileFor(intensity?: number): EmissionProfile {
+  if (typeof intensity !== 'number' || !Number.isFinite(intensity)) return GENERIC_PROFILE;
+  const base = Math.max(0.4, Math.min(0.9, intensity));
+  // 0.4 -> 0.8x, 0.9 -> 1.2x. A nudge, not a redesign.
+  const scale = 0.8 + ((base - 0.4) / 0.5) * 0.4;
+  const [minSize, maxSize] = GENERIC_PROFILE.size;
+  return {
+    ...GENERIC_PROFILE,
+    count: Math.round(GENERIC_PROFILE.count * scale),
+    size: [minSize * scale, maxSize * scale],
+  };
+}
+
+/**
+ * fx.words → per-line winner map (line → word → effect).
+ *
+ * Selectivity is a PRODUCT decision (Caner kararı 8): at most ONE semantic
+ * effect per line — the highest intensity wins, earliest word breaks ties —
+ * "az ama vurucu", loosened only if the field tour asks for more. Entries
+ * with out-of-range indices (quality-gate word strips, stale docs) are
+ * dropped here so the renderer never styles a nonexistent span (DG6: a
+ * wrong effect is worse than no effect).
+ */
+export interface FxLineHit {
+  word: number;
+  effect: FxWordEffect;
+}
+
+/**
+ * Belt against a bad server plan: a line never carries more than this.
+ *
+ * Six rather than three since pipeline 2.14.0: a repeated word is one gesture
+ * that emits one entry per occurrence, so a line can legitimately carry more
+ * entries than it carries effects. The server enforces the real quota; this
+ * only exists so a malformed plan cannot flood one line.
+ */
+export const MAX_FX_PER_LINE = 6;
+
+type FxWordTagLike = NonNullable<FxData['words']>[number];
+
+/** A drawable hit for a word tag, or null when it points at no real word. */
+function fxHit(tag: FxWordTagLike, lines: readonly LyricLine[]): FxLineHit | null {
+  if (!Number.isInteger(tag.line) || !Number.isInteger(tag.word)) return null;
+  const words = lines[tag.line]?.words;
+  if (!words || tag.word < 0 || tag.word >= words.length) return null;
+  if (typeof tag.tag !== 'string' || !tag.tag) return null;
+  const intensity = typeof tag.intensity === 'number' ? Math.min(1, Math.max(0, tag.intensity)) : 0;
+  return { word: tag.word, effect: { tag: tag.tag, intensity } };
+}
+
+/** Strongest first, earliest on a tie — the one ordering every winner uses. */
+function outranks(hit: FxLineHit, best: FxLineHit | undefined): boolean {
+  return (
+    !best ||
+    hit.effect.intensity > best.effect.intensity ||
+    (hit.effect.intensity === best.effect.intensity && hit.word < best.word)
+  );
+}
+
+/** Legacy (no `select`): one winner per line. */
+function keepStrongest(index: Map<number, FxLineHit[]>, line: number, hit: FxLineHit): void {
+  if (outranks(hit, index.get(line)?.[0])) index.set(line, [hit]);
+}
+
+/** Server-chosen: every chosen word fires, once. */
+function addChosen(index: Map<number, FxLineHit[]>, line: number, hit: FxLineHit): void {
+  const current = index.get(line);
+  if (!current) {
+    index.set(line, [hit]);
+  } else if (!current.some((existing) => existing.word === hit.word)) {
+    current.push(hit);
+  }
+}
+
+function capChosen(index: Map<number, FxLineHit[]>): void {
+  for (const [line, hits] of index) {
+    hits.sort((a, b) => a.word - b.word);
+    if (hits.length > MAX_FX_PER_LINE) index.set(line, hits.slice(0, MAX_FX_PER_LINE));
+  }
+}
+
+export function buildFxIndex(
+  fx: FxData | undefined,
+  lines: readonly LyricLine[],
+): Map<number, FxLineHit[]> {
+  const index = new Map<number, FxLineHit[]>();
+  if (!fx?.words) return index;
+
+  // Which words fire is the SERVER's decision from pipeline 2.13.0 on, and
+  // `select` is how a document says so. Without it these are raw candidates
+  // from an older pipeline — rendering them all would put two or three
+  // effects on lines that carry one today, which is the opposite of why the
+  // selection exists. So an unmarked document keeps the old rule exactly.
+  const serverChose = typeof fx.select === 'string' && fx.select.length > 0;
+
+  for (const tag of fx.words) {
+    const hit = fxHit(tag, lines);
+    if (!hit) continue;
+    if (serverChose) addChosen(index, tag.line, hit);
+    else keepStrongest(index, tag.line, hit);
+  }
+  if (serverChose) capChosen(index);
+  return index;
+}
+
+/**
+ * The one hit that speaks for a line — the strongest, earliest on a tie.
+ *
+ * The box halo is a per-LINE colour, so when a line carries two categories it
+ * has to pick one; changing colour mid-line would read as a flicker. The
+ * particles still wear each word's own colour.
+ */
+export function primaryFxHit(hits: readonly FxLineHit[] | undefined): FxLineHit | undefined {
+  let best: FxLineHit | undefined;
+  for (const hit of hits ?? []) {
+    if (outranks(hit, best)) best = hit;
+  }
+  return best;
+}
+
+/**
+ * fx.lines → line-theme map (Faz 6.5 P1, ambient ring). Line-level tags are
+ * the embedding layer's THEME verdicts — one per line from the server; if a
+ * doc ever carries duplicates the FIRST entry wins (deterministic). Entries
+ * with out-of-range indices or empty tags are dropped, same tolerance story
+ * as buildFxIndex (enrichment never breaks the document).
+ */
+export function buildLineThemeIndex(
+  fx: FxData | undefined,
+  lines: readonly LyricLine[],
+): Map<number, string> {
+  const index = new Map<number, string>();
+  if (!fx?.lines) return index;
+  for (const tag of fx.lines) {
+    if (!Number.isInteger(tag.line) || tag.line < 0 || tag.line >= lines.length) continue;
+    if (typeof tag.tag !== 'string' || !tag.tag) continue;
+    if (!index.has(tag.line)) index.set(tag.line, tag.tag);
+  }
+  return index;
+}
+
+/**
+ * Ambient ring colors for the ACTIVE line (Faz 6.5 P1): the continuous ring
+ * takes the line THEME's tint; the activation flash takes the line's fx
+ * WORD tint (the "poison word → green halo" field idea). Since the P4
+ * calibration parked the embedding layer (line themes are rare now), the
+ * floor FALLS BACK to the fx word's tint — the keyword layer is the
+ * precision path, and a poison-word line still gets its green surround.
+ * Unknown tags (a newer lexicon than this build) resolve to null — no ring
+ * beats a wrong ring (DG6). Pure: main.ts applies at line cadence.
+ */
+export function ambientColors(
+  lineIndex: number,
+  themes: ReadonlyMap<number, string>,
+  fxIndex: ReadonlyMap<number, readonly FxLineHit[]>,
+  tintVars: Readonly<Record<string, string>>,
+): { ambient: string | null; flash: string | null } {
+  if (lineIndex < 0) return { ambient: null, flash: null };
+  const theme = themes.get(lineIndex);
+  // The line's PRIMARY category: the halo is one colour per line, so a
+  // second effect word never repaints it mid-line.
+  const fxTag = primaryFxHit(fxIndex.get(lineIndex))?.effect.tag;
+  const flash = fxTag ? (tintVars[`--fx-tint-${fxTag}`] ?? null) : null;
+  // Symmetric fallback (reviewer): an UNKNOWN theme tint falls to the word
+  // tint too — the keyword layer is the precision path either way.
+  const themeTint = theme ? tintVars[`--fx-tint-${theme}`] : undefined;
+  return { ambient: themeTint ?? flash, flash };
+}
+
+// ---------------------------------------------------------------------------
+// Energy/section dynamics (Faz 6 P5) — precomputed curves, zero live audio.
+
+
+/** Quantization step for the CSS energy var — style writes only on step
+ * changes (a few per second), never per frame. */
+export const ENERGY_QUANT = 0.05;
+
+/** Track-relative loudness at a position, 0..1 (0 when absent). O(1). */
+export function energyAt(energy: EnergyData | undefined, posMs: number): number {
+  if (!energy || energy.values.length === 0 || energy.rate_hz <= 0) return 0;
+  const idx = Math.floor((Math.max(0, posMs) / 1000) * energy.rate_hz);
+  const value = energy.values[Math.min(idx, energy.values.length - 1)] ?? 0;
+  return Math.min(100, Math.max(0, value)) / 100;
+}
+
+/** Quantized for CSS: 0, 0.05, … 1 — equality-comparable across frames. */
+export function quantizedEnergy(energy: EnergyData | undefined, posMs: number): number {
+  return Math.round(energyAt(energy, posMs) / ENERGY_QUANT) * ENERGY_QUANT;
+}
+
+/** Inside a section of `type` at posMs? Sections are few (v1: a handful of
+ * energy-derived "high" blocks) — a linear scan is O(few) per frame. */
+export function inSection(
+  sections: readonly SectionData[] | undefined,
+  type: string,
+  posMs: number,
+): boolean {
+  if (!sections) return false;
+  for (const section of sections) {
+    if (section.type === type && posMs >= section.start_ms && posMs < section.end_ms) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Section types that drive the high-intensity ramp (Faz 6.5 P5): today's
+ * energy-derived "high" blocks plus real "chorus" labels — additive-ready
+ * for the structure analysis (P6) before it even ships. */
+export const RAMP_SECTION_TYPES: readonly string[] = ['high', 'chorus'];
+
+export function inRampSection(
+  sections: readonly SectionData[] | undefined,
+  posMs: number,
+): boolean {
+  return RAMP_SECTION_TYPES.some((type) => inSection(sections, type, posMs));
+}
+
+// ---------------------------------------------------------------------------
+// Nightcore aesthetics (Faz 6.5 P5) — sped-up documents only.
+
+
+/** Below this the speed difference is inaudible tape drift, not nightcore. */
+export const NIGHTCORE_MIN_SPEED = 1.05;
+
+export function isNightcore(alignment: AlignmentData | undefined): boolean {
+  const speed = alignment?.speed_factor;
+  return typeof speed === 'number' && Number.isFinite(speed) && speed >= NIGHTCORE_MIN_SPEED;
+}
+
+/** Category base colors — the SEMANTIC hue source ("love is pink, toxic is
+ * green"; field round 2). Only the hue survives rendering: toneFx re-renders
+ * every tint in a fixed readable band and pushes lightness apart when the
+ * album theme already sits on the category's hue. */
+export const FX_BASE_COLORS: Readonly<Record<string, string>> = {
+  explosion: '#ff8c42',
+  fire: '#ff6b35',
+  // Poison used to sit at 130 degrees, seven away from money's clean green —
+  // the same colour to the eye. Toxic reads yellow-green anyway.
+  poison: '#c0d020',
+  love: '#ff6fa5',
+  heartbreak: '#7f9cf5',
+  water: '#4fc3f7',
+  night: '#ffd166',
+  shine: '#ffe082',
+  dance: '#f06292',
+  money: '#66bb6a',
+  fly: '#81d4fa',
+  speed: '#ffab40',
+  // Electric used to be yellow at 54 degrees, nine away from shine's gold.
+  // Violet is both unoccupied and the better reading for a spark.
+  electric: '#8b5cf6',
+  cold: '#80deea',
+  dark: '#9575cd',
+  death: '#b0bec5',
+  crown: '#ffd700',
+  phone: '#4dd0e1',
+  fight: '#ef5350',
+  music: '#ce93d8',
+  // v1.2 (Faz 6.5 P4): the brown and magenta bands were unused until now.
+  drink: '#d4a373', // whiskey amber
+  dream: '#d1c4e9', // pale lilac
+  space: '#ea80fc', // nebula magenta
+  storm: '#78909c', // storm-cloud slate
+};
+
+/**
+ * Per-tag tint CSS vars, recomputed whenever the palette/scope changes
+ * (rare — track changes and settings flips, never per frame). scope "none"
+ * returns an empty map: the caller clears the vars and the CSS fallback
+ * keeps everything stock (the scope contract).
+ */
+export function computeFxTintVars(
+  primaryHex: string | undefined,
+  scope: ThemeScope,
+): Record<string, string> {
+  if (scope === 'none') return {};
+  const primary =
+    primaryHex && HEX_COLOR.test(primaryHex) && primaryHex !== '#ffffff'
+      ? hexToOklch(primaryHex)
+      : null;
+  const vars: Record<string, string> = {};
+  for (const [tag, hex] of Object.entries(FX_BASE_COLORS)) {
+    const category = hexToOklch(hex);
+    // Two sets, deliberately. `--fx-tint-` paints TEXT (the word, its icon,
+    // the box halo) and stays inside the readability window. `--fx-pt-` paints
+    // particles, which are not text and do not need it — that window is what
+    // made every archetype arrive as the same pastel dot.
+    vars[`--fx-tint-${tag}`] = toneFx(category, primary);
+    vars[`--fx-pt-${tag}`] = toneFxParticle(
+      category,
+      primary,
+      FX_ARCHETYPES.get(tag)?.archetype,
+    );
+  }
+  return vars;
+}
+
+/**
+ * The colour an fx word wears, set inline on its span as `--fx-color`: its
+ * category's text tint from computeFxTintVars. Undefined when there is none —
+ * scope `none` (an empty map) or a tag newer than FX_BASE_COLORS — and the
+ * stylesheet's `.fx-word` default, the theme primary, applies instead.
+ *
+ * Until client review E.3 the stylesheet carried one hand-written rule per
+ * category mapping `.fx-<tag>` to `var(--fx-tint-<tag>)`, which had to be kept
+ * in step with this map by a test (the v1.2 categories once shipped without
+ * theirs). The colour now comes from the map itself, so a category cannot
+ * miss it.
+ */
+export function fxWordColor(
+  tag: string,
+  tintVars: Readonly<Record<string, string>>,
+): string | undefined {
+  return tintVars[`--fx-tint-${tag}`];
+}
+
+/**
+ * One fill plan per DISTINCT LINE TEXT, so a repeated line looks the same
+ * every time it comes round.
+ *
+ * Field report (Caner, 2026-08-13, Rihanna "Don't Stop The Music"): the same
+ * chorus opens the song four times and rendered four different ways — some
+ * words sweeping, some popping, in a different pattern each pass. The cause is
+ * that `planWordFills` reads MEASURED durations, and the aligner's measurement
+ * of one repeated word is noisy far beyond the threshold that decides the look:
+ *
+ *   pass 1  music=1092  (music=1029  music=1029  music=1050  music=903)  -> 5 sweep
+ *   pass 2  music= 336  (music= 756  music=1029  music=1029  music=1323) -> 3 sweep
+ *   pass 3  music=1092  (music=1029  music=1029  music=1029  music=882)  -> 5 sweep
+ *   pass 4  music= 315  (music= 735  music= 273  music= 735  music=903)  -> 1 sweep
+ *
+ * Same words, same melody, 273–1092 ms. The look should follow the SONG, not
+ * the measurement error, so identical text gets one plan built from the MEDIAN
+ * duration of each word across its instances — the median because one wild
+ * pass (that 273 ms) must not drag the shared answer with it.
+ *
+ * Groups that disagree on word COUNT are left alone: same text with a
+ * different number of words means the lines are not really the same line.
+ *
+ * Held notes (HELD_NOTE_SWEEP) are decided the same way, from the group's
+ * median dwell of each word and of its line-final word; each pass sweeps over
+ * its own dwell's span, or pops where its own dwell is unusable
+ * (planPassFills).
+ */
+export function planLineFillsByIdentity(
+  lines: readonly IdentityLine[],
+  level: EffectLevel,
+): (LineFillPlan | undefined)[] {
+  const groups = new Map<string, number[]>();
+  for (const [index, line] of lines.entries()) {
+    if (!line.words || line.words.length === 0) continue;
+    const key = `${line.adlib === true ? 'a' : 'l'}|${line.words.length}|${line.text.trim().toLowerCase()}`;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(index);
+    else groups.set(key, [index]);
+  }
+
+  const finals = finalDwells(lines);
+  const plans: (LineFillPlan | undefined)[] = lines.map(() => undefined);
+  for (const indices of groups.values()) {
+    const first = lines[indices[0] as number];
+    const words = first?.words;
+    if (!words) continue;
+    const acrossGroup = (pick: (lineIndex: number) => number | null | undefined): number | null =>
+      medianOf(indices.map(pick).filter((value): value is number => typeof value === 'number'));
+    // A synthetic line carrying the medians: planLineFills reads durations
+    // (end - start) and dwells (next start - start), and nothing else.
+    let start = 0;
+    const typical = words.map((_, wordIndex) => {
+      const duration =
+        acrossGroup((lineIndex) => {
+          const word = lines[lineIndex]?.words?.[wordIndex];
+          return word ? word.end_ms - word.start_ms : null;
+        }) ?? 0;
+      const word = { start_ms: start, end_ms: start + duration, text: words[wordIndex]?.text };
+      const dwell = acrossGroup((lineIndex) => {
+        const own = lines[lineIndex]?.words;
+        const word = own?.[wordIndex];
+        const next = own?.[wordIndex + 1];
+        return word && next ? next.start_ms - word.start_ms : null;
+      });
+      start += dwell ?? 0;
+      return word;
+    });
+    const finalDwell = acrossGroup((lineIndex) => finals[lineIndex]) ?? undefined;
+    const shared = planLineFills(typical, first?.adlib === true, level, finalDwell);
+    for (const lineIndex of indices) plans[lineIndex] = shared;
+  }
+  return plans;
+}
+
+/** The sweep plans alone: planLineFillsByIdentity().sweep per line. */
+export function planFillsByLineIdentity(
+  lines: readonly IdentityLine[],
+  level: EffectLevel,
+): (boolean[] | undefined)[] {
+  return planLineFillsByIdentity(lines, level).map((plan) => plan?.sweep);
+}
+
+interface IdentityLine {
+  text: string;
+  adlib?: boolean;
+  /** Line spans let the line-final word's dwell be measured (lineFinalDwellMs). */
+  start_ms?: number;
+  end_ms?: number;
+  words?: readonly TimedWord[];
+}
+
+/** Every line's line-final dwell, when the lines carry their spans. */
+function finalDwells(lines: readonly IdentityLine[]): (number | undefined)[] {
+  const spanned = lines.every(
+    (line) => typeof line.start_ms === 'number' && typeof line.end_ms === 'number',
+  );
+  if (!spanned) return lines.map(() => undefined);
+  return lines.map((_, index) => lineFinalDwellMs(lines as readonly LineWithWords[], index));
+}

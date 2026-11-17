@@ -68,8 +68,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 - After a reprocess wave starts, inspect the **first** finished document immediately; the
   selection-stats log line usually names the bug.
 - If a unit is introduced (e.g. a "gesture" instead of a word), convert every step that counts.
-- The same logic often lives twice (server pipeline vs the overlay's own lrclib client; themed vs
-  neutral `.word-fill`). Fixing one does not fix the other — look for the twin.
+- The same logic often lives twice (server pipeline vs the overlay's own lrclib client; the view's
+  sweep loop in `packages/view/src/lyrics-view.ts` vs the golden harness's
+  `apps/overlay/scripts/lib/sim.mjs`). Fixing one does not fix the other — look for the twin.
 - Bump `LOOKUP_LADDER_VERSION` whenever a lookup rung changes (negative-cache entries are keyed to it).
 
 ## Traps worth knowing

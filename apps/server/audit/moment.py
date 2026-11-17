@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-# The overlay's BASE_LEAD_MS (apps/overlay/src/shared/timing-offset.ts); a test
+# The overlay's BASE_LEAD_MS (packages/view/src/timing-offset.ts); a test
 # reads that file, so the two cannot drift apart.
 BASE_LEAD_MS = 200
 STRIP_HALF_MS = 1250

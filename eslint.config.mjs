@@ -26,5 +26,29 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', destructuredArrayIgnorePattern: '^_' },
       ],
     },
+  },
+  {
+    // The shared view runs on hosts that are not Electron (client review
+    // E.4, packages/view): nothing from Electron or Node in its modules. The
+    // package's import-graph.test.ts checks the same over every module.
+    files: ['packages/view/src/**/*.ts'],
+    ignores: ['packages/view/src/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'electron', 'electron/*', 'node:*', 'fs', 'fs/*', 'path', 'os', 'crypto',
+                'child_process', 'http', 'https', 'net', 'url', 'util', 'stream', 'events',
+                'buffer', 'worker_threads', 'zlib', 'module', 'process',
+              ],
+              message: 'The shared view must run in any browser host: no Electron or Node.',
+            },
+          ],
+        },
+      ],
+    },
   }
 );

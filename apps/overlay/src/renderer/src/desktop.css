@@ -1,0 +1,18 @@
+/*
+ * The desktop host's styles (Electron overlay window), on top of the shared
+ * view's stylesheet. NOTE: no -webkit-app-region anywhere — drag regions
+ * swallow ALL mouse events, which breaks hover detection and click-through
+ * toggling. Dragging is implemented manually (mousedown → IPC →
+ * cursor-follow, main.ts); the window geometry arrives as variables
+ * (shared/box-zone.ts geometryVars).
+ */
+@import '@kashi/view/view.css';
+
+/* The box is the window's drag handle. */
+#lyric-box {
+  cursor: grab;
+}
+
+#lyric-box:active {
+  cursor: grabbing;
+}

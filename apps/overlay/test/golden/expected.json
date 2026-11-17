@@ -1,0 +1,4743 @@
+{
+ "generated_by": "scripts/golden-frames.mjs",
+ "chromium": "HeadlessChrome/153.0.8010.12",
+ "runs": {
+  "a-basic-hype": {
+   "settings": {
+    "effect_level": "hype"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 1600,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2000,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2399,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4100,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4250,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5000,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5300,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5900,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 5,
+     "sung": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "word_fill": [
+      5
+     ],
+     "fill": {
+      "5": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 6500,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8400,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9200,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10900,
+     "visible": true,
+     "text": "ooh aah ooh",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      305.67,
+      221.8,
+      188.66,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 17600,
+     "visible": true,
+     "text": "tavi nor sentaa",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      290.56,
+      221.8,
+      218.88,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 19600,
+     "visible": true,
+     "text": "tavi nor sentaa",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      290.56,
+      221.8,
+      218.88,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 21500,
+     "visible": true,
+     "text": "rimo kesta lanu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      286.94,
+      221.8,
+      226.13,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 29000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-hype-5900.png",
+    "a-basic-hype-7700.png",
+    "a-basic-hype-10900.png",
+    "a-basic-hype-21500.png"
+   ]
+  },
+  "b-held-hype": {
+   "settings": {
+    "effect_level": "hype"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 900,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 1450,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4000,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.455"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5700,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 6299,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7100,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8450,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9300,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.444"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10000,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 13500,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 15300,
+     "visible": true,
+     "text": "dosa mevi tarun",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "uncertain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      283.56,
+      221.8,
+      232.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 17400,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.208"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 17850,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 18500,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.375"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 20600,
+     "visible": true,
+     "text": "oyo hanaa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.471"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      319.08,
+      221.8,
+      161.83,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.952"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24600,
+     "visible": true,
+     "text": "vaki nemo",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      319.63,
+      221.8,
+      160.75,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2201,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.470"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "b-held-hype-2200.png",
+    "b-held-hype-9300.png",
+    "b-held-hype-12000.png",
+    "b-held-hype-23400.png"
+   ]
+  },
+  "b-held-hype-scope-none": {
+   "settings": {
+    "effect_level": "hype",
+    "theme_scope": "none"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 900,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 1450,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4000,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.455"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5700,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 6299,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7100,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8450,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9300,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.444"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10000,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 13500,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 15300,
+     "visible": true,
+     "text": "dosa mevi tarun",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "uncertain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      283.56,
+      221.8,
+      232.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 17400,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.208"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 17850,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 18500,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.375"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 20600,
+     "visible": true,
+     "text": "oyo hanaa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.471"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      319.08,
+      221.8,
+      161.83,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.952"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24600,
+     "visible": true,
+     "text": "vaki nemo",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      319.63,
+      221.8,
+      160.75,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2201,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.470"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "b-held-hype-scope-none-2200.png",
+    "b-held-hype-scope-none-9300.png"
+   ]
+  },
+  "b-held-simple": {
+   "settings": {
+    "effect_level": "simple"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 900,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4000,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.455"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      223.19,
+      221.8,
+      353.63,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5700,
+     "visible": true,
+     "text": "mori sela tani voro",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.19,
+      221.8,
+      263.61,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9300,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.444"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.42,
+      221.8,
+      207.14,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 15300,
+     "visible": true,
+     "text": "dosa mevi tarun",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "uncertain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      283.56,
+      221.8,
+      232.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 17400,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.208"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      267.06,
+      221.8,
+      265.86,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 20600,
+     "visible": true,
+     "text": "oyo hanaa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.471"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      319.08,
+      221.8,
+      161.83,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.952"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      301.45,
+      221.8,
+      197.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24600,
+     "visible": true,
+     "text": "vaki nemo",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      319.63,
+      221.8,
+      160.75,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "b-held-simple-2200.png",
+    "b-held-simple-23400.png"
+   ]
+  },
+  "c-fx-hype": {
+   "settings": {
+    "effect_level": "hype"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1200,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "fx-ambient"
+     ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2350,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": 2,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2900,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": 2,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.100"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3600,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.600"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4050,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4150,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4200,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4300,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5000,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.524"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5800,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 6500,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.100"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7000,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.600"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7500,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8200,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.556"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9100,
+     "visible": true,
+     "text": "na na na na",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9500,
+     "visible": true,
+     "text": "na na na na",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10600,
+     "visible": true,
+     "text": "na na na na",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 11000,
+     "visible": true,
+     "text": "na na na na",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 16000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "c-fx-hype-2350.png",
+    "c-fx-hype-6500.png",
+    "c-fx-hype-9500.png"
+   ]
+  },
+  "a-basic-off": {
+   "settings": {
+    "effect_level": "off"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 1600,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2000,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      258.95,
+      221.8,
+      282.09,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      191.02,
+      221.8,
+      417.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      235.47,
+      221.8,
+      329.05,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10900,
+     "visible": true,
+     "text": "ooh aah ooh",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "adlib"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      305.67,
+      221.8,
+      188.66,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 21500,
+     "visible": true,
+     "text": "rimo kesta lanu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      286.94,
+      221.8,
+      226.13,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-off-5100.png",
+    "a-basic-off-10900.png"
+   ]
+  },
+  "a-basic-full-large": {
+   "settings": {
+    "effect_level": "full",
+    "box_scale": "large",
+    "text_scale": "small",
+    "box_alpha": 0.9
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1600,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      274.61,
+      220.44,
+      250.78,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      274.61,
+      220.44,
+      250.78,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      220.28,
+      220.44,
+      359.44,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      255.83,
+      220.44,
+      288.34,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10900,
+     "visible": true,
+     "text": "ooh aah ooh",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      311.95,
+      220.44,
+      176.09,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      361.8,
+      220.44,
+      76.39,
+      59.13
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 21500,
+     "visible": true,
+     "text": "rimo kesta lanu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      296.97,
+      220.44,
+      206.05,
+      59.13
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-full-large-5100.png",
+    "a-basic-full-large-10900.png"
+   ]
+  },
+  "a-basic-simple-small": {
+   "settings": {
+    "effect_level": "simple",
+    "box_scale": "small",
+    "text_scale": "large"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "velo mira tando suvi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      239.45,
+      221.16,
+      321.09,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5100,
+     "visible": true,
+     "text": "kerra lomo pesta ruvan oti nelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      177,
+      199.33,
+      446,
+      101.34
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7700,
+     "visible": true,
+     "text": "sela vintu doranna miko",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      211.3,
+      221.16,
+      377.41,
+      57.67
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "a-basic-simple-small-5100.png"
+   ]
+  },
+  "b-held-hype-small": {
+   "settings": {
+    "effect_level": "hype",
+    "box_scale": "small",
+    "text_scale": "large",
+    "box_alpha": 0.9,
+    "timing_offset_rel_ms": -120
+   },
+   "lead_ms": 80,
+   "frames": [
+    {
+     "pos": 900,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      196.53,
+      221.16,
+      406.92,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2200,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.469"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      196.53,
+      221.16,
+      406.92,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4000,
+     "visible": true,
+     "text": "anu belo kasira diro venta",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.455"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      196.53,
+      221.16,
+      406.92,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9300,
+     "visible": true,
+     "text": "kelu runa pavi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.444"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      284.39,
+      221.16,
+      231.22,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12000,
+     "visible": true,
+     "text": "lumi sato rani nefa",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.583"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.17,
+      221.16,
+      301.64,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 15300,
+     "visible": true,
+     "text": "dosa mevi tarun",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "uncertain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      268.97,
+      221.16,
+      262.06,
+      57.67
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23400,
+     "visible": true,
+     "text": "suma teli roo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.952"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      290.41,
+      221.16,
+      219.17,
+      57.67
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "b-held-hype-small-2200.png",
+    "b-held-hype-small-12000.png"
+   ]
+  },
+  "c-fx-hype-scope-none": {
+   "settings": {
+    "effect_level": "hype",
+    "theme_scope": "none"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1200,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2350,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": 2,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2900,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": 2,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.100"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3600,
+     "visible": true,
+     "text": "sira menu kalpa doru",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.600"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      238.11,
+      221.8,
+      323.78,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4050,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4150,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4200,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4300,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5000,
+     "visible": true,
+     "text": "tiki taka tiki taka nolo",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.524"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      249.7,
+      221.8,
+      300.58,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5800,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 6500,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.100"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7000,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.600"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7500,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8200,
+     "visible": true,
+     "text": "uma selin varo pidi",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [
+      3
+     ],
+     "fill": {
+      "3": "0.556"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      251.81,
+      221.8,
+      296.36,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9100,
+     "visible": true,
+     "text": "na na na na",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9500,
+     "visible": true,
+     "text": "na na na na",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10600,
+     "visible": true,
+     "text": "na na na na",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 11000,
+     "visible": true,
+     "text": "na na na na",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      309.02,
+      221.8,
+      181.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 16000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "c-fx-hype-scope-none-2350.png",
+    "c-fx-hype-scope-none-6500.png",
+    "c-fx-hype-scope-none-9500.png"
+   ]
+  },
+  "d-shapes-hype": {
+   "settings": {
+    "effect_level": "hype"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 2000,
+     "visible": true,
+     "text": "zumo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      349.55,
+      221.8,
+      100.89,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2400,
+     "visible": true,
+     "text": "zumo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.500"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      349.55,
+      221.8,
+      100.89,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2900,
+     "visible": true,
+     "text": "zumo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      349.55,
+      221.8,
+      100.89,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3600,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3950,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4350,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4900,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.109"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5300,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "0.543"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5800,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7000,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [
+      4
+     ],
+     "fill": {
+      "4": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7800,
+     "visible": true,
+     "text": "wira solo nema",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      289.16,
+      221.8,
+      221.69,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8300,
+     "visible": true,
+     "text": "wira solo nema",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      289.16,
+      221.8,
+      221.69,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10100,
+     "visible": true,
+     "text": "fano rimu gelo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      294.45,
+      221.8,
+      211.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10700,
+     "visible": true,
+     "text": "fano rimu gelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.119"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      294.45,
+      221.8,
+      211.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 11200,
+     "visible": true,
+     "text": "fano rimu gelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.714"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      294.45,
+      221.8,
+      211.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12300,
+     "visible": true,
+     "text": "fano rimu gelo",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      294.45,
+      221.8,
+      211.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12900,
+     "visible": true,
+     "text": "fano rimu gelo",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      294.45,
+      221.8,
+      211.08,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 13500,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 19600,
+     "visible": true,
+     "text": "olan",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      356,
+      221.8,
+      87.98,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 20500,
+     "visible": true,
+     "text": "olan",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      356,
+      221.8,
+      87.98,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 26000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "d-shapes-hype-2400.png",
+    "d-shapes-hype-3950.png",
+    "d-shapes-hype-4350.png",
+    "d-shapes-hype-5300.png",
+    "d-shapes-hype-12900.png"
+   ]
+  },
+  "d-line-hype": {
+   "settings": {
+    "effect_level": "hype"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 400,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 600,
+     "visible": true,
+     "text": "kalo meri sunda",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      283.86,
+      221.8,
+      232.28,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2000,
+     "visible": true,
+     "text": "kalo meri sunda",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      283.86,
+      221.8,
+      232.28,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3100,
+     "visible": true,
+     "text": "tisu varo nel",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      306.8,
+      221.8,
+      186.39,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5000,
+     "visible": true,
+     "text": "tisu varo nel",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      306.8,
+      221.8,
+      186.39,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 11600,
+     "visible": true,
+     "text": "pemo daru",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      316.58,
+      221.8,
+      166.84,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12500,
+     "visible": true,
+     "text": "pemo daru",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      316.58,
+      221.8,
+      166.84,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 20000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "d-line-hype-2000.png",
+    "d-line-hype-8000.png"
+   ]
+  }
+ },
+ "dwell": {
+  "a-basic": {
+   "summary": {
+    "words": 20,
+    "never_lit": 0,
+    "lit_lt_120": 3,
+    "lit_lt_180": 4,
+    "median_lit_ms": 500
+   },
+   "lit": [
+    [
+     400,
+     500,
+     600,
+     700
+    ],
+    [
+     400,
+     80,
+     70,
+     110,
+     140,
+     1000
+    ],
+    [
+     300,
+     1400,
+     500,
+     500
+    ],
+    [
+     600,
+     600,
+     600
+    ],
+    [
+     400,
+     300,
+     1800
+    ],
+    []
+   ]
+  },
+  "b-held": {
+   "summary": {
+    "words": 30,
+    "never_lit": 0,
+    "lit_lt_120": 0,
+    "lit_lt_180": 0,
+    "median_lit_ms": 600
+   },
+   "lit": [
+    [
+     300,
+     300,
+     1600,
+     300,
+     1100
+    ],
+    [
+     300,
+     999,
+     300,
+     1001
+    ],
+    [
+     900,
+     900,
+     700
+    ],
+    [
+     300,
+     1500,
+     300,
+     900
+    ],
+    [
+     500,
+     600,
+     900
+    ],
+    [
+     300,
+     600,
+     300,
+     800
+    ],
+    [
+     300,
+     1700
+    ],
+    [
+     300,
+     300,
+     1900
+    ],
+    [
+     400,
+     5601
+    ]
+   ]
+  },
+  "c-fx": {
+   "summary": {
+    "words": 17,
+    "never_lit": 0,
+    "lit_lt_120": 4,
+    "lit_lt_180": 4,
+    "median_lit_ms": 400
+   },
+   "lit": [
+    [
+     400,
+     400,
+     700,
+     1000
+    ],
+    [
+     100,
+     80,
+     80,
+     80,
+     1260
+    ],
+    [
+     400,
+     1000,
+     300,
+     900
+    ],
+    [
+     200,
+     200,
+     1100,
+     5301
+    ]
+   ]
+  },
+  "d-shapes": {
+   "summary": {
+    "words": 16,
+    "never_lit": 1,
+    "lit_lt_120": 1,
+    "lit_lt_180": 1,
+    "median_lit_ms": 400
+   },
+   "lit": [
+    [
+     1000
+    ],
+    [
+     400,
+     400,
+     0,
+     500,
+     2900
+    ],
+    [
+     400,
+     400,
+     500
+    ],
+    [
+     300,
+     300,
+     1100
+    ],
+    [
+     300,
+     300,
+     300
+    ],
+    [
+     5501
+    ]
+   ]
+  },
+  "d-line": {
+   "summary": {
+    "words": 0,
+    "never_lit": 0,
+    "lit_lt_120": 0,
+    "lit_lt_180": 0,
+    "median_lit_ms": null
+   },
+   "lit": [
+    [],
+    [],
+    []
+   ]
+  }
+ }
+}

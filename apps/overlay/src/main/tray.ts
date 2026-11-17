@@ -12,8 +12,8 @@ import { Menu, Tray, app, nativeImage, type MenuItemConstructorOptions } from 'e
 // The PACKAGED app ships the icon via electron-builder extraResources and
 // reads it from process.resourcesPath instead (Faz 5 P5).
 import trayIconPath from '../../resources/tray.png?asset';
-import { BOX_SCALES, type BoxScale } from '../shared/box-zone.js';
-import { TEXT_SCALES, type TextScale } from '../shared/text-scale.js';
+import { BOX_SCALES, type BoxScale } from '@kashi/view/box-scale';
+import { TEXT_SCALES, type TextScale } from '@kashi/view/text-scale';
 
 /** Shared label for both size presets — they offer the same three steps. */
 function scaleLabel(scale: TextScale | BoxScale): string {
@@ -25,15 +25,12 @@ const resolvedTrayIcon = app.isPackaged
   : trayIconPath;
 import {
   EFFECT_LEVELS,
-  FILL_STYLES,
   THEME_SCOPES,
   effectLevelLabel,
-  fillStyleLabel,
   themeScopeLabel,
   type EffectLevel,
-  type FillStyle,
   type ThemeScope,
-} from '../shared/effect-level.js';
+} from '@kashi/view/effect-level';
 import {
   OPACITY_PRESETS,
   TIMING_OFFSET_PRESETS,
@@ -55,8 +52,6 @@ export interface KashiMenuOptions {
   onEffectLevelSelect: (level: EffectLevel) => void;
   getThemeScope: () => ThemeScope;
   onThemeScopeSelect: (scope: ThemeScope) => void;
-  getFillStyle: () => FillStyle;
-  onFillStyleSelect: (style: FillStyle) => void;
   getTextScale: () => TextScale;
   onTextScaleSelect: (scale: TextScale) => void;
   getBoxScale: () => BoxScale;
@@ -132,13 +127,6 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     checked: scope === themeScope,
     click: () => opts.onThemeScopeSelect(scope),
   }));
-  const fillStyle = opts.getFillStyle();
-  const fillItems: MenuItemConstructorOptions[] = FILL_STYLES.map((style) => ({
-    label: fillStyleLabel(style),
-    type: 'radio',
-    checked: style === fillStyle,
-    click: () => opts.onFillStyleSelect(style),
-  }));
   const textScale = opts.getTextScale();
   const textItems: MenuItemConstructorOptions[] = TEXT_SCALES.map((scale) => ({
     label: scaleLabel(scale),
@@ -161,7 +149,6 @@ export function buildKashiMenu(opts: KashiMenuOptions): Menu {
     { type: 'separator' },
     { label: `Effects — ${effectLevelLabel(effectLevel)}`, submenu: effectItems },
     { label: `Theme colors — ${themeScopeLabel(themeScope)}`, submenu: themeItems },
-    { label: `Word fill — ${fillStyleLabel(fillStyle)}`, submenu: fillItems },
     { label: `Text size — ${scaleLabel(textScale)}`, submenu: textItems },
     { label: `Box size — ${scaleLabel(boxScale)}`, submenu: boxItems },
     { label: `Box opacity — ${presetLabel(alpha)}`, submenu: opacityItems },

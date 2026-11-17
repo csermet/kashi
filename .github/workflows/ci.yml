@@ -41,15 +41,44 @@ jobs:
           '--coverage.include=src/**/*.ts' --coverage.reportsDirectory=coverage
       - name: Repo-relative lcov paths
         run: |
-          for pkg in apps/overlay apps/extension; do
+          for pkg in apps/overlay apps/extension packages/view; do
             sed -i "s#^SF:#SF:$pkg/#" "$pkg/coverage/lcov.info"
           done
+      # Two roots (apps/, packages/): the artifact keeps repo-relative paths and
+      # the sonar job downloads it into the checkout root.
       - uses: actions/upload-artifact@v4
         with:
           name: ts-coverage
-          path: apps/*/coverage/lcov.info
+          path: |
+            apps/*/coverage/lcov.info
+            packages/view/coverage/lcov.info
           retention-days: 3
       - run: pnpm build
+      # Golden frames + dwell on the renderer just built: 12 runs x ~15 seeks on
+      # synthetic documents, DOM state and pictures against the committed
+      # goldens, words lit < 120 / 180 ms against pinned counts
+      # (apps/overlay/scripts/golden-frames.mjs). Runs in the digest-pinned
+      # Playwright image (its Chromium and fonts made the pictures): ~5 s, plus
+      # pulling the image on a fresh runner. Kept out of `pnpm test` so unit
+      # runs stay fast and browser-free.
+      - name: Golden frames and dwell (built renderer)
+        # A hung headless shell must not hold the job for the 6 h default.
+        timeout-minutes: 8
+        run: apps/overlay/scripts/golden-frames.sh
+      # The shared view (packages/view) outside Electron: its dev-only demo page
+      # built with vite and checked in the same image's Chromium — a fake host,
+      # one synthetic document, the strict CSP (apps/overlay/scripts/view-demo.mjs).
+      - name: Shared view in a plain browser (demo page)
+        timeout-minutes: 5
+        run: apps/overlay/scripts/view-demo.sh
+      - name: Keep what the golden frames saw
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-report
+          path: /tmp/kashi-golden-report
+          if-no-files-found: ignore
+          retention-days: 7
 
   python:
     name: Python (server)
@@ -146,7 +175,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: ts-coverage
-          path: apps
+          path: .
       - uses: actions/download-artifact@v4
         with:
           name: py-coverage

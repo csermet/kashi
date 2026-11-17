@@ -1,0 +1,735 @@
+/*
+ * The lyrics view's stylesheet (@kashi/view, client review E.4): everything
+ * the view draws, for every host. A host adds its own sheet after this one
+ * (the desktop's: apps/overlay/src/renderer/src/desktop.css) and supplies its
+ * geometry as variables (--kashi-stage-padding, --kashi-box-max-width).
+ * Level, theme and nightcore classes sit on <body>: the view owns its
+ * document.
+ */
+:root {
+  /* Box background opacity — driven by settings (tray presets / Ctrl+scroll). */
+  --kashi-box-alpha: 0.1;
+  /* Album palette theming (Faz 4) — written by the renderer from the server
+     document; the defaults below ARE the pre-Faz-4 look, so effect level
+     "off" and lrclib-only songs render exactly as before. */
+  --kashi-primary: #ffffff;
+  --kashi-secondary: #ffffff;
+  --kashi-bg-rgb: 8, 10, 18;
+  --kashi-text: #ffffff;
+  --kashi-accent: #ffffff;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
+  user-select: none;
+}
+
+#stage {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  /* The host's geometry: where the box's zone sits in the window. The
+     desktop pads its 800×460 window around the zone (shared/box-zone.ts
+     geometryVars) so effects have room on every side — the top is a runway
+     for anything that falls, the bottom is where it fades out. A host that
+     sets nothing gets the whole root as the zone. */
+  padding: var(--kashi-stage-padding, 0);
+  box-sizing: border-box;
+}
+
+/*
+ * The lyric box (Paket C): fixed max width so long lines WRAP instead of
+ * running off screen; a faint background reveals its extent (adjustable);
+ * everything outside it stays click-through.
+ */
+#lyric-box {
+  position: relative; /* anchors the ::after beat ring */
+  /* Above the particle canvas (z-index 0, prepended to body). Tree order
+     would already do it, but DG6 — effects never cover the text — should not
+     rest on a painting-order subtlety. */
+  z-index: 1;
+  max-width: var(--kashi-box-max-width, 500px);
+  /* Fallbacks ARE the shipped look; the runtime writes the same values for
+     medium and visibly different ones for small/large (BOX_CHROME). */
+  padding: var(--kashi-box-pad, 10px 18px);
+  border-radius: var(--kashi-box-radius, 14px);
+  /* Palette drives the COLOR, the user's opacity setting drives the alpha —
+     the two never fight (Faz 4 contract). */
+  background: rgba(var(--kashi-bg-rgb, 8, 10, 18), var(--kashi-box-alpha, 0.1));
+  text-align: center;
+  transition: background-color 0.15s;
+}
+
+#lyric-box.hidden {
+  display: none;
+}
+
+.lyric {
+  color: var(--kashi-text, #fff);
+  /* The shipped size times the user's text-size preset (Faz 7 P3). The
+     fallback IS the old literal, so an install that never sets the variable
+     renders identically. */
+  font-size: calc(28px * var(--kashi-text-scale, 1));
+  line-height: 1.3;
+  font-weight: 600;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+  overflow-wrap: break-word;
+  /* The active line wraps to at most 3 rows (user's call), then clips. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Clip room for the active word's pop (capped at 0.09 em per side, see
+     .word-active) and its 1 px lift: the 3-row clamp clips at the padding
+     box, so a popped first or last word lost half a letter (field 2026-10-28).
+     The padding widens the clip box and the negative margin cancels it, so
+     text width, wrap points and the box's shrink-to-fit width do not move.
+     Ad-lib lines widen it further for italic overhang. */
+  --kashi-clip-room: 0.12em;
+  padding-inline: var(--kashi-clip-room);
+  margin-inline: calc(-1 * var(--kashi-clip-room));
+  /* Line-level emphasis is a PRODUCT of independent fades, never a race
+     between rules. Both factors default to 1, so a line with neither class is
+     pixel-identical to the old `opacity`-less rule. The alternative — each
+     class declaring its own `opacity` — silently lets the more specific
+     selector win, and an ad-lib line that was ALSO rescued would have shown
+     the ad-lib fade only, hiding the very signal this exists to show. */
+  opacity: calc(var(--kashi-adlib-fade, 1) * var(--kashi-uncertain-fade, 1));
+  transition:
+    font-size 0.2s,
+    opacity 0.2s;
+}
+
+/* Word-timing-less lines (the quality gate rejected their alignment) wear a
+   softened palette tone rather than stock white: the difference between "no
+   karaoke here" and "something is wrong". Applies at every effect level — a
+   deliberate, documented appearance change. */
+.lyric.plain {
+  color: var(--kashi-plain, #fff);
+}
+
+/* Rescued lines (server lines[].uncertain, Faz 8 B4): the drift threshold
+   flagged them, the audio vouched for their words, and the server shifted
+   them onto the anchor instead of deleting them. So they DO have a word
+   clock — we are just less certain where it sits, and the overlay should say
+   that without taking anything away. Nothing is hidden, dropped or
+   re-ordered; the line simply stops competing with the lines we trust.
+
+   Fade, not colour: an uncertain line is word-synced by definition, and the
+   word spans paint their own colour — a line-level `color` would never reach
+   them. Opacity multiplies down through the spans instead, so the karaoke
+   contrast (0.55 resting -> 1.0 sung) survives intact at a lower overall
+   brightness. 0.78 is the floor that keeps a resting word (0.78 x 0.55 =
+   0.43) about as legible as a shipped ad-lib word (0.85 x 0.55 = 0.47) over
+   a bright video frame; the text-shadow carries the rest.
+
+   Unscoped by effect level, like .lyric.plain and for the same reason: this
+   is the document telling the truth about itself, not an effect. */
+.lyric.uncertain {
+  --kashi-uncertain-fade: 0.78;
+}
+
+.lyric.dim {
+  font-size: calc(14px * var(--kashi-text-scale, 1));
+  font-weight: 500;
+  opacity: 0.45;
+}
+
+/* Interlude mark (intro / long instrumental break): a gently pulsing ♪,
+   centered by the box itself. Short gaps never reach this state — the
+   previous line is held instead (findDisplayLine). */
+.lyric.interlude {
+  animation: kashi-interlude 1.8s ease-in-out infinite;
+}
+
+@keyframes kashi-interlude {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
+  }
+}
+
+/* Word karaoke (server word-sync docs). Base look is brightness-only; the
+   effect engine (Faz 4) layers easing/transform/color on top per level. */
+.word {
+  opacity: 0.55;
+}
+
+.word-active {
+  opacity: 1;
+}
+
+/* Effect engine (Faz 4) — everything below is compositor-friendly only
+   (opacity/transform; the beat glow is the first thing to sacrifice if the
+   <3% CPU budget fails on the field test, then the scale). Level classes
+   live on <body>; fx-off has no rules at all = the pre-Faz-4 look. */
+body.fx-simple .word,
+body.fx-full .word {
+  /* transforms don't apply to inline elements; spans still wrap at the
+     text-node spaces between them */
+  display: inline-block;
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out,
+    color 120ms ease-out;
+}
+
+/* Unsung base tone — MUST sit before .word-active (equal specificity;
+   source order decides): the active word's primary always wins over the
+   resting base. */
+body.fx-simple .word,
+body.fx-full .word {
+  color: var(--kashi-secondary, #fff);
+}
+
+/* Every active-word pop is min(its scale, --kashi-pop-cap): the cap, written
+   per span from its measured width (view-logic popScaleCap), holds a long
+   word to a few pixels of growth per side so it neither eats the space to its
+   neighbours nor runs out of the line's clip box. Unset = 9 = no cap. */
+body.fx-simple .word-active,
+body.fx-full .word-active {
+  transform: translateY(-1px) scale(min(1.04, var(--kashi-pop-cap, 9)));
+  color: var(--kashi-primary, #fff);
+}
+
+body.fx-full #lyric-box {
+  will-change: transform;
+  transition:
+    transform 80ms ease-out,
+    background-color 0.15s;
+}
+
+/* Beat glow lives on a ::after ring animated by OPACITY only: eased in/out
+   it reads as breathing light instead of a popping shadow, and opacity is
+   compositor-friendly (closes the retro paint-cost note). */
+body.fx-full #lyric-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 14px var(--kashi-accent, transparent);
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+  pointer-events: none;
+}
+
+body.fx-full #lyric-box.beat {
+  transform: scale(1.015);
+}
+
+body.fx-full #lyric-box.beat::after {
+  opacity: 0.5;
+}
+
+body.fx-full #lyric-box.beat-down {
+  transform: scale(1.02);
+}
+
+body.fx-full #lyric-box.beat-down::after {
+  opacity: 0.75;
+}
+
+/* Line-change micro-transition (Faz 4 saha turu 2): a one-shot 160 ms
+   fade + 2 px rise re-armed per line change (main.ts removes the class,
+   forces a reflow, re-adds). Never on interlude views — that state owns
+   the `animation` property (kashi-interlude) and the predicate keeps this
+   class away from it. fx-off gets neither rule nor class. */
+body.fx-simple #lyric-line.line-in,
+body.fx-full #lyric-line.line-in {
+  animation: kashi-line-in 160ms ease-out;
+}
+
+@keyframes kashi-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* Ad-lib lines (server lines[].adlib): backing-vocal feel — slightly faded,
+   italic. Only when the document says so; lrclib songs never get this.
+   The fade is handed to .lyric as a FACTOR (see its opacity calc) so it
+   multiplies with the uncertain fade rather than out-specifying it. */
+body.fx-simple .lyric.adlib,
+body.fx-full .lyric.adlib {
+  font-style: italic;
+  --kashi-adlib-fade: 0.85;
+  /* Italic glyphs lean past their own advance box, and .lyric clips at its
+     padding box (overflow: hidden, for the 3-row clamp): a line that fills
+     the box lost the top-right of its last letter and the foot of its first
+     (field report 2026-10-16, "La-la-la-la-la"). Widen the clip box by the
+     overhang WITHOUT moving anything: the negative margin and the padding
+     cancel, so the text keeps its width, its wrap points and its place, and
+     the box's shrink-to-fit width is unchanged. The overhang lands in
+     #lyric-box's own padding (18px), which is wider than this. */
+  padding-inline: var(--kashi-italic-overhang);
+  margin-inline: calc(-1 * var(--kashi-italic-overhang));
+  --kashi-italic-overhang: 0.25em;
+}
+
+/* The sweeping word paints its glyphs with a gradient clipped to the text,
+   and a background only exists inside the span's box — so the slanted tail
+   of an italic letter outside that box rendered transparent (the cut-off
+   look while "La-la-la" filled). Same cancel trick at word scale: the
+   gradient gains room, the line's layout does not move. */
+body.fx-simple .lyric.adlib .word-fill,
+body.fx-full .lyric.adlib .word-fill {
+  padding-inline: 0.15em;
+  margin-inline: -0.15em;
+}
+
+/* Sustained fill ("ooh-ooh" sweep): the active long-held/ad-lib word fills
+   left→right via a gradient clipped to the glyphs; --kashi-fill (0..1) is
+   written once per frame on the ONE active span. text-shadow through
+   transparent glyphs looks muddy — dropped on fill words (field-check).
+   Placed AFTER .word-active so `color: transparent` wins while filling. */
+/* One coherent karaoke language (field screenshots 2026-07-14, round 2 —
+   three tones sat side by side: bright sung, grey pop words, dim planned):
+     SUNG part stays bright, UNSUNG part rests in ONE tone, the active word
+     transitions between them (sweep fill or pop). Unsung words rest on the
+     dim THEME tone. (A second, "neutral" dialect resting on the text tone was
+     user-picked until client review E.3 removed it: nobody used it, and it
+     was the twin every sweep change had to be made in twice.)
+   FULL secondary here, no alpha: the resting .word opacity (0.55) does the
+   dimming, so the stock #fff secondary is pixel-identical to the classic
+   grey (an alpha would DOUBLE-dim, 0.55 x 0.55 ≈ 30% — reviewer catch). */
+/* Passed words PIN bright — the sung part never fades back (field feedback:
+   "geçen söz silik kalıyor"). Applied by the render loop as the active
+   index advances; seek-back un-pins. */
+body.fx-simple .word-sung,
+body.fx-full .word-sung {
+  color: var(--kashi-primary, #fff);
+  opacity: 1;
+}
+
+body.fx-simple .word-fill,
+body.fx-full .word-fill,
+body.fx-hype .word-fill {
+  /* Tail = a dim of the THEME hue (secondary derives from the primary) at
+     55% alpha; the #fff default computes to exactly the old
+     rgba(255,255,255,0.55), so unthemed tracks are pixel-identical.
+
+     `--fx-color` FIRST, theme hue as the fallback (field report 2026-08-13,
+     Rihanna "Don't Stop The Music"): a sweeping word used to be painted by
+     the gradient alone, which is theme-coloured, so an fx word LOST its
+     identity colour the moment it started sweeping — the popping repeats of
+     the same line stayed purple while the sweeping ones turned pale. The
+     variable is only defined on .fx-word, so an ordinary word still resolves
+     to exactly the old values. */
+  background-image: linear-gradient(
+    90deg,
+    var(--fx-color, var(--kashi-primary, #fff)) calc(var(--kashi-fill, 0) * 100%),
+    color-mix(in srgb, var(--fx-color, var(--kashi-secondary, #fff)) 55%, transparent)
+      calc(var(--kashi-fill, 0) * 100%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  /* text-fill-color, NOT color: color sits in .word's 120 ms transition, so
+     leaving the class would flash the word invisible while the gradient is
+     already gone (retro finding). text-fill-color snaps back instantly. */
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+/* Animated "searching" row: lives on its own line under the track label. */
+#search-line {
+  margin-top: 6px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  color: var(--kashi-text, #fff);
+  opacity: 0.7;
+  font-size: 12px;
+}
+
+#search-line[hidden] {
+  /* display:flex above would defeat the hidden attribute without this. */
+  display: none;
+}
+
+.search-label {
+  margin-right: 3px;
+  letter-spacing: 0.04em;
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--kashi-text, #fff);
+  animation: kashi-dot 1.2s infinite;
+}
+
+/* The label is child 1 — dots are children 2/3/4. */
+#search-line .dot:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+#search-line .dot:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+@keyframes kashi-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* Live timing-offset readout ("+120 ms"): flashed in the box corner while the
+   Ctrl+Shift+scroll gesture runs (the tray menu is closed at that moment).
+   Opacity-only, pointer-transparent — invisible unless .show is armed. */
+#offset-flash {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--kashi-text, #fff);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+
+#offset-flash.show {
+  opacity: 0.85;
+}
+
+/* Box-size feedback: momentarily lift the box background so its EXTENT is
+   visible while the new size lands (the resting alpha is 0.1 — near
+   invisible, which is exactly why the setting read as dead). */
+#lyric-box.reveal {
+  background: rgba(var(--kashi-bg-rgb, 8, 10, 18), 0.35);
+}
+
+/* Reduced motion (public-project etiquette): drop every scale/translate and
+   looping animation; gentle opacity fades and the karaoke fill (the core
+   semantic, not decoration) stay. */
+@media (prefers-reduced-motion: reduce) {
+  .lyric.interlude,
+  body.fx-simple #lyric-line.line-in,
+  body.fx-full #lyric-line.line-in,
+  .dot {
+    animation: none;
+  }
+
+  .dot {
+    opacity: 0.6; /* frozen mid-blink otherwise */
+  }
+
+  body.fx-simple .word,
+  body.fx-full .word {
+    transition:
+      opacity 120ms ease-out,
+      color 120ms ease-out;
+  }
+
+  body.fx-simple .word-active,
+  body.fx-full .word-active,
+  body.fx-full #lyric-box.beat,
+  body.fx-full #lyric-box.beat-down {
+    transform: none;
+  }
+
+  /* The glow ring pulses to the music — that IS motion, opacity or not. */
+  body.fx-full #lyric-box.beat::after,
+  body.fx-full #lyric-box.beat-down::after {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Faz 6 P4: semantic word effects — HYPE level only.
+   hype layers ON TOP of fx-full (the body carries both classes; the fx-full
+   look itself has zero diff by construction). Everything here is transform/
+   opacity/color-only; the glow stays the pre-drawn ::after (risk-turu
+   verdicts). Sacrifice ladder if the <3% CPU budget fails: these hype rules
+   go FIRST (burst, then icon pop, then word pop) — before the beat glow and
+   the scale named at the top of this file. */
+
+:root {
+  /* Damped-spring approximation via linear() (Chromium 113+; Electron 42 =
+     Cr 148) — Jake Archibald generator preset, shared by every hype pop. */
+  --fx-spring: linear(
+    0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.9%, 0.938 16.7%, 1.017,
+    1.077 20.4%, 1.121, 1.149 24.3%, 1.159, 1.163 27%, 1.154, 1.129 32.8%,
+    1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%,
+    0.997 69.8%, 1.003 76.9%, 1
+  );
+}
+
+/* Category tints (field round 2): computed in TS (color-tone.toneFx) —
+   semantic hue from the category ("love is pink, toxic is green"), tone in
+   a fixed readable band, and LIGHTNESS pushed apart when the album theme
+   already sits on the category's hue. The renderer sets each fx word's tint
+   INLINE as --fx-color (effects-logic fxWordColor), at line build and on
+   every palette/settings change; this rule is the default it overrides —
+   theme scope "none" or a category newer than this build stays on the
+   primary. Until client review E.3 there were 24 hand-written per-category
+   rules here, one per lexicon tag. */
+body.fx-hype .word.fx-word {
+  --fx-color: var(--kashi-primary, #fff);
+}
+
+/* The word that FIRED the burst, held lit while the particles are in the air
+   (field report 2026-08-12: "the effect comes but you can't see why"). A
+   clipped span can flash past in 150 ms; the burst lives a second. Colour
+   and glow only — no transform, so a held word cannot shift the line's
+   layout under the active word that follows it.
+   2026-10 review, both against the hype contract: the glow SNAPS with the
+   class (text-shadow values and per-word colour are never interpolated), and
+   a word still being swept is left out — `.word-fill`'s `text-shadow: none`
+   loses to this rule on specificity, and a 12 px glow through transparent
+   glyphs is the muddy look the fill exists to avoid while hiding the sweep.
+   The glow takes over the moment the sweep finishes. */
+body.fx-hype .word.fx-fired:not(.word-fill) {
+  color: var(--fx-color, var(--kashi-primary, #fff));
+  text-shadow: 0 0 12px var(--fx-color, var(--kashi-primary, #fff));
+}
+
+/* The fx word's activation pop: stronger than the stock word-active
+   (specificity wins: 3 classes + body), scaled by the server intensity.
+   Transform/color only — baseline stays put (DG6). */
+body.fx-hype .word.fx-word.word-active {
+  color: var(--fx-color);
+  /* Modest scale: transform does NOT reflow text, so a big glyph visually
+     collides with its neighbour (field screenshot: "askimiz|zehirli").
+     The tint + icon carry the emphasis; scale is only a nudge. */
+  transform: translateY(-1px)
+    scale(min(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)), var(--kashi-pop-cap, 9)));
+  transition:
+    opacity 120ms ease-out,
+    color 120ms ease-out,
+    transform 340ms var(--fx-spring);
+}
+/* A sung fx word KEEPS its category colour, just calmer (Caner, field round
+   2026-07-27). The previous 70% primary blend was so close to the palette
+   that the category identity vanished the moment the word passed, leaving
+   only the icon to carry it. Now the tint leads and the palette pulls it a
+   little toward the rest of the line, so the word still reads as "the love
+   word" after it is sung.
+
+   OKLAB, never OKLCH: OKLCH interpolates the HUE ANGLE along the shorter arc,
+   so mixing two distant hues invents a third one — a green palette with a
+   pink love tint travelled through YELLOW and the word stayed gold (field
+   report). Oklab mixes in rectangular coordinates, so a blend can only sit
+   between its inputs. */
+body.fx-hype .word.fx-word.word-sung {
+  color: color-mix(in oklab, var(--fx-color) 70%, var(--kashi-primary, #fff));
+}
+
+/* Inline category icon: rides INSIDE the word span (wraps with the word,
+   clipped by the box — never past the 560px window). Hidden at rest,
+   springs in on activation, lingers dim once sung. */
+.fx-icon {
+  display: none;
+}
+body.fx-hype .fx-icon {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.18em;
+  vertical-align: -0.08em;
+  color: var(--fx-color);
+  /* Visible-but-dim from line build (field feedback: popping out of nothing
+     read as a glitch) — activation springs it to full presence. */
+  opacity: 0.35;
+  transform: scale(0.8);
+  transition:
+    opacity 160ms ease-out,
+    transform 340ms var(--fx-spring);
+}
+body.fx-hype .word.fx-word.word-active .fx-icon {
+  opacity: 0.95;
+  transform: scale(1);
+}
+body.fx-hype .word.fx-word.word-sung .fx-icon {
+  opacity: 0.45;
+  transform: scale(0.85);
+}
+
+/* Downbeat emphasis: hype leans harder on the existing pre-drawn ring
+   (opacity-only, same compositor story as fx-full). */
+body.fx-hype #lyric-box.beat-down::after {
+  opacity: 0.95;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Core semantics stay (tint + icon presence); motion goes. */
+  body.fx-hype .word.fx-word.word-active {
+    transform: none;
+  }
+  body.fx-hype .fx-icon,
+  body.fx-hype .word.fx-word.word-active .fx-icon,
+  body.fx-hype .word.fx-word.word-sung .fx-icon {
+    transform: none;
+    transition: opacity 160ms ease-out;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Faz 6 P5: energy/section dynamics — HYPE level only. All precomputed
+   (2 Hz curve + section blocks from the document); zero live audio analysis.
+   Ambient ring opacity + class edges only — compositor-friendly. */
+
+/* Continuous ambient glow floor: the pre-drawn ::after ring breathes with
+   the track's own loudness (quantized var, a few writes/second). Beat rules
+   (.beat/.beat-down, higher specificity) still pulse above it. */
+body.fx-hype #lyric-box::after {
+  opacity: calc(var(--kashi-energy, 0) * 0.18);
+  transition: opacity 240ms ease-out;
+}
+
+/* High-energy sections (server "high" blocks — the chorus proxy): the ring
+   floor rises and the active word leans a touch harder. */
+body.fx-hype #lyric-box.energy-high::after {
+  opacity: calc(0.1 + var(--kashi-energy, 0) * 0.22);
+}
+body.fx-hype #lyric-box.energy-high .word-active {
+  transform: translateY(-1px) scale(min(1.06, var(--kashi-pop-cap, 9)));
+}
+/* fx words keep their own (stronger, intensity-scaled) pop — re-stated so
+   source order can't demote it under the energy-high rule above. */
+body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
+  transform: translateY(-1px)
+    scale(min(calc(1.02 + 0.06 * var(--fx-intensity, 0.5)), var(--kashi-pop-cap, 9)));
+}
+
+/* ------------------------------------------------------------------------
+   Faz 6.5 P1: category ambient ring — the box's surroundings take the
+   ACTIVE LINE's theme color ("poison line → the box glows green"). Lives on
+   the FREE ::before (the ::after ring belongs to beat/energy); pre-drawn
+   shadow, opacity-only animation, colors set by main.ts at line cadence.
+   Specificity audit (0.7.2 lesson): base (1,2,1) < .fx-ambient/.ambient-
+   flash (1,3,1); the flash animation outranks the floor transition by CSS
+   animation precedence — verified bottom-up, no custom-property chain. */
+body.fx-hype #lyric-box::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* Wider + softer than the 14px beat ring so the two read as different
+     voices: beat = tight accent pulse, ambient = category aura. On the
+     widest lines the aura clips at the 560px window edge (~12px lateral
+     margin) — accepted until P2 grows the window and gives it gutters. */
+  box-shadow: 0 0 22px 6px var(--fx-ambient, transparent);
+  opacity: 0;
+  transition: opacity 240ms ease-out;
+  pointer-events: none;
+}
+/* Continuous floor while a THEMED line is up (fx.lines hit). */
+body.fx-hype #lyric-box.fx-ambient::before {
+  opacity: 0.3;
+}
+/* One-shot halo pulse on the fx WORD's activation, in the word's own
+   category color (class re-armed by main.ts; suppressed during beat
+   pulses JS-side — one ring at a time). The shadow color swaps via the
+   class edge (single repaint) — the VALUE itself is never animated. */
+body.fx-hype #lyric-box.ambient-flash::before {
+  box-shadow: 0 0 26px 8px var(--fx-ambient-flash, var(--fx-ambient, transparent));
+  animation: kashi-ambient-flash 700ms ease-out;
+}
+@keyframes kashi-ambient-flash {
+  0% {
+    opacity: 0.3;
+  }
+  25% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.3;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Faz 6.5 P5: nightcore prototypes — sped-up documents only (body carries
+   .nightcore from the document's speed_factor; rules fire only under
+   fx-hype). PROTOTYPE semantics: Caner's ear/eye tour decides, disliked
+   pieces get deleted. (1) Chromatic aberration: STATIC double text-shadow
+   (inherited by the word spans), single repaint on the class edge — the
+   value itself is never animated. (2) Hue shimmer: slow STEPPED color
+   cycle (steps() = a couple of small text repaints per second, no
+   continuous interpolation) on plain-line text and sung words; the active
+   word keeps its semantic color untouched. */
+body.fx-hype.nightcore .lyric {
+  text-shadow:
+    1.5px 0 rgba(255, 64, 96, 0.45),
+    -1.5px 0 rgba(64, 208, 255, 0.45),
+    0 1px 8px rgba(0, 0, 0, 0.8);
+}
+/* Shimmer lives ONLY on the line container — plain-text lines cycle hue as
+   one unit. The per-word sung shimmer was REMOVED (Caner: nightcore "biraz
+   buggy"): each word started its own 16 s clock when it became .word-sung,
+   so a line read as an out-of-phase COLOR PATCHWORK. Word-karaoke lines keep
+   their karaoke colors + the static aberration; the container shimmer shows
+   on plain/interlude lines where words don't override the color. */
+body.fx-hype.nightcore #lyric-line {
+  animation: kashi-nc-hue 16s steps(32) infinite;
+}
+@keyframes kashi-nc-hue {
+  0%,
+  100% {
+    color: #9be8ff;
+  }
+  25% {
+    color: #c9a8ff;
+  }
+  50% {
+    color: #ffa8d8;
+  }
+  75% {
+    color: #a8ffd0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Aberration is static (stays); the shimmer is motion (goes). */
+  body.fx-hype.nightcore #lyric-line {
+    animation: none;
+  }
+}
+
+/* Line entrance with spring (hype): same one-shot class as the fx-simple/
+   full fade, springier curve — transform/opacity only. */
+body.fx-hype #lyric-line.line-in {
+  animation: kashi-line-in-spring 340ms var(--fx-spring);
+}
+@keyframes kashi-line-in-spring {
+  from {
+    opacity: 0.25;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.fx-hype #lyric-line.line-in {
+    animation: none;
+  }
+  body.fx-hype #lyric-box.energy-high .word-active,
+  body.fx-hype #lyric-box.energy-high .word.fx-word.word-active {
+    transform: none;
+  }
+  /* Ambient: the static faint halo stays (semantics), the pulse goes. */
+  body.fx-hype #lyric-box.ambient-flash::before {
+    animation: none;
+  }
+}

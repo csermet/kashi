@@ -5,7 +5,7 @@
  * current value arrives via the ?value= query param set by main. The number is
  * the user's offset on top of the hidden base lead: 0 = default.
  */
-import { clampTimingOffset } from '../../shared/timing-offset.js';
+import { clampTimingOffset } from '@kashi/view/timing-offset';
 
 interface PromptBridge {
   submitTimingOffset(value: number): void;

@@ -4,30 +4,27 @@
  */
 import {
   DEFAULT_EFFECT_LEVEL,
-  DEFAULT_FILL_STYLE,
   DEFAULT_THEME_SCOPE,
   parseEffectLevel,
-  parseFillStyle,
   parseThemeScope,
   type EffectLevel,
-  type FillStyle,
   type ThemeScope,
-} from '../shared/effect-level.js';
+} from '@kashi/view/effect-level';
 import { normalizeServerUrl } from './kashi-server-logic.js';
-import { DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from '../shared/box-zone.js';
-import { DEFAULT_TEXT_SCALE, parseTextScale, type TextScale } from '../shared/text-scale.js';
+import { DEFAULT_BOX_SCALE, parseBoxScale, type BoxScale } from '@kashi/view/box-scale';
+import { DEFAULT_TEXT_SCALE, parseTextScale, type TextScale } from '@kashi/view/text-scale';
 import {
   BASE_LEAD_MS,
   DEFAULT_TIMING_OFFSET_MS,
   appliedLeadMs,
   clampTimingOffset,
   formatTimingOffset,
-} from '../shared/timing-offset.js';
+} from '@kashi/view/timing-offset';
 
-export { DEFAULT_TEXT_SCALE, TEXT_SCALES, TEXT_SCALE_FACTORS, parseTextScale } from '../shared/text-scale.js';
-export type { TextScale } from '../shared/text-scale.js';
+export { DEFAULT_TEXT_SCALE, TEXT_SCALES, TEXT_SCALE_FACTORS, parseTextScale } from '@kashi/view/text-scale';
+export type { TextScale } from '@kashi/view/text-scale';
 
-export { DEFAULT_BOX_SCALE, parseBoxScale } from '../shared/box-zone.js';
+export { DEFAULT_BOX_SCALE, parseBoxScale } from '@kashi/view/box-scale';
 
 export {
   BASE_LEAD_MS,
@@ -36,7 +33,7 @@ export {
   appliedLeadMs,
   clampTimingOffset,
   formatTimingOffset,
-} from '../shared/timing-offset.js';
+} from '@kashi/view/timing-offset';
 
 export const OPACITY_PRESETS = [0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9] as const;
 export const OPACITY_MIN = 0;
@@ -49,7 +46,7 @@ export const DEFAULT_BOX_ALPHA = 0.1;
 
 /**
  * The user's lyric timing offset, ms on top of the invisible BASE_LEAD_MS
- * (shared/timing-offset.ts): positive = lyrics fire EARLIER (karaoke UX
+ * (@kashi/view/timing-offset): positive = lyrics fire EARLIER (karaoke UX
  * convention — perception lags the ear by ~100 ms; Caner: "hafif geç
  * hissettiriyor", 2026-07-12). 0 = the base alone. Applied in the renderer
  * frame loop; per-song data never changes.
@@ -94,9 +91,13 @@ export interface StoredSettings {
   timing_offset_rel_ms: number;
   /** Effect engine level (Faz 4): off | simple | full. */
   effect_level: EffectLevel;
-  /** How much of the album palette themes the box (Faz 4 saha turu). */
+  /**
+   * How much of the album palette themes the box (Faz 4 saha turu). Two
+   * scopes since client review E.3; a stored `fixed-bg` / `fixed-text` reads
+   * as `none`, which keeps the stock background those two kept
+   * (parseThemeScope, effect-level.ts). Rewritten on exit: no way back.
+   */
   theme_scope: ThemeScope;
-  fill_style: FillStyle;
   /**
    * Send diagnostics to the configured server (Faz 6.7 P2). Meaningless
    * without server_url + server_api_key: it is the user's OWN server, so the
@@ -130,7 +131,6 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   timing_offset_rel_ms: DEFAULT_TIMING_OFFSET_MS,
   effect_level: DEFAULT_EFFECT_LEVEL,
   theme_scope: DEFAULT_THEME_SCOPE,
-  fill_style: DEFAULT_FILL_STYLE,
   telemetry_enabled: true,
   prefetch_next_track: true,
   text_scale: DEFAULT_TEXT_SCALE,
@@ -264,6 +264,25 @@ export function isPositionVisible(
   });
 }
 
+/**
+ * Keys this build has removed, dropped on read so the next save writes the
+ * file without them. Everything else unknown survives the round-trip (see
+ * parseSettings) — these are the exception because they are not a NEWER
+ * build's fields but this one's retired knobs.
+ *
+ * `fill_style` (client review E.3, 2026-11-14): the sweep had two base
+ * dialects, `themed` and `neutral`; only `themed` is left. A stored `neutral`
+ * goes silently: the file loses the key and the user sees the themed sweep,
+ * which is also what a build from before the setting existed did.
+ */
+export const REMOVED_SETTINGS_KEYS: readonly string[] = ['fill_style'];
+
+function withoutRemovedKeys(record: Record<string, unknown>): Record<string, unknown> {
+  const kept = { ...record };
+  for (const key of REMOVED_SETTINGS_KEYS) delete kept[key];
+  return kept;
+}
+
 /** Tolerant parse (corrupt/hand-edited/future file must never crash startup). */
 export function parseSettings(raw: string): StoredSettings {
   let data: unknown;
@@ -273,7 +292,7 @@ export function parseSettings(raw: string): StoredSettings {
     return { ...DEFAULT_SETTINGS };
   }
   if (typeof data !== 'object' || data === null) return { ...DEFAULT_SETTINGS };
-  const record = data as Record<string, unknown>;
+  const record = withoutRemovedKeys(data as Record<string, unknown>);
 
   const alpha =
     typeof record['box_alpha'] === 'number' ? clampAlpha(record['box_alpha']) : DEFAULT_BOX_ALPHA;
@@ -325,7 +344,6 @@ export function parseSettings(raw: string): StoredSettings {
     timing_offset_rel_ms: parseTimingOffsetRel(record),
     effect_level: parseEffectLevel(record['effect_level']),
     theme_scope: parseThemeScope(record['theme_scope']),
-    fill_style: parseFillStyle(record['fill_style']),
     // Only an explicit false opts out — a corrupt or absent value keeps the
     // default rather than silently disabling the channel we debug with.
     telemetry_enabled: record['telemetry_enabled'] !== false,

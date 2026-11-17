@@ -13,6 +13,7 @@
     "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
+    "golden": "bash scripts/golden-frames.sh",
     "fake-extension": "node scripts/fake-extension.mjs",
     "dist:linux": "electron-vite build && electron-builder --linux",
     "dist:win": "electron-vite build && electron-builder --win",
@@ -24,6 +25,7 @@
   },
   "devDependencies": {
     "@kashi/schemas": "workspace:*",
+    "@kashi/view": "workspace:*",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.0",
     "@vitest/coverage-v8": "4.1.11",

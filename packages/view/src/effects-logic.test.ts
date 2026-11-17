@@ -1,0 +1,1154 @@
+import { describe, expect, it } from 'vitest';
+import { ARCHETYPE_PROFILES, GENERIC_PROFILE } from './fx-particles-logic.js';
+import {
+  DEFAULT_EFFECT_LEVEL,
+  effectLevelLabel,
+  parseEffectLevel,
+  parseThemeScope,
+} from './effect-level.js';
+import {
+  ambientColors,
+  BEAT_IDLE,
+  BEAT_RESYNC_JUMP_MS,
+  BEAT_WINDOW_AFTER_MS,
+  BEAT_WINDOW_BEFORE_MS,
+  BG_MAX_LUMINANCE,
+  BeatCursor,
+  DEFAULT_PALETTE_VARS,
+  FX_ARCHETYPES,
+  resolveFxProfile,
+  TEXT_CONTRAST_MIN,
+  beatsUsable,
+  buildFxIndex,
+  MAX_FX_PER_LINE,
+  primaryFxHit,
+  buildLineThemeIndex,
+  clampBackground,
+  computeFxTintVars,
+  fxWordColor,
+  FX_BASE_COLORS,
+  energyAt,
+  inRampSection,
+  inSection,
+  isNightcore,
+  quantizedEnergy,
+  contrastRatio,
+  fillProgress,
+  HELD_NOTE_SWEEP,
+  lineFinalDwellMs,
+  paletteToCssVars,
+  planLineFills,
+  planLineFillsByIdentity,
+  planPassFills,
+  planSweepSpans,
+  planWordFills,
+  relativeLuminance,
+  planFillsByLineIdentity,
+  wordDwells,
+} from './effects-logic.js';
+import { NEUTRAL_BG_TRIPLET, PARTICLE_BANDS, hexToOklch, hueDistance } from './color-tone.js';
+
+describe('parseEffectLevel', () => {
+  it('accepts the four levels and defaults everything else', () => {
+    expect(parseEffectLevel('off')).toBe('off');
+    expect(parseEffectLevel('simple')).toBe('simple');
+    expect(parseEffectLevel('full')).toBe('full');
+    expect(parseEffectLevel('hype')).toBe('hype');
+    expect(parseEffectLevel('FULL')).toBe(DEFAULT_EFFECT_LEVEL);
+    expect(parseEffectLevel(2)).toBe(DEFAULT_EFFECT_LEVEL);
+    expect(parseEffectLevel(undefined)).toBe(DEFAULT_EFFECT_LEVEL);
+    // A `full` user must see zero change from the Faz 6 upgrade.
+    expect(DEFAULT_EFFECT_LEVEL).toBe('simple');
+  });
+
+  it('labels levels for the tray', () => {
+    expect(effectLevelLabel('off')).toBe('Off');
+    expect(effectLevelLabel('simple')).toBe('Simple');
+    expect(effectLevelLabel('full')).toBe('Full');
+    expect(effectLevelLabel('hype')).toBe('Hype');
+  });
+
+  it('parses theme scopes: the removed fixed scopes read as none, garbage as full', () => {
+    expect(parseThemeScope('full')).toBe('full');
+    expect(parseThemeScope('none')).toBe('none');
+    // Both kept the stock background (0.31.0); none keeps it, full would not.
+    expect(parseThemeScope('fixed-bg')).toBe('none');
+    expect(parseThemeScope('fixed-text')).toBe('none');
+    expect(parseThemeScope('fixed')).toBe('full');
+    expect(parseThemeScope('ULTRA')).toBe('full');
+    expect(parseThemeScope(undefined)).toBe('full');
+  });
+});
+
+describe('paletteToCssVars', () => {
+  const RICK = {
+    primary: '#e84545',
+    secondary: '#f5d76e',
+    background: '#1a1a2e',
+    text: '#ffffff',
+    accent: '#903749',
+  };
+
+  it('maps a valid palette onto TONE-MAPPED variables (0.2.4)', () => {
+    const vars = paletteToCssVars(RICK);
+    expect(vars['--kashi-primary']).toBe('#ff847c'); // harsh red → soft coral
+    expect(vars['--kashi-secondary']).toBe('#f18981'); // dim of the PRIMARY hue
+    expect(vars['--kashi-bg-rgb']).toBe('20, 19, 39'); // bg band dark tint
+    expect(vars['--kashi-text']).toBe('#ffffff'); // base text pinned white
+    expect(vars['--kashi-accent']).toBe('#d47483'); // accent band
+  });
+
+  it('no palette → the defaults (= the pre-Faz-4 look)', () => {
+    expect(paletteToCssVars(undefined)).toEqual(DEFAULT_PALETTE_VARS);
+  });
+
+  it('invalid colors never reach CSS; the valid hue themes the theme (donor)', () => {
+    const vars = paletteToCssVars({
+      primary: 'red',
+      secondary: '#12345',
+      background: 'url(javascript:x)',
+      text: 42,
+      accent: '#903749',
+    });
+    // The one valid slot (accent) becomes the hue donor: primary/secondary/bg
+    // all render as tone-mapped versions of ITS hue — never raw, never CSS-
+    // injectable garbage.
+    expect(vars['--kashi-accent']).toBe('#d47483');
+    expect(vars['--kashi-primary']).toMatch(/^#[0-9a-f]{6}$/);
+    expect(vars['--kashi-primary']).not.toBe(DEFAULT_PALETTE_VARS['--kashi-primary']);
+    expect(vars['--kashi-bg-rgb']).toMatch(/^\d+, \d+, \d+$/);
+    expect(vars['--kashi-text']).toBe('#ffffff');
+  });
+
+  it('dark hued primaries are RESCUED, not whited out (0.2.4 feature)', () => {
+    // 0.2.3 dropped #1a1a2e to white via the luminance floor; the tone mapper
+    // now re-renders its hue at a readable band instead — that is the point.
+    const vars = paletteToCssVars({ primary: '#1a1a2e', text: '#0a0a0a' });
+    expect(vars['--kashi-primary']).not.toBe('#ffffff');
+    expect(relativeLuminance(vars['--kashi-primary']!)).toBeGreaterThan(0.4);
+    expect(vars['--kashi-text']).toBe('#ffffff'); // base text stays pinned
+    // A truly neutral background with no donor lands on the honest dark gray.
+    expect(paletteToCssVars({ background: '#0a0a0a' })['--kashi-bg-rgb']).toBe(
+      NEUTRAL_BG_TRIPLET,
+    );
+  });
+});
+
+describe('sustained fill', () => {
+  const LONG = { start_ms: 1000, end_ms: 2200 }; // ≥ 800 ms hold
+
+  // Compact word builder: durations in ms, chained.
+  const words = (...durations: number[]) => {
+    let t = 0;
+    return durations.map((d) => {
+      const w = { start_ms: t, end_ms: t + d };
+      t += d;
+      return w;
+    });
+  };
+
+  it('ad-lib lines sweep every word; off level never sweeps', () => {
+    expect(planWordFills(words(200, 300, 900), true, 'simple')).toEqual([true, true, true]);
+    expect(planWordFills(words(200, 300, 900), true, 'off')).toEqual([false, false, false]);
+    expect(planWordFills([], true, 'full')).toEqual([]);
+  });
+
+  it('a sustained LAST word sweeps alone (line-end hold)', () => {
+    expect(planWordFills(words(200, 300, 900), false, 'simple')).toEqual([false, false, true]);
+  });
+
+  it('an isolated mid-line sustained word pops like its neighbours', () => {
+    // Field feedback: per-word sweep/pop alternation reads as random.
+    expect(planWordFills(words(200, 900, 300), false, 'simple')).toEqual([false, false, false]);
+  });
+
+  it('mid-line runs of >= 2 sustained words sweep together', () => {
+    expect(planWordFills(words(200, 900, 850, 300), false, 'full')).toEqual([
+      false,
+      true,
+      true,
+      false,
+    ]);
+    expect(planWordFills(words(900, 850, 950), false, 'full')).toEqual([true, true, true]);
+  });
+
+  it('short lines with no sustained words never sweep', () => {
+    expect(planWordFills(words(200, 300, 250), false, 'full')).toEqual([false, false, false]);
+  });
+
+  it('progress is clamped 0..1 across the word span', () => {
+    expect(fillProgress(LONG, 500)).toBe(0); // before
+    expect(fillProgress(LONG, 1000)).toBe(0);
+    expect(fillProgress(LONG, 1600)).toBeCloseTo(0.5);
+    expect(fillProgress(LONG, 2200)).toBe(1);
+    expect(fillProgress(LONG, 9000)).toBe(1); // after
+    expect(fillProgress({ start_ms: 1000, end_ms: 1000 }, 1000)).toBe(1); // zero span
+  });
+});
+
+describe('color rules (field feedback: readability is a RULE, not luck)', () => {
+  it('clamps light backgrounds dark, keeping grays gray', () => {
+    const clamped = clampBackground('#f5f5f5');
+    expect(relativeLuminance(clamped)).toBeLessThanOrEqual(BG_MAX_LUMINANCE);
+    // Channels scale together — a gray stays a gray.
+    expect(clamped[1]).toBe(clamped[3]);
+    // Already-dark backgrounds pass through unchanged.
+    expect(clampBackground('#1a1a2e')).toBe('#1a1a2e');
+  });
+
+  it('light palette backgrounds land dark in the CSS vars', () => {
+    const vars = paletteToCssVars({ background: '#ffffff' });
+    expect(vars['--kashi-bg-rgb']).not.toBe('255, 255, 255');
+    const [r, g, b] = vars['--kashi-bg-rgb']!.split(',').map((v) => Number(v.trim()));
+    const hex = `#${[r, g, b].map((v) => v!.toString(16).padStart(2, '0')).join('')}`;
+    expect(relativeLuminance(hex)).toBeLessThanOrEqual(BG_MAX_LUMINANCE);
+  });
+
+  it('a dark muddy primary is rescued into a readable band (was: white fallback)', () => {
+    // 0.2.3 whited this out; the tone mapper keeps the hue and guarantees
+    // the contrast by construction.
+    const vars = paletteToCssVars({ background: '#1a1a2e', primary: '#5a2020' });
+    expect(vars['--kashi-primary']).not.toBe('#ffffff');
+    const [r, g, b] = vars['--kashi-bg-rgb']!.split(',').map((v) => Number(v.trim()));
+    const bgHex = `#${[r, g, b].map((v) => v!.toString(16).padStart(2, '0')).join('')}`;
+    expect(contrastRatio(vars['--kashi-primary']!, bgHex)).toBeGreaterThanOrEqual(
+      TEXT_CONTRAST_MIN,
+    );
+  });
+
+  it('theme scope: full themes background and effect colors, none keeps everything stock', () => {
+    const palette = {
+      primary: '#e84545',
+      background: '#1a1a2e',
+      text: '#f5d76e',
+      accent: '#903749',
+    };
+    const full = paletteToCssVars(palette, 'full');
+    expect(full['--kashi-bg-rgb']).not.toBe(DEFAULT_PALETTE_VARS['--kashi-bg-rgb']);
+    expect(full['--kashi-text']).toBe('#ffffff'); // base text pinned (0.2.4)
+    expect(full['--kashi-primary']).toBe('#ff847c'); // effect colors themed
+
+    expect(paletteToCssVars(palette, 'none')).toEqual(DEFAULT_PALETTE_VARS);
+  });
+});
+
+describe('beatsUsable', () => {
+  const BEATS = { bpm: 113, confidence: 0.9, times_ms: [480, 1010], downbeat_indices: [0] };
+
+  it('requires full level, a non-empty grid and confidence >= 0.5', () => {
+    expect(beatsUsable('full', BEATS)).toBe(true);
+    expect(beatsUsable('simple', BEATS)).toBe(false);
+    expect(beatsUsable('off', BEATS)).toBe(false);
+    expect(beatsUsable('full', undefined)).toBe(false);
+    expect(beatsUsable('full', { ...BEATS, times_ms: [] })).toBe(false);
+    expect(beatsUsable('full', { ...BEATS, confidence: 0.4 })).toBe(false);
+    expect(beatsUsable('full', { ...BEATS, confidence: undefined })).toBe(false);
+    expect(beatsUsable('full', { ...BEATS, times_ms: [480, 'x'] })).toBe(false);
+  });
+});
+
+describe('BeatCursor', () => {
+  const TIMES = [1000, 1500, 2000, 2500, 3000];
+
+  it('pulses exactly inside [t-30, t+60] (edges inclusive)', () => {
+    const cursor = new BeatCursor(TIMES);
+    expect(cursor.frame(1000 - BEAT_WINDOW_BEFORE_MS - 1).active).toBe(false);
+    expect(cursor.frame(1000 - BEAT_WINDOW_BEFORE_MS).active).toBe(true);
+    expect(cursor.frame(1000).active).toBe(true);
+    expect(cursor.frame(1000 + BEAT_WINDOW_AFTER_MS).active).toBe(true);
+    expect(cursor.frame(1000 + BEAT_WINDOW_AFTER_MS + 1).active).toBe(false);
+  });
+
+  it('advances monotonically through the grid', () => {
+    const cursor = new BeatCursor(TIMES, [2]); // 2000 is a downbeat
+    expect(cursor.frame(900)).toEqual(BEAT_IDLE);
+    expect(cursor.frame(1005)).toEqual({ active: true, down: false });
+    expect(cursor.frame(1200)).toEqual(BEAT_IDLE); // between beats
+    expect(cursor.frame(1500)).toEqual({ active: true, down: false });
+    expect(cursor.frame(2010)).toEqual({ active: true, down: true });
+    expect(cursor.frame(3200)).toEqual(BEAT_IDLE); // past the last beat
+    expect(cursor.frame(9999)).toEqual(BEAT_IDLE); // stays idle at the end
+  });
+
+  it('re-seeks on backward jumps (seek back)', () => {
+    const cursor = new BeatCursor(TIMES, [0]); // the 1000 ms beat is a downbeat
+    cursor.frame(2510); // advance deep into the grid
+    expect(cursor.frame(1010)).toEqual({ active: true, down: true });
+    expect(cursor.frame(995)).toEqual({ active: true, down: true }); // small back-slew
+  });
+
+  it('re-seeks on forward jumps beyond the resync threshold', () => {
+    const long = Array.from({ length: 10_000 }, (_, i) => i * 500);
+    const cursor = new BeatCursor(long);
+    cursor.frame(0);
+    // Jump far forward — must land accurately (binary search, not a scan).
+    const jump = 4_000_000;
+    expect(jump).toBeGreaterThan(BEAT_RESYNC_JUMP_MS);
+    expect(cursor.frame(jump).active).toBe(true); // 4_000_000 is on the grid
+    expect(cursor.frame(jump + 100).active).toBe(false);
+  });
+
+  it('handles a paused position (repeated frames at the same pos)', () => {
+    const cursor = new BeatCursor(TIMES);
+    expect(cursor.frame(1500).active).toBe(true);
+    expect(cursor.frame(1500).active).toBe(true); // idempotent, no advance past
+  });
+});
+
+describe('buildFxIndex (Faz 6 hype)', () => {
+  const lines = [
+    {
+      start_ms: 0,
+      end_ms: 2000,
+      text: 'the bomb explodes with love',
+      words: [
+        { start_ms: 0, end_ms: 400, text: 'the' },
+        { start_ms: 400, end_ms: 900, text: 'bomb' },
+        { start_ms: 900, end_ms: 1400, text: 'explodes' },
+        { start_ms: 1400, end_ms: 1700, text: 'with' },
+        { start_ms: 1700, end_ms: 2000, text: 'love' },
+      ],
+    },
+    { start_ms: 2000, end_ms: 4000, text: 'wordless line' },
+  ];
+  const fx = (words: unknown[], select?: string) =>
+    ({ lexicon: 'kashi-fx/1.0.0', engine: 'keywords', words, select }) as never;
+
+  it('keeps ONE winner per line when the server did NOT choose', () => {
+    // A document from before pipeline 2.13.0 carries raw candidates. Rendering
+    // them all would put three effects on this line where there is one today
+    // — strictly worse than the behaviour the selection exists to fix. The
+    // legacy rule must survive byte-for-byte.
+    const index = buildFxIndex(
+      fx([
+        { line: 0, word: 4, tag: 'love', intensity: 0.6 },
+        { line: 0, word: 1, tag: 'explosion', intensity: 0.9 },
+        { line: 0, word: 2, tag: 'explosion', intensity: 0.9 },
+      ]),
+      lines,
+    );
+    expect(index.size).toBe(1);
+    expect(index.get(0)).toEqual([{ word: 1, effect: { tag: 'explosion', intensity: 0.9 } }]);
+  });
+
+  it('keeps every entry of a line when the server DID choose', () => {
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 4, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 0, tag: 'explosion', intensity: 0.9 },
+        ],
+        'density/1.0',
+      ),
+      lines,
+    );
+    // Word order, not score order — they fire as the line is sung.
+    expect(index.get(0)!.map((hit) => hit.word)).toEqual([0, 4]);
+  });
+
+  it('caps a selected line, in case a plan arrives wrong', () => {
+    // The belt only exists for a malformed plan, so the fixture has to exceed
+    // it: a legitimate line can carry several entries now that a repeated word
+    // emits one per occurrence.
+    const wide = [
+      {
+        start_ms: 0,
+        end_ms: 4000,
+        text: 'a'.repeat(8),
+        words: Array.from({ length: 8 }, (_, i) => ({
+          start_ms: i * 400,
+          end_ms: i * 400 + 380,
+          text: `w${i}`,
+        })),
+      },
+    ];
+    const index = buildFxIndex(
+      fx(
+        Array.from({ length: 8 }, (_, word) => ({
+          line: 0,
+          word,
+          tag: 'love',
+          intensity: 0.6,
+        })),
+        'density/1.0',
+      ),
+      wide,
+    );
+    expect(index.get(0)).toHaveLength(MAX_FX_PER_LINE);
+  });
+
+  it('collapses duplicate word indices in a selected line', () => {
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 2, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 2, tag: 'fire', intensity: 0.8 },
+        ],
+        'density/1.0',
+      ),
+      lines,
+    );
+    expect(index.get(0)).toHaveLength(1);
+  });
+
+  it('still drops unrenderable entries when the server chose', () => {
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 99, tag: 'love', intensity: 0.6 },
+          { line: 1, word: 0, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 1, tag: '', intensity: 0.6 },
+          { line: 0, word: 3, tag: 'fire', intensity: 0.8 },
+        ],
+        'density/1.0',
+      ),
+      lines,
+    );
+    expect(index.get(0)!.map((hit) => hit.word)).toEqual([3]);
+    expect(index.has(1)).toBe(false);
+  });
+
+  it('an empty select string is NOT a choice', () => {
+    // Only a non-empty marker means "already chosen"; anything else must
+    // leave the renderer on the rule that cannot make things worse.
+    const index = buildFxIndex(
+      fx(
+        [
+          { line: 0, word: 0, tag: 'love', intensity: 0.6 },
+          { line: 0, word: 3, tag: 'fire', intensity: 0.8 },
+        ],
+        '',
+      ),
+      lines,
+    );
+    expect(index.get(0)).toHaveLength(1);
+  });
+
+  it('primaryFxHit picks the strongest, earliest on a tie', () => {
+    const hits = [
+      { word: 4, effect: { tag: 'love', intensity: 0.6 } },
+      { word: 0, effect: { tag: 'explosion', intensity: 0.9 } },
+      { word: 2, effect: { tag: 'fire', intensity: 0.9 } },
+    ];
+    expect(primaryFxHit(hits)!.word).toBe(0);
+    expect(primaryFxHit([])).toBeUndefined();
+    expect(primaryFxHit(undefined)).toBeUndefined();
+  });
+
+  it('drops out-of-range indices and wordless-line tags (quality-gate strips)', () => {
+    const index = buildFxIndex(
+      fx([
+        { line: 0, word: 99, tag: 'love', intensity: 0.6 },
+        { line: 1, word: 0, tag: 'love', intensity: 0.6 },
+        { line: 7, word: 0, tag: 'love', intensity: 0.6 },
+      ]),
+      lines,
+    );
+    expect(index.size).toBe(0);
+  });
+
+  it('clamps intensity into [0,1] and tolerates missing fx', () => {
+    const index = buildFxIndex(fx([{ line: 0, word: 1, tag: 'fire', intensity: 7 }]), lines);
+    expect(index.get(0)![0]!.effect.intensity).toBe(1);
+    expect(buildFxIndex(undefined, lines).size).toBe(0);
+  });
+
+  it('maps the hero categories to archetypes and everything else to generic', () => {
+    // Eight of the lexicon's 24 have a behaviour of their own; the rest keep
+    // the shipped one on purpose (an archetype needs a meaning you can name).
+    expect(FX_ARCHETYPES.size).toBe(8);
+    for (const tag of FX_ARCHETYPES.keys()) {
+      expect(FX_BASE_COLORS, `${tag} is not in the lexicon`).toHaveProperty(tag);
+    }
+    expect(resolveFxProfile('poison')).toBe(ARCHETYPE_PROFILES.smoke);
+    expect(resolveFxProfile('love')).toBe(ARCHETYPE_PROFILES.drift);
+    // Money falls like water but must not look like a drop.
+    expect(resolveFxProfile('money').shapes).toEqual(['disc']);
+    expect(resolveFxProfile('water').shapes).toEqual(ARCHETYPE_PROFILES.fall.shapes);
+    // Unmapped, unknown and absent all land on the same generic answer.
+    expect(resolveFxProfile('crown')).toBe(GENERIC_PROFILE);
+    expect(resolveFxProfile('not-a-tag')).toBe(GENERIC_PROFILE);
+    expect(resolveFxProfile(null)).toBe(GENERIC_PROFILE);
+  });
+});
+
+describe('energy/section dynamics (Faz 6 P5)', () => {
+  const energy = { rate_hz: 2, values: [0, 20, 40, 60, 80, 100] }; // 3s clip
+
+  it('energyAt is O(1) position lookup with edge clamping', () => {
+    expect(energyAt(energy, 0)).toBe(0);
+    expect(energyAt(energy, 500)).toBe(0.2); // sample 1
+    expect(energyAt(energy, 2500)).toBe(1);
+    expect(energyAt(energy, 99_000)).toBe(1); // clamps to the last sample
+    expect(energyAt(energy, -50)).toBe(0);
+    expect(energyAt(undefined, 1000)).toBe(0);
+    expect(energyAt({ rate_hz: 0, values: [50] }, 0)).toBe(0);
+  });
+
+  it('quantizedEnergy steps by ENERGY_QUANT (style writes only on change)', () => {
+    const e = { rate_hz: 2, values: [37] };
+    expect(quantizedEnergy(e, 0)).toBeCloseTo(0.35);
+    expect(quantizedEnergy(e, 0)).toBe(quantizedEnergy(e, 400));
+  });
+
+  it('inSection matches only the asked type inside [start, end)', () => {
+    const sections = [
+      { type: 'high', start_ms: 10_000, end_ms: 20_000 },
+      { type: 'chorus', start_ms: 30_000, end_ms: 40_000 },
+    ];
+    expect(inSection(sections, 'high', 9_999)).toBe(false);
+    expect(inSection(sections, 'high', 10_000)).toBe(true);
+    expect(inSection(sections, 'high', 19_999)).toBe(true);
+    expect(inSection(sections, 'high', 20_000)).toBe(false);
+    expect(inSection(sections, 'high', 35_000)).toBe(false); // other type
+    expect(inSection(undefined, 'high', 0)).toBe(false);
+  });
+});
+
+describe('computeFxTintVars (Faz 6 field round 2)', () => {
+  it('emits a TEXT and a PARTICLE var per category; scope none emits nothing', () => {
+    // Two sets on purpose: text has to stay legible, particles do not, and
+    // sharing one window is what made every archetype the same pastel dot.
+    const vars = computeFxTintVars('#ff847c', 'full');
+    const tags = Object.keys(FX_BASE_COLORS);
+    expect(Object.keys(vars)).toHaveLength(tags.length * 2);
+    for (const tag of tags) {
+      expect(vars[`--fx-tint-${tag}`], tag).toMatch(/^#[0-9a-f]{6}$/);
+      expect(vars[`--fx-pt-${tag}`], tag).toMatch(/^#[0-9a-f]{6}$/);
+    }
+    expect(computeFxTintVars('#ff847c', 'none')).toEqual({});
+  });
+
+  it('gives a hero archetype a particle colour outside the text window', () => {
+    const vars = computeFxTintVars(undefined, 'full');
+    // poison -> smoke: deliberately dark and muddy, which the readability
+    // window for text could never allow.
+    const poisonText = hexToOklch(vars['--fx-tint-poison']!);
+    const poisonParticle = hexToOklch(vars['--fx-pt-poison']!);
+    expect(poisonText.L).toBeGreaterThan(0.65);
+    // A window, not a ceiling. It used to be `< 0.55`, and 0.44 satisfied that
+    // while being invisible on screen — dark is the character, absent is not.
+    // The relative pin below is the one that carries the meaning: whatever the
+    // number, poison stays the darkest thing the layer draws.
+    expect(poisonParticle.L).toBeGreaterThan(0.6);
+    expect(poisonParticle.L).toBeLessThan(0.72);
+    expect(poisonParticle.L).toBeLessThan(poisonText.L);
+    const bands = Object.values(PARTICLE_BANDS).map((b) => b.L);
+    expect(Math.min(...bands)).toBe(PARTICLE_BANDS.smoke!.L);
+
+    // shine -> twinkle: almost white.
+    expect(hexToOklch(vars['--fx-pt-shine']!).L).toBeGreaterThan(0.9);
+
+    // An uncategorised tag keeps exactly the colour it has today.
+    expect(vars['--fx-pt-crown']).toBe(vars['--fx-tint-crown']);
+  });
+
+  it('the colliding category pairs are actually separated now', () => {
+    // Measured before the change: shine/electric 9 degrees apart, money/poison
+    // 7 — the same colour to the eye, on archetypes seen back to back.
+    const hue = (hex: string) => hexToOklch(hex).h;
+    const apart = (a: string, b: string) =>
+      (hueDistance(hue(FX_BASE_COLORS[a]!), hue(FX_BASE_COLORS[b]!)) * 180) / Math.PI;
+    expect(apart('shine', 'electric')).toBeGreaterThan(30);
+    expect(apart('money', 'poison')).toBeGreaterThan(20);
+  });
+
+  it('every category wears its own text tint inline; none and unknown tags fall back', () => {
+    // Replaces the stylesheet's 24 hand-written `.fx-<tag>` rules (client
+    // review E.3): the word's colour is read from the same map, so no category
+    // can be left without one (the v1.2 categories once were).
+    const vars = computeFxTintVars('#ff847c', 'full');
+    for (const tag of Object.keys(FX_BASE_COLORS)) {
+      expect(fxWordColor(tag, vars), tag).toBe(vars[`--fx-tint-${tag}`]);
+      expect(fxWordColor(tag, vars), tag).toMatch(/^#[0-9a-f]{6}$/);
+      // The particle set is not the text set: a word never wears --fx-pt-.
+      if (vars[`--fx-pt-${tag}`] !== vars[`--fx-tint-${tag}`]) {
+        expect(fxWordColor(tag, vars), tag).not.toBe(vars[`--fx-pt-${tag}`]);
+      }
+    }
+    expect(fxWordColor('love', computeFxTintVars('#ff847c', 'none'))).toBeUndefined();
+    expect(fxWordColor('a-newer-category', vars)).toBeUndefined();
+  });
+
+  it('tints are valid hex and keep the category hue (0.7.1 own-vividness)', () => {
+    const vars = computeFxTintVars(undefined, 'full');
+    for (const [tag, base] of Object.entries(FX_BASE_COLORS)) {
+      const tint = vars[`--fx-tint-${tag}`]!;
+      expect(tint).toMatch(/^#[0-9a-f]{6}$/);
+      expect(hueDistance(hexToOklch(tint).h, hexToOklch(base).h)).toBeLessThan(0.2);
+    }
+  });
+});
+
+describe('buildLineThemeIndex + ambientColors (Faz 6.5 P1 ambient ring)', () => {
+  const lines = [
+    { start_ms: 0, end_ms: 2000, text: 'poison in my veins' },
+    { start_ms: 2000, end_ms: 4000, text: 'plain line' },
+  ];
+  const fx = (extra: object) =>
+    ({ lexicon: 'kashi-fx/1.1.0', engine: 'keywords', ...extra }) as never;
+
+  it('maps valid line tags and drops garbage entries', () => {
+    const index = buildLineThemeIndex(
+      fx({
+        lines: [
+          { line: 0, tag: 'poison' },
+          { line: 5, tag: 'love' }, // out of range
+          { line: 1.5, tag: 'love' }, // non-integer
+          { line: -1, tag: 'love' },
+          { line: 1, tag: '' }, // empty tag
+        ],
+      }),
+      lines,
+    );
+    expect(index.size).toBe(1);
+    expect(index.get(0)).toBe('poison');
+  });
+
+  it('first entry wins on duplicate lines (deterministic)', () => {
+    const index = buildLineThemeIndex(
+      fx({ lines: [{ line: 0, tag: 'poison' }, { line: 0, tag: 'love' }] }),
+      lines,
+    );
+    expect(index.get(0)).toBe('poison');
+  });
+
+  it('is empty without fx.lines or off-index', () => {
+    expect(buildLineThemeIndex(undefined, lines).size).toBe(0);
+    expect(buildLineThemeIndex(fx({}), lines).size).toBe(0);
+  });
+
+  it('ambientColors: theme drives the ring, fx word drives the flash', () => {
+    const themes = new Map([[0, 'poison']]);
+    const fxIndex = new Map([[0, [{ word: 2, effect: { tag: 'love', intensity: 0.8 } }]]]);
+    const tints = { '--fx-tint-poison': '#22aa55', '--fx-tint-love': '#dd6699' };
+    expect(ambientColors(0, themes, fxIndex, tints)).toEqual({
+      ambient: '#22aa55',
+      flash: '#dd6699',
+    });
+    // No line theme (the norm since P4 parked the embedding layer): the
+    // floor falls back to the fx WORD's tint — keyword-layer precision.
+    expect(ambientColors(0, new Map(), fxIndex, tints)).toEqual({
+      ambient: '#dd6699',
+      flash: '#dd6699',
+    });
+  });
+
+  it('ambientColors: unknown tags and idle lines resolve to null (DG6)', () => {
+    const themes = new Map([[0, 'brand-new-category']]);
+    const tints = { '--fx-tint-poison': '#22aa55' };
+    expect(ambientColors(0, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
+    expect(ambientColors(-1, themes, new Map(), tints)).toEqual({ ambient: null, flash: null });
+    // Symmetric fallback: an unknown THEME with a known word tint still
+    // floors on the word tint (reviewer nit).
+    const fxIndex = new Map([[0, [{ word: 1, effect: { tag: 'poison', intensity: 0.7 } }]]]);
+    expect(ambientColors(0, themes, fxIndex, tints)).toEqual({
+      ambient: '#22aa55',
+      flash: '#22aa55',
+    });
+  });
+});
+
+describe('nightcore gate + ramp sections (Faz 6.5 P5)', () => {
+  it('isNightcore: r>=1.05 only, garbage never', () => {
+    expect(isNightcore({ speed_factor: 1.27 })).toBe(true);
+    expect(isNightcore({ speed_factor: 1.05 })).toBe(true);
+    expect(isNightcore({ speed_factor: 1.0 })).toBe(false);
+    expect(isNightcore({ speed_factor: 1.04 })).toBe(false);
+    expect(isNightcore({ speed_factor: Number.NaN })).toBe(false);
+    expect(isNightcore({})).toBe(false);
+    expect(isNightcore(undefined)).toBe(false);
+  });
+
+  it('inRampSection: high AND chorus both drive the ramp (P6-ready)', () => {
+    const sections = [
+      { type: 'high', start_ms: 0, end_ms: 1000 },
+      { type: 'chorus', start_ms: 5000, end_ms: 9000 },
+      { type: 'verse', start_ms: 2000, end_ms: 4000 },
+    ];
+    expect(inRampSection(sections, 500)).toBe(true);
+    expect(inRampSection(sections, 6000)).toBe(true);
+    expect(inRampSection(sections, 3000)).toBe(false); // verse is not a ramp type
+    expect(inRampSection(sections, 4500)).toBe(false);
+    expect(inRampSection(undefined, 0)).toBe(false);
+  });
+});
+
+describe('planFillsByLineIdentity', () => {
+  /** The four opening passes of Rihanna "Don't Stop The Music", as measured. */
+  const spans = (durations: number[]) =>
+    durations.map((d, i) => ({ start_ms: i * 2000, end_ms: i * 2000 + d }));
+  const CHORUS = 'Please don\'t stop the music (music, music, music, music)';
+  const PASSES = [
+    [273, 189, 231, 147, 1092, 1029, 1029, 1050, 903],
+    [252, 147, 252, 126, 336, 756, 1029, 1029, 1323],
+    [294, 168, 252, 147, 1092, 1029, 1029, 1029, 882],
+    [294, 126, 273, 147, 315, 735, 273, 735, 903],
+  ];
+  const lines = PASSES.map((p) => ({ text: CHORUS, words: spans(p) }));
+
+  it('renders every pass of a repeated line the same way', () => {
+    // The bug, stated as a property: four identical passes rendered 5/3/5/1
+    // sweeping words because the aligner measured the same word anywhere from
+    // 273 ms to 1092 ms.
+    const plans = planFillsByLineIdentity(lines, 'full');
+    const rendered = plans.map((p) => JSON.stringify(p));
+    expect(new Set(rendered).size).toBe(1);
+  });
+
+  it('does not simply fill everything to achieve that', () => {
+    // Consistency is cheap if you give up and sweep every word — the short
+    // words at the front must still pop.
+    const plan = planFillsByLineIdentity(lines, 'full')[0];
+    expect(plan?.slice(0, 4)).toEqual([false, false, false, false]);
+    expect(plan?.some(Boolean)).toBe(true);
+  });
+
+  it('answers for the GROUP, not for whichever pass came first', () => {
+    // Word 5 was measured 1092/336/1092/315. The first pass alone says
+    // "sweep"; the group's middle says otherwise, and the group is the truth
+    // about the song.
+    const plan = planFillsByLineIdentity(lines, 'full')[0];
+    expect(plan?.[4]).toBe(false);
+  });
+
+  it('takes the MIDDLE, so one wild pass cannot drag the answer', () => {
+    // Three passes agree the word is held; one measurement collapsed it. A
+    // mean lets that outlier decide (775 ms -> pop); the median leaves it
+    // outvoted 3 to 1 (1000 ms -> sweep).
+    const outlier = [1000, 1000, 1000, 100].map((d) => ({
+      text: 'held',
+      words: [{ start_ms: 0, end_ms: d }],
+    }));
+    expect(planFillsByLineIdentity(outlier, 'full')[0]).toEqual([true]);
+  });
+
+  it('keeps lines apart when the same text carries a different word count', () => {
+    // Same words, different line: "please don't stop the, please don't stop
+    // the music" is not the chorus even when the text normalises close.
+    const odd = [
+      { text: CHORUS, words: spans([900, 900]) },
+      { text: CHORUS, words: spans([900, 900, 900]) },
+    ];
+    const plans = planFillsByLineIdentity(odd, 'full');
+    expect(plans[0]).toHaveLength(2);
+    expect(plans[1]).toHaveLength(3);
+  });
+
+  it('leaves a line with no words unplanned', () => {
+    expect(planFillsByLineIdentity([{ text: 'x' }], 'full')[0]).toBeUndefined();
+  });
+
+  it('respects the effect level', () => {
+    expect(planFillsByLineIdentity(lines, 'off')[0]?.every((f) => f === false)).toBe(true);
+  });
+});
+
+describe('a repeated word is one gesture', () => {
+  const w = (text: string, ms: number) => ({ text, start_ms: 0, end_ms: ms });
+
+  it('does not split an identical repeat down the middle', () => {
+    // Field report (Rihanna, "(music, music, music, music)"): five identical
+    // words measured 714/892/1029/1029/903 ms and rendered two popping next to
+    // three sweeping. The ear hears one gesture; the screen showed a coin toss.
+    const plan = planWordFills(
+      [
+        w('music', 714),
+        w('(music,', 892),
+        w('music,', 1029),
+        w('music,', 1029),
+        w('music)', 903),
+      ],
+      false,
+      'full',
+    );
+    expect(new Set(plan).size).toBe(1);
+    // ...and it declines to sweep, because one member came back at 714 ms: a
+    // sweep would draw that word being consumed over a duration the aligner is
+    // not sure about, which is exactly where the error becomes visible.
+    expect(plan[0]).toBe(false);
+  });
+
+  it('ignores punctuation when deciding what counts as the same word', () => {
+    // Same word either way, so one answer — and the 200 ms member decides it.
+    const plan = planWordFills([w('music', 900), w('(music,', 200)], false, 'full');
+    expect(plan).toEqual([false, false]);
+  });
+
+  it('one short member is enough to make the whole run pop', () => {
+    // The rule is unanimity, not majority: three held words and one clipped
+    // one still pop, because the clipped one is the reason to doubt the run.
+    const plan = planWordFills(
+      [w('na', 1200), w('na', 1200), w('na', 1200), w('na', 200)],
+      false,
+      'full',
+    );
+    expect(plan.every((f) => f === false)).toBe(true);
+  });
+
+  it('sweeps a repeat only when EVERY member is held', () => {
+    const plan = planWordFills(
+      [w('ooh', 1200), w('ooh', 1200), w('ooh', 1200)],
+      false,
+      'full',
+    );
+    expect(plan.every((f) => f === true)).toBe(true);
+  });
+
+  it('judges DIFFERENT neighbouring words on their own merits', () => {
+    // The rule is about repetition, not about smoothing the line: two held
+    // words that are not the same word still answer for themselves (and a
+    // sustained PAIR sweeps, per the pre-existing run rule).
+    const plan = planWordFills(
+      [w('hold', 1200), w('me', 1200), w('now', 200)],
+      false,
+      'full',
+    );
+    expect(plan).toEqual([true, true, false]);
+  });
+
+  it('still works when words carry no text at all', () => {
+    const plan = planWordFills(
+      [{ start_ms: 0, end_ms: 900 }, { start_ms: 0, end_ms: 900 }],
+      false,
+      'full',
+    );
+    expect(plan).toEqual([true, true]);
+  });
+});
+
+describe('held-note sweep (client review E.2)', () => {
+  /**
+   * Words starting at `starts`, 200 ms long unless overridden. Distinct texts
+   * by default: the repeat rule compares letters only, so "w0" and "w1" would
+   * read as one word repeated.
+   */
+  const DISTINCT = ['ka', 'lo', 'mi', 'nu', 'pe', 'ra', 'si', 'tu', 've'];
+  const at = (starts: number[], durations: number[] = [], texts: string[] = []) =>
+    starts.map((start, i) => ({
+      start_ms: start,
+      end_ms: start + (durations[i] ?? 200),
+      text: texts[i] ?? DISTINCT[i] ?? 'zo',
+    }));
+  const held = (words: ReturnType<typeof at>, finalDwellMs?: number) =>
+    planLineFills(words, false, 'hype', finalDwellMs).held;
+
+  it('pins its numbers', () => {
+    // Pinned as values, not as the constant (olu-fikirler: a test written
+    // relative to a constant hid an unmeasured gate for months).
+    expect(HELD_NOTE_SWEEP).toEqual({
+      minDwellMs: 1000,
+      maxDwellMs: 5000,
+      lineMedianFactor: 2.5,
+      spanDwellFraction: 0.8,
+      lineFinal: true,
+      lineFinalPauseMs: 750,
+    });
+  });
+
+  it('a dwell exactly on the 1 000 ms floor sweeps; 1 ms less pops', () => {
+    // Other dwells 300/300/300: 2.5 x 300 = 750, so the floor decides.
+    expect(held(at([0, 300, 600, 1600, 1900]))).toEqual([false, false, true, false, false]);
+    expect(held(at([0, 300, 600, 1599, 1899]))).toEqual([false, false, false, false, false]);
+  });
+
+  it('a dwell up to 5 000 ms sweeps; 1 ms more is a hole in the document and pops', () => {
+    expect(held(at([0, 300, 600, 5600, 5900]))).toEqual([false, false, true, false, false]);
+    expect(held(at([0, 300, 600, 5601, 5901]))).toEqual([false, false, false, false, false]);
+    // The line-final word's dwell has the same ceiling.
+    expect(held(at([0, 300, 600]), 5000)).toEqual([false, false, true]);
+    expect(held(at([0, 300, 600]), 5001)).toEqual([false, false, false]);
+  });
+
+  it('a dwell exactly 2.5 x the median of the other dwells sweeps; 1 ms less pops', () => {
+    // Other dwells 480/480/480: 2.5 x 480 = 1 200 > the floor.
+    expect(held(at([0, 480, 960, 2160, 2640]))).toEqual([false, false, true, false, false]);
+    expect(held(at([0, 480, 960, 2159, 2639]))).toEqual([false, false, false, false, false]);
+  });
+
+  it('an even count of other dwells takes the mean of the middle two', () => {
+    // Word 1's others are 400 and 600: median 500, threshold 1 250.
+    expect(held(at([0, 400, 1650, 2250]))[1]).toBe(true);
+    expect(held(at([0, 400, 1649, 2249]))[1]).toBe(false);
+  });
+
+  it('leaves the word itself out of the median, so short lines can qualify', () => {
+    // Three words, dwells 2 000 and 300. With itself in, the median would be
+    // 1 150 and the threshold 2 875: a 2- or 3-word line could never sweep.
+    expect(held(at([0, 2000, 2300]))).toEqual([true, false, false]);
+    // Two words: no other dwell, the floor alone.
+    expect(held(at([0, 1000]))).toEqual([true, false]);
+    expect(held(at([0, 999]))).toEqual([false, false]);
+  });
+
+  it('never claims a word the run rules already sweep, nor any word when off', () => {
+    // Sustained run of two mid-line: swept by the run rule, not a held note.
+    const run = at([0, 1500, 3000, 3300], [1400, 1400, 200, 200]);
+    expect(planLineFills(run, false, 'hype').sweep).toEqual([true, true, false, false]);
+    expect(held(run)).toEqual([false, false, false, false]);
+    // Sustained last word: the line-end hold, over its own span.
+    const lineEnd = at([0, 300, 600], [200, 200, 900]);
+    expect(planLineFills(lineEnd, false, 'hype', 5000)).toEqual({
+      sweep: [false, false, true],
+      held: [false, false, false],
+    });
+    // Ad-lib lines sweep every word over its own span; off sweeps nothing.
+    const long = at([0, 300, 600, 1600, 1900]);
+    expect(planLineFills(long, true, 'hype').held.some(Boolean)).toBe(false);
+    expect(planLineFills(long, false, 'off')).toEqual({
+      sweep: [false, false, false, false, false],
+      held: [false, false, false, false, false],
+    });
+  });
+
+  it('a held note joins the sweep plan the renderer reads', () => {
+    expect(planWordFills(at([0, 300, 600, 1600, 1900]), false, 'simple')).toEqual([
+      false,
+      false,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it('judges a line-final word by its dwell until the next line takes over', () => {
+    const words = at([0, 300, 600]); // inner dwells 300/300, threshold 1 000
+    expect(held(words, 1000)).toEqual([false, false, true]);
+    expect(held(words, 999)).toEqual([false, false, false]);
+    expect(held(words, undefined)).toEqual([false, false, false]); // interlude / outro
+    const flags = HELD_NOTE_SWEEP as { lineFinal: boolean };
+    flags.lineFinal = false;
+    try {
+      expect(held(words, 5000)).toEqual([false, false, false]);
+    } finally {
+      flags.lineFinal = true;
+    }
+  });
+
+  it('gives a back-to-back repeat one answer: held only when every member is', () => {
+    const texts = ['a', 'b', 'c', 'na', 'na', 'd', 'e', 'f'];
+    const both = at([0, 300, 600, 900, 2100, 3300, 3600, 3900], [], texts);
+    expect(held(both)).toEqual([false, false, false, true, true, false, false, false]);
+    // The second "na" now dwells 900 ms: one member short, so neither sweeps.
+    const one = at([0, 300, 600, 900, 2100, 3000, 3300, 3600], [], texts);
+    expect(held(one)).toEqual([false, false, false, false, false, false, false, false]);
+  });
+
+  it('sweeps a held note over [start, max(end, start + 0.8 x dwell)]', () => {
+    const words = at([0, 300, 600, 1600, 1900]);
+    const spans = planSweepSpans(words, held(words));
+    expect(spans[2]).toEqual({ start_ms: 600, end_ms: 1400 }); // 600 + 0.8 x 1 000
+    expect(spans[1]).toEqual({ start_ms: 300, end_ms: 500 }); // not held: own span
+    expect(fillProgress(spans[2]!, 1000)).toBeCloseTo(0.5);
+    // A measured end beyond 0.8 x dwell is kept.
+    const longEnd = at([0, 300, 600, 1600, 1900], [200, 200, 900, 200, 200]);
+    expect(planSweepSpans(longEnd, [false, false, true, false, false])[2]).toEqual({
+      start_ms: 600,
+      end_ms: 1500,
+    });
+    // The line-final word's dwell comes from the caller.
+    expect(planSweepSpans(at([0, 300, 600]), [false, false, true], 2000)[2]).toEqual({
+      start_ms: 600,
+      end_ms: 2200,
+    });
+  });
+
+  it('measures dwell as next start minus own start', () => {
+    expect(wordDwells(at([0, 250, 1000]))).toEqual([250, 750, null]);
+    expect(wordDwells(at([0, 250, 1000]), 640)).toEqual([250, 750, 640]);
+  });
+
+  it('a line-final dwell ends where the next line takes the display over', () => {
+    const line = (start: number, end: number, lastStart: number) => ({
+      start_ms: start,
+      end_ms: end,
+      text: 'x',
+      words: [
+        { start_ms: start, end_ms: lastStart, text: 'a' },
+        { start_ms: lastStart, end_ms: end, text: 'b' },
+      ],
+    });
+    // 800 ms of silence: the next line borrows a 500 ms lead-in -> takes over at 1 300.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(1800, 2500, 2000)], 0)).toBe(500);
+    // 100 ms of silence (< the 120 ms minimum lead): it takes over on its start.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(1100, 2500, 2000)], 0)).toBe(300);
+    // Exactly 120 ms: a 120 ms lead-in.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(1120, 2500, 2000)], 0)).toBe(200);
+    // A long break shows the interlude mark, the last line the outro hold: no next word.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(6001, 7000, 6500)], 0)).toBeUndefined();
+    expect(lineFinalDwellMs([line(0, 1000, 800)], 0)).toBeUndefined();
+  });
+
+  it('counts at most 750 ms of the pause past the last word\'s measured end', () => {
+    const line = (start: number, end: number, lastStart: number, lastEnd = end) => ({
+      start_ms: start,
+      end_ms: end,
+      text: 'x',
+      words: [
+        { start_ms: start, end_ms: lastStart, text: 'a' },
+        { start_ms: lastStart, end_ms: lastEnd, text: 'b' },
+      ],
+    });
+    // Last word 800-1000; the next line takes over 500 ms before its start.
+    // Takeover 1 749 / 1 750 (= end + 750) / 1 751: 949, 950, then bounded at 950.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(2249, 3000, 2500)], 0)).toBe(949);
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(2250, 3000, 2500)], 0)).toBe(950);
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(2251, 3000, 2500)], 0)).toBe(950);
+    // A pause of exactly 5 000 ms is still held on screen: bounded all the same.
+    expect(lineFinalDwellMs([line(0, 1000, 800), line(6000, 7000, 6500)], 0)).toBe(950);
+    // The bound counts from the WORD's measured end, not the line's.
+    expect(lineFinalDwellMs([line(0, 1000, 800, 900), line(4000, 5000, 4500)], 0)).toBe(850);
+    // A word stored 0 ms long gets the pause allowance alone.
+    expect(lineFinalDwellMs([line(0, 1000, 1000), line(4000, 5000, 4500)], 0)).toBe(750);
+  });
+
+  it('a line-final word measured 250 ms clears the floor across a long pause; 249 ms does not', () => {
+    // Inner dwells 300/300 (threshold 1 000); a 4 s pause follows the line.
+    const lines = (lastMs: number) => [
+      {
+        start_ms: 0,
+        end_ms: 600 + lastMs,
+        text: 'ka lo mi',
+        words: at([0, 300, 600], [200, 200, lastMs]),
+      },
+      { start_ms: 4600 + lastMs, end_ms: 5000 + lastMs, text: 'nu', words: at([4600 + lastMs], [400]) },
+    ];
+    const plan = (lastMs: number) => {
+      const doc = lines(lastMs);
+      return planLineFills(doc[0]!.words, false, 'hype', lineFinalDwellMs(doc, 0)).held;
+    };
+    expect(plan(250)).toEqual([false, false, true]);
+    expect(plan(249)).toEqual([false, false, false]);
+  });
+
+  it('a longer pause does not lengthen the line-final sweep (a line 2.35.0 moves later)', () => {
+    // Sung 400 ms at 600; the next line moved from 1 900 to 3 900 (silence).
+    const doc = (nextStart: number) => [
+      { start_ms: 0, end_ms: 1000, text: 'ka lo mi', words: at([0, 300, 600], [200, 200, 400]) },
+      { start_ms: nextStart, end_ms: nextStart + 400, text: 'nu', words: at([nextStart], [400]) },
+    ];
+    const spanOf = (nextStart: number) => {
+      const lines = doc(nextStart);
+      const dwell = lineFinalDwellMs(lines, 0);
+      const plan = planLineFills(lines[0]!.words, false, 'hype', dwell);
+      return planPassFills(lines[0]!.words, plan, dwell).spans[2];
+    };
+    // Before the move the next line takes over at the line's end: 400 ms, no held note.
+    expect(lineFinalDwellMs(doc(1500), 0)).toBe(400);
+    // After it: 400 + 750 = 1 150 ms counted, swept over 0.8 x 1 150 = 920 ms (not 1 920).
+    expect(spanOf(3900)).toEqual({ start_ms: 600, end_ms: 1520 });
+    expect(spanOf(5500)).toEqual({ start_ms: 600, end_ms: 1520 });
+  });
+
+  it('decides held notes by line identity, sweeping each pass over its own span', () => {
+    const pass = (start: number, satoDwell: number) => ({
+      start_ms: start,
+      end_ms: start + satoDwell + 1100,
+      text: 'lumi sato rani nefa',
+      words: [
+        { start_ms: start, end_ms: start + 300, text: 'lumi' },
+        { start_ms: start + 300, end_ms: start + 500, text: 'sato' },
+        { start_ms: start + 300 + satoDwell, end_ms: start + 600 + satoDwell, text: 'rani' },
+        { start_ms: start + 600 + satoDwell, end_ms: start + 1100 + satoDwell, text: 'nefa' },
+      ],
+    });
+    // sato dwells 1 500 then 600: the group's 1 050 clears the 1 000 floor.
+    const lines = [pass(0, 1500), pass(20_000, 600)];
+    const plans = planLineFillsByIdentity(lines, 'hype');
+    expect(plans[0]?.held).toEqual([false, true, false, false]);
+    expect(plans[1]?.held).toEqual([false, true, false, false]);
+    expect(planSweepSpans(lines[0]!.words, plans[0]!.held)[1]).toEqual({ start_ms: 300, end_ms: 1500 });
+    expect(planSweepSpans(lines[1]!.words, plans[1]!.held)[1]).toEqual({
+      start_ms: 20_300,
+      end_ms: 20_780,
+    });
+    // The boolean view stays what it was for existing callers.
+    expect(planFillsByLineIdentity(lines, 'hype')[0]).toEqual([false, true, false, false]);
+  });
+
+  it('a pass whose own dwell is past the ceiling pops; 5 000 ms still sweeps', () => {
+    const pass = (start: number, satoDwell: number) => ({
+      start_ms: start,
+      end_ms: start + satoDwell + 1100,
+      text: 'lumi sato rani nefa',
+      words: [
+        { start_ms: start, end_ms: start + 300, text: 'lumi' },
+        { start_ms: start + 300, end_ms: start + 500, text: 'sato' },
+        { start_ms: start + 300 + satoDwell, end_ms: start + 600 + satoDwell, text: 'rani' },
+        { start_ms: start + 600 + satoDwell, end_ms: start + 1100 + satoDwell, text: 'nefa' },
+      ],
+    });
+    // Group median 1 500: held. The third pass dwells 20 s on "sato", the fourth 5 001, the
+    // fifth exactly 5 000.
+    const lines = [
+      pass(0, 1500),
+      pass(30_000, 1500),
+      pass(60_000, 20_000),
+      pass(90_000, 5001),
+      pass(120_000, 5000),
+    ];
+    const plans = planLineFillsByIdentity(lines, 'hype');
+    expect(plans[2]?.held).toEqual([false, true, false, false]);
+    // The span stays the word's own; the pass pops it instead of a 200 ms flash.
+    expect(planSweepSpans(lines[2]!.words, plans[2]!.held)[1]).toEqual({
+      start_ms: 60_300,
+      end_ms: 60_500,
+    });
+    expect(planPassFills(lines[2]!.words, plans[2]!).sweep).toEqual([false, false, false, false]);
+    expect(planPassFills(lines[3]!.words, plans[3]!).sweep).toEqual([false, false, false, false]);
+    expect(planPassFills(lines[4]!.words, plans[4]!)).toEqual({
+      sweep: [false, true, false, false],
+      spans: [
+        { start_ms: 120_000, end_ms: 120_300 },
+        { start_ms: 120_300, end_ms: 124_300 }, // 0.8 x 5 000
+        { start_ms: 125_300, end_ms: 125_600 },
+        { start_ms: 125_600, end_ms: 126_100 },
+      ],
+    });
+    // The pass that measured the note normally sweeps it.
+    expect(planPassFills(lines[0]!.words, plans[0]!).sweep).toEqual([false, true, false, false]);
+  });
+
+  it('a group-held last word pops in the pass an interlude follows', () => {
+    // "nefa" closes the line; the first two passes are followed by the next pass after a
+    // 1.3 s pause (dwell 300 + 750 = 1 050, held by the group), the third by a 6.3 s break.
+    const pass = (start: number) => ({
+      start_ms: start,
+      end_ms: start + 900,
+      text: 'lumi sato nefa',
+      words: [
+        { start_ms: start, end_ms: start + 300, text: 'lumi' },
+        { start_ms: start + 300, end_ms: start + 600, text: 'sato' },
+        { start_ms: start + 600, end_ms: start + 900, text: 'nefa' },
+      ],
+    });
+    const tolu = { start_ms: 11_600, end_ms: 12_000, text: 'tolu', words: at([11_600], [400]) };
+    const lines = [pass(0), pass(2_200), pass(4_400), tolu];
+    const plans = planLineFillsByIdentity(lines, 'hype');
+    expect(plans[2]?.held).toEqual([false, false, true]);
+    expect(lineFinalDwellMs(lines, 2)).toBeUndefined();
+    expect(planPassFills(lines[2]!.words, plans[2]!, lineFinalDwellMs(lines, 2)).sweep).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(planPassFills(lines[0]!.words, plans[0]!, lineFinalDwellMs(lines, 0))).toEqual({
+      sweep: [false, false, true],
+      spans: [
+        { start_ms: 0, end_ms: 300 },
+        { start_ms: 300, end_ms: 600 },
+        { start_ms: 600, end_ms: 1440 }, // 600 + 0.8 x 1 050
+      ],
+    });
+  });
+
+  it('a pass keeps every sweep that is not a held note, dwell or no dwell', () => {
+    // A sustained line end (run rule) with an interlude after it still sweeps its own span.
+    const words = at([0, 300, 600], [200, 200, 900]);
+    const plan = planLineFills(words, false, 'hype', undefined);
+    expect(planPassFills(words, plan, undefined).sweep).toEqual([false, false, true]);
+    // Ad-lib lines sweep every word.
+    const adlib = planLineFills(words, true, 'hype', undefined);
+    expect(planPassFills(words, adlib, undefined).sweep).toEqual([true, true, true]);
+  });
+});

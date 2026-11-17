@@ -1,0 +1,27 @@
+/* The view's own stylesheet, then the demo's controls. No host geometry is
+   set: the stage pads nothing and the box centres in the whole page. */
+@import '../src/view.css';
+
+html,
+body {
+  /* The view keeps its document transparent (an overlay); a browser tab
+     needs something to read white text against. */
+  background: #1b1d24;
+}
+
+#demo-controls {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #ddd;
+  font: 12px system-ui, sans-serif;
+  user-select: auto;
+}
+
+#demo-controls input[type='range'] {
+  flex: 1;
+}

@@ -7,6 +7,7 @@
  * the caller. Losing events is always preferable to spending a byte of the
  * playback path on them.
  */
+import { CLOCK_STATS_FIELDS } from '@kashi/view/clock-stats';
 
 export type TelemetryKind =
   | 'session_start'
@@ -14,13 +15,32 @@ export type TelemetryKind =
   | 'lyrics_outcome'
   | 'position_anomaly'
   | 'error'
-  | 'watchdog';
+  | 'watchdog'
+  | 'clock_stats';
 
 export interface TelemetryEvent {
   /** ISO-8601, stamped when the event happened (not when it is sent). */
   ts: string;
   kind: TelemetryKind;
   payload: Record<string, unknown>;
+}
+
+/**
+ * The `clock_stats` payload from a renderer report's coerced fields: only the
+ * contract's names (CLOCK_STATS_FIELDS, the server's allowlist), a scope of
+ * "track" or "session", numbers for the rest - or nothing at all.
+ */
+export function clockStatsPayload(fields: unknown): Record<string, number | string> | null {
+  if (typeof fields !== 'object' || fields === null) return null;
+  const record = fields as Record<string, unknown>;
+  const scope = record['scope'];
+  if (scope !== 'track' && scope !== 'session') return null;
+  const payload: Record<string, number | string> = { scope };
+  for (const name of CLOCK_STATS_FIELDS) {
+    const value = record[name];
+    if (name !== 'scope' && typeof value === 'number' && Number.isFinite(value)) payload[name] = value;
+  }
+  return payload;
 }
 
 /** Ceiling on unsent events; the oldest are dropped past it. */
@@ -85,7 +105,6 @@ export interface SessionEnvelopeInput {
   displaySize: string;
   effectLevel: string;
   themeScope: string;
-  fillStyle: string;
   /** The APPLIED lead (base + user offset) — its meaning before 0.31.0 too. */
   timingOffsetMs: number;
   serverHost: string;
@@ -96,6 +115,8 @@ export interface SessionEnvelopeInput {
  * the events that follow" — the question a field report never answers well.
  * Field names mirror the server's allowlist (telemetry_contract.py); a
  * mismatch is silently dropped there, so the two lists move together.
+ * `fill_style` is no longer sent (one sweep dialect is left, client review
+ * E.3); the server keeps accepting it from older overlays.
  */
 export function sessionEnvelope(input: SessionEnvelopeInput, ts: string): TelemetryEvent {
   return {
@@ -113,7 +134,6 @@ export function sessionEnvelope(input: SessionEnvelopeInput, ts: string): Teleme
       display_size: input.displaySize,
       effect_level: input.effectLevel,
       theme_scope: input.themeScope,
-      fill_style: input.fillStyle,
       timing_offset_ms: input.timingOffsetMs,
       server_host: input.serverHost,
     },

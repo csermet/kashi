@@ -1,0 +1,348 @@
+/**
+ * Pure display-state derivation for the renderer. Keeping this DOM-free makes
+ * the "what should be on screen right now" rules unit-testable — several Faz 2
+ * bugs were exactly these rules interacting badly (render-gap audit).
+ */
+import type { EffectLevel } from './effect-level.js';
+
+export interface ViewState {
+  /** An ad is playing — the overlay must show nothing at all. */
+  adActive: boolean;
+  /** Synced lyric lines are loaded for the current track. */
+  hasLines: boolean;
+  /** Text of the line covering the clock position; null before/between lines. */
+  activeText: string | null;
+  /** Status/idle text shown when no lines are loaded. */
+  statusText: string;
+  statusDim: boolean;
+  /** A lyrics lookup is in flight (animated dots on their own row). */
+  searching: boolean;
+  /** The active line is a nonlexical ad-lib (server flag, Faz 4 styling). */
+  activeAdlib?: boolean;
+  /**
+   * The active line carries word timings. Read from the CURRENT line, which is
+   * the whole point: the renderer used to answer this by looking at the word
+   * spans it had built, and at repaint time those still belonged to the
+   * PREVIOUS line — so a plain line following a word-synced one was never
+   * recognised as plain and sat at stock white.
+   */
+  activeHasWords?: boolean;
+  /**
+   * The server rescued this line's word timings instead of deleting them and
+   * said so (`lines[].uncertain`, Faz 8 B4). It still has a word clock; we are
+   * just less sure WHERE it sits.
+   */
+  activeUncertain?: boolean;
+}
+
+export interface ViewOutput {
+  boxVisible: boolean;
+  lineText: string;
+  lineDim: boolean;
+  searchVisible: boolean;
+  /** Animated ♪ (intro / long instrumental break) instead of a static glyph. */
+  interlude: boolean;
+  /** Style the line as an ad-lib (italic/faded — Faz 4). */
+  lineAdlib: boolean;
+  /**
+   * The line renders as one plain string because it has no word timings, and
+   * should wear the theme's quiet tone rather than stock white. Interludes are
+   * excluded: the ♪ owns its own styling.
+   */
+  linePlain: boolean;
+  /**
+   * Soften the line: its word timings were rescued rather than trusted
+   * outright. Deliberately NOT hiding or dropping anything — the words still
+   * run their clock, they just stop shouting. Interludes and status views are
+   * excluded (the ♪ and the idle badge are not lyrics).
+   */
+  lineUncertain: boolean;
+}
+
+export function deriveView(state: ViewState): ViewOutput {
+  if (state.adActive) {
+    return {
+      boxVisible: false,
+      lineText: '',
+      lineDim: false,
+      searchVisible: false,
+      interlude: false,
+      lineAdlib: false,
+      linePlain: false,
+      lineUncertain: false,
+    };
+  }
+  if (state.hasLines) {
+    // activeText null = interlude territory (short gaps HOLD the previous
+    // line upstream in findDisplayLine, so this really is a long break).
+    return {
+      boxVisible: true,
+      lineText: state.activeText ?? '♪',
+      lineDim: false,
+      searchVisible: false,
+      interlude: state.activeText === null,
+      lineAdlib: state.activeText !== null && state.activeAdlib === true,
+      linePlain: state.activeText !== null && state.activeHasWords !== true,
+      // Gated on activeHasWords, not just on the flag: the fade is a statement
+      // ABOUT the word clock, and a line without one already wears .plain.
+      lineUncertain:
+        state.activeText !== null &&
+        state.activeHasWords === true &&
+        state.activeUncertain === true,
+    };
+  }
+  return {
+    boxVisible: true,
+    lineText: state.statusText,
+    lineDim: state.statusDim,
+    searchVisible: state.searching,
+    interlude: false,
+    lineAdlib: false,
+    // Status and idle text are plain by definition — no word clock stands
+    // behind them, so they wear the same quiet tone as an untimed lyric.
+    linePlain: true,
+    lineUncertain: false,
+  };
+}
+
+/**
+ * Whether two views would paint the same thing.
+ *
+ * Exhaustive on purpose. The repaint guard used to compare a hand-written
+ * subset of the fields, which meant every field added afterwards was silently
+ * exempt: a view that differed ONLY in the new field returned early and left
+ * the previous line's classes on screen.
+ */
+export function viewsEqual(a: ViewOutput | null, b: ViewOutput): boolean {
+  return (
+    a !== null &&
+    a.boxVisible === b.boxVisible &&
+    a.lineText === b.lineText &&
+    a.lineDim === b.lineDim &&
+    a.searchVisible === b.searchVisible &&
+    a.interlude === b.interlude &&
+    a.lineAdlib === b.lineAdlib &&
+    a.linePlain === b.linePlain &&
+    a.lineUncertain === b.lineUncertain
+  );
+}
+
+/**
+ * Whether a repaint should re-arm the one-shot line-entrance animation
+ * (Faz 4 saha turu 2). Never on the first paint (no startup flicker), at
+ * effect level off (pixel identity), on interlude views (that state owns the
+ * `animation` property), or when the text did not actually change. Keyed off
+ * the previous ViewOutput's lineText — word spans may have rewritten the
+ * DOM's textContent with normalized spacing.
+ */
+export function shouldAnimateLineChange(
+  prev: ViewOutput | null,
+  next: ViewOutput,
+  level: EffectLevel,
+): boolean {
+  return (
+    level !== 'off' &&
+    prev !== null &&
+    next.boxVisible &&
+    !next.interlude &&
+    prev.lineText !== next.lineText
+  );
+}
+
+import type { WordTiming } from './lyrics.js';
+
+export type { WordTiming };
+
+export interface LineSpan {
+  start_ms: number;
+  end_ms: number;
+}
+
+/**
+ * Gaps shorter than this HOLD the previous line on screen (Caner's call:
+ * "bir sonraki kısım gelene kadar öncekiler yazmalı"); only genuinely long
+ * instrumental breaks show the animated interlude mark instead.
+ */
+export const INTERLUDE_GAP_MS = 5_000;
+
+/**
+ * A line arrives on screen up to this long BEFORE its first word lights.
+ *
+ * Field bug (Caner, 2026-08-13): "geçti, tüm yazıyı görüyorum ve ilk kelime
+ * söylenişi 0.5-1 sn sonra — bu sürede ilk kelime söylenmiş gibi duruyor".
+ * Measured, and the mechanism is a coincidence of three exact zeros: a line's
+ * start_ms EQUALS its first word's start_ms (0 ms apart in every live
+ * document), and the display swapped lines at exactly that instant. So the
+ * text and its first highlight landed on the SAME frame — the reader never saw
+ * the word unlit, and any lateness in the vocal read as "it already sang".
+ * (Line-initial words are also biased early: median -42 ms and 17.1% land
+ * 200 ms+ early vs 6.1% elsewhere — but no offset survived cross-validation,
+ * so the fix here is legibility, not timing.)
+ *
+ * The lead is BORROWED FROM SILENCE ONLY — never from a line whose words are
+ * still running — so back-to-back lines behave exactly as before.
+ */
+export const LINE_LEAD_IN_MS = 500;
+/**
+ * Below this the early swap is a flicker, not a lead: two text changes inside
+ * a tenth of a second read as a glitch, and there is no time to read anyway.
+ */
+export const LINE_LEAD_MIN_MS = 120;
+
+/**
+ * Which line to DISPLAY at `pos`: the covering line, the NEXT one during its
+ * lead-in, or the previous one held through a short gap. -1 means interlude
+ * territory (intro, a long break, or long past the last line).
+ */
+export function findDisplayLine(
+  lines: readonly LineSpan[],
+  pos: number,
+  gapMs: number = INTERLUDE_GAP_MS,
+  leadMs: number = LINE_LEAD_IN_MS,
+): number {
+  const found = lastStartedAt(lines, pos);
+  // Lead-in FIRST: it is the only branch that can look forward, and it must
+  // also fire from the intro (found === -1) and from inside a long interlude,
+  // both of which return -1 below.
+  if (inLeadIn(lines, found, pos, leadMs)) return found + 1;
+  return heldLine(lines, found, pos, gapMs);
+}
+
+/**
+ * Index of the LAST item whose start_ms <= pos, or -1 before the first.
+ * Binary search; a hole in the array ends it early, as it always did.
+ */
+function lastStartedAt(items: readonly { start_ms: number }[], pos: number): number {
+  let lo = 0;
+  let hi = items.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const item = items[mid];
+    if (!item) break;
+    if (item.start_ms <= pos) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
+/** Is `pos` inside the lead-in of the line after `found`? */
+function inLeadIn(lines: readonly LineSpan[], found: number, pos: number, leadMs: number): boolean {
+  const upcoming = lines[found + 1];
+  if (!upcoming) return false;
+  // Silence in front of `upcoming`. From the intro there is no previous
+  // line, so the whole run-up is silence.
+  const silence = found === -1 ? Infinity : upcoming.start_ms - (lines[found]?.end_ms ?? 0);
+  const lead = Math.min(leadMs, silence);
+  return lead >= LINE_LEAD_MIN_MS && pos >= upcoming.start_ms - lead;
+}
+
+/** The covering line, or the last one held through a short gap; -1 otherwise. */
+function heldLine(lines: readonly LineSpan[], found: number, pos: number, gapMs: number): number {
+  if (found === -1) return -1; // intro — nothing sung yet
+  const line = lines[found];
+  if (!line) return -1;
+  if (pos < line.end_ms) return found; // inside the line
+  const next = lines[found + 1];
+  if (!next) {
+    // Outro: hold the last line briefly, then hand over to the interlude.
+    return pos - line.end_ms > gapMs ? -1 : found;
+  }
+  // Short gap: hold the previous line. Long break: show the interlude.
+  return next.start_ms - line.end_ms > gapMs ? -1 : found;
+}
+
+/**
+ * Index of the word covering `pos` — the LAST word whose start_ms <= pos, so
+ * the previous word stays lit through inter-word gaps (no flicker between
+ * words). -1 before the first word.
+ */
+export function findActiveWord(words: readonly WordTiming[], pos: number): number {
+  return lastStartedAt(words, pos);
+}
+
+/**
+ * When line `index + 1` takes the display over from line `index`, searching
+ * from `fromMs` (a position at which `index` is on screen) — or undefined when
+ * the line gives way to the interlude mark, is the last line, or is not on
+ * screen at `fromMs`. Found with findDisplayLine itself, so it follows the
+ * display rules (held gaps, the lead-in borrowed from silence) instead of
+ * restating them. Integer positions: every boundary those rules use is one.
+ */
+export function nextLineTakeoverMs(
+  lines: readonly LineSpan[],
+  index: number,
+  fromMs: number,
+): number | undefined {
+  const next = lines[index + 1];
+  if (!next || findDisplayLine(lines, fromMs) !== index) return undefined;
+  let lo = fromMs; // on screen
+  let hi = Math.max(fromMs + 1, next.start_ms); // the next line covers here
+  if (findDisplayLine(lines, hi) === index) return undefined;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (findDisplayLine(lines, mid) === index) lo = mid;
+    else hi = mid;
+  }
+  return findDisplayLine(lines, hi) === index + 1 ? hi : undefined;
+}
+
+// 60 s, not 10 s (field bug, Caner 2026-07-24): a big SEEK stalls YTM's MSE
+// buffer with `paused=false`, so the clock reads "playing" while timeupdate
+// goes silent — at 10 s the watchdog mistook the buffer for a dead source and
+// wiped the rich document (palette/fx/lines) to the plain white fallback.
+// Flaky WiFi backhaul (RE700X) makes 10 s+ buffers common. 60 s covers the
+// buffer and still bounds a genuinely dead source (a closed tab drops the WS
+// and resets via the connection path far sooner anyway).
+export const WATCHDOG_THRESHOLD_MS = 60_000;
+/**
+ * Ads get a longer leash, NOT a full exemption: position silence during an ad
+ * is deliberate (a >10 s ad must not wipe the lyrics — Faz 2 closure review),
+ * but a content script that DIES mid-ad (tab navigated away, page crash)
+ * never sends ad_state=false, and with a full exemption the overlay would
+ * stay invisible forever (Paket C review). No real ad break outlasts this.
+ */
+export const AD_WATCHDOG_THRESHOLD_MS = 180_000;
+
+/**
+ * Data-loss watchdog predicate: a "playing" clock with no position reports
+ * means the source died mid-play.
+ */
+export function watchdogShouldReset(
+  clockPlaying: boolean,
+  adActive: boolean,
+  msSinceLastPlayback: number,
+  thresholdMs: number = WATCHDOG_THRESHOLD_MS,
+  adThresholdMs: number = AD_WATCHDOG_THRESHOLD_MS,
+): boolean {
+  return clockPlaying && msSinceLastPlayback > (adActive ? adThresholdMs : thresholdMs);
+}
+
+/**
+ * How far, per side, the active word's pop may grow past its own box, as a
+ * fraction of the line's font size. The pop is a transform, so it never
+ * reflows: a long word scaled from its centre ate the space to its
+ * neighbours ("kalpte|aksesuar") and, first or last on a row, ran out of
+ * `.lyric`'s clip box and lost half a letter (field screenshots 2026-10-28).
+ * A word space is ~0.27 em; 0.09 em per side leaves two thirds of it, and it
+ * fits inside the clip room the stylesheet gives every line.
+ */
+export const POP_OVERHANG_EM = 0.09;
+
+/** The scale that would grow nothing: what an unmeasurable word gets. */
+export const POP_CAP_NONE = 9;
+
+/**
+ * The largest scale a word of `wordWidthPx` may pop to: short words keep the
+ * stylesheet's scale untouched (their cap sits above it), long words grow by
+ * the same few pixels instead of the same percentage. Written per span as
+ * `--kashi-pop-cap`; the stylesheet takes min(its scale, this).
+ */
+export function popScaleCap(wordWidthPx: number, fontSizePx: number): number {
+  if (!(wordWidthPx > 0) || !(fontSizePx > 0)) return POP_CAP_NONE;
+  return Math.min(POP_CAP_NONE, 1 + (2 * POP_OVERHANG_EM * fontSizePx) / wordWidthPx);
+}

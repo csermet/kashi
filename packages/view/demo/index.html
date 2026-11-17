@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The desktop's strict policy: the view must run under it on any host. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; img-src https: data:"
+    />
+    <title>Kashi view demo</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <!-- Dev-only (client review E.4): the shared view in a plain browser with
+         a fake host and one synthetic document. Not shipped, not a desktop
+         window. Built and checked by apps/overlay/scripts/view-demo.mjs. -->
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

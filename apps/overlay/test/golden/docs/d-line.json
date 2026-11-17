@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "2.35.0",
+  "generated_at": "2026-11-16T20:00:00Z",
+  "track": {
+    "source": {
+      "type": "youtube",
+      "id": "golden-d-line"
+    },
+    "title": "Golden D: a line-synced document",
+    "artist": "Kashi golden fixture",
+    "duration_ms": 30000
+  },
+  "sync": "line",
+  "alignment": {
+    "method": "lrclib-passthrough",
+    "lyrics_source": "synthetic",
+    "quality_score": 1.0
+  },
+  "lines": [
+    { "start_ms": 1000, "end_ms": 3000, "text": "kalo meri sunda" },
+    { "start_ms": 3500, "end_ms": 6000, "text": "tisu varo nel" },
+    { "start_ms": 12000, "end_ms": 14000, "text": "pemo daru" }
+  ]
+}

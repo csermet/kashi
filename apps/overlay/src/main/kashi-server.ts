@@ -10,11 +10,8 @@
  */
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  cacheFileName,
-  mapDocument,
-  type ServerLyricsResult,
-} from './kashi-server-logic.js';
+import { mapDocument } from '@kashi/view/document';
+import { cacheFileName, type ServerLyricsResult } from './kashi-server-logic.js';
 import {
   parseIngestOutcome,
   parseJobState,

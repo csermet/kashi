@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TelemetryClient } from './telemetry.js';
+import { CLOCK_STATS_FIELDS } from '@kashi/view/clock-stats';
 import {
+  clockStatsPayload,
   FLUSH_AT_EVENTS,
   FLUSH_INTERVAL_MS,
   MAX_BATCH_EVENTS,
@@ -9,6 +11,34 @@ import {
   serverHostOf,
   TelemetryBuffer,
 } from './telemetry-logic.js';
+
+describe('clockStatsPayload (main, kind clock_stats)', () => {
+  it('keeps the contract names with numbers and a track or session scope', () => {
+    const fields = Object.fromEntries(CLOCK_STATS_FIELDS.map((name, i) => [name, i]));
+    expect(clockStatsPayload({ ...fields, scope: 'session' })).toEqual({ ...fields, scope: 'session' });
+  });
+
+  it('drops names outside the contract and values that are not numbers', () => {
+    expect(
+      clockStatsPayload({
+        scope: 'track',
+        reports: 9,
+        video_id: 'abc',
+        title: 'x',
+        slew_n: 'many',
+        snap_n: 2,
+        position_ms: 81_000, // a number, but not this kind's
+      }),
+    ).toEqual({ scope: 'track', reports: 9, snap_n: 2 });
+  });
+
+  it('refuses a report without a track or session scope', () => {
+    expect(clockStatsPayload({ reports: 9 })).toBeNull();
+    expect(clockStatsPayload({ scope: 'song', reports: 9 })).toBeNull();
+    expect(clockStatsPayload(undefined)).toBeNull();
+    expect(clockStatsPayload(null)).toBeNull();
+  });
+});
 
 describe('TelemetryBuffer', () => {
   it('asks for a flush once the burst threshold is reached', () => {
@@ -69,7 +99,6 @@ describe('sessionEnvelope', () => {
         displaySize: '3456x2234',
         effectLevel: 'hype',
         themeScope: 'full',
-        fillStyle: 'themed',
         timingOffsetMs: 200,
         serverHost: 'kashi.example.com',
       },
@@ -95,7 +124,6 @@ describe('sessionEnvelope', () => {
         displaySize: '1920x1080',
         effectLevel: 'simple',
         themeScope: 'full',
-        fillStyle: 'themed',
         timingOffsetMs: 0,
         serverHost: 'h',
       },
