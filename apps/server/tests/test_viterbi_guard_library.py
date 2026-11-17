@@ -7,6 +7,10 @@ segfaults, is never executed. An accepted input is aligned, and the targets the 
 are `alignment.viterbi_targets`'. Re-run on every bump of the library's pin:
 
     uv run pytest -m slow tests/test_viterbi_guard_library.py
+
+The slow workflow runs this file in three separate processes (`-k every_boundary`,
+`-k first_frame_count`, `-k "nan_frame or torch_tensor"`): if the library takes the interpreter
+down, the failing step names the group.
 """
 
 import pytest
