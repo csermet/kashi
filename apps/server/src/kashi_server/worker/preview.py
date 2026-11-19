@@ -3,7 +3,7 @@ stored document, with nothing written (docs/research/refresh-from-evidence-2026-
 
     python -m kashi_server.worker.preview [--source-id ID ...] [--limit N] [--after ID]
         [--out FILE [--append]] [--documents DIR] [--lyrics stored|ladder] [--confirm-all]
-        [--lrclib-gap-s S] [--beside-live-jobs]
+        [--lrclib-gap-s S] [--beside-live-jobs] [--set NAME=VALUE ...]
 
 For each YouTube song with a stored document and stored evidence (or the songs given), in
 source-id order: the worker's own job code (`process._run_pipeline`, `persist=False`) runs under a
@@ -42,6 +42,13 @@ every song. An override's lyrics are always the override's. Requests to lrclib.n
 `--lrclib-gap-s` apart (default 0.5 s, the top of the gap lrclib asks for in batch work). No
 preview can run without the record: its stamps cut the windows and judge line QA, and neither the
 document nor the evidence keeps them.
+
+`--set NAME=VALUE` (repeatable) builds with a pipeline setting overridden in this process only
+(config.PIPELINE_FIELDS; a candidate shipped dark, measured on the archive from its evidence
+before a release turns it on). Every row and the summary carry the overrides and their
+fingerprint, an out file never mixes two sets of overrides, and the summary names NO id to
+refresh: a reprocess runs the worker's own settings and could not store what was previewed.
+`settings` is put back when the run ends; nothing is written either way.
 
 The report carries numbers and fixed reasons only: line indexes, times, error classes; never lyric
 text, titles or exception messages (those go to the log).
@@ -92,8 +99,9 @@ LYRICS_MODES = ("stored", "ladder")
 #: be read wrongly by this code (2: segments carry their judge, refreshes their confirmation;
 #: 3: W4 counts, W5, `ladder_same`, the palette carried; 4: `ladder_same`'s other values, every
 #: veto and review reason beside the verdict; 5: no aligner overrun region - no
-#: `aligner_overruns`, no `ladder_same: overrun`, no such review reason).
-PREVIEW_FORMAT = 5
+#: `aligner_overruns`, no `ladder_same: overrun`, no such review reason; 6: `--set` overrides
+#: in the judge, on every row and in the summary; W2 and W3 judge no letterless line).
+PREVIEW_FORMAT = 6
 #: A row's `ladder_same` other than True / False: a document was built but no ladder pass ran (not
 #: asked, or it faulted: the `ladder` note names the fault) ...
 LADDER_NOT_RUN = "not run"
@@ -501,9 +509,10 @@ def _counted(row: dict) -> dict:
     return row
 
 
-def summarize(rows: list[dict]) -> dict:
+def summarize(rows: list[dict], overrides: dict[str, Any] | None = None) -> dict:
     """Counts per verdict, the ids to refresh (one admin reprocess call each) and why the others
-    are not."""
+    are not. Under `--set` overrides there is none to refresh: a reprocess runs the worker's own
+    settings and cannot store what was previewed (the verdicts still count what would be)."""
     verdicts = {
         name: 0
         for name in (
@@ -560,11 +569,25 @@ def summarize(rows: list[dict]) -> dict:
         for key in (f"over_{rules.MOVED_MS}", *(f"over_{far}" for far in rules.MOVED_FAR_MS))
     }
     same = {row["source_id"]: row.get("ladder_same", LADDER_NOT_RUN) for row in rows}
+    label = overrides_label(overrides or {})
+    withheld = (
+        {}
+        if label is None
+        else {
+            "refresh_withheld": "pipeline settings overridden (fingerprint "
+            f"{label['fingerprint']}): a reprocess runs the worker's own settings and cannot "
+            "store these documents"
+        }
+    )
     return {
         "songs": len(rows),
         "verdicts": verdicts,
         "same_sheet_totals": totals,
-        "refresh_ids": [r["source_id"] for r in rows if r["verdict"] == rules.REFRESH],
+        "pipeline_overrides": label,
+        "refresh_ids": (
+            [] if label else [r["source_id"] for r in rows if r["verdict"] == rules.REFRESH]
+        ),
+        **withheld,
         "unchanged_ids": [r["source_id"] for r in rows if r["verdict"] == rules.UNCHANGED],
         # Per song: may it be reprocessed at all (only `True`), whatever its verdict.
         "ladder_same": same,
@@ -611,10 +634,76 @@ def peak_rss_mb() -> float:
     return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
 
 
-def judge(lyrics: str) -> dict:
+class OverrideError(ValueError):
+    """A `--set` the preview refuses."""
+
+
+def parse_overrides(pairs: list[str]) -> dict[str, Any]:
+    """`--set NAME=VALUE` pairs as {name: value in plain JSON form}. Only a pipeline setting
+    (config.PIPELINE_FIELDS: the settings a document depends on) may be set, once, to a value it
+    validates as and that differs from the one this process runs (an equal value overrides
+    nothing). VALUE is read as JSON (true, 800, "x", {...}), else as a plain string."""
+    from kashi_server.config import PIPELINE_FIELDS, pipeline_value
+
+    out: dict[str, Any] = {}
+    for pair in pairs:
+        name, sep, raw = pair.partition("=")
+        name = name.strip()
+        if not sep or not name:
+            raise OverrideError(f"--set {pair!r}: expected NAME=VALUE")
+        if name not in PIPELINE_FIELDS:
+            known = ", ".join(PIPELINE_FIELDS)
+            raise OverrideError(f"--set {name}: not a pipeline setting ({known})")
+        if name in out:
+            raise OverrideError(f"--set {name}: given twice")
+        try:
+            value: Any = json.loads(raw)
+        except ValueError:
+            value = raw
+        try:
+            value = pipeline_value(name, value)
+        except ValueError as exc:
+            raise OverrideError(f"--set {name}: {str(exc).splitlines()[0]}") from exc
+        if value == pipeline_value(name, getattr(settings, name)):
+            raise OverrideError(f"--set {name}: this process already runs that value")
+        out[name] = value
+    return dict(sorted(out.items()))
+
+
+def overrides_label(overrides: dict[str, Any]) -> dict | None:
+    """What every row and the summary carry: the settings and their fingerprint (the first 16 hex
+    of the sha256 of their canonical JSON), or None without overrides."""
+    import hashlib
+
+    if not overrides:
+        return None
+    canonical = json.dumps(overrides, sort_keys=True, separators=(",", ":"))
+    return {"set": overrides, "fingerprint": hashlib.sha256(canonical.encode()).hexdigest()[:16]}
+
+
+@contextlib.contextmanager
+def overridden(overrides: dict[str, Any]) -> Iterator[None]:
+    """`settings` with the overrides for the duration, as validated values; put back as they were
+    afterwards, also when the run fails or is stopped."""
+    from pydantic import TypeAdapter
+
+    from kashi_server.config import Settings
+
+    before = {name: getattr(settings, name) for name in overrides}
+    try:
+        for name, value in overrides.items():
+            adapter = TypeAdapter(Settings.model_fields[name].annotation)
+            setattr(settings, name, adapter.validate_python(value))
+        yield
+    finally:
+        for name, value in before.items():
+            setattr(settings, name, value)
+
+
+def judge(lyrics: str, overrides: dict[str, Any] | None = None) -> dict:
     """What judges a run's rows: the preview's format, the pipeline, the evidence this image
-    replays (its key: format, code versions, separation, libraries) and the lyrics mode. Rows of
-    one out file must all come from one judge."""
+    replays (its key: format, code versions, separation, libraries), the lyrics mode and the
+    `--set` overrides. Rows of one out file must all come from one judge."""
     from kashi_server.version import PIPELINE_VERSION
 
     return {
@@ -624,6 +713,7 @@ def judge(lyrics: str) -> dict:
             settings, separate_first=settings.separation_mode == "always"
         ),
         "lyrics": lyrics,
+        "pipeline_overrides": dict(overrides or {}),
     }
 
 
@@ -737,10 +827,29 @@ def main(argv: list[str] | None = None) -> int:
         help="preview even while jobs are queued or running (a preview shares the worker "
         "container's memory)",
     )
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="build with this pipeline setting overridden (config.PIPELINE_FIELDS only; repeat "
+        "for several): every row and the summary name the overrides and their fingerprint, and "
+        "no id is to refresh (a reprocess runs the worker's own settings)",
+    )
     args = parser.parse_args(argv)
+    try:
+        overrides = parse_overrides(args.set)
+    except OverrideError as exc:
+        parser.error(str(exc))
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    with overridden(overrides):
+        return _run(args, overrides)
+
+
+def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
+    """The command after its arguments, under its `--set` overrides."""
     from kashi_server.db.engine import SessionLocal, engine
     from kashi_server.db.schema import schema_gap
     from kashi_server.version import PIPELINE_VERSION
@@ -755,7 +864,8 @@ def main(argv: list[str] | None = None) -> int:
     if out_path.exists() and not args.append:
         print(f"preview refused: {out_path} exists (continue it with --append)", file=sys.stderr)
         return EXIT_OUT_EXISTS
-    current = judge(args.lyrics)
+    current = judge(args.lyrics, overrides)
+    label = overrides_label(overrides)
     before = (
         rows_in(out_path)
         if out_path.exists()
@@ -764,7 +874,7 @@ def main(argv: list[str] | None = None) -> int:
     if before["rows"] and not before["judges"] or any(j != current for j in before["judges"]):
         print(
             f"preview refused: {out_path} was written by another preview (format, pipeline, "
-            "evidence key or lyrics mode differ); start a new file",
+            "evidence key, lyrics mode or --set overrides differ); start a new file",
             file=sys.stderr,
         )
         return EXIT_OUT_EXISTS
@@ -788,6 +898,13 @@ def main(argv: list[str] | None = None) -> int:
         f"preview: pipeline {PIPELINE_VERSION}, lyrics {args.lyrics}, rows to {out_path}",
         flush=True,
     )
+    if label is not None:
+        print(
+            f"note: pipeline settings overridden {json.dumps(overrides, sort_keys=True)} "
+            f"(fingerprint {label['fingerprint']}): every row is labelled, and no id is to "
+            "refresh - a reprocess runs the worker's own settings",
+            flush=True,
+        )
     if replay["this_environment_evidence_mode"] != "replay":
         print(
             f"note: EVIDENCE_MODE here is {replay['this_environment_evidence_mode']!r}: a worker "
@@ -844,6 +961,8 @@ def main(argv: list[str] | None = None) -> int:
                         documents=args.documents,
                         confirm_all=args.confirm_all,
                     )
+                    if label is not None:
+                        row["pipeline_overrides"] = label
                     rows.append(row)
                     out.write(json.dumps(row, sort_keys=True) + "\n")
                     out.flush()
@@ -862,7 +981,7 @@ def main(argv: list[str] | None = None) -> int:
             "pipeline": PIPELINE_VERSION,
             "lyrics": args.lyrics,
             "preview_format": PREVIEW_FORMAT,
-            **summarize(everything),
+            **summarize(everything, overrides),
             "next_after": frontier(
                 [*earlier, *({**r, "_cursor": cursor} for r in rows)], args.after
             ),

@@ -1088,7 +1088,7 @@ def test_no_row_carries_an_overrun_any_more(db_session, audio, monkeypatch, get_
     row = _preview(db_session, lyrics="stored", confirm_all=True)
     assert row["verdict"] == rules.REFRESH
     assert "aligner_overruns" not in row and "aligner_overruns" not in row["ladder"]
-    assert preview.PREVIEW_FORMAT == 5 and not hasattr(preview, "LADDER_OVERRUN")
+    assert preview.PREVIEW_FORMAT >= 5 and not hasattr(preview, "LADDER_OVERRUN")
 
 
 def test_an_aligner_refusal_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):
@@ -1352,3 +1352,98 @@ def test_the_preview_keeps_the_built_palette_when_the_stored_one_fails_the_schem
     monkeypatch.setattr(wp, "extract_palette", lambda url: dict(document_default_palette()))
     row = _preview(db_session)
     assert row["palette_carried"] is False and "palette" in row["differs"]
+
+
+# --- --set: a pipeline setting overridden for the build only (2026-11-19) -------------------------
+
+CANDIDATE = ["letterless_lines_wordless=true", "word_text_from_sheet=true"]
+CANDIDATE_SET = {"letterless_lines_wordless": True, "word_text_from_sheet": True}
+
+
+def _set_args(*pairs):
+    return [arg for pair in pairs for arg in ("--set", pair)]
+
+
+def test_set_takes_a_pipeline_setting_once_and_only_a_value_it_does_not_run():
+    assert preview.parse_overrides(CANDIDATE) == CANDIDATE_SET
+    assert preview.parse_overrides([]) == {}
+    for bad in (
+        ["evidence_mode=replay"],  # operational: not what a document depends on
+        ["database_url=x"],
+        ["nope=1"],
+        ["letterless_lines_wordless"],
+        [CANDIDATE[0], CANDIDATE[0]],
+        ["letterless_lines_wordless=false"],  # what this process already runs
+        ["letterless_lines_wordless=maybe"],
+    ):
+        with pytest.raises(preview.OverrideError):
+            preview.parse_overrides(bad)
+    with pytest.raises(SystemExit):
+        preview.main(["--set", "evidence_mode=replay"])
+
+
+def test_overridden_settings_come_back_also_when_the_run_fails():
+    with pytest.raises(RuntimeError):
+        with preview.overridden(CANDIDATE_SET):
+            assert settings.letterless_lines_wordless is True
+            raise RuntimeError("stop")
+    assert settings.letterless_lines_wordless is False
+    assert settings.word_text_from_sheet is False
+
+
+def test_under_overrides_the_summary_names_no_id_to_refresh():
+    rows = [{"source_id": "a", "verdict": rules.REFRESH, "detail": "", "refresh_confirmed": True}]
+    plain = preview.summarize(rows)
+    assert plain["refresh_ids"] == ["a"] and plain["pipeline_overrides"] is None
+    overridden = preview.summarize(rows, CANDIDATE_SET)
+    assert overridden["refresh_ids"] == [] and overridden["verdicts"][rules.REFRESH] == 1
+    assert overridden["pipeline_overrides"] == preview.overrides_label(CANDIDATE_SET)
+    assert "refresh_withheld" in overridden
+
+
+def test_an_override_reaches_the_build_and_nothing_else(db_session, audio, monkeypatch, tmp_path):
+    _run(db_session, monkeypatch, "record")
+    _set_document(db_session, _older)  # the rebuild is a refresh
+    seen = []
+    real = wp._run_pipeline
+
+    def spy(*a, **k):
+        seen.append((settings.letterless_lines_wordless, settings.word_text_from_sheet))
+        return real(*a, **k)
+
+    monkeypatch.setattr(wp, "_run_pipeline", spy)
+    before = _snapshot(db_session)
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(*CANDIDATE)) == 0
+    assert seen and set(seen) == {(True, True)}
+    # put back for whatever this process runs next; nothing stored, no evidence touched
+    assert (settings.letterless_lines_wordless, settings.word_text_from_sheet) == (False, False)
+    assert _snapshot(db_session) == before
+    label = preview.overrides_label(CANDIDATE_SET)
+    assert label is not None and len(label["fingerprint"]) == 16
+    lines = _lines(out)
+    assert lines[0]["segment"]["judge"]["pipeline_overrides"] == CANDIDATE_SET
+    assert lines[1]["verdict"] == rules.REFRESH and lines[1]["pipeline_overrides"] == label
+    summary = lines[-1]["summary"]
+    assert summary["pipeline_overrides"] == label and summary["refresh_ids"] == []
+    assert summary["verdicts"][rules.REFRESH] == 1
+    # the same song without an override is an id to refresh, its rows unlabelled
+    plain = tmp_path / "plain.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(plain)) == 0
+    assert "pipeline_overrides" not in _lines(plain)[1]
+    assert _lines(plain)[-1]["summary"]["refresh_ids"] == [SONG]
+
+
+def test_append_never_mixes_two_sets_of_overrides(db_session, audio, monkeypatch, tmp_path):
+    _run(db_session, monkeypatch, "record")
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(CANDIDATE[0])) == 0
+    first = out.read_text()
+    for other in ([], _set_args(CANDIDATE[1]), _set_args(*CANDIDATE)):
+        assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", *other) == (
+            preview.EXIT_OUT_EXISTS
+        )
+        assert out.read_text() == first
+    assert _main(
+        monkeypatch, tmp_path, "--out", str(out), "--append", *_set_args(CANDIDATE[0])
+    ) == 0
