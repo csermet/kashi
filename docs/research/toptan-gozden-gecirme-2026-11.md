@@ -768,6 +768,60 @@ documents, most built by 2.31.0, some as old as 2.8.0). Working files `onizleme/
   s (three songs) and a 19-line move were not what he judged and wait. A seventh clip put NO
   FEAR!'s two lrclib records side by side: both read wrong to him at the opening; the pin stays.
   2.35.0 documents in the archive: 307 of 425.
+- **Server 0.42.0 on the whole archive (same night).** The preview with `--confirm-all` over the
+  400 songs with evidence (23 minutes, 915 lrclib requests, read-only): 340 unchanged, 32 kept by a
+  veto (W1 11, W2 11, W4 12, W5 4, W3 2, the guard 1; 17 of them also carry a review reason, now
+  visible), 5 to review (three section carries of 10-16 s, one 19-line move, one in the then
+  suspected overrun region), 12 that need a full job, 9 with a changed sheet, 2 to refresh (fed,
+  both rebuilt). `ladder_same` was false on six rows: the real lookup builds another document than
+  the pinned record, the shape that had switched NO FEAR!'s lyrics.
+- **Overlay fixes on `main` (no overlay release yet).** A wordless line repeating the previous
+  worded line's text kept that line's lit spans (the view skipped the repaint; the sim twin read
+  the line text instead of what the screen shows); a line with no letter or digit ('♪') now drops
+  the words a stored document carries for it — the stray one-letter word comes from the server
+  (the Turkish aligner path fills a symbol the model cannot write with "a", and the regrouped
+  word takes that text; 7 such lines in the 39 local songs), which is still to fix at the source;
+  of two words with one start the earlier one's effect never fired. Four blind clips for the
+  owner: he chose the fixed row on the one clear case (the lone "a") and saw no difference on the
+  other three — two of those were marked "subtle" beforehand and should not have been sent.
+
+## Server 0.43.0: the job's Viterbi is its own (2026-11-19)
+
+Pipeline 2.35.0 unchanged. Detail: `refresh-from-evidence-2026-11.md`, the aligner paragraphs.
+
+- **The library's unsafe set, measured.** A line-by-line port with every access bounds-checked and
+  the unmodified C++ under ASan + UBSan (GCC 13, 14, 15) agree on 3 996 inputs. The pinned
+  `ctc_forced_aligner` Viterbi leaves its buffers on exactly three kinds of input: T = L + R (the
+  backtrace's last read, at frame 0, uses an unsigned index; with R = 0 the back-pointer vectors
+  have no memory at all and the forward pass writes through a null pointer); T = L + R + 1 when
+  the path starts with a blank (the same read at −1); R = 0 with a band that does not fit its
+  64-bit words. Everywhere else every access is in range, whatever the scores.
+- **The CI crash explained.** The repeat text ran at T = L + R: index −2 as unsigned. GCC 13/14
+  read 8 bytes before the buffer (harmless: 300 of 300 here), GCC 15 divides the index unsigned
+  and reads ~2^61 bytes away. That the runner had moved to GCC 15 is inferred (the Ubuntu 26.04
+  transition), not read from its logs.
+- **0.41.0's bookkeeping twin was wrong both ways.** `library_overruns` modelled only the third
+  kind, never the backtrace, and counted passes whose spill stays inside the last word. Of the
+  archive's logged passes one was really outside (6cvfHn9qeEw, window 14: the song whose back-fill
+  died once with `n != i`; its replay faults with an IndexError under 0.42.0). The other two songs
+  flagged were safe.
+- **The fix.** The job no longer calls the compiled Viterbi. `trellis.forced_align` is the same
+  recurrence (band, float32 sums, tie rule, 2-bit back-pointers) without the frame-0 read, wrapped
+  by `alignment.get_alignments`. Equal to the library on 3 658 of 3 658 safe-set inputs and on all
+  2 247 passes of the 39 local songs; main == branch documents 39 of 39 in off, record and replay
+  mode; mutation 19 of 21 killed, 2 equivalent. A reviewer checked it against an independent
+  float64 CTC recursion (6 000 of 6 000 valid and optimal). Cost: a median 0.9 s per song on CPU
+  (35.9 s against 5.4 s over the 39). Evidence is the emissions, so the key and the code pin stand.
+- **Different from 0.42.0 by design, under the same pipeline version:** an exact fit without a
+  repeat (T = L) was a permanent `alignment_failed` and is aligned now (it has one path); a real
+  spill ran through undefined behaviour and gives the intended path now. Neither occurs in the 39
+  songs. The overrun log line, the preview's `aligner_overruns` and `ladder_same: overrun` are
+  gone (`PREVIEW_FORMAT` 5).
+- **The fix lives in the image, not in the pipeline line.** A worker or GPU helper built before
+  this release still calls the compiled Viterbi while logging `ready: pipeline 2.35.0`: check the
+  image tag or `/v1/health`'s server version, and rebuild the helper before its next back-fill.
+- **Not yet measured:** the whole-archive preview under 0.43.0 (expected: the up-to-date rows stay
+  unchanged; 6cvfHn9qeEw builds), which is the equality's test on real songs beyond the 39.
 
 ## Lines of work and order
 

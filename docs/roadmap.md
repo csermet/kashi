@@ -112,6 +112,13 @@ release — and, new: a wordless line repeating the previous line's text stays f
 overlay; Shots 3:29 and LET ME IN 0:27 are wrong on every build; NO FEAR! has no right sheet.
 D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
+**Later the same night.** Server 0.43.0 (pipeline unchanged) closes the aligner's safe region: the
+library's unsafe inputs were measured with bounds-checked ground truth and the job runs its own
+Viterbi, equal to the library wherever the library is safe. The overlay fixes for the repeated
+wordless line, words under a '♪' line and the same-start effect are on `main`; the overlay release
+waits for the owner's Windows check. 342 of the 400 songs with evidence are up to date; the '♪'
+word is still to fix at its source in the server (the aligner's fill letter becoming word text).
+
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
 of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).
