@@ -473,9 +473,14 @@ summary names no id to refresh (`refresh_withheld`): a reprocess runs the worker
 the preview's. Nothing else changes: the preview still writes nothing, and a setting that would
 change what is read off the audio still reads `needs a full job`. A second, small release then
 turns the default on with the version bump, and the deployed image's ordinary preview lists the
-ids to refresh. First use: the letterless-line candidate (`letterless-lines-2026-11.md`). The
-preview's W2 and W3 judge no line without a letter or a digit since then (a '♪' is nobody's voice
-returning and holds no lyric word); its move is still listed.
+ids to refresh. First use: the letterless-line candidate (`letterless-lines-2026-11.md`). A build
+with that candidate's setting on is judged accordingly: W2 and W3 then judge no line without a
+letter or a digit (a '♪' is nobody's voice returning and holds no lyric word; its move is still
+listed); with it off they judge as before. Each `--set` value is validated by the `Settings`
+model (its validators run; the model's value is the one applied and labelled); `--documents`
+writes under `set-<fingerprint>/` beside an `OVERRIDES.json`; the summary names what the
+environment itself overrides (`env_pipeline_overrides`). Every row reports line QA's median
+offset and way out, stored and built (`qa`, not judged).
 
 **What it cannot see.** Songs without evidence (not back-filled, a nightcore clock, uploads) and
 releases that change what is read off the audio (the aligner, its revision, the separator, a window

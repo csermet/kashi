@@ -74,9 +74,14 @@ respread, the initial classes) reads what it read before, the effects and the do
 sheet. The overlay draws a word-sync line from its word texts, so Turkish word-sync lines show the
 sheet's punctuation and İ again.
 
-**The preview's rules.** W3 (a line that loses its word timings) and W2 with its review list judge
-no letterless line: a '♪' holds no lyric word and is nobody's voice returning. Its move is still
-listed.
+**The preview's rules.** When the build ran with `letterless_lines_wordless` on (by default or by
+`--set`), W3 (a line that loses its word timings) and W2 with its review list judge no letterless
+line: a '♪' holds no lyric word and is nobody's voice returning. Its move is still listed. With
+the setting off they judge every line exactly as 0.43.0 does (the 39 songs: main, dark, candidate
+and letterless-line arm against main's documents, 156 comparisons and verdicts equal to 0.43.0's
+code; on, only the 3 songs with a letterless line change, `keep` (W3) to `refresh`). Every row
+also reports, without judging, line QA's median offset and its way out (`qa`: clean, snapped,
+line, unreferenced), stored and built.
 
 ## Evidence
 
@@ -153,9 +158,29 @@ preview measures the candidate on every song with evidence:
         --set letterless_lines_wordless=true --set word_text_from_sheet=true
 
 Its rows and summary carry the fingerprint of the two settings and its `refresh_ids` is empty (a
-reprocess runs the worker's own settings). Human truth and clips follow the usual order. A second
-release then turns both defaults on with `PIPELINE_VERSION = "2.36.0"` and its note, and the
-deployed image's ordinary preview lists the ids to refresh.
+reprocess runs the worker's own settings); each `--set` value is validated by the `Settings`
+model itself and the model's value is what runs; `--documents DIR` writes the built documents
+into `DIR/set-<fingerprint>/` beside an `OVERRIDES.json`; the summary also names what the
+environment already overrides (`env_pipeline_overrides`). Human truth and clips follow the usual
+order. A second release then turns both defaults on with `PIPELINE_VERSION = "2.36.0"` and its
+note, and the deployed image's ordinary preview lists the ids to refresh.
+
+**The flip must not happen without** (the reviewer's list, 2026-11-19; the coordinator owns it):
+
+- the archive `--set` preview, with the per-song QA-offset delta and any change of QA's way out
+  (both in every row);
+- counts over the archive: windows that own only letterless lines; letterless tokens inside sung
+  lines on the romanize=False path; songs whose stamped sung lines fall below
+  `MIN_REFERENCE_LINES`;
+- an end-to-end `align()` test with the real seam, vote and first-heard functions over a
+  letterless-only window between sung windows;
+- the flip as code default + version bump only, never by an env value: a song first recorded
+  under the candidate with a letterless-only window lacks that slice, and needs a full job if the
+  flip is rolled back;
+- what follows the document: unaligned lines are written with score 0.0 where uroman '♪' lines
+  had 1.0; the `quality_basis` naming; Turkish word texts newly satisfying the lrclib publish
+  word-text guard (`pipeline/publish.py`, `pipeline/lyricsfile.py`) - the publish wave is
+  decided before any refresh.
 
 ## What is open
 

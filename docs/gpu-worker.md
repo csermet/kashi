@@ -161,7 +161,11 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   every row and the summary carry the overrides and their 16-hex fingerprint as
   `pipeline_overrides`, and the summary's `refresh_ids` is empty with `refresh_withheld` saying
   why: a reprocess runs the worker's own settings and could not store what was previewed; the
-  settings are put back when the run ends). The dark-shipped candidate of 2026-11-19:
+  settings are put back when the run ends; a value is validated by the `Settings` model and the
+  model's value is the one applied; `--documents DIR` then writes into `DIR/set-<fingerprint>/`
+  beside an `OVERRIDES.json`, never into DIR itself; the summary and segment line also name the
+  pipeline settings the environment already overrides, `env_pipeline_overrides`). The
+  dark-shipped candidate of 2026-11-19:
   `--set letterless_lines_wordless=true --set word_text_from_sheet=true`.
 - **lrclib requests:** stored mode one by-id request a song (a title with a nightcore marker: up to
   two searches and one more by-id), plus each `refresh`'s ladder pass (1-5 requests, up to 5 more
