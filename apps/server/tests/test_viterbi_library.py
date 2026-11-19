@@ -15,8 +15,9 @@ writes outside its buffers when
 and what that does depends on the C++ library it was built against: with GCC 15's libstdc++ the
 first two read ~2^61 bytes away and the process dies (the CI runner, 2026-11-16/17); with GCC 13
 and 14 they read the 8 bytes before a heap block and pass. "It passed here" proves nothing there.
-`library_safe` below admits only T >= L + R + 2 with a band the words hold, and finite scores
-(a non-finite input is refused before any Viterbi anyway); every call here goes through it.
+`helpers.library_safe` admits only T >= L + R + 2 with a band the words hold, and finite scores
+(a non-finite input is refused before any Viterbi anyway); every call here, and every other test
+that calls the compiled library (tests/test_line_regions.py), goes through it.
 """
 
 import pytest
@@ -30,24 +31,12 @@ from ctc_forced_aligner import (
 from ctc_forced_aligner.ctc_forced_aligner import (  # noqa: E402  # pyright: ignore[reportMissingImports]
     forced_align as compiled,
 )
+from helpers import library_safe  # noqa: E402
 
 from kashi_server.pipeline import alignment  # noqa: E402
-from kashi_server.pipeline.trellis import forced_align, library_band  # noqa: E402
+from kashi_server.pipeline.trellis import forced_align  # noqa: E402
 
 pytestmark = pytest.mark.slow
-
-
-def library_safe(n_frames: int, targets: list[int], log_probs) -> bool:
-    """Whether the compiled library stays inside its buffers on this input, by the measured rule
-    (conservative: T == L + R + 1 is excluded whatever the path)."""
-    L = len(targets)
-    R = sum(1 for i in range(1, L) if targets[i] == targets[i - 1])
-    if L == 0 or n_frames < L + R + 2 or not np.isfinite(log_probs).all():
-        return False
-    starts, ends = library_band(n_frames, targets)
-    band = sum(e - s for s, e in zip(starts, ends, strict=True))
-    nbits = (2 * L + 2) * (n_frames - L)
-    return band <= 64 * ((nbits + 63) // 64)
 
 
 def _run_compiled(log_probs, targets, blank=0):
@@ -111,6 +100,7 @@ def test_every_safe_input_gets_the_compiled_path_and_scores(kind):
 def test_the_boundaries_of_the_safe_set(L):
     """T == L + R + 2, the first T without a repeat whose band the words hold, and 2L - 2."""
     rng = np.random.default_rng(L)
+    ran = 0
     for repeat_rate in (0.0, 0.3):
         lp, tg = _case(rng, L, 1, 12, repeat_rate, "random")
         R = sum(1 for i in range(1, L) if tg[i] == tg[i - 1])
@@ -122,6 +112,8 @@ def test_the_boundaries_of_the_safe_set(L):
             path, scores = _run_compiled(lp, tg)
             ours = forced_align(lp, tg, 0)
             assert ours[0].tolist() == path.tolist() and ours[1].tobytes() == scores.tobytes()
+            ran += 1
+    assert ran >= 4  # at least the first safe T and 2L - 1 for each target list
 
 
 def test_a_whole_track_pass():

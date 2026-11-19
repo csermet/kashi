@@ -84,7 +84,10 @@ def test_the_trellis_finds_the_best_path_that_avoids_the_cuts(seed):
 def test_without_cuts_the_trellis_is_the_compiled_viterbi():
     """Byte for byte against ctc_forced_aligner's own, ties included (2026-11-09:
     3000 of 3000 in the worker image). Inside the compiled library's safe set only (the rule:
-    tests/test_viterbi_library.py): T = 2L + 30 frames, finite scores."""
+    tests/test_viterbi_library.py): T = 2L + 30 frames, finite scores, checked by the rule's
+    predicate before every call."""
+    from helpers import library_safe
+
     compiled = pytest.importorskip("ctc_forced_aligner.ctc_forced_aligner").forced_align
     rng = np.random.default_rng(0)
     for _ in range(500):
@@ -96,6 +99,7 @@ def test_without_cuts_the_trellis_is_the_compiled_viterbi():
         logits = np.round(rng.normal(size=(n_frames, n_labels)) * 2) / 2  # ties
         log_probs = (logits - np.log(np.exp(logits).sum(axis=1, keepdims=True))).astype(
             np.float32)
+        assert library_safe(n_frames, targets, log_probs), "never run the compiled one unsafe"
         path, scores = compiled(log_probs[None], np.asarray([targets], dtype=np.int64), blank)
         found = forced_align_cut(log_probs, targets, blank, [])
         assert found is not None
