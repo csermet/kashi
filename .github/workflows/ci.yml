@@ -54,7 +54,7 @@ jobs:
             packages/view/coverage/lcov.info
           retention-days: 3
       - run: pnpm build
-      # Golden frames + dwell on the renderer just built: 12 runs x ~15 seeks on
+      # Golden frames + dwell on the renderer just built: 15 runs x ~15 seeks on
       # synthetic documents, DOM state and pictures against the committed
       # goldens, words lit < 120 / 180 ms against pinned counts
       # (apps/overlay/scripts/golden-frames.mjs). Runs in the digest-pinned
