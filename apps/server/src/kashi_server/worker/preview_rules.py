@@ -9,9 +9,10 @@ not tuned here:
   before it, that no run of the stored line contains;
 - W2 away from the voice: a line start that moves more than 1 500 ms farther from where the voice
   returns (below);
-- W3 lost words: a line with text that had word timings and has none (since 2026-11-19 a line
-  with no letter and no digit, a '♪', is no lyric: W3 and W2 below judge no such line, whose move
-  is still listed; `alignment.sung_text`);
+- W3 lost words: a line with text that had word timings and has none (a build with
+  `letterless_lines_wordless` on, by default or by the preview's `--set`, never gives a line with
+  no letter and no digit, a '♪', to the aligner: W3 and W2 below then judge no such line, whose
+  move is still listed; `alignment.sung_text`);
 - W4 rushed first words, counted: the built document has MORE lines of >= 2 words whose first word
   lights < 120 ms before its second word than the stored one (each document counted on its own, as
   registered: a line that gains its word timings counts on the built side only, so a line-to-word
@@ -285,8 +286,28 @@ def placed_on_voice(doc: dict, returns: list[int]) -> dict[int, int]:
     return out
 
 
-def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
-    """Everything the verdict reads, and the report around it (numbers only)."""
+def qa_exit(doc: dict) -> str:
+    """Which way out of line QA a document took, as the document shows it: `line` (degraded, or
+    the aligner's line fallback), `snapped` (lines flagged), `clean` (references judged, none
+    flagged) or `unreferenced` (no references to judge against)."""
+    alignment = doc.get("alignment") or {}
+    if doc.get("sync") == "line":
+        return "line"
+    if (alignment.get("qa") or {}).get("flagged"):
+        return "snapped"
+    if alignment.get("quality_basis") in ("anchors", "probs+anchors"):
+        return "clean"
+    return "unreferenced"
+
+
+def compare(
+    old: dict, new: dict, envelope: Envelope | None, *, letterless_wordless: bool = False
+) -> dict:
+    """Everything the verdict reads, and the report around it (numbers only).
+    `letterless_wordless`: the build ran with `letterless_lines_wordless` on, so a line with no
+    letter and no digit was never given to the aligner; W2 and W3 then judge no such line. Off
+    (the production setting through 2.35.0) they judge every line, as before it existed. `qa`
+    (report only): line QA's median offset and its way out, stored -> built."""
     out: dict[str, Any] = {
         "pipeline": [old.get("pipeline_version"), new.get("pipeline_version")],
         "differs": sorted(
@@ -295,6 +316,12 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         "old": shape(old),
         "new": shape(new),
         "sheet": sheet_changes(old, new),
+        "qa": {
+            "offset_ms": [
+                ((d.get("alignment") or {}).get("qa") or {}).get("offset_ms") for d in (old, new)
+            ],
+            "exit": [qa_exit(old), qa_exit(new)],
+        },
     }
     if out["sheet"]:
         return out
@@ -312,9 +339,10 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         for k0, k1 in new_runs(wa, wb):
             if k1 - k0 + 1 > w1["words"]:
                 w1 = {"words": k1 - k0 + 1, "line": i, "word": k0, "t_ms": wb[k0]["start_ms"]}
-        # A line with no letter and no digit ('♪') is no one's voice returning and holds no
-        # lyric word: neither W2 nor W3 judges it (its move is still listed below).
-        lyric = sung_text(a.get("text") or "")
+        # Built with letterless_lines_wordless: a line with no letter and no digit ('♪') is no
+        # one's voice returning and holds no lyric word, so neither W2 nor W3 judges it (its
+        # move is still listed below). Without it every line is judged, as before.
+        lyric = not letterless_wordless or sung_text(a.get("text") or "")
         sung = on_old.get(i, on_new.get(i)) if lyric else None
         if sung is not None:
             away = abs(b["start_ms"] - sung) - abs(a["start_ms"] - sung)
@@ -327,7 +355,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
                     "new_ms": b["start_ms"],
                 }
         if wa and not wb:
-            if lyric:
+            if lyric and (a.get("text") or "").strip():
                 lost.append(i)
         elif wb and not wa:
             gained.append(i)
