@@ -4319,6 +4319,85 @@
     "d-shapes-hype-12900.png"
    ]
   },
+  "d-shapes-off": {
+   "settings": {
+    "effect_level": "off"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 3950,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4350,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 3,
+     "sung": [
+      0,
+      1,
+      2
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4900,
+     "visible": true,
+     "text": "kapi loru dovi tera mesu",
+     "active": 4,
+     "sung": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      234.34,
+      221.8,
+      331.31,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "d-shapes-off-4350.png"
+   ]
+  },
   "d-line-hype": {
    "settings": {
     "effect_level": "hype"
@@ -4546,6 +4625,756 @@
     "d-line-hype-2000.png",
     "d-line-hype-8000.png"
    ]
+  },
+  "e-repeats-hype": {
+   "settings": {
+    "effect_level": "hype"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 1700,
+     "visible": true,
+     "text": "sola mira tenu",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      293.91,
+      221.8,
+      212.17,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2300,
+     "visible": true,
+     "text": "sola mira tenu",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      293.91,
+      221.8,
+      212.17,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2600,
+     "visible": true,
+     "text": "sola mira tenu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      293.94,
+      221.8,
+      212.13,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 3500,
+     "visible": true,
+     "text": "sola mira tenu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      293.94,
+      221.8,
+      212.13,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 4500,
+     "visible": true,
+     "text": "pavo rendi",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      318.55,
+      221.8,
+      162.91,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 5700,
+     "visible": true,
+     "text": "pavo rendi",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      318.53,
+      221.8,
+      162.92,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 6500,
+     "visible": true,
+     "text": "pavo rendi",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "0.375"
+     },
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      318.53,
+      221.8,
+      162.92,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 7500,
+     "visible": true,
+     "text": "ooh aah",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.167"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      332.52,
+      221.8,
+      134.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8100,
+     "visible": true,
+     "text": "ooh aah",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.167"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      332.52,
+      221.8,
+      134.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8700,
+     "visible": true,
+     "text": "ooh aah",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.167"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      332.52,
+      221.8,
+      134.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 9300,
+     "visible": true,
+     "text": "ooh aah",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      0,
+      1
+     ],
+     "fill": {
+      "0": "1",
+      "1": "0.167"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib",
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      332.52,
+      221.8,
+      134.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 10300,
+     "visible": true,
+     "text": "nori tal",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      339.52,
+      221.8,
+      120.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 11300,
+     "visible": true,
+     "text": "nori tal",
+     "active": 0,
+     "sung": [],
+     "word_fill": [
+      0
+     ],
+     "fill": {
+      "0": "0.200"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "adlib"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      339.52,
+      221.8,
+      120.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 12700,
+     "visible": true,
+     "text": "keni vor",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      334.17,
+      221.8,
+      131.64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 13700,
+     "visible": true,
+     "text": "keni vor",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "uncertain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      334.17,
+      221.8,
+      131.64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 15100,
+     "visible": true,
+     "text": "suma lio",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      329.7,
+      221.8,
+      140.59,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 18000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 21600,
+     "visible": true,
+     "text": "suma lio",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      329.7,
+      221.8,
+      140.59,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 22100,
+     "visible": true,
+     "text": "suma lio",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      329.7,
+      221.8,
+      140.59,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23500,
+     "visible": true,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in",
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24500,
+     "visible": true,
+     "text": "dami lo resa",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "fx-ambient"
+     ],
+     "box_rect": [
+      291.52,
+      221.8,
+      216.95,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24850,
+     "visible": true,
+     "text": "dami lo resa",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.042"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      291.52,
+      221.8,
+      216.95,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 25000,
+     "visible": true,
+     "text": "dami lo resa",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [
+      2
+     ],
+     "fill": {
+      "2": "0.167"
+     },
+     "fx_fired": 1,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [
+      "ambient-flash",
+      "fx-ambient"
+     ],
+     "box_rect": [
+      291.52,
+      221.8,
+      216.95,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 27100,
+     "visible": true,
+     "text": "vela mora",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      322.16,
+      221.8,
+      155.69,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 30000,
+     "visible": true,
+     "text": "vela mora",
+     "active": 1,
+     "sung": [
+      0
+     ],
+     "word_fill": [
+      1
+     ],
+     "fill": {
+      "1": "1.000"
+     },
+     "fx_fired": null,
+     "line_classes": [
+      "line-in"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      322.16,
+      221.8,
+      155.69,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 34000,
+     "visible": false,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "interlude"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "e-repeats-hype-2600.png",
+    "e-repeats-hype-5700.png",
+    "e-repeats-hype-8700.png",
+    "e-repeats-hype-13700.png",
+    "e-repeats-hype-23500.png",
+    "e-repeats-hype-24850.png"
+   ]
+  },
+  "e-repeats-off": {
+   "settings": {
+    "effect_level": "off"
+   },
+   "lead_ms": 200,
+   "frames": [
+    {
+     "pos": 2300,
+     "visible": true,
+     "text": "sola mira tenu",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      293.91,
+      221.8,
+      212.17,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 2600,
+     "visible": true,
+     "text": "sola mira tenu",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      293.94,
+      221.8,
+      212.13,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 8700,
+     "visible": true,
+     "text": "ooh aah",
+     "active": 0,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "adlib"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      332.52,
+      221.8,
+      134.97,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 23500,
+     "visible": true,
+     "text": "♪",
+     "active": -1,
+     "sung": [],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [
+      "plain"
+     ],
+     "box_classes": [],
+     "box_rect": [
+      368,
+      221.8,
+      64,
+      56.39
+     ],
+     "latency_marker": false
+    },
+    {
+     "pos": 24850,
+     "visible": true,
+     "text": "dami lo resa",
+     "active": 2,
+     "sung": [
+      0,
+      1
+     ],
+     "word_fill": [],
+     "fill": {},
+     "fx_fired": null,
+     "line_classes": [],
+     "box_classes": [],
+     "box_rect": [
+      305.94,
+      221.8,
+      188.13,
+      56.39
+     ],
+     "latency_marker": false
+    }
+   ],
+   "png": [
+    "e-repeats-off-2600.png",
+    "e-repeats-off-24850.png"
+   ]
   }
  },
  "dwell": {
@@ -4737,6 +5566,70 @@
     [],
     [],
     []
+   ]
+  },
+  "e-repeats": {
+   "summary": {
+    "words": 26,
+    "never_lit": 1,
+    "lit_lt_120": 1,
+    "lit_lt_180": 1,
+    "median_lit_ms": 500
+   },
+   "lit": [
+    [
+     400,
+     500,
+     500
+    ],
+    [],
+    [],
+    [
+     600,
+     800
+    ],
+    [
+     600,
+     600
+    ],
+    [
+     600,
+     600
+    ],
+    [
+     500,
+     500
+    ],
+    [
+     500,
+     500
+    ],
+    [
+     500,
+     500
+    ],
+    [
+     500,
+     500
+    ],
+    [
+     500,
+     500
+    ],
+    [
+     500,
+     500
+    ],
+    [],
+    [
+     400,
+     0,
+     1700
+    ],
+    [
+     600,
+     5901
+    ]
    ]
   }
  }

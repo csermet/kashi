@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "pipeline_version": "2.35.0",
+  "generated_at": "2026-11-19T20:00:00Z",
+  "track": {
+    "source": {
+      "type": "youtube",
+      "id": "golden-e-repeats"
+    },
+    "title": "Golden E: repeated lines",
+    "artist": "Kashi golden fixture",
+    "duration_ms": 40000
+  },
+  "sync": "word",
+  "alignment": {
+    "method": "synthetic/golden-fixture",
+    "lyrics_source": "synthetic",
+    "quality_score": 0.9
+  },
+  "palette": {
+    "source": "album_art",
+    "primary": "#4fb3ff",
+    "secondary": "#2a5f8a",
+    "background": "#0b1520",
+    "text": "#ffffff",
+    "accent": "#ffd166"
+  },
+  "fx": {
+    "lexicon": "kashi-fx/1.0.0",
+    "engine": "keywords",
+    "select": "density/1.0",
+    "words": [
+      {
+        "line": 13,
+        "word": 1,
+        "tag": "love",
+        "intensity": 0.8
+      }
+    ]
+  },
+  "lines": [
+    {
+      "start_ms": 1000,
+      "end_ms": 2400,
+      "text": "sola mira tenu",
+      "words": [
+        {
+          "start_ms": 1000,
+          "end_ms": 1400,
+          "text": "sola"
+        },
+        {
+          "start_ms": 1400,
+          "end_ms": 1900,
+          "text": "mira"
+        },
+        {
+          "start_ms": 1900,
+          "end_ms": 2400,
+          "text": "tenu"
+        }
+      ]
+    },
+    {
+      "start_ms": 2400,
+      "end_ms": 4000,
+      "text": "sola mira tenu"
+    },
+    {
+      "start_ms": 4400,
+      "end_ms": 5600,
+      "text": "pavo rendi"
+    },
+    {
+      "start_ms": 5600,
+      "end_ms": 7000,
+      "text": "pavo rendi",
+      "words": [
+        {
+          "start_ms": 5600,
+          "end_ms": 6200,
+          "text": "pavo"
+        },
+        {
+          "start_ms": 6200,
+          "end_ms": 7000,
+          "text": "rendi"
+        }
+      ]
+    },
+    {
+      "start_ms": 7400,
+      "end_ms": 8600,
+      "text": "ooh aah",
+      "words": [
+        {
+          "start_ms": 7400,
+          "end_ms": 8000,
+          "text": "ooh"
+        },
+        {
+          "start_ms": 8000,
+          "end_ms": 8600,
+          "text": "aah"
+        }
+      ],
+      "adlib": true
+    },
+    {
+      "start_ms": 8600,
+      "end_ms": 9800,
+      "text": "ooh aah",
+      "words": [
+        {
+          "start_ms": 8600,
+          "end_ms": 9200,
+          "text": "ooh"
+        },
+        {
+          "start_ms": 9200,
+          "end_ms": 9800,
+          "text": "aah"
+        }
+      ],
+      "adlib": true
+    },
+    {
+      "start_ms": 10200,
+      "end_ms": 11200,
+      "text": "nori tal",
+      "words": [
+        {
+          "start_ms": 10200,
+          "end_ms": 10700,
+          "text": "nori"
+        },
+        {
+          "start_ms": 10700,
+          "end_ms": 11200,
+          "text": "tal"
+        }
+      ]
+    },
+    {
+      "start_ms": 11200,
+      "end_ms": 12200,
+      "text": "nori tal",
+      "words": [
+        {
+          "start_ms": 11200,
+          "end_ms": 11700,
+          "text": "nori"
+        },
+        {
+          "start_ms": 11700,
+          "end_ms": 12200,
+          "text": "tal"
+        }
+      ],
+      "adlib": true
+    },
+    {
+      "start_ms": 12600,
+      "end_ms": 13600,
+      "text": "keni vor",
+      "words": [
+        {
+          "start_ms": 12600,
+          "end_ms": 13100,
+          "text": "keni"
+        },
+        {
+          "start_ms": 13100,
+          "end_ms": 13600,
+          "text": "vor"
+        }
+      ]
+    },
+    {
+      "start_ms": 13600,
+      "end_ms": 14600,
+      "text": "keni vor",
+      "words": [
+        {
+          "start_ms": 13600,
+          "end_ms": 14100,
+          "text": "keni"
+        },
+        {
+          "start_ms": 14100,
+          "end_ms": 14600,
+          "text": "vor"
+        }
+      ],
+      "uncertain": true
+    },
+    {
+      "start_ms": 15000,
+      "end_ms": 16000,
+      "text": "suma lio",
+      "words": [
+        {
+          "start_ms": 15000,
+          "end_ms": 15500,
+          "text": "suma"
+        },
+        {
+          "start_ms": 15500,
+          "end_ms": 16000,
+          "text": "lio"
+        }
+      ]
+    },
+    {
+      "start_ms": 22000,
+      "end_ms": 23000,
+      "text": "suma lio",
+      "words": [
+        {
+          "start_ms": 22000,
+          "end_ms": 22500,
+          "text": "suma"
+        },
+        {
+          "start_ms": 22500,
+          "end_ms": 23000,
+          "text": "lio"
+        }
+      ]
+    },
+    {
+      "start_ms": 23400,
+      "end_ms": 24000,
+      "text": "♪",
+      "words": [
+        {
+          "start_ms": 23400,
+          "end_ms": 24000,
+          "text": "a"
+        }
+      ]
+    },
+    {
+      "start_ms": 24400,
+      "end_ms": 26000,
+      "text": "dami lo resa",
+      "words": [
+        {
+          "start_ms": 24400,
+          "end_ms": 24800,
+          "text": "dami"
+        },
+        {
+          "start_ms": 24800,
+          "end_ms": 24800,
+          "text": "lo"
+        },
+        {
+          "start_ms": 24800,
+          "end_ms": 26000,
+          "text": "resa"
+        }
+      ]
+    },
+    {
+      "start_ms": 27000,
+      "end_ms": 28500,
+      "text": "vela, mora!",
+      "words": [
+        {
+          "start_ms": 27000,
+          "end_ms": 27600,
+          "text": "vela"
+        },
+        {
+          "start_ms": 27600,
+          "end_ms": 28500,
+          "text": "mora"
+        }
+      ]
+    }
+  ]
+}

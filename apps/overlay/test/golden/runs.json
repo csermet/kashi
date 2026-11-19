@@ -77,7 +77,15 @@
       "doc": "docs/d-shapes.json",
       "settings": { "effect_level": "hype" },
       "times": [2000, 2400, 2900, 3100, 3600, 3950, 4350, 4900, 5300, 5800, 7000, 7800, 8300, 10100, 10700, 11200, 12300, 12900, 13500, 19600, 20500, 26000],
-      "png": [2400, 3950, 4350, 5300, 12900]
+      "png": [2400, 3950, 4350, 5300, 12900],
+      "note": "@4350: dovi and tera share a start; tera is active and dovi goes straight to sung (never active, the dwell pin's never_lit 1). Intended (view-logic findActiveWord): sung is pinned bright on simple/full/hype, so the pair lights on one frame; d-shapes-off shows the one-word-at-a-time look, where a 0 ms word is not shown, as no word shorter than a frame is."
+    },
+    {
+      "name": "d-shapes-off",
+      "doc": "docs/d-shapes.json",
+      "settings": { "effect_level": "off" },
+      "times": [3950, 4350, 4900],
+      "png": [4350]
     },
     {
       "name": "d-line-hype",
@@ -85,6 +93,20 @@
       "settings": { "effect_level": "hype" },
       "times": [400, 600, 2000, 3100, 5000, 7000, 8000, 11600, 12500, 20000],
       "png": [2000, 8000]
+    },
+    {
+      "name": "e-repeats-hype",
+      "doc": "docs/e-repeats.json",
+      "settings": { "effect_level": "hype" },
+      "times": [1700, 2300, 2600, 3500, 4500, 5700, 6500, 7500, 8100, 8700, 9300, 10300, 11300, 12700, 13700, 15100, 18000, 21600, 22100, 23500, 24500, 24850, 25000, 27100, 30000, 34000],
+      "png": [2600, 5700, 8700, 13700, 23500, 24850]
+    },
+    {
+      "name": "e-repeats-off",
+      "doc": "docs/e-repeats.json",
+      "settings": { "effect_level": "off" },
+      "times": [2300, 2600, 8700, 23500, 24850],
+      "png": [2600, 24850]
     }
   ]
 }
