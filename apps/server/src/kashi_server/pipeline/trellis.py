@@ -187,16 +187,28 @@ def forced_align(log_probs, targets, blank: int):
     library reads, a slot no frame wrote reading 0. The differences, all where the library
     leaves its buffers: every block has room (the library's are (2L + 2)(T - L) bits, in whole
     64-bit words), and the last read (frame 0, whose value the library never uses) is not made.
-    Raises ValueError for an empty target list or fewer frames than the targets need
-    (T < L + R), which the library refuses too."""
+
+    The CALLER's contract (`alignment.get_alignments` and `alignment._viterbi` keep it on the job
+    path): finite scores, and target ids and the blank id that are columns of ``log_probs``. An id
+    outside the columns raises ValueError here (the library would read outside its input: no
+    input of its safe set has one). Scores that are not finite are NOT refused here, because the
+    library answers them without leaving its buffers and this returns its answer: with -inf
+    columns that may be a path that does not spell the targets (the job's get_spans then refuses
+    it), and with a NaN every comparison is false (the job refuses non-finite emissions before
+    any Viterbi). Raises ValueError as well for an empty target list or fewer frames than the
+    targets need (T < L + R), which the library refuses too."""
     import numpy as np
 
     lp = np.ascontiguousarray(log_probs, dtype=np.float32)
-    n_frames = lp.shape[0]
+    n_frames, n_columns = lp.shape
     tg = np.asarray(targets, dtype=np.int64)
     n_targets = len(tg)
     if n_targets == 0:
         raise ValueError("Empty transcript")
+    if not 0 <= blank < n_columns:
+        raise ValueError(f"blank {blank} is not a column of the {n_columns} log-probabilities")
+    if int(tg.min()) < 0 or int(tg.max()) >= n_columns:
+        raise ValueError(f"target ids must be columns of the {n_columns} log-probabilities")
     n_states = 2 * n_targets + 1
     repeats = int(np.count_nonzero(tg[1:] == tg[:-1]))
     if n_frames < n_targets + repeats:

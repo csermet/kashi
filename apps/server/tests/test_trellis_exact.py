@@ -47,6 +47,7 @@ def test_the_golden_file_covers_ties_neg_inf_and_inputs_without_a_finite_path():
     assert any(not np.isfinite(sc).all() for *_, sc in cases)  # no finite path
     assert any(not np.isfinite(lp).all() and np.isfinite(sc).all() for lp, *_, sc in cases)
     assert any((lp == 0).all() for lp, *_ in cases)  # every value tied
+    assert any(blank != 0 for _, _, blank, _, _ in cases)  # a blank other than column 0
 
 
 def _random(T, L, V=8, seed=0, repeat_rate=0.0):
@@ -70,13 +71,16 @@ def test_on_finite_scores_the_path_is_the_trellis_s_best(seed):
     rng = np.random.default_rng(seed)
     L = int(rng.integers(1, 30))
     lp, tg = _random(1, L, seed=seed, repeat_rate=0.2)
+    # Any column may be the blank: swap it with 0 in the targets (repeats stay where they were).
+    blank = int(rng.integers(0, 8))
+    tg = [{0: blank, blank: 0}.get(t, t) for t in tg]
     R = sum(1 for i in range(1, L) if tg[i] == tg[i - 1])
     for T in (L + R, L + R + 1, L + R + 2, 2 * L - 3, 2 * L, 3 * L):
         if T < L + R or T < 1:
             continue
         lp, _ = _random(T, L, seed=seed + 100)
-        path, scores = forced_align(lp, tg, 0)
-        cut = forced_align_cut(lp, tg, 0, [])
+        path, scores = forced_align(lp, tg, blank)
+        cut = forced_align_cut(lp, tg, blank, [])
         assert cut is not None
         assert path.tolist() == cut[0].tolist() and scores.tobytes() == cut[1].tobytes()
 
@@ -122,6 +126,15 @@ def test_the_band_of_every_frame_and_its_size(L):
                 assert band == expected
             logical = (2 * L + 2) * (T - L)
             assert (band > logical) == (R == 0 and T < 2 * L - 2)
+
+
+@pytest.mark.parametrize("targets,blank", [([1, -1], 0), ([1, 8], 0), ([1, 2], 8), ([1, 2], -1)])
+def test_an_id_that_is_not_a_column_is_refused(targets, blank):
+    """The caller's contract, checked: the library would read outside its input there."""
+    lp, _ = _random(10, 2, V=8, seed=2)
+    with pytest.raises(ValueError, match="column"):
+        forced_align(lp, targets, blank)
+    assert forced_align(lp, [1, 7], 0)[0].shape == (10,)  # the last column is one
 
 
 def test_fewer_frames_than_the_text_needs_or_no_text_raise():
