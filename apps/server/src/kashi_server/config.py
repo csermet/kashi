@@ -311,7 +311,7 @@ class Settings(BaseSettings):
     # QA places it on its stamp (alignment.align, line_qa._place_unaligned). False (production
     # through 2.35.0): it is aligned like a sung line and carries one word, the filler "a" on the
     # romanize=False path (Turkish, alignment._fit_to_vocab), the '♪' itself over the whole line
-    # on the uroman path. Candidate (2026-11-19, docs/research/refresh-from-evidence-2026-11.md).
+    # on the uroman path. Candidate (2026-11-19, docs/research/letterless-lines-2026-11.md).
     letterless_lines_wordless: bool = False
     # True: a word's stored text is the sheet's own token (punctuation, a dotted capital I, an
     # accent) wherever the aligner was given another form of it, which only the romanize=False

@@ -369,7 +369,11 @@ def _preview(
         envelope = evidence.envelope(_no_audio)
     # No lock: a read-only transaction cannot take one, and nothing here acts on the answer.
     guard = stored_document_kept(stored, overrides.find(s, "youtube", source_id), job, doc)
-    comparison = rules.compare(stored.document, doc, envelope)
+    # The rules judge a letterless line only when the build gave it to the aligner (the setting
+    # in effect here: the worker's, or the run's --set).
+    comparison = rules.compare(
+        stored.document, doc, envelope, letterless_wordless=settings.letterless_lines_wordless
+    )
     verdict, detail = rules.verdict(comparison, guard)
     # Every veto and review reason, whichever the verdict names: a guard hides the vetoes and a
     # veto the review reasons (2026-11-19: six songs released from W4 by hand were `review`).
@@ -509,7 +513,7 @@ def _counted(row: dict) -> dict:
     return row
 
 
-def summarize(rows: list[dict], overrides: dict[str, Any] | None = None) -> dict:
+def summarize(rows: list[dict], pipeline_set: dict[str, Any] | None = None) -> dict:
     """Counts per verdict, the ids to refresh (one admin reprocess call each) and why the others
     are not. Under `--set` overrides there is none to refresh: a reprocess runs the worker's own
     settings and cannot store what was previewed (the verdicts still count what would be)."""
@@ -569,7 +573,7 @@ def summarize(rows: list[dict], overrides: dict[str, Any] | None = None) -> dict
         for key in (f"over_{rules.MOVED_MS}", *(f"over_{far}" for far in rules.MOVED_FAR_MS))
     }
     same = {row["source_id"]: row.get("ladder_same", LADDER_NOT_RUN) for row in rows}
-    label = overrides_label(overrides or {})
+    label = overrides_label(pipeline_set or {})
     withheld = (
         {}
         if label is None
@@ -638,10 +642,44 @@ class OverrideError(ValueError):
     """A `--set` the preview refuses."""
 
 
+def documents_dir(documents: Path | None, label: dict | None) -> Path | None:
+    """Where `--documents` writes the built documents: the given directory, or under `--set`
+    its `set-<fingerprint>` subdirectory with OVERRIDES.json beside them naming the settings
+    (such a document still says the deployed `pipeline_version`; nothing stored may ever be
+    taken from it)."""
+    if documents is None or label is None:
+        return documents
+    target = documents / f"set-{label['fingerprint']}"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "OVERRIDES.json").write_text(
+        json.dumps(
+            {**label, "note": "built with these pipeline settings overridden by the preview's "
+             "--set; not what the deployed pipeline stores"},
+            sort_keys=True,
+            indent=1,
+        )
+        + "\n"
+    )
+    return target
+
+
+def validated_settings(pipeline_set: dict[str, Any]) -> Any:
+    """This process's settings with `pipeline_set` applied, validated by the `Settings` model
+    itself, its field validators included (`align_models`' language keys are normalised there);
+    raises what the model refuses. The environment is not read again; only the pipeline fields
+    are carried over (the operational ones take their defaults in this throwaway copy)."""
+    from kashi_server.config import PIPELINE_FIELDS, Settings
+
+    data = {name: getattr(settings, name) for name in PIPELINE_FIELDS}
+    data.update(pipeline_set)
+    return Settings.model_validate(data)
+
+
 def parse_overrides(pairs: list[str]) -> dict[str, Any]:
     """`--set NAME=VALUE` pairs as {name: value in plain JSON form}. Only a pipeline setting
-    (config.PIPELINE_FIELDS: the settings a document depends on) may be set, once, to a value it
-    validates as and that differs from the one this process runs (an equal value overrides
+    (config.PIPELINE_FIELDS: the settings a document depends on) may be set, once, to a value the
+    `Settings` model accepts (`validated_settings`; the value kept is the model's, after its
+    validators) and that differs from the one this process runs (an equal value overrides
     nothing). VALUE is read as JSON (true, 800, "x", {...}), else as a plain string."""
     from kashi_server.config import PIPELINE_FIELDS, pipeline_value
 
@@ -661,46 +699,47 @@ def parse_overrides(pairs: list[str]) -> dict[str, Any]:
         except ValueError:
             value = raw
         try:
-            value = pipeline_value(name, value)
+            value = pipeline_value(name, getattr(validated_settings({name: value}), name))
         except ValueError as exc:
-            raise OverrideError(f"--set {name}: {str(exc).splitlines()[0]}") from exc
+            reason = " ".join(str(exc).split())[:300]
+            raise OverrideError(f"--set {name}: refused by the settings model: {reason}") from exc
         if value == pipeline_value(name, getattr(settings, name)):
             raise OverrideError(f"--set {name}: this process already runs that value")
         out[name] = value
     return dict(sorted(out.items()))
 
 
-def overrides_label(overrides: dict[str, Any]) -> dict | None:
+def overrides_label(pipeline_set: dict[str, Any]) -> dict | None:
     """What every row and the summary carry: the settings and their fingerprint (the first 16 hex
     of the sha256 of their canonical JSON), or None without overrides."""
     import hashlib
 
-    if not overrides:
+    if not pipeline_set:
         return None
-    canonical = json.dumps(overrides, sort_keys=True, separators=(",", ":"))
-    return {"set": overrides, "fingerprint": hashlib.sha256(canonical.encode()).hexdigest()[:16]}
+    canonical = json.dumps(pipeline_set, sort_keys=True, separators=(",", ":"))
+    return {
+        "set": pipeline_set,
+        "fingerprint": hashlib.sha256(canonical.encode()).hexdigest()[:16],
+    }
 
 
 @contextlib.contextmanager
-def overridden(overrides: dict[str, Any]) -> Iterator[None]:
-    """`settings` with the overrides for the duration, as validated values; put back as they were
-    afterwards, also when the run fails or is stopped."""
-    from pydantic import TypeAdapter
-
-    from kashi_server.config import Settings
-
-    before = {name: getattr(settings, name) for name in overrides}
+def overridden(pipeline_set: dict[str, Any]) -> Iterator[None]:
+    """`settings` with the overrides for the duration, as the `Settings` model validates them
+    (`validated_settings`); put back as they were afterwards, also when the run fails or is
+    stopped."""
+    model = validated_settings(pipeline_set)
+    before = {name: getattr(settings, name) for name in pipeline_set}
     try:
-        for name, value in overrides.items():
-            adapter = TypeAdapter(Settings.model_fields[name].annotation)
-            setattr(settings, name, adapter.validate_python(value))
+        for name in pipeline_set:
+            setattr(settings, name, getattr(model, name))
         yield
     finally:
         for name, value in before.items():
             setattr(settings, name, value)
 
 
-def judge(lyrics: str, overrides: dict[str, Any] | None = None) -> dict:
+def judge(lyrics: str, pipeline_set: dict[str, Any] | None = None) -> dict:
     """What judges a run's rows: the preview's format, the pipeline, the evidence this image
     replays (its key: format, code versions, separation, libraries), the lyrics mode and the
     `--set` overrides. Rows of one out file must all come from one judge."""
@@ -713,7 +752,7 @@ def judge(lyrics: str, overrides: dict[str, Any] | None = None) -> dict:
             settings, separate_first=settings.separation_mode == "always"
         ),
         "lyrics": lyrics,
-        "pipeline_overrides": dict(overrides or {}),
+        "pipeline_overrides": dict(pipeline_set or {}),
     }
 
 
@@ -837,18 +876,24 @@ def main(argv: list[str] | None = None) -> int:
         "no id is to refresh (a reprocess runs the worker's own settings)",
     )
     args = parser.parse_args(argv)
+    from kashi_server.config import pipeline_overrides
+
+    # What this process's environment already sets differently from the code defaults (names):
+    # carried as a label, so a container started with a candidate's env value cannot preview
+    # unlabelled. Taken before --set is applied.
+    env_set = pipeline_overrides(settings)
     try:
-        overrides = parse_overrides(args.set)
+        pipeline_set = parse_overrides(args.set)
     except OverrideError as exc:
         parser.error(str(exc))
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    with overridden(overrides):
-        return _run(args, overrides)
+    with overridden(pipeline_set):
+        return _run(args, pipeline_set, env_set)
 
 
-def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
+def _run(args: argparse.Namespace, pipeline_set: dict[str, Any], env_set: list[str]) -> int:
     """The command after its arguments, under its `--set` overrides."""
     from kashi_server.db.engine import SessionLocal, engine
     from kashi_server.db.schema import schema_gap
@@ -864,8 +909,8 @@ def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
     if out_path.exists() and not args.append:
         print(f"preview refused: {out_path} exists (continue it with --append)", file=sys.stderr)
         return EXIT_OUT_EXISTS
-    current = judge(args.lyrics, overrides)
-    label = overrides_label(overrides)
+    current = judge(args.lyrics, pipeline_set)
+    label = overrides_label(pipeline_set)
     before = (
         rows_in(out_path)
         if out_path.exists()
@@ -900,7 +945,7 @@ def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
     )
     if label is not None:
         print(
-            f"note: pipeline settings overridden {json.dumps(overrides, sort_keys=True)} "
+            f"note: pipeline settings overridden {json.dumps(pipeline_set, sort_keys=True)} "
             f"(fingerprint {label['fingerprint']}): every row is labelled, and no id is to "
             "refresh - a reprocess runs the worker's own settings",
             flush=True,
@@ -913,6 +958,7 @@ def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
             "stored evidence, no download')",
             flush=True,
         )
+    documents = documents_dir(args.documents, label)
     rows: list[dict] = []
     code = EXIT_OK
     started = time.monotonic()
@@ -925,6 +971,7 @@ def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
                     "segment": {
                         "started": stamp,
                         "judge": current,
+                        "env_pipeline_overrides": env_set,
                         "cursor": not args.source_id,
                         "confirm_all": args.confirm_all,
                         "after": args.after,
@@ -958,7 +1005,7 @@ def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
                         s,
                         source_id,
                         lyrics=args.lyrics,
-                        documents=args.documents,
+                        documents=documents,
                         confirm_all=args.confirm_all,
                     )
                     if label is not None:
@@ -981,7 +1028,10 @@ def _run(args: argparse.Namespace, overrides: dict[str, Any]) -> int:
             "pipeline": PIPELINE_VERSION,
             "lyrics": args.lyrics,
             "preview_format": PREVIEW_FORMAT,
-            **summarize(everything, overrides),
+            **summarize(everything, pipeline_set),
+            # Label only: pipeline settings this process's environment sets apart from the code
+            # defaults (`refresh_ids` is the worker's business; its ready line names the same).
+            "env_pipeline_overrides": env_set,
             "next_after": frontier(
                 [*earlier, *({**r, "_cursor": cursor} for r in rows)], args.after
             ),

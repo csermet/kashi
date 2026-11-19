@@ -1088,7 +1088,7 @@ def test_no_row_carries_an_overrun_any_more(db_session, audio, monkeypatch, get_
     row = _preview(db_session, lyrics="stored", confirm_all=True)
     assert row["verdict"] == rules.REFRESH
     assert "aligner_overruns" not in row and "aligner_overruns" not in row["ladder"]
-    assert preview.PREVIEW_FORMAT >= 5 and not hasattr(preview, "LADDER_OVERRUN")
+    assert preview.PREVIEW_FORMAT == 6 and not hasattr(preview, "LADDER_OVERRUN")
 
 
 def test_an_aligner_refusal_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):
@@ -1412,10 +1412,19 @@ def test_an_override_reaches_the_build_and_nothing_else(db_session, audio, monke
         return real(*a, **k)
 
     monkeypatch.setattr(wp, "_run_pipeline", spy)
+    judged = []
+    real_compare = rules.compare
+
+    def compare(*a, **k):  # the rules judge as the build ran
+        judged.append(k.get("letterless_wordless"))
+        return real_compare(*a, **k)
+
+    monkeypatch.setattr(rules, "compare", compare)
     before = _snapshot(db_session)
     out = tmp_path / "rows.jsonl"
     assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(*CANDIDATE)) == 0
     assert seen and set(seen) == {(True, True)}
+    assert judged and set(judged) == {True}
     # put back for whatever this process runs next; nothing stored, no evidence touched
     assert (settings.letterless_lines_wordless, settings.word_text_from_sheet) == (False, False)
     assert _snapshot(db_session) == before
@@ -1427,9 +1436,16 @@ def test_an_override_reaches_the_build_and_nothing_else(db_session, audio, monke
     summary = lines[-1]["summary"]
     assert summary["pipeline_overrides"] == label and summary["refresh_ids"] == []
     assert summary["verdicts"][rules.REFRESH] == 1
+    # what the environment itself overrides is named too (a label; conftest's env sets some)
+    from kashi_server.config import pipeline_overrides
+
+    assert summary["env_pipeline_overrides"] == pipeline_overrides(settings)
+    assert lines[0]["segment"]["env_pipeline_overrides"] == pipeline_overrides(settings)
     # the same song without an override is an id to refresh, its rows unlabelled
     plain = tmp_path / "plain.jsonl"
+    judged.clear()
     assert _main(monkeypatch, tmp_path, "--out", str(plain)) == 0
+    assert judged and set(judged) == {False}  # judged exactly as 0.43.0 judges
     assert "pipeline_overrides" not in _lines(plain)[1]
     assert _lines(plain)[-1]["summary"]["refresh_ids"] == [SONG]
 
@@ -1447,3 +1463,42 @@ def test_append_never_mixes_two_sets_of_overrides(db_session, audio, monkeypatch
     assert _main(
         monkeypatch, tmp_path, "--out", str(out), "--append", *_set_args(CANDIDATE[0])
     ) == 0
+
+
+def test_documents_built_under_set_go_to_their_fingerprint_s_directory(
+    db_session, audio, monkeypatch, tmp_path
+):
+    _run(db_session, monkeypatch, "record")
+    docs = tmp_path / "docs"
+    out = tmp_path / "rows.jsonl"
+    assert _main(monkeypatch, tmp_path, "--out", str(out), "--documents", str(docs),
+                 *_set_args(*CANDIDATE)) == 0
+    label = preview.overrides_label(CANDIDATE_SET)
+    assert label is not None
+    target = docs / f"set-{label['fingerprint']}"
+    assert sorted(p.name for p in docs.iterdir()) == [target.name]  # nothing beside it
+    assert (target / f"{SONG}.json").exists()
+    named = json.loads((target / "OVERRIDES.json").read_text())
+    assert named["set"] == CANDIDATE_SET and named["fingerprint"] == label["fingerprint"]
+    # without --set: the directory itself, as before
+    plain = tmp_path / "plain-docs"
+    assert _main(monkeypatch, tmp_path, "--out", str(tmp_path / "plain.jsonl"),
+                 "--documents", str(plain)) == 0
+    assert sorted(p.name for p in plain.iterdir()) == [f"{SONG}.json"]
+
+
+def test_set_is_validated_by_the_settings_model_and_takes_its_value():
+    """align_models' validator keys the table the way the aligner is called ("en" -> "eng"); a
+    bare type check would let "en" through, and the override would silently never apply."""
+    got = preview.parse_overrides(['align_models={"en": {"checkpoint": "x/y"}}'])
+    assert list(got["align_models"]) == ["eng"]
+    assert got["align_models"]["eng"]["checkpoint"] == "x/y"
+    before = dict(settings.align_models)
+    with preview.overridden(got):
+        assert list(settings.align_models) == ["eng"]
+        assert settings.align_models["eng"].checkpoint == "x/y"
+    assert settings.align_models == before
+    with pytest.raises(preview.OverrideError, match="refused by the settings model"):
+        preview.parse_overrides(
+            ['align_models={"en": {"checkpoint": "x/y"}, "eng": {"checkpoint": "x/z"}}']
+        )
