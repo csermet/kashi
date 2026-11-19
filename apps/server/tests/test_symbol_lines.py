@@ -313,6 +313,16 @@ def test_align_maps_the_romanize_false_forms_back_to_the_sheet(monkeypatch, tmp_
     # the uroman path's texts are the sheet's already: nothing to give back
     uroman = alignment.align(*args[:5], True, 0, None, letterless_wordless=False, sheet_texts=True)
     assert [w.sheet_text for w in uroman.words_per_line[0]] == ["", ""]
+    # with no switch passed, align() reads the setting itself, as the worker's job does
+    from kashi_server.worker import preview
+
+    def sheet_texts():
+        return [w.sheet_text for w in alignment.align(*args).words_per_line[0]]
+
+    assert sheet_texts() == ["", ""]
+    with preview.overridden({"word_text_from_sheet": True}):
+        assert sheet_texts() == ["İyi,", "hâl"]
+    assert sheet_texts() == ["", ""]
 
 
 def test_align_and_review_hands_on_the_sheets_texts_after_the_timing_chain(monkeypatch, tmp_path):
@@ -388,6 +398,10 @@ def run(monkeypatch, tmp_path, wordless, lines=LINES, **kwargs):
 
     monkeypatch.setattr(alignment, "_align_texts", fake_align_texts)
     kwargs.setdefault("first_heard_ms", None)
+    # "settings": align() reads both switches itself, as the worker's job does
+    switches = (
+        {} if wordless == "settings" else {"letterless_wordless": wordless, "sheet_texts": False}
+    )
     result = alignment.align(
         tmp_path / "x.wav",
         lines,
@@ -398,11 +412,22 @@ def run(monkeypatch, tmp_path, wordless, lines=LINES, **kwargs):
         0,
         None,
         window_star="edges",
-        letterless_wordless=wordless,
-        sheet_texts=False,
+        **switches,
         **kwargs,
     )
     return result, seen
+
+
+def test_align_reads_the_letterless_setting_itself(monkeypatch, tmp_path):
+    from kashi_server.worker import preview
+
+    default, _ = run(monkeypatch, tmp_path, "settings")
+    assert [w.text for w in default.words_per_line[1]] == ["♪"] and not default.lines[1].unaligned
+    with preview.overridden({"letterless_lines_wordless": True}):
+        on, _ = run(monkeypatch, tmp_path, "settings")
+    assert on.words_per_line[1] == [] and on.lines[1].unaligned
+    after, _ = run(monkeypatch, tmp_path, "settings")
+    assert after == default
 
 
 def test_the_first_heard_rule_counts_a_letterless_line_as_no_words(monkeypatch, tmp_path):
@@ -495,9 +520,28 @@ def test_a_letterless_line_losing_its_word_is_no_lost_lyric_and_no_unjudged_move
             _line("two", 9_000, [("two", 9_000)]),
         ]
     }
-    comparison = rules.compare(old, new, None)
+    comparison = rules.compare(old, new, None, letterless_wordless=True)
     assert comparison["w3"] == [] and comparison["w2_unjudged"] == []
     assert [row["line"] for row in comparison["moved_lines"]] == [1]  # still listed
+    # a build that gave the '♪' to the aligner (the production setting) is judged as in 0.43.0
+    production = rules.compare(old, new, None)
+    assert production["w3"] == [1] and production["w2_unjudged"] == [1]
+    assert rules.vetoes(production) == ["W3"]
     # a sung line losing its words still vetoes
     new["lines"][2] = _line("two", 9_000)
-    assert rules.compare(old, new, None)["w3"] == [2]
+    assert rules.compare(old, new, None, letterless_wordless=True)["w3"] == [2]
+
+
+def test_the_rules_report_qa_s_offset_and_way_out():
+    def doc(offset, flagged=0, basis="anchors", sync="word"):
+        qa = {"offset_ms": offset, "flagged": flagged}
+        return {"sync": sync, "alignment": {"qa": qa, "quality_basis": basis}, "lines": []}
+
+    assert rules.compare(doc(0), doc(10), None)["qa"] == {
+        "offset_ms": [0, 10],
+        "exit": ["clean", "clean"],
+    }
+    assert rules.compare(doc(0, flagged=2), doc(0, basis="line-anchors", sync="line"), None)["qa"][
+        "exit"
+    ] == ["snapped", "line"]
+    assert rules.qa_exit(doc(0, basis="ctc-probs")) == "unreferenced"
