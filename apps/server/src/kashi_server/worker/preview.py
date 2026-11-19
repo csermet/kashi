@@ -2,8 +2,8 @@
 stored document, with nothing written (docs/research/refresh-from-evidence-2026-11.md).
 
     python -m kashi_server.worker.preview [--source-id ID ...] [--limit N] [--after ID]
-        [--out FILE [--append]] [--documents DIR] [--lyrics stored|ladder] [--lrclib-gap-s S]
-        [--beside-live-jobs]
+        [--out FILE [--append]] [--documents DIR] [--lyrics stored|ladder] [--confirm-all]
+        [--lrclib-gap-s S] [--beside-live-jobs]
 
 For each YouTube song with a stored document and stored evidence (or the songs given), in
 source-id order: the worker's own job code (`process._run_pipeline`, `persist=False`) runs under a
@@ -34,7 +34,10 @@ Lyrics: `--lyrics stored` (default) asks lrclib for the one record the stored do
 id: the release is measured on the same sheet. A song that comes out `refresh` that way is then
 previewed AGAIN with the lookup ladder, exactly as its reprocess will run it, and stays `refresh`
 only when the ladder builds the same document on the same record; otherwise its verdict says what
-the ladder did (another record, the by-ear rung, a failure). `--lyrics ladder` runs the ladder for
+the ladder did (another record, the by-ear rung, a failure). `--confirm-all` runs that ladder pass
+for every song that built a document on its stored record, whatever its verdict (which stays).
+Every row says `ladder_same`: true only when the document it judged is the one the reprocess's own
+lookup builds; only such ids may be reprocessed. `--lyrics ladder` runs the ladder for
 every song. An override's lyrics are always the override's. Requests to lrclib.net are at least
 `--lrclib-gap-s` apart (default 0.5 s, the top of the gap lrclib asks for in batch work). No
 preview can run without the record: its stamps cut the windows and judge line QA, and neither the
@@ -74,7 +77,7 @@ from kashi_server import overrides
 from kashi_server.config import settings
 from kashi_server.db.models import LIVE_STATUSES, Job, ProcessedTrack, TrackEvidence
 from kashi_server.pipeline import evidence
-from kashi_server.pipeline.document import stored_document_kept
+from kashi_server.pipeline.document import carried_palette, stored_document_kept
 from kashi_server.vdl_kit.errors import PipelineError, is_transient_error
 from kashi_server.worker import backfill
 from kashi_server.worker import preview_rules as rules
@@ -86,8 +89,11 @@ logger = logging.getLogger(__name__)
 DIR_PREFIX = "job-preview-"
 LYRICS_MODES = ("stored", "ladder")
 #: The layout and rules of the out file's rows; bumped whenever a row of an earlier format could
-#: be read wrongly by this code (2: segments carry their judge, refreshes their confirmation).
-PREVIEW_FORMAT = 2
+#: be read wrongly by this code (2: segments carry their judge, refreshes their confirmation;
+#: 3: W4 counts, W5, `ladder_same`, the palette carried).
+PREVIEW_FORMAT = 3
+#: A row's `ladder_same` when no document was built or no ladder pass ran.
+LADDER_NOT_RUN = "not run"
 EXIT_OK, EXIT_SCHEMA, EXIT_OUT_EXISTS, EXIT_LIVE_JOBS, EXIT_DATABASE = 0, 2, 3, 4, 5
 #: Signals that stop a run with its summary written; the exit code is 128 + the signal's number.
 STOP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
@@ -341,6 +347,10 @@ def _preview(
     out["served"] = dict(sorted(replayer.served.items()))
     if doc is None:
         return {**out, "verdict": failure[0], "detail": failure[1]}, None
+    # What persist stores: a palette that fell back to the default (a failed artwork fetch) over
+    # one read off the artwork is the stored one.
+    built, doc = doc, carried_palette(stored.document, doc)
+    out["palette_carried"] = doc is not built
     if documents is not None:
         documents.mkdir(parents=True, exist_ok=True)
         (documents / f"{source_id}.json").write_text(
@@ -362,24 +372,27 @@ def _same_document(a: dict, b: dict) -> bool:
     }
 
 
+def _record(doc: dict | None) -> Any:
+    return None if doc is None else (doc.get("alignment") or {}).get("lyrics_source_id")
+
+
+def ladder_same(doc: dict, ladder_doc: dict | None) -> bool:
+    """The ladder pass built the same document (`generated_at` aside) on the same lyrics record."""
+    return (
+        ladder_doc is not None
+        and _record(ladder_doc) == _record(doc)
+        and _same_document(doc, ladder_doc)
+    )
+
+
 def confirmed(row: dict, doc: dict, ladder: dict, ladder_doc: dict | None) -> dict:
     """The ladder's word on a `stored`-mode `refresh`: the fields that replace the row's verdict.
     It stays `refresh` only when the ladder also says `refresh`, on the same lyrics record, with
     the same document (`generated_at` aside); else the verdict is the ladder's own (another record
     is a changed sheet, the by-ear rung a full job, weather a failure), or `review` when the ladder
     says `refresh` with another document."""
-    record = (doc.get("alignment") or {}).get("lyrics_source_id")
-    ladder_record = (
-        None
-        if ladder_doc is None
-        else ((ladder_doc.get("alignment") or {}).get("lyrics_source_id"))
-    )
-    same = (
-        ladder["verdict"] == rules.REFRESH
-        and ladder_doc is not None
-        and ladder_record == record
-        and _same_document(doc, ladder_doc)
-    )
+    ladder_record = _record(ladder_doc)
+    same = ladder["verdict"] == rules.REFRESH and ladder_same(doc, ladder_doc)
     note = {"verdict": ladder["verdict"], "lyrics_record": ladder_record, "confirmed": same}
     if same:
         return {"ladder": note}
@@ -403,10 +416,18 @@ def preview_song(
     lyrics: str = "stored",
     documents: Path | None = None,
     confirm: bool = True,
+    confirm_all: bool = False,
 ) -> dict:
     """One song's preview row (numbers and fixed reasons only). `s` only reads (see
     `read_only`); its transaction ends with the song. In `stored` mode a `refresh` on the stored
-    record is previewed again with the ladder (`confirmed`)."""
+    record is previewed again with the ladder (`confirmed`); with `confirm_all`, every row that
+    built a document on the stored record is (its verdict stays; `ladder_same` says what the
+    ladder built).
+
+    `ladder_same`: True when the document this row judged is the one the reprocess's own lookup
+    builds (a ladder pass built it on the same record, or the ladder or the song's override built
+    it in the first place), False when the ladder pass built another document, another record or
+    none, LADDER_NOT_RUN when no document was built or no ladder pass ran."""
     if lyrics not in LYRICS_MODES:
         raise ValueError(f"lyrics mode {lyrics!r} is not one of {LYRICS_MODES}")
     started = time.monotonic()
@@ -417,27 +438,34 @@ def preview_song(
     try:
         fields, doc = _preview(s, source_id, lyrics, documents)
         row.update(fields)
-        if (
-            confirm
-            and doc is not None
-            and row["verdict"] == rules.REFRESH
-            and str(row.get("lyrics", "")).startswith("record")
-        ):
+        pinned = str(row.get("lyrics", "")).startswith("record")
+        if doc is not None and not pinned:
+            row["ladder_same"] = True  # built by the reprocess's own lookup (or override)
+        elif confirm and doc is not None and (confirm_all or row["verdict"] == rules.REFRESH):
             s.rollback()
             ladder, ladder_doc = _preview(s, source_id, "ladder", None)
-            row.update(confirmed(row, doc, ladder, ladder_doc))
+            row["ladder_same"] = ladder_same(doc, ladder_doc)
+            if row["verdict"] == rules.REFRESH:
+                row.update(confirmed(row, doc, ladder, ladder_doc))
+            else:
+                row["ladder"] = {"verdict": ladder["verdict"], "lyrics_record": _record(ladder_doc)}
         if row["verdict"] == rules.REFRESH:
             # What the reprocess will run: the ladder (or the override), as this row now says.
-            row["refresh_confirmed"] = not str(row.get("lyrics", "")).startswith("record") or (
+            row["refresh_confirmed"] = not pinned or (
                 bool((row.get("ladder") or {}).get("confirmed"))
             )
     except OperationalError:
         raise
     except Exception as exc:  # noqa: BLE001 - one song's fault must not stop the run
         logger.warning("preview %s failed", source_id, exc_info=True)
-        row.update(verdict=rules.FAILED, detail=f"preview fault {type(exc).__name__}")
+        row.update(
+            verdict=rules.FAILED,
+            detail=f"preview fault {type(exc).__name__}",
+            ladder_same=LADDER_NOT_RUN,
+        )
     finally:
         s.rollback()
+    row.setdefault("ladder_same", LADDER_NOT_RUN)
     row["seconds"] = round(time.monotonic() - started, 2)
     return row
 
@@ -501,12 +529,20 @@ def summarize(rows: list[dict]) -> dict:
         key: sum(row["moved"][key] for row in same_sheet)
         for key in (f"over_{rules.MOVED_MS}", *(f"over_{far}" for far in rules.MOVED_FAR_MS))
     }
+    same = {row["source_id"]: row.get("ladder_same", LADDER_NOT_RUN) for row in rows}
     return {
         "songs": len(rows),
         "verdicts": verdicts,
         "same_sheet_totals": totals,
         "refresh_ids": [r["source_id"] for r in rows if r["verdict"] == rules.REFRESH],
         "unchanged_ids": [r["source_id"] for r in rows if r["verdict"] == rules.UNCHANGED],
+        # Per song: may it be reprocessed at all (only `True`), whatever its verdict.
+        "ladder_same": same,
+        "ladder_same_counts": {
+            "true": sum(v is True for v in same.values()),
+            "false": sum(v is False for v in same.values()),
+            LADDER_NOT_RUN: sum(v == LADDER_NOT_RUN for v in same.values()),
+        },
         "vetoes": dict(sorted(vetoes.items())),
         **others,
         "next_after": rows[-1]["source_id"] if rows else None,
@@ -641,6 +677,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--lyrics", choices=LYRICS_MODES, default="stored")
     parser.add_argument(
+        "--confirm-all",
+        action="store_true",
+        help="in stored mode, a ladder pass for every song that built a document, not only for "
+        "`refresh` (one more lookup and replay a song): every row then says `ladder_same`",
+    )
+    parser.add_argument(
         "--lrclib-gap-s",
         type=float,
         default=0.5,
@@ -720,6 +762,7 @@ def main(argv: list[str] | None = None) -> int:
                         "started": stamp,
                         "judge": current,
                         "cursor": not args.source_id,
+                        "confirm_all": args.confirm_all,
                         "after": args.after,
                         "limit": args.limit,
                         "source_ids": len(args.source_id or []),
@@ -747,12 +790,19 @@ def main(argv: list[str] | None = None) -> int:
                         code = EXIT_LIVE_JOBS
                         break
                     s.rollback()
-                    row = preview_song(s, source_id, lyrics=args.lyrics, documents=args.documents)
+                    row = preview_song(
+                        s,
+                        source_id,
+                        lyrics=args.lyrics,
+                        documents=args.documents,
+                        confirm_all=args.confirm_all,
+                    )
                     rows.append(row)
                     out.write(json.dumps(row, sort_keys=True) + "\n")
                     out.flush()
                     detail = f" ({row['detail']})" if row.get("detail") else ""
-                    print(f"{source_id}: {row['verdict']}{detail}", flush=True)
+                    same = str(row["ladder_same"]).lower()
+                    print(f"{source_id}: {row['verdict']}{detail} [ladder_same {same}]", flush=True)
         except Stopped as stop:
             code = 128 + stop.signum
         except OperationalError:

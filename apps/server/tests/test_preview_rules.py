@@ -192,19 +192,100 @@ def test_moves_past_500_and_1500_ms_and_the_largest(d, over_500, over_1500):
     assert moved["largest"]["line"] == 0 and moved["largest"]["d_ms"] == d
 
 
-@pytest.mark.parametrize("new_dwell,old_dwell,veto", [
-    (119, 120, True), (120, 120, False), (119, 119, False), (119, 121, True), (121, 500, False),
+# --- W4 (a count since 2026-11-19) and W5 ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("dwell,flash", [(121, False), (120, False), (119, True), (0, True),
+                                         (-1, True)])
+def test_a_first_word_flashes_under_120_ms(dwell, flash):
+    doc = _doc([_line(10_000, [10_000, 10_000 + dwell, 11_000])])
+    assert r.first_word_flashes(doc) == ([0] if flash else [])
+    assert r.shape(doc)["first_dwell_under_120"] == flash
+
+
+def test_a_line_of_two_words_counts_and_a_line_of_one_cannot():
+    doc = _doc([_line(1000, [1000, 1050]), _line(3000, [3000]), _line(5000)])
+    assert r.first_word_flashes(doc) == [0]
+    assert r.first_dwell(doc["lines"][1]) is None and r.first_dwell(doc["lines"][2]) is None
+
+
+def test_only_the_first_word_s_dwell_is_counted():
+    doc = _doc([_line(1000, [1000, 1500, 1510, 1520])])  # the 2nd and 3rd words flash
+    assert r.first_word_flashes(doc) == [] and r.shape(doc)["dwell_under_120"] == 2
+
+
+def _flashing(n, total=4):
+    """`total` lines; the first `n` of them have a first word with a 50 ms dwell, the rest 300."""
+    lines = []
+    for k in range(total):
+        t = 10_000 * (k + 1)
+        lines.append(_line(t, [t, t + (50 if k < n else 300), t + 900]))
+    return _doc(lines)
+
+
+@pytest.mark.parametrize("old_n,new_n,veto", [
+    (0, 0, False), (0, 1, True), (1, 1, False), (1, 0, False), (2, 1, False), (1, 2, True),
+    (3, 4, True),
 ])
-def test_w4_a_moved_first_word_that_loses_its_dwell(new_dwell, old_dwell, veto):
-    old = _doc([_line(10_000, [10_000, 10_000 + old_dwell, 11_000])])
-    new = _doc([_line(10_500, [10_500, 10_500 + new_dwell, 11_000])])
-    assert ("W4" in r.vetoes(r.compare(old, new, None))) is veto
+def test_w4_vetoes_more_flashing_first_words_than_the_stored_document(old_n, new_n, veto):
+    comparison = r.compare(_flashing(old_n), _flashing(new_n), None)
+    assert (comparison["w4"]["old"], comparison["w4"]["new"]) == (old_n, new_n)
+    assert ("W4" in r.vetoes(comparison)) is veto
+    assert [x["line"] for x in comparison["w4"]["lines"]] == list(range(old_n, max(old_n, new_n)))
 
 
-def test_w4_only_on_a_moved_line():
+def test_w4_a_flash_traded_for_one_removed_is_no_veto_and_the_new_one_is_named():
+    old = _doc([_line(1000, [1000, 1050, 1900]), _line(3000, [3000, 3300, 3900])])
+    new = _doc([_line(1000, [1000, 1300, 1900]), _line(3000, [3000, 3050, 3900])])
+    comparison = r.compare(old, new, None)
+    assert comparison["w4"] == {
+        "old": 1, "new": 1, "lines": [{"line": 1, "dwell_old_ms": 300, "dwell_new_ms": 50}]}
+    assert r.vetoes(comparison) == []
+
+
+def test_w4_counts_lines_that_did_not_move():
     old = _doc([_line(10_000, [10_000, 10_200, 11_000])])
-    new = _doc([_line(10_100, [10_100, 10_200, 11_000])])  # 100 ms: not moved
-    assert r.compare(old, new, None)["w4"] == []
+    new = _doc([_line(10_000, [10_000, 10_100, 11_000])])  # the start stays, the dwell drops
+    comparison = r.compare(old, new, None)
+    assert comparison["moved"]["over_100"] == 0
+    assert r.vetoes(comparison) == ["W4"]
+    assert comparison["w4"]["lines"] == [{"line": 0, "dwell_old_ms": 200, "dwell_new_ms": 100}]
+
+
+def test_w4_a_line_that_gains_its_second_word_and_flashes_is_named_without_an_old_dwell():
+    old = _doc([_line(1000, [1000], end=1900)])
+    new = _doc([_line(1000, [1000, 1100], end=1900)])
+    comparison = r.compare(old, new, None)
+    assert comparison["w4"]["lines"] == [{"line": 0, "dwell_old_ms": None, "dwell_new_ms": 100}]
+    assert r.vetoes(comparison) == ["W4"]
+
+
+def _disordered(n):
+    """Two-word lines; in the first `n` of them the first word starts 1 ms before the previous
+    line's last word (a word before its predecessor, across lines), in the others on it."""
+    lines, t = [_line(1000, [1000, 1500])], 1500
+    for k in range(4):
+        start = t - 1 if k < n else t
+        lines.append(_line(start, [start, start + 500]))
+        t = start + 500
+    return _doc(lines)
+
+
+@pytest.mark.parametrize("old_n,new_n,veto", [
+    (0, 0, False), (0, 1, True), (1, 1, False), (1, 0, False), (2, 1, False), (2, 3, True),
+])
+def test_w5_vetoes_more_words_before_their_predecessor_than_the_stored_document(old_n, new_n,
+                                                                                 veto):
+    comparison = r.compare(_disordered(old_n), _disordered(new_n), None)
+    assert comparison["w5"] == {"old": old_n, "new": new_n}
+    assert ("W5" in r.vetoes(comparison)) is veto
+
+
+def test_w5_a_word_starting_with_its_predecessor_is_in_order():
+    same = _doc([_line(1000, [1000, 1500]), _line(1500, [1500, 2000])])
+    before = _doc([_line(1000, [1000, 1500]), _line(1499, [1499, 2000])])
+    assert r.compare(same, same, None)["w5"] == {"old": 0, "new": 0}
+    assert r.vetoes(r.compare(same, before, None)) == ["W5"]
 
 
 # --- the envelope: silent lead, the voice's return, W2 -------------------------------------------
@@ -380,7 +461,10 @@ def test_the_verdict_order_guard_sheet_veto():
 def test_every_veto_is_named_in_the_detail():
     old = _doc([_line(1000, [1000 + 200 * k for k in range(5)]), _line(5000, [5000, 5500])])
     new = _doc([_line(1000, [1000 + 10 * k for k in range(5)]), _line(5000)])
-    assert r.verdict(r.compare(old, new, None)) == (r.VETOED, "veto: W1, W3")
+    assert r.verdict(r.compare(old, new, None)) == (r.VETOED, "veto: W1, W3, W4")
+    old = _doc([_line(1000, [1000, 1500]), _line(1500, [1500, 2000]), _line(5000, [5000, 5500])])
+    new = _doc([_line(1000, [1000, 1500]), _line(1400, [1400, 2000]), _line(5000, [5000, 5100])])
+    assert r.verdict(r.compare(old, new, None)) == (r.VETOED, "veto: W4, W5")
 
 
 # --- round 2: what W2 cannot judge, the palette, older documents ----------------------------------
@@ -409,20 +493,15 @@ def test_the_first_line_is_never_judged_by_w2():
     assert r.compare(old, new, _env([0] * 600))["w2_unjudged"] == [0]
 
 
-@pytest.mark.parametrize("old_source,new_source,review", [
-    ("album_art", "default", True), ("default", "default", False), (None, "default", False),
-    ("album_art", "album_art", False),
-])
-def test_a_palette_falling_back_to_the_default_is_review(old_source, new_source, review):
+def test_a_palette_is_judged_like_any_other_field():
+    """Persist carries a stored album palette over the fallback (document.carried_palette) and the
+    preview judges the document it would store: what is left of a palette is a field that
+    differs."""
     old = _doc([_line(1000, [1000])])
-    if old_source:
-        old["palette"] = {"source": old_source, "primary": "#000001"}
-    new = {**old, "pipeline_version": "2.35.0",
-           "palette": {"source": new_source, "primary": "#e84545"}}
+    old["palette"] = {"source": "album_art", "primary": "#000001"}
+    new = {**old, "pipeline_version": "2.35.0", "palette": {"source": "default"}}
     comparison = r.compare(old, new, None)
-    assert comparison["palette_falls_back"] is review
-    expected = (r.REVIEW, "palette would fall back to the default") if review else (r.REFRESH, "")
-    assert r.verdict(comparison) == expected
+    assert comparison["differs"] == ["palette"] and r.verdict(comparison) == (r.REFRESH, "")
 
 
 def test_a_document_older_than_the_speed_factor_reads_as_one():
@@ -445,7 +524,7 @@ def test_inline_tags_stripped_are_the_same_line():
 
 def test_the_review_comes_after_the_vetoes_and_before_refresh():
     old = _doc([_line(1000, [1000 + 200 * k for k in range(5)]), _line(5000, [5000, 5500])])
-    piled = _doc([_line(1000, [1000 + 10 * k for k in range(5)]), _line(7000, [7000, 7500])])
+    piled = _doc([_line(1000, [1000, 1200, 1210, 1220, 1230]), _line(7000, [7000, 7500])])
     assert r.verdict(r.compare(old, piled, None)) == (r.VETOED, "veto: W1")
     moved = _doc([_line(1000, [1000 + 200 * k for k in range(5)]), _line(7000, [7000, 7500])])
     assert r.verdict(r.compare(old, moved, None))[0] == r.REVIEW

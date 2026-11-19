@@ -10,8 +10,15 @@ not tuned here:
 - W2 away from the voice: a line start that moves more than 1 500 ms farther from where the voice
   returns (below);
 - W3 lost words: a line with text that had word timings and has none;
-- W4 a rushed first word: a moved line (start > 100 ms away) whose first word now lights < 120 ms
-  before its second word and lit >= 120 ms before.
+- W4 rushed first words, counted: the built document has MORE lines of >= 2 words whose first word
+  lights < 120 ms before its second word than the stored one;
+- W5 order: the built document has MORE words starting before the word before them (document
+  order, across lines) than the stored one.
+
+W4 was first written for the lines one rule moves (a moved line whose first word lost its dwell);
+over a jump of several releases hundreds of lines move a little, and one new flash kept songs whose
+build removes several, so it counts, as the owner's priority reads: fewer rushed moments
+(2026-11-19, adopted with his blind clips; docs/research/refresh-from-evidence-2026-11.md).
 
 W2's witness is the stem's level envelope (pipeline/level.py, kept in the evidence): the voice
 returns where a frame reaches the audit voice witness's silence line after at least its shortest
@@ -28,10 +35,6 @@ document lies within LINE_VOICE_MAX_MS of the new start, so it can never put the
 than VETO_AWAY_MS farther away; the first line, and every line inside continuous singing, are never
 placed. A line start that moves more than VETO_AWAY_MS without such a reference is therefore
 `review`: neither vetoed nor refreshed, listed for a person.
-
-A rebuild whose palette is the fallback (the artwork fetch failed: the palette is fetched live, it
-is not evidence) while the stored one was read off the artwork is `review` too: a reprocess would
-store the default colours over the album's.
 
 A sheet that changed (another lyrics record, source or clock, another line count, any line's text)
 is reported and never judged by these measures: they pair lines by index. A document that predates
@@ -58,7 +61,7 @@ VETO_RUN_WORDS = 4
 #: W2: a line start this much farther from the voice's return (strictly more) vetoes the song.
 VETO_AWAY_MS = 1500
 #: W4 and the counts: a word whose successor in its line starts less than this after it has no
-#: visible dwell.
+#: visible dwell (W4 counts the lines whose FIRST word has none).
 SHORT_DWELL_MS = 120
 #: The counts: ... and less than this, a word that only flashes.
 FLASH_DWELL_MS = 60
@@ -82,12 +85,9 @@ FULL_JOB = "needs a full job"
 GUARDED = "keep"  # the persist guard would keep the stored document (detail: "guard: ...")
 SHEET = "sheet changed"
 VETOED = "keep"  # detail: "veto: W1, ..."
-REVIEW = "review"  # a move W2 cannot judge, a palette falling back: for a person, not refreshed
+REVIEW = "review"  # a move W2 cannot judge, an aligner overrun: for a person, not refreshed
 UNCHANGED = "unchanged"
 REFRESH = "refresh"
-
-#: The palette's `source` when the artwork could not be read (pipeline/palette.DEFAULT_PALETTE).
-DEFAULT_PALETTE_SOURCE = "default"
 
 #: Document fields a rebuild always changes: they say when and by which version, not what.
 STAMP_FIELDS = ("generated_at", "pipeline_version")
@@ -104,9 +104,10 @@ def _words(line: dict) -> list[dict]:
 def shape(doc: dict) -> dict:
     """Counts over one document (the 2.34.0 refresh's definitions): lines, words, worded and
     wordless lines; `dwell_under_120` / `dwell_under_60` / `dwell_0`: words whose successor in
-    the same line starts < SHORT_DWELL_MS / < FLASH_DWELL_MS / <= 0 ms after them; `disorder`:
-    words starting before the word before them (across lines); `overlap`: lines ending after the
-    next line starts."""
+    the same line starts < SHORT_DWELL_MS / < FLASH_DWELL_MS / <= 0 ms after them;
+    `first_dwell_under_120`: lines whose first word is such a word (W4, `first_word_flashes`);
+    `disorder`: words starting before the word before them (across lines; W5); `overlap`: lines
+    ending after the next line starts."""
     lines = _lines(doc)
     out = {
         "lines": len(lines),
@@ -116,6 +117,7 @@ def shape(doc: dict) -> dict:
         "dwell_under_120": 0,
         "dwell_under_60": 0,
         "dwell_0": 0,
+        "first_dwell_under_120": len(first_word_flashes(doc)),
         "disorder": 0,
         "overlap": 0,
     }
@@ -136,6 +138,22 @@ def shape(doc: dict) -> dict:
                 out["dwell_under_60"] += dwell < FLASH_DWELL_MS
                 out["dwell_0"] += dwell <= 0
     return out
+
+
+def first_dwell(line: dict) -> int | None:
+    """The line's first word's dwell: its second word's start minus its first's (None under two
+    words)."""
+    words = _words(line)
+    return words[1]["start_ms"] - words[0]["start_ms"] if len(words) >= 2 else None
+
+
+def first_word_flashes(doc: dict) -> list[int]:
+    """W4's lines: the lines of >= 2 words whose first word's dwell is < SHORT_DWELL_MS."""
+    return [
+        index
+        for index, line in enumerate(_lines(doc))
+        if (dwell := first_dwell(line)) is not None and dwell < SHORT_DWELL_MS
+    ]
 
 
 #: What an absent alignment field means (a document older than the field).
@@ -259,13 +277,6 @@ def placed_on_voice(doc: dict, returns: list[int]) -> dict[int, int]:
     return out
 
 
-def palette_falls_back(old: dict, new: dict) -> bool:
-    """The rebuild's palette is the default fallback while the stored one is not."""
-    source_old = (old.get("palette") or {}).get("source")
-    source_new = (new.get("palette") or {}).get("source")
-    return source_new == DEFAULT_PALETTE_SOURCE and source_old not in (None, DEFAULT_PALETTE_SOURCE)
-
-
 def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
     """Everything the verdict reads, and the report around it (numbers only)."""
     out: dict[str, Any] = {
@@ -276,7 +287,6 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         "old": shape(old),
         "new": shape(new),
         "sheet": sheet_changes(old, new),
-        "palette_falls_back": palette_falls_back(old, new),
     }
     if out["sheet"]:
         return out
@@ -288,7 +298,6 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
     w2: dict[str, Any] = {"away_ms": 0}
     lost: list[int] = []
     gained: list[int] = []
-    w4: list[dict] = []
     unjudged: list[int] = []
     for i, (a, b) in enumerate(zip(la, lb, strict=True)):
         wa, wb = _words(a), _words(b)
@@ -325,11 +334,17 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
             moved.append(row)
             if abs(d) > VETO_AWAY_MS and i not in on_old:
                 unjudged.append(i)
-            if len(wa) > 1 and len(wb) > 1:
-                dwell_old = wa[1]["start_ms"] - wa[0]["start_ms"]
-                dwell_new = wb[1]["start_ms"] - wb[0]["start_ms"]
-                if dwell_new < SHORT_DWELL_MS <= dwell_old:
-                    w4.append({"line": i, "dwell_old_ms": dwell_old, "dwell_new_ms": dwell_new})
+    flashed = set(first_word_flashes(old))
+    w4 = {
+        "old": out["old"]["first_dwell_under_120"],
+        "new": out["new"]["first_dwell_under_120"],
+        "lines": [
+            {"line": i, "dwell_old_ms": first_dwell(la[i]), "dwell_new_ms": first_dwell(lb[i])}
+            for i in first_word_flashes(new)
+            if i not in flashed
+        ],
+    }
+    w5 = {"old": out["old"]["disorder"], "new": out["new"]["disorder"]}
     largest = max(moved, key=lambda r: abs(r["d_ms"]), default=None)
     out["moved"] = {
         f"over_{MOVED_MS}": len(moved),
@@ -344,13 +359,13 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         "placed_new": len(on_new),
         "envelope": envelope is not None,
     }
-    out["w1"], out["w2"], out["w3"], out["w4"] = w1, w2, lost, w4
+    out["w1"], out["w2"], out["w3"], out["w4"], out["w5"] = w1, w2, lost, w4, w5
     out["w2_unjudged"] = unjudged
     return out
 
 
 def vetoes(comparison: dict) -> list[str]:
-    """The archive rig's vetoes that fire (W1-W4)."""
+    """The vetoes that fire (W1-W5)."""
     out = []
     if comparison["w1"]["words"] >= VETO_RUN_WORDS:
         out.append("W1")
@@ -358,16 +373,20 @@ def vetoes(comparison: dict) -> list[str]:
         out.append("W2")
     if comparison["w3"]:
         out.append("W3")
-    if comparison["w4"]:
+    if comparison["w4"]["new"] > comparison["w4"]["old"]:
         out.append("W4")
+    if comparison["w5"]["new"] > comparison["w5"]["old"]:
+        out.append("W5")
     return out
 
 
 def reviews(comparison: dict, overruns: int = 0) -> list[str]:
     """What a person must look at before the song is refreshed (none of it a veto): moves W2
-    cannot judge, a palette falling back, and passes the aligner library ran in its overrun region
+    cannot judge, and passes the aligner library ran in its overrun region
     (`alignment.library_overruns`: undefined behaviour, so the reprocess may store another path
-    than the one previewed)."""
+    than the one previewed). A palette that falls back to the default is no longer one of them:
+    persist keeps the stored album palette (`document.carried_palette`), and the preview judges
+    the document with it."""
     out = []
     if overruns:
         out.append(f"aligner overrun region: {overruns} pass{'es' if overruns != 1 else ''}")
@@ -375,8 +394,6 @@ def reviews(comparison: dict, overruns: int = 0) -> list[str]:
     if unjudged:
         lines = ", ".join(str(i) for i in unjudged)
         out.append(f"line(s) {lines} moved > {VETO_AWAY_MS} ms where W2 cannot judge")
-    if comparison.get("palette_falls_back"):
-        out.append("palette would fall back to the default")
     return out
 
 
