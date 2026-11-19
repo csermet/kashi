@@ -33,6 +33,7 @@ from kashi_server.pipeline.alignment import (
     quality_from_probs,
     resolve_aligner,
     transcribe,
+    with_sheet_texts,
 )
 from kashi_server.pipeline.asr import (
     DEFAULT_MATCH_THRESHOLD,
@@ -1231,6 +1232,9 @@ def align_and_review(
     qa = apply_line_qa(aligned, lyrics.line_texts, lyrics.synced_starts_ms, onsets)
     # 2.29.1: QA judged the cut ends; the words get their length back now.
     result, restored = restore_held_ends(qa.result)
+    # The last step of the timing chain: from here on (effects, the document) a word's text is
+    # the sheet's own token where the aligner was given another form (`word_text_from_sheet`).
+    result = with_sheet_texts(result)
     return ReviewedAlignment(
         lyrics=lyrics,
         aligned=aligned,

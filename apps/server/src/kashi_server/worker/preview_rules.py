@@ -52,7 +52,11 @@ from __future__ import annotations
 import bisect
 from typing import Any
 
-from kashi_server.pipeline.alignment import FIRST_HEARD_MIN_SILENCE_MS, FIRST_HEARD_SILENCE_DB
+from kashi_server.pipeline.alignment import (
+    FIRST_HEARD_MIN_SILENCE_MS,
+    FIRST_HEARD_SILENCE_DB,
+    sung_text,
+)
 from kashi_server.pipeline.level import Envelope
 from kashi_server.pipeline.lrclib import strip_inline_tags
 
@@ -306,7 +310,10 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
         for k0, k1 in new_runs(wa, wb):
             if k1 - k0 + 1 > w1["words"]:
                 w1 = {"words": k1 - k0 + 1, "line": i, "word": k0, "t_ms": wb[k0]["start_ms"]}
-        sung = on_old.get(i, on_new.get(i))
+        # A line with no letter and no digit ('♪') is no one's voice returning and holds no
+        # lyric word: neither W2 nor W3 judges it (its move is still listed below).
+        lyric = sung_text(a.get("text") or "")
+        sung = on_old.get(i, on_new.get(i)) if lyric else None
         if sung is not None:
             away = abs(b["start_ms"] - sung) - abs(a["start_ms"] - sung)
             if away > w2["away_ms"]:
@@ -318,7 +325,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
                     "new_ms": b["start_ms"],
                 }
         if wa and not wb:
-            if (a.get("text") or "").strip():
+            if lyric:
                 lost.append(i)
         elif wb and not wa:
             gained.append(i)
@@ -334,7 +341,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
                 row["lead_old_ms"] = silent_lead(envelope, a["start_ms"])
                 row["lead_new_ms"] = silent_lead(envelope, b["start_ms"])
             moved.append(row)
-            if abs(d) > VETO_AWAY_MS and i not in on_old:
+            if abs(d) > VETO_AWAY_MS and i not in on_old and lyric:
                 unjudged.append(i)
     flashed = set(first_word_flashes(old))
     flashing = first_word_flashes(new)

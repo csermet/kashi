@@ -64,6 +64,14 @@ def test_the_production_chain_is_the_default():
     assert _default("align_offset_ms") == 0
 
 
+def test_the_letterless_line_and_sheet_text_candidate_ships_dark():
+    """2026-11-19: both switches reach the cluster OFF, so that pipeline 2.35.0 is still what
+    its version names, and the archive preview measures them with `--set` before a release
+    turns them on with a version bump."""
+    assert _default("letterless_lines_wordless") is False
+    assert _default("word_text_from_sheet") is False
+
+
 def test_the_default_table_is_a_fresh_copy_per_instance(monkeypatch):
     a, b = _settings_from(monkeypatch, {}), _settings_from(monkeypatch, {})
     a.align_models.pop("eng")

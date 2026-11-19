@@ -14,6 +14,7 @@ import logging
 import math
 import os
 import unicodedata
+from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -74,6 +75,12 @@ class AlignedWord:
     # (2.29.1, windows._held). Line QA sees the cut end; the length comes back
     # after it (line_qa.restore_held_ends).
     held_ms: int = 0
+    # The sheet's own token this word times, when the aligner was given another
+    # form of it (`_fit_to_vocab` on the romanize=False path drops what its
+    # vocabulary lacks: punctuation, a dotted capital I's dot, an accent).
+    # Set only under `word_text_from_sheet` (regroup_words_into_lines); every
+    # timing step reads `text`, the document stores this (`with_sheet_texts`).
+    sheet_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,17 @@ class LineTiming:
     end_ms: int
     text: str
     score: float
+    # A sheet line with no letter and no digit ('♪'), kept as a line without
+    # words and never given to the aligner (`letterless_lines_wordless`).
+    # Its times are provisional until line QA places it (line_qa._place_unaligned).
+    unaligned: bool = False
+
+
+def sung_text(text: str) -> bool:
+    """Text with at least one letter or digit (Unicode categories L* and N*): words someone
+    sings. A line with neither ('♪', '...', '-') is the sheet marking music or a pause. The
+    overlay's twin: `isSungText` in packages/view/src/document.ts."""
+    return any(unicodedata.category(ch)[0] in "LN" for ch in text)
 
 
 @dataclass(frozen=True)
@@ -342,6 +360,10 @@ def regroup_words_into_lines(
     line_texts: list[str],
     results: list[dict],
     plans: list["PreparedLine | None"] | None = None,
+    *,
+    aligned_lines: list[bool] | None = None,
+    sheet_form: Callable[[str], str] | None = None,
+    tally: dict[str, int] | None = None,
 ) -> tuple[list[LineTiming], list[list[AlignedWord]]] | None:
     """Walk per-word segments back into the original lines.
 
@@ -354,15 +376,32 @@ def regroup_words_into_lines(
     document must still display 宇宙. A line with a plan is counted in units
     and its word spans are folded back onto the surfaces that own them; a line
     without one takes the whitespace path unchanged.
+
+    `aligned_lines` (`letterless_lines_wordless`): False for a line the aligner
+    was not given. It counts no word and comes back as a line without words,
+    `unaligned`, score 0, timed provisionally over the gap it sits in: from the
+    end of the word before it (or 0) to the start of the word after it (line QA
+    places it). None: every line was given.
+
+    `sheet_form` (`word_text_from_sheet`): the form the aligner was given of a
+    sheet token (`_fit_to_vocab` on the romanize=False path, the token itself on
+    the uroman path). A line without a plan whose every word's text is the form
+    of the sheet's token at its position gives each word whose text differs
+    that token as its `sheet_text`; a line where one is not keeps the aligner's
+    texts and counts in `tally["sheet_kept"]` (`tally["sheet_words"]`: words
+    given a token). None: no sheet texts.
     """
     # Blank segments as well as stars. A Japanese job splits per character, so
     # the space `" ".join(texts)` puts between lines becomes a segment of its
     # own with an empty romanization; an English job never produces one, so
     # this is a no-op there (measured on the worker, 2026-08-05).
     words = [r for r in results if r.get("text") != STAR_TOKEN and str(r.get("text", "")).strip()]
+    given = aligned_lines if aligned_lines is not None else [True] * len(line_texts)
     expected = [
-        len(plan.units) if plan else len(line.split())
-        for line, plan in zip(line_texts, plans or [None] * len(line_texts), strict=True)
+        (len(plan.units) if plan else len(line.split())) if sent else 0
+        for line, plan, sent in zip(
+            line_texts, plans or [None] * len(line_texts), given, strict=True
+        )
     ]
     if sum(expected) != len(words):
         logger.warning(
@@ -396,11 +435,17 @@ def regroup_words_into_lines(
     lines: list[LineTiming] = []
     words_per_line: list[list[AlignedWord]] = []
     cursor = 0
-    for text, count, plan in zip(
-        line_texts, expected, plans or [None] * len(line_texts), strict=True
+    for text, count, plan, sent in zip(
+        line_texts, expected, plans or [None] * len(line_texts), given, strict=True
     ):
         chunk = aligned[cursor : cursor + count]
         cursor += count
+        if not sent:
+            start = aligned[cursor - 1].end_ms if cursor else 0
+            end = aligned[cursor].start_ms if cursor < len(aligned) else start
+            lines.append(LineTiming(start, max(start, end), text, 0.0, unaligned=True))
+            words_per_line.append([])
+            continue
         if not chunk:  # a line of pure punctuation; keep the text, borrow no time
             continue
         if plan is not None:
@@ -408,6 +453,8 @@ def regroup_words_into_lines(
             # document displays 宇宙 over the span of うちゅー rather than
             # three kana the listener never sees written.
             chunk = _fold_units_onto_surfaces(chunk, plan)
+        elif sheet_form is not None:
+            chunk = _sheet_texts(chunk, text, sheet_form, tally)
         score = quality_from_probs([w.prob for w in chunk])
         lines.append(
             LineTiming(
@@ -419,6 +466,49 @@ def regroup_words_into_lines(
         )
         words_per_line.append(chunk)
     return lines, words_per_line
+
+
+def _sheet_texts(
+    chunk: list[AlignedWord], line: str, sheet_form: Callable[[str], str],
+    tally: dict[str, int] | None,
+) -> list[AlignedWord]:
+    """The line's words with the sheet's tokens as their `sheet_text` where the aligner's text
+    differs, when the two map one to one (see regroup_words_into_lines); else unchanged."""
+    tokens = line.split()
+    if len(tokens) != len(chunk) or any(
+        sheet_form(token) != word.text for token, word in zip(tokens, chunk, strict=False)
+    ):
+        if tally is not None:
+            tally["sheet_kept"] = tally.get("sheet_kept", 0) + 1
+        return chunk
+    out = [
+        replace(word, sheet_text=token) if token != word.text else word
+        for token, word in zip(tokens, chunk, strict=True)
+    ]
+    if tally is not None:
+        tally["sheet_words"] = tally.get("sheet_words", 0) + sum(
+            1 for word in out if word.sheet_text
+        )
+    return out
+
+
+def with_sheet_texts(result: AlignResult) -> AlignResult:
+    """`result` with each word's `sheet_text` as its text: the last step of the timing chain
+    (process.align_and_review), so that every timing step before it reads the aligner's form
+    and the effects and the document read the sheet's. A result without sheet texts comes back
+    as it was."""
+    if not any(word.sheet_text for chunk in result.words_per_line for word in chunk):
+        return result
+    return replace(
+        result,
+        words_per_line=[
+            [
+                replace(word, text=word.sheet_text, sheet_text="") if word.sheet_text else word
+                for word in chunk
+            ]
+            for chunk in result.words_per_line
+        ],
+    )
 
 
 def _offset_for(text: str, offset_ms: int, by_initial: dict[str, int] | None) -> int:
@@ -504,6 +594,13 @@ def shift_result(
         chunk = words_per_line[index] if index < len(words_per_line) else []
         if chunk:
             start, end = chunk[0].start_ms, max(chunk[-1].end_ms, chunk[0].start_ms)
+        elif line.unaligned and words_per_line:
+            # The gap it sits in, as regroup timed it, on the shifted words: words
+            # shift by their own offsets, so the base offset could carry it past them.
+            before = [w for chunk in words_per_line[:index] for w in chunk[-1:]]
+            after = [w for chunk in words_per_line[index + 1 :] for w in chunk[:1]]
+            start = before[-1].end_ms if before else 0
+            end = max(start, after[0].start_ms) if after else start
         else:  # line-only output: no words to follow, so the base offset stands
             start = max(0, line.start_ms + offset_ms)
             end = max(start, line.end_ms + offset_ms)
@@ -512,16 +609,26 @@ def shift_result(
 
 
 def _line_only_fallback(
-    line_texts: list[str], results: list[dict], windowed: bool, model_name: str = MODEL_NAME
+    line_texts: list[str], results: list[dict], windowed: bool, model_name: str = MODEL_NAME,
+    aligned_lines: list[bool] | None = None,
 ) -> AlignResult:
-    """Spread whatever segments we got across the lines, proportionally."""
+    """Spread whatever segments we got across the lines, proportionally. A line the aligner was
+    not given (`aligned_lines` False) takes no share: it comes back `unaligned`, at the end of
+    the line before it (or 0), for line QA to place."""
     words = [r for r in results if r.get("text") != STAR_TOKEN]
     if not words:
         raise PipelineError("alignment_failed", "aligner produced no segments")
-    total_words = sum(len(line.split()) for line in line_texts) or 1
+    given = aligned_lines if aligned_lines is not None else [True] * len(line_texts)
+    total_words = (
+        sum(len(line.split()) for line, sent in zip(line_texts, given, strict=True) if sent) or 1
+    )
     lines: list[LineTiming] = []
     cursor = 0
-    for text in line_texts:
+    for text, sent in zip(line_texts, given, strict=True):
+        if not sent:
+            at = lines[-1].end_ms if lines else 0
+            lines.append(LineTiming(at, at, text, 0.0, unaligned=True))
+            continue
         share = max(1, round(len(text.split()) / total_words * len(words)))
         chunk = words[cursor : cursor + share] or words[-1:]
         cursor += share
@@ -1216,6 +1323,25 @@ def _alignment_texts(
     return plans, align_texts
 
 
+def _given_lines(line_texts: list[str], wordless: bool) -> list[bool]:
+    """Which sheet lines the aligner is given: every one, or under `letterless_lines_wordless`
+    the sung ones (`sung_text`); every one again when no line is sung (nothing else to time)."""
+    every = [True] * len(line_texts)
+    if not wordless:
+        return every
+    given = [sung_text(text) for text in line_texts]
+    if all(given):
+        return given
+    if not any(given):
+        logger.info("letterless lines: no line of the sheet is sung; every line is aligned")
+        return every
+    logger.info(
+        "letterless lines: %d of %d line(s) kept out of alignment, written without words",
+        given.count(False), len(given),
+    )
+    return given
+
+
 def _window_line_starts(
     window, align_texts: list[str], synced_starts_ms: list[int | None] | None,
     line_region_ms: int | None, doc_offset_for, edges_lead_ms: int,
@@ -1245,6 +1371,15 @@ def _window_line_starts(
     return edges, segment
 
 
+def _kept_regions(starts: LineStarts | None, keep: list[bool]) -> LineStarts | None:
+    """A window's line regions for the lines its passes are given (`keep`), in order; None
+    stays None, and so does a list left with no region in it."""
+    if starts is None:
+        return None
+    kept = [region for region, k in zip(starts, keep, strict=True) if k]
+    return kept if any(region is not None for region in kept) else None
+
+
 def _align_windows(*args, **kwargs) -> list[dict]:
     """`_align_windows_each`, with the guard's window label (`_VITERBI_WHERE`) set per window
     and put back as it was afterwards, also when a window fails."""
@@ -1260,7 +1395,7 @@ def _align_windows_each(
     exact_stride: bool = False, star: str = WINDOW_STAR_DEFAULT, hybrid_t_ms: int = HYBRID_T_MS,
     synced_starts_ms: list[int | None] | None = None, line_region_ms: int | None = None,
     doc_offset_for=lambda text: 0, tally: dict[str, int] | None = None,
-    letters: bool = False,
+    letters: bool = False, aligned_lines: list[bool] | None = None,
 ) -> list[dict]:
     """Align each window's slice on its own; word timings come back on the
     whole-track clock (star tokens dropped), each tagged with its `"window"`
@@ -1279,7 +1414,12 @@ def _align_windows_each(
 
     With `letters` (2.35.0) each row also carries `"heard_at"`: where the
     window's passes hear its first letter (`_heard_at`), on the same clock as
-    its start."""
+    its start.
+
+    `aligned_lines` (`letterless_lines_wordless`): a window's passes are given
+    only its lines marked True, with their regions; a window with none is not
+    aligned at all. The windows and their regions are cut from every sheet line
+    and stamp as before, so every slice is the one it was."""
     edges_lead_ms = WINDOWED_LEAD_MS if exact_stride else 0
     merged: list[dict] = []
     for index, window in enumerate(plan):
@@ -1290,11 +1430,17 @@ def _align_windows_each(
         piece = audio[
             ..., window.slice_start_ms * SAMPLES_PER_MS : window.slice_end_ms * SAMPLES_PER_MS
         ]
-        texts = [align_texts[i] for i in window.line_indices]
+        keep = [aligned_lines is None or aligned_lines[i] for i in window.line_indices]
+        if not any(keep):
+            continue  # nothing of this window is given to the aligner
+        texts = [align_texts[i] for i, k in zip(window.line_indices, keep, strict=True) if k]
         offset_s = window.slice_start_ms / 1000
         edges_starts, segment_starts = _window_line_starts(
             window, align_texts, synced_starts_ms, line_region_ms, doc_offset_for, edges_lead_ms
         )
+        if not all(keep):
+            edges_starts = _kept_regions(edges_starts, keep)
+            segment_starts = _kept_regions(segment_starts, keep)
         if star == "hybrid":
             edges, segment = _align_slice_hybrid(
                 model, tokenizer, piece, texts, language,
@@ -1394,6 +1540,8 @@ def align(
     vote_order: bool = VOTE_ORDER_DEFAULT,
     first_heard_ms: int | None = FIRST_HEARD_DEFAULT,
     envelope: Envelope | None = None,
+    letterless_wordless: bool | None = None,
+    sheet_texts: bool | None = None,
 ) -> AlignResult:
     """Whole-audio alignment, or — when line stamps are provided and viable —
     lrclib-anchored WINDOWED alignment (P3): each window is aligned
@@ -1427,7 +1575,19 @@ def align(
     as evidence): that rule moves a word only out of silence, and without an
     envelope it moves nothing. It is the envelope of `wav_path`: the vocal
     stem under separation_mode "always" (production), the mix under
-    "second_pass" (first pass) or "off", where the rule then rarely moves."""
+    "second_pass" (first pass) or "off", where the rule then rarely moves.
+
+    `letterless_wordless` (None: `settings.letterless_lines_wordless`) keeps a
+    line with no letter and no digit (`sung_text`) away from every pass: the
+    window passes, the whole-track pass and the first-heard rule count it as a
+    line of no words, regroup gives it none (`unaligned`, placed by line QA).
+    The window plan and its regions are still cut from every sheet line, so the
+    evidence's slices stay the same. A sheet with no sung line at all is
+    aligned as before. `sheet_texts` (None: `settings.word_text_from_sheet`)
+    gives each word the sheet's own token as its `sheet_text` where the
+    aligner was given another form of it (regroup_words_into_lines)."""
+    from kashi_server.config import settings
+
     if seam_policy not in SEAM_POLICIES:
         raise ValueError(f"unknown seam policy {seam_policy!r}")
     if window_star not in WINDOW_STARS:
@@ -1446,6 +1606,14 @@ def align(
     audio = _load_track(wav_path, model)
 
     plans, align_texts = _alignment_texts(line_texts, language)
+    given = _given_lines(
+        line_texts, _first_set(letterless_wordless, default=settings.letterless_lines_wordless)
+    )
+    sent_texts = [text for text, sent in zip(align_texts, given, strict=True) if sent]
+    sheet_form = None
+    if _first_set(sheet_texts, default=settings.word_text_from_sheet):
+        allowed = set() if romanize else _vocab_chars(tokenizer)
+        sheet_form = (lambda token: _fit_to_vocab(token, allowed)) if allowed else (lambda t: t)
 
     plan = None
     if synced_starts_ms is not None:
@@ -1464,7 +1632,7 @@ def align(
     )
 
     if plan is None:
-        results = _align_texts(model, tokenizer, audio, align_texts, language, romanize=romanize)
+        results = _align_texts(model, tokenizer, audio, sent_texts, language, romanize=romanize)
     else:
         logger.info(
             "windowed alignment: %d windows over %d lines (stride %s, seams %s, lead %+d ms, "
@@ -1479,7 +1647,7 @@ def align(
             exact_stride=exact_stride, star=window_star, hybrid_t_ms=hybrid_t_ms,
             synced_starts_ms=synced_starts_ms, line_region_ms=line_region_ms,
             doc_offset_for=lambda text: _offset_for(text, path_offset_ms, path_by_initial),
-            tally=tally, letters=first_heard_ms is not None,
+            tally=tally, letters=first_heard_ms is not None, aligned_lines=given,
         )
         if tally:
             logger.info(
@@ -1497,7 +1665,7 @@ def align(
         whole: list[dict] = []
         if whole_vote:
             whole = _align_texts(
-                model, tokenizer, audio, align_texts, language, "segment",
+                model, tokenizer, audio, sent_texts, language, "segment",
                 romanize=romanize, exact_stride=exact_stride,
                 letters=first_heard_ms is not None,
             )
@@ -1525,8 +1693,8 @@ def align(
 
             results, heard = start_at_heard_onset(
                 results, whole,
-                [len(p.units) if p else len(text.split()) for text, p in zip(
-                    line_texts, plans, strict=True)],
+                [(len(p.units) if p else len(text.split())) if sent else 0
+                 for text, p, sent in zip(line_texts, plans, given, strict=True)],
                 first_heard_ms, lead_ms, FIRST_LETTER_FLOOR,
                 stamps=synced_starts_ms, drift_ms=DRIFT_THRESHOLD_MS,
                 envelope=envelope, silence_db=FIRST_HEARD_SILENCE_DB,
@@ -1539,12 +1707,21 @@ def align(
                 logger.info("line starts at their first heard letter (%d ms): %d line(s)",
                             first_heard_ms, heard)
 
-    regrouped = regroup_words_into_lines(line_texts, results, plans)
+    sheet_tally: dict[str, int] = {}
+    regrouped = regroup_words_into_lines(
+        line_texts, results, plans, aligned_lines=given, sheet_form=sheet_form, tally=sheet_tally
+    )
     if regrouped is None:
         return shift_result(
-            _line_only_fallback(line_texts, results, plan is not None, model_name),
+            _line_only_fallback(line_texts, results, plan is not None, model_name, given),
             path_offset_ms,
         )  # line mode has no words to classify
+    if sheet_form is not None:
+        logger.info(
+            "sheet texts: %d word(s) take the sheet's own token, %d line(s) keep the aligner's "
+            "(no one-to-one map)", sheet_tally.get("sheet_words", 0),
+            sheet_tally.get("sheet_kept", 0),
+        )
 
     lines, words_per_line = regrouped
     all_words = [word for chunk in words_per_line for word in chunk]

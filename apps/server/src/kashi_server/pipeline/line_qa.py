@@ -207,7 +207,7 @@ def restore_held_ends(result: AlignResult) -> tuple[AlignResult, int]:
     for i, line in enumerate(result.lines):
         if is_adlib(line.text) or i >= len(words_out) or not words_out[i]:
             continue
-        later = next((chunk[0].start_ms for chunk in words_out[i + 1 :] if chunk), None)
+        later = _next_bound(result.lines, words_out, i)
         chunk = words_out[i]
         for k, w in enumerate(chunk):
             if w.held_ms <= 0:
@@ -227,6 +227,20 @@ def restore_held_ends(result: AlignResult) -> tuple[AlignResult, int]:
         logger.info("held ends restored: %d word(s) lengthened (med %.0fms/char)",
                     restored, med_char_ms)
     return replace(result, lines=lines_out, words_per_line=words_out), restored
+
+
+def _next_bound(
+    lines: list[LineTiming], words: list[list[AlignedWord]], i: int
+) -> int | None:
+    """Where a held end of line ``i``'s last word must stop: the next word's start, or the start
+    of a line the aligner was not given (`unaligned`, its '♪') when that comes first. A line
+    whose words QA dropped is passed over, as before such lines existed."""
+    for j in range(i + 1, len(lines)):
+        if j < len(words) and words[j]:
+            return words[j][0].start_ms
+        if lines[j].unaligned:
+            return lines[j].start_ms
+    return None
 
 
 def _median_char_ms(result: AlignResult) -> float | None:
@@ -396,6 +410,54 @@ def _clamp_monotonic(lines: list[LineTiming]) -> list[LineTiming]:
     return out
 
 
+def _place_unaligned(
+    lines: list[LineTiming],
+    refs: list[int | None] | None,
+    offset_ms: int,
+    snapped: set[int] | frozenset[int] = frozenset(),
+) -> list[LineTiming]:
+    """The lines the aligner was not given (`unaligned`: no letter, no digit) placed as a
+    snapped line's start is: on their stamp on the aligner's clock (ref + offset_ms); stampless,
+    or with no references, where regroup put them (the gap between the words around them).
+    Never before the line before ends (before it starts, when that line was snapped or is
+    unaligned too: such an end follows the next start), nor past the next aligned line's start:
+    a line the aligner never heard moves no sung line. Ends are `_recompute_ends`' (the next
+    line's start). Pure; lines come back as they were when none is unaligned."""
+    if not any(line.unaligned for line in lines):
+        return lines
+    out = list(lines)
+    for i, line in enumerate(out):
+        if not line.unaligned:
+            continue
+        ref = refs[i] if refs is not None else None
+        start = line.start_ms if ref is None else max(0, ref + offset_ms)
+        if i > 0:
+            before = out[i - 1]
+            held = before.unaligned or (i - 1) in snapped
+            start = max(start, before.start_ms if held else before.end_ms)
+        after = next((later.start_ms for later in out[i + 1 :] if not later.unaligned), None)
+        if after is not None:
+            start = min(start, after)
+        out[i] = replace(line, start_ms=start, end_ms=max(start, line.end_ms))
+    return out
+
+
+def _settle(
+    lines: list[LineTiming],
+    originals: list[LineTiming],
+    refs: list[int | None] | None,
+    offset_ms: int,
+    snapped: set[int] | frozenset[int] = frozenset(),
+) -> list[LineTiming]:
+    """The line timeline QA hands on: the unaligned lines placed (`_place_unaligned`), the
+    snapped and the unaligned lines ending at the next line's start (`_recompute_ends`), starts
+    monotonic. Without unaligned lines: `_clamp_monotonic(_recompute_ends(lines, snapped, ...))`,
+    what QA ran before them."""
+    lines = _place_unaligned(lines, refs, offset_ms, snapped)
+    ends = set(snapped) | {i for i, line in enumerate(lines) if line.unaligned}
+    return _clamp_monotonic(_recompute_ends(lines, ends, originals))
+
+
 def _recompute_ends(
     lines: list[LineTiming], flagged: set[int], originals: list[LineTiming]
 ) -> list[LineTiming]:
@@ -470,7 +532,10 @@ def _degrade_to_line(
         else:
             end = starts[i] + max(0, line.end_ms - line.start_ms)
         lines.append(replace(line, start_ms=starts[i], end_ms=max(end, starts[i])))
-    referenced = sum(ref is not None for ref in refs)
+    # A line the aligner was not given is placed like every line here, but judged by nothing.
+    referenced = sum(
+        ref is not None and not line.unaligned for line, ref in zip(result.lines, refs, strict=True)
+    )
     agreement = round(1 - len(set(flagged)) / referenced, 4) if referenced else result.quality_score
     return LineQAOutcome(
         result=AlignResult(
@@ -495,22 +560,29 @@ def apply_line_qa(
     onset_ms: list[int] | None = None,
 ) -> LineQAOutcome:
     refs = _resolve_references(result, line_texts, synced_starts_ms)
-
-    if refs is None or sum(ref is not None for ref in refs) < MIN_REFERENCE_LINES:
+    # A line the aligner was not given (`unaligned`) has no aligner time to judge: it counts in
+    # no median, flag or agreement, and is placed on its stamp (`_place_unaligned`).
+    if refs is None:
+        return _finish_unreferenced(result)
+    judged = [None if line.unaligned else ref for line, ref in zip(result.lines, refs, strict=True)]
+    if sum(ref is not None for ref in judged) < MIN_REFERENCE_LINES:
         return _finish_unreferenced(result)
 
     deviations = [
-        line.start_ms - ref for line, ref in zip(result.lines, refs, strict=True) if ref is not None
+        line.start_ms - ref
+        for line, ref in zip(result.lines, judged, strict=True)
+        if ref is not None
     ]
     offset_ms = round(median(deviations))
+    result = replace(result, lines=_place_unaligned(result.lines, refs, offset_ms))
     result, adlib_shifted = _shift_adlibs(result, refs, offset_ms)
     flagged = [
         i
-        for i, (line, ref) in enumerate(zip(result.lines, refs, strict=True))
+        for i, (line, ref) in enumerate(zip(result.lines, judged, strict=True))
         if ref is not None and abs(line.start_ms - ref - offset_ms) > DRIFT_THRESHOLD_MS
     ]
 
-    referenced = sum(ref is not None for ref in refs)
+    referenced = sum(ref is not None for ref in judged)
     if result.sync == "line" or len(flagged) > MAX_FLAGGED_FRACTION * referenced:
         return replace(
             _degrade_to_line(result, refs, flagged, offset_ms, deviations),
@@ -577,7 +649,7 @@ def _finish_unreferenced(result: AlignResult) -> LineQAOutcome:
     # No reference ≠ no ad-libs: document assembly still writes the adlib
     # flag and the overlay still sweeps, so the rederive must run here too
     # (retro finding — QA-less docs swept CTC's scattered spans).
-    clamped = replace(result, lines=_clamp_monotonic(result.lines))
+    clamped = replace(result, lines=_settle(result.lines, result.lines, None, 0))
     clamped, rederived = rederive_adlib_words(clamped)
     return LineQAOutcome(
         result=clamped,
@@ -595,7 +667,7 @@ def _finish_clean(
     adlib_shifted: list[int],
 ) -> LineQAOutcome:
     """No line flagged: clamp, score and the ad-lib rederive."""
-    clean = replace(result, lines=_clamp_monotonic(result.lines))
+    clean = replace(result, lines=_settle(result.lines, result.lines, refs, offset_ms))
     all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
     # Undamaged, but the basis still has to name the formula: an unflagged
     # non-windowed document is "probs+anchors" with an agreement of 1.0,
@@ -624,8 +696,7 @@ def _snap_flagged_lines(
         if i in flagged_set and ref is not None:
             line = replace(line, start_ms=max(0, ref + offset_ms))
         lines.append(line)
-    lines = _clamp_monotonic(_recompute_ends(lines, flagged_set, result.lines))
-    return lines
+    return _settle(lines, result.lines, refs, offset_ms, flagged_set)
 
 
 def _rescue_or_drop_words(
@@ -704,7 +775,9 @@ def _quality(
     that came through intact. With no references there is no damage measure
     and the ramp alone is the honest answer.
     """
-    referenced = [i for i, ref in enumerate(refs) if ref is not None]
+    referenced = [
+        i for i, ref in enumerate(refs) if ref is not None and not result.lines[i].unaligned
+    ]
     if not referenced:
         return quality_from_probs(surviving_probs), "ctc-probs"
     agreement = 1 - len(damaged & set(referenced)) / len(referenced)
