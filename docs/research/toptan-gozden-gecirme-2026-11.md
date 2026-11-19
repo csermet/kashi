@@ -726,6 +726,32 @@ documents, most built by 2.31.0, some as old as 2.8.0). Working files `onizleme/
   (three of them move a start onto the voice's return by 1.5-1.8 s of silence). The aligner
   library's overrun region held 3 of the 400 songs, one of them the song whose back-fill had died
   with `AssertionError: n != i` and passed on the retry.
+- **Two days later (2026-11-19): the two open lists, each by a rule written before it was run.**
+  *Review:* a song is refreshed when every start that moved more than 1.5 s keeps or loses its
+  silent lead and one of them loses at least 1 s of it (the start left a silence for the voice's
+  return — the one class the owner preferred blind): 3 of 25 qualified and were rebuilt; the 22
+  others (moves through continuous singing, whole sections carried, an overrun pass) wait.
+  *W4:* restated as a count — veto when the built document has MORE lines whose first word
+  flashes (< 120 ms) than the stored one — with W5, more words starting before their predecessor.
+  Of the 29 songs only W4 had kept, the count releases 22, keeps 6, W5 keeps 1. Before any was
+  refreshed the owner saw six blind clips from three of them drawn by rule, each song's worst W4
+  line and the line where the built document gains most (the per-clip row draw had put the built
+  document on top in all six, so the order was balanced by position before he saw them): on the
+  worst lines he preferred the built row once, the stored one "very slightly" once and could not
+  tell once; on the gains the built row twice (once "by a margin") and the stored one by "very
+  little" once. The registered rule (gains for the built row >= clear losses) held, so W4 as a count
+  is adopted and the songs were rebuilt; `preview_rules.py` still carries the old W4 until the next
+  server release.
+- **A mistake in that refresh, and the rule it leaves.** The 22 ids were fed from rows the preview
+  had judged in `stored` lyrics mode only (the ladder confirmation runs for `refresh` rows, and
+  these were `keep`). For one song the lookup now picks another lrclib record: its window slices
+  were not in the evidence, the worker ran a full job, and a sheet nobody had previewed was stored
+  (46 lines → 33). The feeder stopped there (it halts on anything not rebuilt from evidence), but
+  the document had changed; a running job cannot be cancelled. It was put back by pinning the old
+  record in a per-song override. **Every id handed to a reprocess must have been previewed in
+  ladder mode with the same document coming out** — the remaining ids were, and replayed. (The
+  restoring job ran in full on the CPU worker: 224 of 225 word starts equal the GPU-recorded
+  replay's, one differs by 20 ms.)
 
 ## Lines of work and order
 
