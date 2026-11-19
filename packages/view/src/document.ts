@@ -99,6 +99,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
+/**
+ * Whether a line's text is sung words: at least one letter or digit ("1, 2, 3"
+ * is sung). A line of '♪', dashes or dots is the sheet marking music, not
+ * lyrics, and a word timed on it is an artefact: the Turkish aligner path
+ * fills a token it cannot spell with "a" and the document stored that "a" as
+ * the line's word (pipeline 2.35.0, Tarkan "Öp": a lone letter lit, then
+ * swept as a held note, under a '♪').
+ */
+export function isSungText(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 /** One processed-track line, or null when it (or one of its words) is malformed. */
 function mapLine(line: Record<string, unknown>): ServerLine | null {
   if (!isMs(line['start_ms']) || !isMs(line['end_ms']) || typeof line['text'] !== 'string') {
@@ -110,13 +122,6 @@ function mapLine(line: Record<string, unknown>): ServerLine | null {
     text: line['text'],
   };
   if (line['adlib'] === true) mapped.adlib = true;
-  // Only alongside words, exactly as the schema states it: the flag says
-  // "these word timings were rescued, not deleted", so without words there
-  // is nothing for it to qualify and a stray flag would de-emphasise a line
-  // for no reason the user could see.
-  if (line['uncertain'] === true && Array.isArray(line['words']) && line['words'].length > 0) {
-    mapped.uncertain = true;
-  }
   if (Array.isArray(line['words']) && line['words'].length > 0) {
     const words: ServerWord[] = [];
     for (const word of line['words'] as unknown[]) {
@@ -124,8 +129,15 @@ function mapLine(line: Record<string, unknown>): ServerLine | null {
       if (typeof word['text'] !== 'string') return null;
       words.push({ start_ms: word['start_ms'], end_ms: word['end_ms'], text: word['text'] });
     }
-    mapped.words = words;
+    // Checked, then dropped on a line that is not sung words (isSungText): it
+    // shows as a plain untimed line, so nothing on it lights, sweeps or fires.
+    if (isSungText(mapped.text)) mapped.words = words;
   }
+  // Only alongside words, exactly as the schema states it: the flag says
+  // "these word timings were rescued, not deleted", so without words there
+  // is nothing for it to qualify and a stray flag would de-emphasise a line
+  // for no reason the user could see.
+  if (line['uncertain'] === true && mapped.words !== undefined) mapped.uncertain = true;
   return mapped;
 }
 

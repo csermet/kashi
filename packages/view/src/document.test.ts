@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapDocument, mapFx, QUALITY_GATE } from './document.js';
+import { isSungText, mapDocument, mapFx, QUALITY_GATE } from './document.js';
 
 function doc(overrides: Record<string, unknown> = {}) {
   return {
@@ -81,6 +81,38 @@ describe('mapDocument', () => {
       }),
     );
     expect(garbage!.lines[0]!.adlib).toBeUndefined();
+  });
+
+  it('drops the words of a line that is not sung words, and keeps the line', () => {
+    // Pipeline 2.35.0, Tarkan "Öp": the Turkish aligner path filled the '♪' token
+    // with "a", and the document stored that "a" as the line's word.
+    const note = (text: string) => ({
+      start_ms: 99_760,
+      end_ms: 100_110,
+      text,
+      uncertain: true,
+      words: [{ start_ms: 99_760, end_ms: 100_110, text: 'a' }],
+    });
+    const payload = mapDocument(doc({ lines: [note('♪'), note('♪ ♪'), note('— ... —'), note('(♪)')] }));
+    for (const line of payload!.lines) {
+      expect(line.words, line.text).toBeUndefined();
+      expect(line.uncertain, line.text).toBeUndefined(); // nothing left to qualify
+      expect(line.start_ms).toBe(99_760);
+    }
+    // One letter or one digit is enough to be sung: those keep their words.
+    const sung = mapDocument(doc({ lines: [note('a ♪'), note('1, 2, 3'), note('Öp ♪')] }));
+    for (const line of sung!.lines) {
+      expect(line.words, line.text).toHaveLength(1);
+      expect(line.uncertain, line.text).toBe(true);
+    }
+    // A malformed word still rejects the document, sung line or not.
+    const broken = { start_ms: 0, end_ms: 1, text: '♪', words: [{ start_ms: 'x', end_ms: 1, text: 'a' }] };
+    expect(mapDocument(doc({ lines: [broken] }))).toBeNull();
+  });
+
+  it('isSungText: a letter or a digit in any script', () => {
+    for (const text of ['a', 'ı', 'Ö', '宇', 'ア', '7', 'x♪', '♪ la ♪']) expect(isSungText(text), text).toBe(true);
+    for (const text of ['', ' ', '♪', '♪♪', '...', '—', '(♪)', '* *', '♫ ♬']) expect(isSungText(text), text).toBe(false);
   });
 
   it('carries the uncertain flag, but only where words back it up', () => {
