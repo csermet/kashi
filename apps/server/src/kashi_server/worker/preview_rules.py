@@ -11,7 +11,9 @@ not tuned here:
   returns (below);
 - W3 lost words: a line with text that had word timings and has none;
 - W4 rushed first words, counted: the built document has MORE lines of >= 2 words whose first word
-  lights < 120 ms before its second word than the stored one;
+  lights < 120 ms before its second word than the stored one (each document counted on its own, as
+  registered: a line that gains its word timings counts on the built side only, so a line-to-word
+  upgrade can be kept; the row says how many of the built side's lines had no word timings);
 - W5 order: the built document has MORE words starting before the word before them (document
   order, across lines) than the stored one.
 
@@ -335,12 +337,18 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
             if abs(d) > VETO_AWAY_MS and i not in on_old:
                 unjudged.append(i)
     flashed = set(first_word_flashes(old))
+    flashing = first_word_flashes(new)
+    # Each document is counted as registered: a line that gains its word timings counts on the
+    # built side only, so the built side's flashing lines are split by what the stored line had.
+    from_wordless = sum(1 for i in flashing if not _words(la[i]))
     w4 = {
         "old": out["old"]["first_dwell_under_120"],
         "new": out["new"]["first_dwell_under_120"],
+        "new_from_worded": len(flashing) - from_wordless,
+        "new_from_wordless": from_wordless,
         "lines": [
             {"line": i, "dwell_old_ms": first_dwell(la[i]), "dwell_new_ms": first_dwell(lb[i])}
-            for i in first_word_flashes(new)
+            for i in flashing
             if i not in flashed
         ],
     }
@@ -365,7 +373,7 @@ def compare(old: dict, new: dict, envelope: Envelope | None) -> dict:
 
 
 def vetoes(comparison: dict) -> list[str]:
-    """The vetoes that fire (W1-W5)."""
+    """The vetoes that fire (W1-W5), on a comparison of one sheet."""
     out = []
     if comparison["w1"]["words"] >= VETO_RUN_WORDS:
         out.append("W1")
@@ -395,6 +403,16 @@ def reviews(comparison: dict, overruns: int = 0) -> list[str]:
         lines = ", ".join(str(i) for i in unjudged)
         out.append(f"line(s) {lines} moved > {VETO_AWAY_MS} ms where W2 cannot judge")
     return out
+
+
+def reasons(comparison: dict, overruns: int = 0) -> dict:
+    """Every veto that fires and every review reason, whichever one the verdict names (the first
+    match hides the rest: a guard its vetoes, a veto its review reasons); a changed sheet has no
+    vetoes (its lines do not pair) and only the overrun as a review reason."""
+    return {
+        "vetoes": [] if comparison["sheet"] else vetoes(comparison),
+        "reviews": reviews(comparison, overruns),
+    }
 
 
 def verdict(

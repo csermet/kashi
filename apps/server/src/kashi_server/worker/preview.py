@@ -77,7 +77,7 @@ from kashi_server import overrides
 from kashi_server.config import settings
 from kashi_server.db.models import LIVE_STATUSES, Job, ProcessedTrack, TrackEvidence
 from kashi_server.pipeline import evidence
-from kashi_server.pipeline.document import carried_palette, stored_document_kept
+from kashi_server.pipeline.document import stored_document_kept, with_stored_palette
 from kashi_server.vdl_kit.errors import PipelineError, is_transient_error
 from kashi_server.worker import backfill
 from kashi_server.worker import preview_rules as rules
@@ -90,10 +90,17 @@ DIR_PREFIX = "job-preview-"
 LYRICS_MODES = ("stored", "ladder")
 #: The layout and rules of the out file's rows; bumped whenever a row of an earlier format could
 #: be read wrongly by this code (2: segments carry their judge, refreshes their confirmation;
-#: 3: W4 counts, W5, `ladder_same`, the palette carried).
-PREVIEW_FORMAT = 3
-#: A row's `ladder_same` when no document was built or no ladder pass ran.
+#: 3: W4 counts, W5, `ladder_same`, the palette carried; 4: `ladder_same`'s other values, every
+#: veto and review reason beside the verdict).
+PREVIEW_FORMAT = 4
+#: A row's `ladder_same` other than True / False: a document was built but no ladder pass ran (not
+#: asked, or it faulted: the `ladder` note names the fault) ...
 LADDER_NOT_RUN = "not run"
+#: ... no document was built ...
+LADDER_NO_DOCUMENT = "no document"
+#: ... or the passes built the same document, but one of them ran the aligner library in its
+#: overrun region (undefined behaviour: the reprocess may store another path).
+LADDER_OVERRUN = "overrun"
 EXIT_OK, EXIT_SCHEMA, EXIT_OUT_EXISTS, EXIT_LIVE_JOBS, EXIT_DATABASE = 0, 2, 3, 4, 5
 #: Signals that stop a run with its summary written; the exit code is 128 + the signal's number.
 STOP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
@@ -323,6 +330,8 @@ def _preview(
             "detail": "no job history: a reprocess has no hints to replay",
         }, None
     job = backfill._job_for(s, "youtube", source_id, hints)
+    # Which override the build applies (its fingerprint, as a job's marker carries it), or None.
+    out["override"] = overrides.applied_fingerprint(job.options)
     never = backfill._never_recorded(stored.document, job.options or {})
     if never is not None:
         return {**out, "verdict": rules.FULL_JOB, "detail": never}, None
@@ -348,8 +357,9 @@ def _preview(
     if doc is None:
         return {**out, "verdict": failure[0], "detail": failure[1]}, None
     # What persist stores: a palette that fell back to the default (a failed artwork fetch) over
-    # one read off the artwork is the stored one.
-    built, doc = doc, carried_palette(stored.document, doc)
+    # one read off the artwork is the stored one (not under force_persist, not when it fails the
+    # schema).
+    built, doc = doc, with_stored_palette(stored.document, doc, job)
     out["palette_carried"] = doc is not built
     if documents is not None:
         documents.mkdir(parents=True, exist_ok=True)
@@ -363,6 +373,9 @@ def _preview(
     comparison = rules.compare(stored.document, doc, envelope)
     verdict, detail = rules.verdict(comparison, guard, len(hits))
     out["aligner_overruns"] = hits
+    # Every veto and review reason, whichever the verdict names: a guard hides the vetoes and a
+    # veto the review reasons (2026-11-19: six songs released from W4 by hand were `review`).
+    out.update(rules.reasons(comparison, len(hits)))
     return {**out, "verdict": verdict, "detail": detail, **comparison}, doc
 
 
@@ -385,15 +398,32 @@ def ladder_same(doc: dict, ladder_doc: dict | None) -> bool:
     )
 
 
+def _same(doc: dict, ladder: dict, ladder_doc: dict | None, overran: bool) -> bool | str:
+    """A row's `ladder_same` after a ladder pass (see `preview_song`)."""
+    if not ladder_same(doc, ladder_doc):
+        return False
+    return LADDER_OVERRUN if overran or ladder.get("aligner_overruns") else True
+
+
+def ladder_note(ladder: dict, ladder_doc: dict | None) -> dict:
+    """What the ladder pass said: its verdict and detail, the record it aligned, and the passes it
+    ran in the aligner library's overrun region."""
+    return {
+        "verdict": ladder["verdict"],
+        "detail": ladder.get("detail", ""),
+        "lyrics_record": _record(ladder_doc),
+        "aligner_overruns": ladder.get("aligner_overruns", []),
+    }
+
+
 def confirmed(row: dict, doc: dict, ladder: dict, ladder_doc: dict | None) -> dict:
     """The ladder's word on a `stored`-mode `refresh`: the fields that replace the row's verdict.
     It stays `refresh` only when the ladder also says `refresh`, on the same lyrics record, with
     the same document (`generated_at` aside); else the verdict is the ladder's own (another record
-    is a changed sheet, the by-ear rung a full job, weather a failure), or `review` when the ladder
-    says `refresh` with another document."""
-    ladder_record = _record(ladder_doc)
+    is a changed sheet, the by-ear rung a full job, weather a failure, an overrun pass a review),
+    or `review` when the ladder says `refresh` with another document."""
     same = ladder["verdict"] == rules.REFRESH and ladder_same(doc, ladder_doc)
-    note = {"verdict": ladder["verdict"], "lyrics_record": ladder_record, "confirmed": same}
+    note = {**ladder_note(ladder, ladder_doc), "confirmed": same}
     if same:
         return {"ladder": note}
     if ladder["verdict"] == rules.REFRESH:
@@ -426,8 +456,11 @@ def preview_song(
 
     `ladder_same`: True when the document this row judged is the one the reprocess's own lookup
     builds (a ladder pass built it on the same record, or the ladder or the song's override built
-    it in the first place), False when the ladder pass built another document, another record or
-    none, LADDER_NOT_RUN when no document was built or no ladder pass ran."""
+    it in the first place) and no pass ran the aligner library in its overrun region; False when
+    the ladder pass built another document, another record or none; LADDER_OVERRUN when the same
+    document came out of passes one of which overran; LADDER_NOT_RUN when no ladder pass ran (or
+    it faulted: the verdict stays, the `ladder` note names the fault); LADDER_NO_DOCUMENT when no
+    document was built."""
     if lyrics not in LYRICS_MODES:
         raise ValueError(f"lyrics mode {lyrics!r} is not one of {LYRICS_MODES}")
     started = time.monotonic()
@@ -439,16 +472,28 @@ def preview_song(
         fields, doc = _preview(s, source_id, lyrics, documents)
         row.update(fields)
         pinned = str(row.get("lyrics", "")).startswith("record")
-        if doc is not None and not pinned:
-            row["ladder_same"] = True  # built by the reprocess's own lookup (or override)
-        elif confirm and doc is not None and (confirm_all or row["verdict"] == rules.REFRESH):
+        overran = bool(row.get("aligner_overruns"))
+        if doc is None:
+            row["ladder_same"] = LADDER_NO_DOCUMENT
+        elif not pinned:  # built by the reprocess's own lookup (or override)
+            row["ladder_same"] = LADDER_OVERRUN if overran else True
+        elif confirm and row["verdict"] == rules.REFRESH:
             s.rollback()
             ladder, ladder_doc = _preview(s, source_id, "ladder", None)
-            row["ladder_same"] = ladder_same(doc, ladder_doc)
-            if row["verdict"] == rules.REFRESH:
-                row.update(confirmed(row, doc, ladder, ladder_doc))
+            row.update(confirmed(row, doc, ladder, ladder_doc))
+            row["ladder_same"] = _same(doc, ladder, ladder_doc, overran)
+        elif confirm and confirm_all:
+            s.rollback()
+            try:
+                ladder, ladder_doc = _preview(s, source_id, "ladder", None)
+            except OperationalError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - the extra pass never changes the verdict
+                logger.warning("preview %s: the ladder pass failed", source_id, exc_info=True)
+                row["ladder"] = {"fault": type(exc).__name__}
             else:
-                row["ladder"] = {"verdict": ladder["verdict"], "lyrics_record": _record(ladder_doc)}
+                row["ladder"] = ladder_note(ladder, ladder_doc)
+                row["ladder_same"] = _same(doc, ladder, ladder_doc, overran)
         if row["verdict"] == rules.REFRESH:
             # What the reprocess will run: the ladder (or the override), as this row now says.
             row["refresh_confirmed"] = not pinned or (
@@ -494,7 +539,7 @@ def summarize(rows: list[dict]) -> dict:
         )
     }
     vetoes: dict[str, int] = {}
-    others: dict[str, dict[str, str]] = {
+    others: dict[str, dict[str, Any]] = {
         "review": {},
         "keep": {},
         "sheet_changed": {},
@@ -512,7 +557,14 @@ def summarize(rows: list[dict]) -> dict:
     for row in rows:
         verdict = row["verdict"]
         verdicts[verdict] = verdicts.get(verdict, 0) + 1
-        if verdict in bucket:
+        if verdict == rules.VETOED:
+            # What the verdict hides, where a person reads: a guard's vetoes, a veto's reviews.
+            others["keep"][row["source_id"]] = {
+                "detail": row.get("detail", ""),
+                "vetoes": row.get("vetoes", []),
+                "reviews": row.get("reviews", []),
+            }
+        elif verdict in bucket:
             others[bucket[verdict]][row["source_id"]] = row.get("detail", "")
         if verdict == rules.VETOED and row.get("detail", "").startswith("veto: "):
             for name in row["detail"][len("veto: ") :].split(", "):
@@ -541,7 +593,10 @@ def summarize(rows: list[dict]) -> dict:
         "ladder_same_counts": {
             "true": sum(v is True for v in same.values()),
             "false": sum(v is False for v in same.values()),
-            LADDER_NOT_RUN: sum(v == LADDER_NOT_RUN for v in same.values()),
+            **{
+                name: sum(v == name for v in same.values())
+                for name in (LADDER_OVERRUN, LADDER_NOT_RUN, LADDER_NO_DOCUMENT)
+            },
         },
         "vetoes": dict(sorted(vetoes.items())),
         **others,
@@ -596,10 +651,11 @@ def judge(lyrics: str) -> dict:
 
 def rows_in(path: Path) -> dict:
     """An earlier out file: its rows (each with whether a cursor run made it), the judges of its
-    segments, and how many lines could not be read (a run killed mid-line leaves a truncated
-    last line; such lines are skipped and counted)."""
+    segments and whether each ran `--confirm-all`, and how many lines could not be read (a run
+    killed mid-line leaves a truncated last line; such lines are skipped and counted)."""
     rows: list[dict] = []
     judges: list[Any] = []
+    confirm_all: list[bool] = []
     unreadable = 0
     cursor = False
     with open(path) as handle:
@@ -616,10 +672,19 @@ def rows_in(path: Path) -> dict:
                 unreadable += 1
             elif "segment" in item:
                 judges.append(item["segment"].get("judge"))
+                confirm_all.append(item["segment"].get("confirm_all") is True)
                 cursor = bool(item["segment"].get("cursor"))
             elif "source_id" in item:
                 rows.append({**item, "_cursor": cursor})
-    return {"rows": rows, "judges": judges, "unreadable": unreadable}
+    return {"rows": rows, "judges": judges, "confirm_all": confirm_all, "unreadable": unreadable}
+
+
+def confirm_all_of(segments: list[bool]) -> str:
+    """Whether the file's segments ran `--confirm-all`: "all", "none" or "mixed" (each row's
+    `ladder_same` says what its own run did)."""
+    if all(segments):
+        return "all"
+    return "none" if not any(segments) else "mixed"
 
 
 def frontier(rows: list[dict], fallback: str | None) -> str | None:
@@ -713,7 +778,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"preview refused: {out_path} exists (continue it with --append)", file=sys.stderr)
         return EXIT_OUT_EXISTS
     current = judge(args.lyrics)
-    before = rows_in(out_path) if out_path.exists() else {"rows": [], "judges": [], "unreadable": 0}
+    before = (
+        rows_in(out_path)
+        if out_path.exists()
+        else {"rows": [], "judges": [], "confirm_all": [], "unreadable": 0}
+    )
     if before["rows"] and not before["judges"] or any(j != current for j in before["judges"]):
         print(
             f"preview refused: {out_path} was written by another preview (format, pipeline, "
@@ -820,6 +889,7 @@ def main(argv: list[str] | None = None) -> int:
                 [*earlier, *({**r, "_cursor": cursor} for r in rows)], args.after
             ),
             "segments": segments + 1,
+            "confirm_all": confirm_all_of([*before["confirm_all"], args.confirm_all]),
             "unreadable_lines": before["unreadable"],
             "without_evidence": missing,
             "replay": replay,

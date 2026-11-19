@@ -239,7 +239,8 @@ def test_w4_a_flash_traded_for_one_removed_is_no_veto_and_the_new_one_is_named()
     new = _doc([_line(1000, [1000, 1300, 1900]), _line(3000, [3000, 3050, 3900])])
     comparison = r.compare(old, new, None)
     assert comparison["w4"] == {
-        "old": 1, "new": 1, "lines": [{"line": 1, "dwell_old_ms": 300, "dwell_new_ms": 50}]}
+        "old": 1, "new": 1, "new_from_worded": 1, "new_from_wordless": 0,
+        "lines": [{"line": 1, "dwell_old_ms": 300, "dwell_new_ms": 50}]}
     assert r.vetoes(comparison) == []
 
 
@@ -258,6 +259,41 @@ def test_w4_a_line_that_gains_its_second_word_and_flashes_is_named_without_an_ol
     comparison = r.compare(old, new, None)
     assert comparison["w4"]["lines"] == [{"line": 0, "dwell_old_ms": None, "dwell_new_ms": 100}]
     assert r.vetoes(comparison) == ["W4"]
+    assert comparison["w4"]["new_from_worded"] == 1  # one word stored: worded
+
+
+def test_w4_counts_each_document_as_registered_and_says_which_lines_gained_their_words():
+    """A line that gains its word timings counts on the built side only (the registered rule,
+    w4-on-kayit.md: it can only keep a stored document); the row says how many."""
+    old = _doc([_line(1000, end=1900), _line(3000, [3000, 3300, 3900]),
+                _line(5000, [5000, 5300, 5900])])
+    new = _doc([_line(1000, [1000, 1050, 1900]), _line(3000, [3000, 3050, 3900]),
+                _line(5000, [5000, 5300, 5900])])
+    comparison = r.compare(old, new, None)
+    assert (comparison["w4"]["old"], comparison["w4"]["new"]) == (0, 2)
+    assert comparison["w4"]["new_from_wordless"] == 1
+    assert comparison["w4"]["new_from_worded"] == 1
+    assert r.vetoes(comparison) == ["W4"]
+    only_upgrade = _doc([_line(1000, [1000, 1050, 1900]), _line(3000, [3000, 3300, 3900]),
+                         _line(5000, [5000, 5300, 5900])])
+    upgraded = r.compare(old, only_upgrade, None)
+    assert upgraded["w4"]["new_from_wordless"] == 1 and r.vetoes(upgraded) == ["W4"]
+    assert upgraded["gained_words"] == [0]
+
+
+def test_every_reason_is_kept_beside_the_verdict():
+    old = _doc([_line(1000, [1000, 1500], end=1300), _line(5000, [5000, 5600])])
+    new = _doc([_line(1000, [1000, 1050], end=1300), _line(6600, [6600, 7200])])
+    comparison = r.compare(old, new, None)  # no envelope: line 1 is not placed
+    assert r.verdict(comparison) == (r.VETOED, "veto: W4")
+    assert r.reasons(comparison, 2) == {
+        "vetoes": ["W4"],
+        "reviews": ["aligner overrun region: 2 passes",
+                    "line(s) 1 moved > 1500 ms where W2 cannot judge"]}
+    assert r.verdict(comparison, ("stale", "x"))[0] == r.GUARDED
+    other = r.compare(old, _doc([_line(1000, [1000, 1500])]), None)
+    assert r.reasons(other, 1) == {"vetoes": [], "reviews": ["aligner overrun region: 1 pass"]}
+    assert r.reasons(other) == {"vetoes": [], "reviews": []}
 
 
 def _disordered(n):
