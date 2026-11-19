@@ -100,7 +100,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 - The job never calls `ctc_forced_aligner`'s compiled Viterbi (`trellis.forced_align` returns its
   path wherever it is memory-safe). A test calls the compiled one only inside its safe set (the
   rule: `tests/test_viterbi_library.py`): outside it the library reads or writes past its
-  buffers, and whether that crashes depends on the compiler that built it (GCC 15 yes, 14 no).
+  buffers. The exact fit without a repeat (T == L) writes through a null pointer on every build;
+  whether its negative-index read (T == L + R, or L + R + 1 from a blank) crashes depends on the
+  compiler that built it (GCC 15 yes, 13/14 no).
 - The HF cache's second copy of the English and Turkish aligners (budget ~2× model size) is
   `refs/pr/N`: safetensors that transformers' background auto-conversion downloads for .bin-only
   repos, never loaded. Since 2.33.0 aligners load from pinned commits (`config.ALIGNER_REVISIONS`)

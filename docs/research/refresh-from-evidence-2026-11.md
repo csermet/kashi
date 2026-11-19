@@ -525,7 +525,8 @@ those windows is a separate, measured timing step. Proven: main == the branch
 on every boundary (refused at L + R - 1, at the exact fit without a repeat where it segfaults, at
 a NaN frame; aligned like before at L + R with a repeat and L + R + 1); mutations of the guard all
 caught; the boundaries on the compiled library are a slow test
-(`tests/test_viterbi_guard_library.py`: a refused input never reaches its `forced_align`, the
+(`tests/test_viterbi_guard_library.py`, replaced on 2026-11-19 by `tests/test_viterbi_library.py`,
+below: a refused input never reaches its `forced_align`, the
 segfaulting call is never made, and the library's own targets are the guard's), to re-run on every
 bump of its pin. Next time, the error message itself carries the window, the pass, T, L and R.
 
@@ -574,7 +575,14 @@ takes 0.3-0.65 s against the library's 0.04-0.24 s; on the 39 songs 35.9 s of Vi
 against 5.4 s (0.9 s a song, 1.4 s at most), next to minutes of model inference per job on the CPU
 worker; the GPU helper runs the Viterbi on its CPU as well, so the same seconds (an estimate: not
 measured there). Documents: main == off == record == replay, 39 of 39, unchanged, so no pipeline
-version change; the archive's one real case, 6cvfHn9qeEw, is for its preview to show. The
+version change; the archive's one real case, 6cvfHn9qeEw, is for its preview to show. Two input
+classes differ from main BY DESIGN although the version stays 2.35.0: a window with exactly as
+many frames as targets and no repeated letter (T == L, R == 0) was a permanent `alignment_failed`
+(refused, the library would have segfaulted) and is aligned now (its one path); a real spill
+(R == 0, a band past the back-pointer words) ran through undefined behaviour and gets the
+intended path now. Only images built from this change on carry it: a worker or GPU helper on an
+older image still calls the compiled Viterbi while logging the same `ready: pipeline 2.35.0`
+line, so check the image tag / server version, not the pipeline line. The
 evidence is untouched (no emission or its code changed; no re-pin). Removed with the library's
 Viterbi: `library_overruns`, the overrun log line and its sink, the song label for it, the
 preview's `aligner_overruns`, `ladder_same: overrun` and the overrun review reason. The exact fit
