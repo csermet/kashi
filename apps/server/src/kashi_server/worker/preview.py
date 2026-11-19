@@ -91,16 +91,14 @@ LYRICS_MODES = ("stored", "ladder")
 #: The layout and rules of the out file's rows; bumped whenever a row of an earlier format could
 #: be read wrongly by this code (2: segments carry their judge, refreshes their confirmation;
 #: 3: W4 counts, W5, `ladder_same`, the palette carried; 4: `ladder_same`'s other values, every
-#: veto and review reason beside the verdict).
-PREVIEW_FORMAT = 4
+#: veto and review reason beside the verdict; 5: no aligner overrun region - no
+#: `aligner_overruns`, no `ladder_same: overrun`, no such review reason).
+PREVIEW_FORMAT = 5
 #: A row's `ladder_same` other than True / False: a document was built but no ladder pass ran (not
 #: asked, or it faulted: the `ladder` note names the fault) ...
 LADDER_NOT_RUN = "not run"
-#: ... no document was built ...
+#: ... or no document was built.
 LADDER_NO_DOCUMENT = "no document"
-#: ... or the passes built the same document, but one of them ran the aligner library in its
-#: overrun region (undefined behaviour: the reprocess may store another path).
-LADDER_OVERRUN = "overrun"
 EXIT_OK, EXIT_SCHEMA, EXIT_OUT_EXISTS, EXIT_LIVE_JOBS, EXIT_DATABASE = 0, 2, 3, 4, 5
 #: Signals that stop a run with its summary written; the exit code is 128 + the signal's number.
 STOP_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
@@ -263,26 +261,20 @@ def _no_audio() -> Any:
     raise RuntimeError("a preview never reads audio")
 
 
-def _build(
-    job: Any, replayer: evidence.Replayer, pinned: bool, hits: list[dict]
-) -> tuple[dict | None, tuple]:
-    """(the document the job code builds from the evidence, ()) or (None, (verdict, why)); the
-    passes the aligner library ran in its overrun region are added to `hits`. The reasons are
-    fixed words and error classes: an exception's message can carry a title or a line of the
-    lyrics, so it goes to the log only."""
-    from kashi_server.pipeline.alignment import AlignerRefusal, overruns
+def _build(job: Any, replayer: evidence.Replayer, pinned: bool) -> tuple[dict | None, tuple]:
+    """(the document the job code builds from the evidence, ()) or (None, (verdict, why)). The
+    reasons are fixed words and error classes: an exception's message can carry a title or a
+    line of the lyrics, so it goes to the log only."""
+    from kashi_server.pipeline.alignment import AlignerRefusal
     from kashi_server.worker import process
 
     tmp = settings.data_dir / f"{DIR_PREFIX}{job.id}"
     tmp.mkdir(parents=True, exist_ok=True)
     try:
-        with evidence.active(replayer), overruns() as found:
-            try:
-                doc = process._run_pipeline(
-                    cast(Session, PreviewSession(job.id)), job, tmp, persist=False
-                )
-            finally:
-                hits.extend(found)
+        with evidence.active(replayer):
+            doc = process._run_pipeline(
+                cast(Session, PreviewSession(job.id)), job, tmp, persist=False
+            )
     except PreviewWriteError:
         raise
     except AlignerRefusal as exc:
@@ -351,8 +343,7 @@ def _preview(
             "detail": f"{conflict}: the audio behind the id may have changed",
         }, None
     out["lyrics"] = _lyrics(job, stored.document, mode)
-    hits: list[dict] = []
-    doc, failure = _build(job, replayer, out["lyrics"].startswith("record"), hits)
+    doc, failure = _build(job, replayer, out["lyrics"].startswith("record"))
     out["served"] = dict(sorted(replayer.served.items()))
     if doc is None:
         return {**out, "verdict": failure[0], "detail": failure[1]}, None
@@ -371,11 +362,10 @@ def _preview(
     # No lock: a read-only transaction cannot take one, and nothing here acts on the answer.
     guard = stored_document_kept(stored, overrides.find(s, "youtube", source_id), job, doc)
     comparison = rules.compare(stored.document, doc, envelope)
-    verdict, detail = rules.verdict(comparison, guard, len(hits))
-    out["aligner_overruns"] = hits
+    verdict, detail = rules.verdict(comparison, guard)
     # Every veto and review reason, whichever the verdict names: a guard hides the vetoes and a
     # veto the review reasons (2026-11-19: six songs released from W4 by hand were `review`).
-    out.update(rules.reasons(comparison, len(hits)))
+    out.update(rules.reasons(comparison))
     return {**out, "verdict": verdict, "detail": detail, **comparison}, doc
 
 
@@ -398,21 +388,12 @@ def ladder_same(doc: dict, ladder_doc: dict | None) -> bool:
     )
 
 
-def _same(doc: dict, ladder: dict, ladder_doc: dict | None, overran: bool) -> bool | str:
-    """A row's `ladder_same` after a ladder pass (see `preview_song`)."""
-    if not ladder_same(doc, ladder_doc):
-        return False
-    return LADDER_OVERRUN if overran or ladder.get("aligner_overruns") else True
-
-
 def ladder_note(ladder: dict, ladder_doc: dict | None) -> dict:
-    """What the ladder pass said: its verdict and detail, the record it aligned, and the passes it
-    ran in the aligner library's overrun region."""
+    """What the ladder pass said: its verdict and detail, and the record it aligned."""
     return {
         "verdict": ladder["verdict"],
         "detail": ladder.get("detail", ""),
         "lyrics_record": _record(ladder_doc),
-        "aligner_overruns": ladder.get("aligner_overruns", []),
     }
 
 
@@ -420,8 +401,8 @@ def confirmed(row: dict, doc: dict, ladder: dict, ladder_doc: dict | None) -> di
     """The ladder's word on a `stored`-mode `refresh`: the fields that replace the row's verdict.
     It stays `refresh` only when the ladder also says `refresh`, on the same lyrics record, with
     the same document (`generated_at` aside); else the verdict is the ladder's own (another record
-    is a changed sheet, the by-ear rung a full job, weather a failure, an overrun pass a review),
-    or `review` when the ladder says `refresh` with another document."""
+    is a changed sheet, the by-ear rung a full job, weather a failure), or `review` when the
+    ladder says `refresh` with another document."""
     same = ladder["verdict"] == rules.REFRESH and ladder_same(doc, ladder_doc)
     note = {**ladder_note(ladder, ladder_doc), "confirmed": same}
     if same:
@@ -456,32 +437,29 @@ def preview_song(
 
     `ladder_same`: True when the document this row judged is the one the reprocess's own lookup
     builds (a ladder pass built it on the same record, or the ladder or the song's override built
-    it in the first place) and no pass ran the aligner library in its overrun region; False when
-    the ladder pass built another document, another record or none; LADDER_OVERRUN when the same
-    document came out of passes one of which overran; LADDER_NOT_RUN when no ladder pass ran (or
-    it faulted: the verdict stays, the `ladder` note names the fault); LADDER_NO_DOCUMENT when no
-    document was built."""
+    it in the first place); False when the ladder pass built another document, another record or
+    none; LADDER_NOT_RUN when no ladder pass ran (or it faulted: the verdict stays, the `ladder`
+    note names the fault); LADDER_NO_DOCUMENT when no document was built."""
     if lyrics not in LYRICS_MODES:
         raise ValueError(f"lyrics mode {lyrics!r} is not one of {LYRICS_MODES}")
     started = time.monotonic()
     row: dict[str, Any] = {"source_id": source_id}
-    # Names the song before its replay: a crash inside the aligner library ends the process
-    # without a row, and `--after` this id resumes past it.
+    # Names the song before its replay: if the process dies inside it, the log says which song,
+    # and `--after` this id resumes past it.
     logger.info("preview of %s starts", source_id)
     try:
         fields, doc = _preview(s, source_id, lyrics, documents)
         row.update(fields)
         pinned = str(row.get("lyrics", "")).startswith("record")
-        overran = bool(row.get("aligner_overruns"))
         if doc is None:
             row["ladder_same"] = LADDER_NO_DOCUMENT
         elif not pinned:  # built by the reprocess's own lookup (or override)
-            row["ladder_same"] = LADDER_OVERRUN if overran else True
+            row["ladder_same"] = True
         elif confirm and row["verdict"] == rules.REFRESH:
             s.rollback()
             ladder, ladder_doc = _preview(s, source_id, "ladder", None)
             row.update(confirmed(row, doc, ladder, ladder_doc))
-            row["ladder_same"] = _same(doc, ladder, ladder_doc, overran)
+            row["ladder_same"] = ladder_same(doc, ladder_doc)
         elif confirm and confirm_all:
             s.rollback()
             try:
@@ -493,7 +471,7 @@ def preview_song(
                 row["ladder"] = {"fault": type(exc).__name__}
             else:
                 row["ladder"] = ladder_note(ladder, ladder_doc)
-                row["ladder_same"] = _same(doc, ladder, ladder_doc, overran)
+                row["ladder_same"] = ladder_same(doc, ladder_doc)
         if row["verdict"] == rules.REFRESH:
             # What the reprocess will run: the ladder (or the override), as this row now says.
             row["refresh_confirmed"] = not pinned or (
@@ -595,7 +573,7 @@ def summarize(rows: list[dict]) -> dict:
             "false": sum(v is False for v in same.values()),
             **{
                 name: sum(v == name for v in same.values())
-                for name in (LADDER_OVERRUN, LADDER_NOT_RUN, LADDER_NO_DOCUMENT)
+                for name in (LADDER_NOT_RUN, LADDER_NO_DOCUMENT)
             },
         },
         "vetoes": dict(sorted(vetoes.items())),

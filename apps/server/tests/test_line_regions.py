@@ -83,7 +83,11 @@ def test_the_trellis_finds_the_best_path_that_avoids_the_cuts(seed):
 @pytest.mark.slow
 def test_without_cuts_the_trellis_is_the_compiled_viterbi():
     """Byte for byte against ctc_forced_aligner's own, ties included (2026-11-09:
-    3000 of 3000 in the worker image)."""
+    3000 of 3000 in the worker image). Inside the compiled library's safe set only (the rule:
+    tests/test_viterbi_library.py): T = 2L + 30 frames, finite scores, checked by the rule's
+    predicate before every call."""
+    from helpers import library_safe
+
     compiled = pytest.importorskip("ctc_forced_aligner.ctc_forced_aligner").forced_align
     rng = np.random.default_rng(0)
     for _ in range(500):
@@ -95,6 +99,7 @@ def test_without_cuts_the_trellis_is_the_compiled_viterbi():
         logits = np.round(rng.normal(size=(n_frames, n_labels)) * 2) / 2  # ties
         log_probs = (logits - np.log(np.exp(logits).sum(axis=1, keepdims=True))).astype(
             np.float32)
+        assert library_safe(n_frames, targets, log_probs), "never run the compiled one unsafe"
         path, scores = compiled(log_probs[None], np.asarray([targets], dtype=np.int64), blank)
         found = forced_align_cut(log_probs, targets, blank, [])
         assert found is not None
@@ -358,7 +363,9 @@ def test_a_start_the_blank_pads_out_of_its_region_falls_back_to_its_letter(
     log_probs = _peaks(80, {10: (1, 0.97), 11: (2, 0.97), 60: (1, 0.97), 61: (2, 0.97)},
                        n_labels=5)
     log_probs[:, 4] = -30.0  # stars at the edges only, kept out of the gap
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", _fake_pass(log_probs, []))
+    fake = _fake_pass(log_probs, [])
+    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", fake)
+    monkeypatch.setattr(alignment, "get_alignments", fake.get_alignments)  # the job's own Viterbi
     tally: dict = {}
     rows = alignment._viterbi(log_probs, 20.0, Tokenizer(), ["ab", "ab"], "eng", "edges",
                               True, [(0, 400), (earliest_ms, 1_400)], tally)

@@ -165,7 +165,7 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   names), the vetoes (W1-W5; W4 counts, on each document, lines whose first word flashes, so a line
   that gains its word timings counts on the built side only and the row says how many did; W5
   words that start before the word before them), `ladder_same` per song (`true` / `false` /
-  `overrun` / `not run` / `no document`) with its counts and whether the file ran `--confirm-all`
+  `not run` / `no document`) with its counts and whether the file ran `--confirm-all`
   (`all` / `mixed` / `none`), the counts summed over the songs on the same sheet,
   `without_evidence`,
   `replay` (what a worker needs for these reprocesses to replay: the mode and the evidence key, and
@@ -173,8 +173,7 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
 - **Then, the canary first:** reprocess ONE id of `refresh_ids` (one admin reprocess call) on the
   workers in `replay`; its log must say `rebuilt from stored evidence, no download`, not
   `key differs at …` or `full job (…)`. Only then feed the rest, one call each. Reprocess only ids
-  whose row says `ladder_same: true` (never said when the row's or its `ladder` note's
-  `aligner_overruns` is not empty: that is `overrun`), whatever their verdict: a `keep` or `review`
+  whose row says `ladder_same: true`, whatever their verdict: a `keep` or `review`
   song released by hand is previewed again with `--confirm-all` first (a reprocess runs the lookup
   ladder, and a row judged on the stored record alone says nothing about the record the ladder
   picks today), and its `keep` entry's review reasons are read before it is released.
@@ -184,8 +183,8 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   129 / 130 / 143 stopped by SIGHUP / SIGINT / SIGTERM; every exit after the start writes the
   summary of what was previewed. Its scratch directories (`job-preview-*`, empty during a replay)
   are deleted per song and matched by the worker's own sweep.
-- **A crash** inside the aligner library ends the process without a row for that song (the job
-  code refuses the inputs known to crash it; others may exist): the last `preview of <id> starts`
-  line on stderr names it, and `--after <id> --append` resumes past it into the same file. A pass in
-  the library's overrun region is logged on the worker as `<type>:<id> (job <uuid>): window …:
-  the aligner library writes past its buffers here (T=…, L=…, R=…)`, and such a song is `review`.
+- **If the process dies** inside a song it leaves no row for it: the last `preview of <id> starts`
+  line on stderr names it, and `--after <id> --append` resumes past it into the same file. (The
+  aligner library's compiled Viterbi, which could take a process down on some inputs, is not
+  called by the job code since 2026-11-19: `docs/research/refresh-from-evidence-2026-11.md`, "The
+  aligner library's limits".)

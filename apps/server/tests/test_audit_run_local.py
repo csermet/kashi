@@ -131,6 +131,8 @@ def heard(monkeypatch):
         preprocess_text=preprocess_text, get_alignments=get_alignments,
         get_spans=get_spans, postprocess_results=postprocess_results,
     ))
+    # The Viterbi is the job's own since 2026-11-19 (alignment.get_alignments): the stand-in's.
+    monkeypatch.setattr(alignment, "get_alignments", get_alignments)
     model = types.SimpleNamespace(dtype=None, device="cpu")
     monkeypatch.setattr(alignment, "_load_model",
                         lambda name: (model, types.SimpleNamespace(get_vocab=dict)))

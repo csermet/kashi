@@ -286,14 +286,11 @@ def test_every_reason_is_kept_beside_the_verdict():
     new = _doc([_line(1000, [1000, 1050], end=1300), _line(6600, [6600, 7200])])
     comparison = r.compare(old, new, None)  # no envelope: line 1 is not placed
     assert r.verdict(comparison) == (r.VETOED, "veto: W4")
-    assert r.reasons(comparison, 2) == {
-        "vetoes": ["W4"],
-        "reviews": ["aligner overrun region: 2 passes",
-                    "line(s) 1 moved > 1500 ms where W2 cannot judge"]}
+    assert r.reasons(comparison) == {
+        "vetoes": ["W4"], "reviews": ["line(s) 1 moved > 1500 ms where W2 cannot judge"]}
     assert r.verdict(comparison, ("stale", "x"))[0] == r.GUARDED
     other = r.compare(old, _doc([_line(1000, [1000, 1500])]), None)
-    assert r.reasons(other, 1) == {"vetoes": [], "reviews": ["aligner overrun region: 1 pass"]}
-    assert r.reasons(other) == {"vetoes": [], "reviews": []}
+    assert r.reasons(other) == {"vetoes": [], "reviews": []}  # another sheet: lines do not pair
 
 
 def _disordered(n):

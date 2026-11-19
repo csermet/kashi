@@ -628,7 +628,7 @@ def test_a_stored_mode_refresh_is_confirmed_by_the_ladder(db_session, audio, mon
     assert get_record == [77] and len(ladder_calls) == 1
     assert row["verdict"] == rules.REFRESH and row["lyrics"] == "record 77"
     assert row["ladder"] == {"verdict": rules.REFRESH, "detail": "", "lyrics_record": 77,
-                             "aligner_overruns": [], "confirmed": True}
+                             "confirmed": True}
 
 
 def test_only_a_refresh_asks_the_ladder(db_session, audio, monkeypatch, get_record, ladder_calls):
@@ -1080,24 +1080,15 @@ def test_a_source_id_run_keeps_the_cursor_s_frontier(db_session, audio, monkeypa
     assert _lines(out)[-1]["summary"]["next_after"] == "songC0000001"
 
 
-def test_a_pass_in_the_overrun_region_makes_the_song_review(db_session, audio, monkeypatch):
-    from kashi_server.pipeline import alignment
-
+def test_no_row_carries_an_overrun_any_more(db_session, audio, monkeypatch, get_record):
+    """Since 2026-11-19 the job's Viterbi is its own and defined on every input; the preview has no
+    overrun region to report (PREVIEW_FORMAT 5)."""
     _run(db_session, monkeypatch, "record")
     _set_document(db_session, _older)
-    stand_in = wp.align
-
-    def overrunning(*a, **kw):
-        if evidence.replaying():
-            alignment._note_overrun("segment", 286, [1 + (i % 2) for i in range(147)])
-        return stand_in(*a, **kw)
-
-    monkeypatch.setattr(wp, "align", overrunning)
-    row = _preview(db_session)
-    assert (row["verdict"], row["detail"]) == (rules.REVIEW, "aligner overrun region: 1 pass")
-    assert row["aligner_overruns"] == [
-        {"where": "whole track", "pass": "segment", "T": 286, "L": 147, "R": 0}]
-    assert "refresh_confirmed" not in row
+    row = _preview(db_session, lyrics="stored", confirm_all=True)
+    assert row["verdict"] == rules.REFRESH
+    assert "aligner_overruns" not in row and "aligner_overruns" not in row["ladder"]
+    assert preview.PREVIEW_FORMAT == 5 and not hasattr(preview, "LADDER_OVERRUN")
 
 
 def test_an_aligner_refusal_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):
@@ -1111,23 +1102,6 @@ def test_an_aligner_refusal_is_a_failure_not_a_full_job(db_session, audio, monke
     monkeypatch.setattr(wp, "align", refused)
     row = _preview(db_session)
     assert (row["verdict"], row["detail"]) == (rules.FAILED, "alignment_failed")
-
-
-def test_the_job_code_names_its_song_for_the_overrun_line(db_session, audio, monkeypatch):
-    from kashi_server.pipeline import alignment
-
-    seen = []
-    named = wp._run_pipeline_named
-
-    def spy(s, job, tmp, *, persist=True):
-        seen.append((alignment._VITERBI_SONG.get(), str(job.id)))
-        return named(s, job, tmp, persist=persist)
-
-    monkeypatch.setattr(wp, "_run_pipeline_named", spy)
-    _run(db_session, monkeypatch, "record")
-    ((label, job_id),) = seen
-    assert label == f"youtube:{SONG} (job {job_id})"
-    assert alignment._VITERBI_SONG.get() == ""
 
 
 # --- round 4: every row says whether the ladder builds its document -------------------------------
@@ -1152,8 +1126,7 @@ def test_confirm_all_asks_the_ladder_for_a_row_that_is_not_a_refresh(db_session,
     assert get_record == [77] and len(ladder_calls) == 1
     assert row["verdict"] == rules.UNCHANGED  # the verdict stays
     assert row["ladder_same"] is True
-    assert row["ladder"] == {"verdict": rules.UNCHANGED, "detail": "", "lyrics_record": 77,
-                             "aligner_overruns": []}
+    assert row["ladder"] == {"verdict": rules.UNCHANGED, "detail": "", "lyrics_record": 77}
 
 
 def test_confirm_all_on_a_kept_song_whose_ladder_picks_another_record(db_session, audio,
@@ -1183,7 +1156,7 @@ def test_confirm_all_on_a_kept_song_whose_ladder_picks_another_record(db_session
     assert (row["verdict"], row["detail"]) == (rules.VETOED, "veto: W4")  # the verdict stays
     assert row["ladder_same"] is False and len(ladder_calls) == 1
     assert row["ladder"] == {"verdict": rules.SHEET, "detail": "lyrics record 76 -> 77",
-                             "lyrics_record": 77, "aligner_overruns": []}
+                             "lyrics_record": 77}
 
 
 def test_confirm_all_a_ladder_that_builds_no_document_is_not_the_same(db_session, audio,
@@ -1198,7 +1171,7 @@ def test_confirm_all_a_ladder_that_builds_no_document_is_not_the_same(db_session
     assert row["verdict"] == rules.UNCHANGED and row["ladder_same"] is False
     assert row["ladder"] == {
         "verdict": rules.FAILED, "detail": "lrclib unavailable: a reprocess now would be deferred",
-        "lyrics_record": None, "aligner_overruns": []}
+        "lyrics_record": None}
 
 
 def test_a_refresh_s_confirmation_says_ladder_same(db_session, audio, monkeypatch, get_record,
@@ -1278,13 +1251,11 @@ def test_the_summary_says_ladder_same_per_song():
         {"source_id": "d", "verdict": rules.FULL_JOB, "detail": "x",
          "ladder_same": "no document"},
         {"source_id": "e", "verdict": rules.UNCHANGED},  # an earlier format's row
-        {"source_id": "f", "verdict": rules.REVIEW, "detail": "aligner overrun region: 1 pass",
-         "ladder_same": "overrun"},
     ]
     summary = preview.summarize(rows)
     assert summary["ladder_same"] == {"a": True, "b": False, "c": True, "d": "no document",
-                                      "e": "not run", "f": "overrun"}
-    assert summary["ladder_same_counts"] == {"true": 2, "false": 1, "overrun": 1, "not run": 1,
+                                      "e": "not run"}
+    assert summary["ladder_same_counts"] == {"true": 2, "false": 1, "not run": 1,
                                              "no document": 1}
 
 
@@ -1308,7 +1279,7 @@ def test_the_command_carries_confirm_all(db_session, audio, monkeypatch, tmp_pat
     assert len(ladder_calls) == 1
 
 
-# --- round 5: overruns, hidden reasons, the override, the palette's escape hatches ---------------
+# --- round 5: hidden reasons, the override, the palette's escape hatches ----------------------
 
 
 def test_confirm_all_of_the_segments():
@@ -1317,62 +1288,6 @@ def test_confirm_all_of_the_segments():
     assert preview.confirm_all_of([True, False]) == "mixed"
 
 
-def _overrunning(monkeypatch, on_replays):
-    """The stand-in aligner, noting one overrun pass on the given replays (1 = the first)."""
-    from kashi_server.pipeline import alignment
-
-    stand_in = wp.align
-    seen = []
-
-    def overrunning(*a, **kw):
-        if evidence.replaying():
-            seen.append(1)
-            if len(seen) in on_replays:
-                alignment._note_overrun("segment", 286, [1 + (i % 2) for i in range(147)])
-        return stand_in(*a, **kw)
-
-    monkeypatch.setattr(wp, "align", overrunning)
-    return seen
-
-
-def test_an_overrun_in_the_first_pass_is_never_ladder_same(db_session, audio, monkeypatch,
-                                                           get_record, ladder_calls):
-    _run(db_session, monkeypatch, "record")
-    _overrunning(monkeypatch, {1})
-    row = _preview(db_session, lyrics="stored", confirm_all=True)
-    assert row["verdict"] == rules.REVIEW and len(row["aligner_overruns"]) == 1
-    assert row["ladder"]["aligner_overruns"] == [] and row["ladder_same"] == "overrun"
-
-
-def test_an_overrun_in_the_ladder_pass_is_never_ladder_same(db_session, audio, monkeypatch,
-                                                            get_record, ladder_calls):
-    _run(db_session, monkeypatch, "record")
-    _overrunning(monkeypatch, {2})
-    row = _preview(db_session, lyrics="stored", confirm_all=True)
-    assert row["verdict"] == rules.UNCHANGED and row["aligner_overruns"] == []
-    assert row["ladder"]["verdict"] == rules.REVIEW
-    assert row["ladder"]["detail"] == "aligner overrun region: 1 pass"
-    assert len(row["ladder"]["aligner_overruns"]) == 1
-    assert row["ladder_same"] == "overrun"
-
-
-def test_an_overrun_in_a_ladder_or_override_build_is_never_ladder_same(db_session, audio,
-                                                                       monkeypatch, get_record):
-    _run(db_session, monkeypatch, "record")
-    _overrunning(monkeypatch, {1, 2})
-    row = _preview(db_session, lyrics="ladder")
-    assert row["verdict"] == rules.REVIEW and row["ladder_same"] == "overrun"
-
-
-def test_a_refresh_whose_ladder_pass_overruns_is_not_refreshed(db_session, audio, monkeypatch,
-                                                               get_record):
-    _run(db_session, monkeypatch, "record")
-    _set_document(db_session, _older)
-    _overrunning(monkeypatch, {2})
-    row = _preview(db_session, lyrics="stored")
-    assert row["verdict"] == rules.REVIEW and row["ladder_same"] == "overrun"
-    assert row["detail"] == "ladder: aligner overrun region: 1 pass"
-    assert preview.summarize([row])["refresh_ids"] == []
 
 
 def test_a_veto_does_not_hide_the_review_reasons(db_session, audio, monkeypatch):
