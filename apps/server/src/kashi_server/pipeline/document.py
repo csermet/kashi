@@ -494,7 +494,9 @@ def carried_palette(stored: dict | None, new: dict) -> dict:
     The palette is fetched live on every build (it is not evidence): a fetch
     that fails on a reprocess must not replace the album's colours with the
     default ones. Only the `palette` key can differ from `new` — no line, word,
-    timing, lyrics or alignment field — and `new` is not changed."""
+    timing, lyrics or alignment field — and `new` is not changed. Persist and
+    the preview call it through `with_stored_palette`: never under
+    `force_persist`, and never with a palette that fails the schema."""
     old_palette = (stored or {}).get("palette")
     new_palette = new.get("palette")
     if (
@@ -505,6 +507,28 @@ def carried_palette(stored: dict | None, new: dict) -> dict:
     ):
         return {**new, "palette": dict(old_palette)}
     return new
+
+
+def with_stored_palette(stored: dict | None, built: dict, job: Job) -> dict:
+    """What persist stores for `built` (already validated) against the stored
+    document: `carried_palette`, except that a job with `options.force_persist`
+    stores the operator's document as built (no carry), and a carried document
+    that fails the schema (a malformed stored palette) falls back to the built
+    one. `built` is not changed."""
+    if (job.options or {}).get("force_persist"):
+        return built
+    carried = carried_palette(stored, built)
+    if carried is built:
+        return built
+    try:
+        validate_document(carried)
+    except PipelineError:
+        logger.warning(
+            "kept the built palette of %s:%s: the stored album palette fails the schema",
+            job.source_type, job.source_id,
+        )
+        return built
+    return carried
 
 
 def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
@@ -534,8 +558,9 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     rules above.
 
     A document whose palette fell back to the default while the stored one
-    came from the album art is stored with the stored palette
-    (`carried_palette`), and its etag is the etag of what is stored.
+    came from the album art is stored with the stored palette, unless the job
+    forces its document or the result fails the schema (`with_stored_palette`);
+    the etag is the etag of what is stored.
     """
     validate_document(doc)
     override = _lock_override(s, job)  # first: see _lock_override
@@ -543,7 +568,7 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
         _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
     ).first()
     if existing is not None:
-        doc = carried_palette(existing.document, doc)
+        doc = with_stored_palette(existing.document, doc, job)
     etag = compute_etag(doc)
     applied, built_under = _override_verdict(override, job, existing)
     kept = _kept(existing, job, doc, applied, built_under)

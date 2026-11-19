@@ -236,3 +236,74 @@ def test_a_kept_document_stays_as_it_was(db_session):
     assert document.persist_processed_track(db_session, job, worse) == good
     stored = _stored(db_session)
     assert stored.etag == good and stored.document["palette"] == ALBUM
+
+
+# --- round 5: the escape hatch and the schema ----------------------------------------------------
+
+MALFORMED = {"source": "album_art", "primary": "not a colour"}
+
+
+def _set_stored_palette(s, palette: dict) -> None:
+    from sqlalchemy import text
+
+    s.execute(
+        text(
+            "UPDATE processed_tracks SET document = jsonb_set(document, '{palette}', "
+            "CAST(:p AS jsonb)) WHERE source_id = :i"
+        ),
+        {"p": json.dumps(palette), "i": SOURCE},
+    )
+    s.flush()
+
+
+def test_force_persist_stores_the_operator_s_document_as_built(db_session):
+    first = _job(db_session)
+    document.persist_processed_track(db_session, first, _real_doc(first, ALBUM))
+    job = _job(db_session, {"force_persist": True})
+    built = _real_doc(job, DEFAULT_PALETTE, shift=100)
+    etag = document.persist_processed_track(db_session, job, built)
+    stored = _stored(db_session)
+    assert stored.document["palette"] == DEFAULT_PALETTE
+    assert etag == stored.etag == document.compute_etag(built)
+
+
+def test_a_carried_document_that_fails_the_schema_falls_back_to_the_built_one(
+    db_session, caplog, monkeypatch
+):
+    import logging
+
+    first = _job(db_session)
+    document.persist_processed_track(db_session, first, _real_doc(first, ALBUM))
+    _set_stored_palette(db_session, MALFORMED)
+    job = _job(db_session)
+    built = _real_doc(job, DEFAULT_PALETTE, shift=100)
+    # alembic's fileConfig (test_alembic_downgrade) disables loggers that exist by then
+    monkeypatch.setattr(logging.getLogger(document.__name__), "disabled", False)
+    with caplog.at_level("WARNING", logger=document.__name__):
+        etag = document.persist_processed_track(db_session, job, built)
+    stored = _stored(db_session)
+    assert stored.document["palette"] == DEFAULT_PALETTE
+    assert etag == stored.etag == document.compute_etag(built)
+    assert "the stored album palette fails the schema" in caplog.text
+    document.validate_document(stored.document)  # what is stored passed the schema
+
+
+def test_with_stored_palette_unit():
+    def job(options):
+        out = Job(
+            source_type="youtube",
+            source_id=SOURCE,
+            pipeline_major=PIPELINE_MAJOR,
+            hints={"title": "Song", "artist": "Artist", "duration_ms": 200_000},
+            options=options,
+        )
+        out.id = uuid.uuid4()
+        return out
+
+    plain, forced = job({}), job({"force_persist": True})
+    stored, built = _doc(ALBUM), _real_doc(plain, DEFAULT_PALETTE)
+    document.validate_document(built)
+    assert document.with_stored_palette(stored, built, plain)["palette"] == ALBUM
+    assert document.with_stored_palette(stored, built, forced) is built
+    assert document.with_stored_palette(_doc(MALFORMED), built, plain) is built
+    assert document.with_stored_palette(_doc(DEFAULT_PALETTE), built, plain) is built

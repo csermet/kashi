@@ -1414,8 +1414,10 @@ def _postprocess(
     speed_factor: float,
     persist: bool = True,
 ) -> dict:
-    """Beats, energy, sections, fx and palette -> the persisted document, which is returned (also
-    when `persist` is False: the back-fill drops it, the preview compares it)."""
+    """Beats, energy, sections, fx and palette -> the document, persisted and returned as BUILT
+    (persist may keep the stored document, or store the stored album palette:
+    `document.with_stored_palette`); also when `persist` is False: the back-fill drops it, the
+    preview applies persist's palette rule and compares it."""
     # --- postprocessing ---
     queue.set_status(s, job, "postprocessing")
     s.commit()
