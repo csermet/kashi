@@ -31,6 +31,20 @@ export function linePlan(R, ctx, lineIndex) {
 }
 
 /**
+ * The text a line puts on screen: its words, one span each and a space between
+ * (lyrics-view buildWordSpans), or its own text when it has none. Not
+ * `line.text` for a worded line: the two differ wherever the sheet's text
+ * carries what the words do not (punctuation, a '♪' over an aligner's filler),
+ * and treating them as one is the twin of the view's own "same text, nothing
+ * to repaint" slip (a wordless line repeating a worded one kept its spans).
+ */
+export function shownText(line) {
+  if (!line) return null;
+  const words = line.words ?? [];
+  return words.length > 0 ? words.map((w) => w.text).join(' ') : line.text;
+}
+
+/**
  * The renderer's state at clock position `pos` (player position + lead).
  * `fx_fired` assumes forward play through every word, as during playback.
  */
@@ -39,7 +53,7 @@ export function simulateAt(R, ctx, pos) {
   const lineIndex = lines.length > 0 ? R.view.findDisplayLine(lines, pos) : -1;
   const line = lineIndex >= 0 ? lines[lineIndex] : undefined;
   const words = line?.words ?? [];
-  const state = { pos, line: lineIndex, text: line?.text ?? null, active: -1, sung: [], fill: {}, fx_fired: null };
+  const state = { pos, line: lineIndex, text: shownText(line), active: -1, sung: [], fill: {}, fx_fired: null };
   if (!line || words.length === 0) return state;
   const active = R.view.findActiveWord(words, pos);
   state.active = active;

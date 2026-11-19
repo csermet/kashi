@@ -792,7 +792,13 @@ export function createLyricsView(
     boxEl?.classList.toggle('hidden', !view.boxVisible);
     if (lineEl) {
       // Plain-text mode always wins here; word mode repopulates right after.
-      if (lineEl.textContent !== view.lineText) lineEl.textContent = view.lineText;
+      // Word spans go too when the text is unchanged: clearWordSpans() below
+      // drops only the cache, so a wordless line repeating the previous worded
+      // line's text kept that line's spans on screen, lit (clip check
+      // 2026-11-19, a repeated chorus line in a stored document).
+      if (lineEl.textContent !== view.lineText || lineEl.firstElementChild !== null) {
+        lineEl.textContent = view.lineText;
+      }
       lineEl.classList.toggle('dim', view.lineDim);
       lineEl.classList.toggle('interlude', view.interlude);
       lineEl.classList.toggle('adlib', view.lineAdlib);
