@@ -35,15 +35,12 @@ jobs:
       # hiding every other slow test behind one exit code 139.
       - name: slow - the real model on the speech fixture
         run: uv run pytest -q -m slow --override-ini addopts='' tests/test_alignment_smoke.py
-      - name: slow - aligner guard, refused and accepted boundaries
+      # Since 2026-11-19 the job never calls the compiled Viterbi; this re-proves, on every pin bump,
+      # that its own one returns the compiled one's path on the library's safe set (the module
+      # never calls the library outside it: on a GCC 15 build that crashes).
+      - name: slow - the job's Viterbi against the compiled library (safe set only)
         if: always()
-        run: uv run pytest -q -m slow --override-ini addopts='' tests/test_viterbi_guard_library.py -k every_boundary
-      - name: slow - aligner guard, first frame count outside the overrun region
-        if: always()
-        run: uv run pytest -q -m slow --override-ini addopts='' tests/test_viterbi_guard_library.py -k first_frame_count
-      - name: slow - aligner guard, NaN frame and tensor read
-        if: always()
-        run: uv run pytest -q -m slow --override-ini addopts='' tests/test_viterbi_guard_library.py -k "nan_frame or torch_tensor"
+        run: uv run pytest -q -m slow --override-ini addopts='' tests/test_viterbi_library.py
       - name: slow - everything else
         if: always()
-        run: uv run pytest -q -m slow --override-ini addopts='' --ignore=tests/test_alignment_smoke.py --ignore=tests/test_viterbi_guard_library.py
+        run: uv run pytest -q -m slow --override-ini addopts='' --ignore=tests/test_alignment_smoke.py --ignore=tests/test_viterbi_library.py

@@ -456,7 +456,9 @@ def test_viterbi_annotates_only_when_asked(monkeypatch, letters):
     spans = [[Segment("<star>", 0, 0)], [Segment("a", 10, 10), Segment("b", 11, 11)],
              [Segment("<star>", 12, 39)]]
     results = [{"text": "ab", "start": 0.2, "end": 0.22, "score": -0.1}]
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", _fake_library(spans, results))
+    fake = _fake_library(spans, results)
+    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", fake)
+    monkeypatch.setattr(alignment, "get_alignments", fake.get_alignments)  # the job's own Viterbi
     rows = alignment._viterbi(lp, 20.0, Tokenizer(), ["ab"], "eng", "edges", True, None, None,
                               letters)
     assert ("first_letter" in rows[0]) is letters

@@ -821,14 +821,6 @@ def process_job(s: Session, job: Job) -> None:
 
 
 def _run_pipeline(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> dict | None:
-    """`_run_pipeline_named`, with the job's song and id on the aligner's overrun log line."""
-    from kashi_server.pipeline.alignment import viterbi_song
-
-    with viterbi_song(f"{job.source_type}:{job.source_id} (job {job.id})"):
-        return _run_pipeline_named(s, job, tmp, persist=persist)
-
-
-def _run_pipeline_named(s: Session, job: Job, tmp: Path, *, persist: bool = True) -> dict | None:
     """One job from the lyrics lookup to the persisted document. Under an evidence session
     (pipeline/evidence.py) the same code runs: a recorder keeps what the audio boundaries
     returned, a replayer serves them instead of the audio. `persist=False` builds and validates

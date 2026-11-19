@@ -83,7 +83,8 @@ def test_the_trellis_finds_the_best_path_that_avoids_the_cuts(seed):
 @pytest.mark.slow
 def test_without_cuts_the_trellis_is_the_compiled_viterbi():
     """Byte for byte against ctc_forced_aligner's own, ties included (2026-11-09:
-    3000 of 3000 in the worker image)."""
+    3000 of 3000 in the worker image). Inside the compiled library's safe set only (the rule:
+    tests/test_viterbi_library.py): T = 2L + 30 frames, finite scores."""
     compiled = pytest.importorskip("ctc_forced_aligner.ctc_forced_aligner").forced_align
     rng = np.random.default_rng(0)
     for _ in range(500):
@@ -358,7 +359,9 @@ def test_a_start_the_blank_pads_out_of_its_region_falls_back_to_its_letter(
     log_probs = _peaks(80, {10: (1, 0.97), 11: (2, 0.97), 60: (1, 0.97), 61: (2, 0.97)},
                        n_labels=5)
     log_probs[:, 4] = -30.0  # stars at the edges only, kept out of the gap
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", _fake_pass(log_probs, []))
+    fake = _fake_pass(log_probs, [])
+    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", fake)
+    monkeypatch.setattr(alignment, "get_alignments", fake.get_alignments)  # the job's own Viterbi
     tally: dict = {}
     rows = alignment._viterbi(log_probs, 20.0, Tokenizer(), ["ab", "ab"], "eng", "edges",
                               True, [(0, 400), (earliest_ms, 1_400)], tally)

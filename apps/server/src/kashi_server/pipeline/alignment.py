@@ -10,12 +10,10 @@ If the token accounting ever fails to line up, the job does NOT fail: we emit a
 line-level document instead (the overlay already renders those).
 """
 
-import contextlib
 import logging
 import math
 import os
 import unicodedata
-from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -769,44 +767,17 @@ def _load_track(wav_path: Path, model):
 LineStarts = list[tuple[float, float] | None]
 
 
-#: Which audio a Viterbi pass reads, for the guard's error: set per window by `_align_windows`.
+#: Which audio a Viterbi pass reads, for the refusal's message: set per window by `_align_windows`.
 _VITERBI_WHERE: ContextVar[str] = ContextVar("viterbi_where", default="whole track")
-#: Which song (and job) the passes belong to, for the overrun log line: set by the job code for
-#: its run (`viterbi_song`); empty outside a job.
-_VITERBI_SONG: ContextVar[str] = ContextVar("viterbi_song", default="")
-#: Where a caller collects the passes that ran in the library's overrun region (`overruns`).
-_OVERRUN_SINK: ContextVar[list | None] = ContextVar("overrun_sink", default=None)
 
 
 class AlignerRefusal(PipelineError):
-    """The guard's refusal: `alignment_failed`, raised before the library runs or for a path it
-    cannot read. A job treats it like any other PipelineError of that class; the refresh preview
-    tells it apart (a full job would fail the same way)."""
+    """A Viterbi pass that cannot be run or read: `alignment_failed`, raised before the pass or
+    for a path that does not spell the text. A job treats it like any other PipelineError of
+    that class; the refresh preview tells it apart (a full job would fail the same way)."""
 
     def __init__(self, message: str) -> None:
         super().__init__("alignment_failed", message)
-
-
-@contextlib.contextmanager
-def viterbi_song(label: str) -> Iterator[None]:
-    """Name the song (and job) of the Viterbi passes run inside, for the overrun log line."""
-    token = _VITERBI_SONG.set(label)
-    try:
-        yield
-    finally:
-        _VITERBI_SONG.reset(token)
-
-
-@contextlib.contextmanager
-def overruns() -> Iterator[list[dict]]:
-    """Collect every Viterbi pass run inside that falls in the library's overrun region
-    (`library_overruns`): {where, pass, T, L, R} each."""
-    sink: list[dict] = []
-    token = _OVERRUN_SINK.set(sink)
-    try:
-        yield sink
-    finally:
-        _OVERRUN_SINK.reset(token)
 
 
 def viterbi_targets(tokens_starred: list[str], tokenizer) -> list[int]:
@@ -821,78 +792,58 @@ def _repeats(targets: list[int]) -> int:
     return sum(1 for i in range(1, len(targets)) if targets[i] == targets[i - 1])
 
 
-def library_overruns(n_frames: int, targets: list[int]) -> bool:
-    """Whether ctc_forced_aligner's compiled Viterbi (forced_align_impl.cpp at the pinned commit)
-    would write past its back-pointer buffers, (2L + 2) * (T - L) bits each, which it fills band by
-    band: its own band bookkeeping, line for line, without the scores (one pass over the frames).
-    Only targets in which no id repeats its neighbour overrun them, below 2L - 2 frames (L >= 3).
-    Measured on the compiled library there: deep overruns (T near L) crash (SIGSEGV, SIGABRT) or
-    return a path that does not spell the text (get_spans' `AssertionError: n != i`); shallow ones
-    (T near 2L) mostly come back valid, the extra bits landing in the allocation's slack. Not
-    refused (a pilot song's window sits in it and its document is the one stored): logged, so the
-    region can be decided on with numbers."""
-    n_targets = len(targets)
-    n_states = 2 * n_targets + 1
-    repeats = _repeats(targets)
-    size = (n_states + 1) * (n_frames - n_targets)
-    start = 0 if n_frames - (n_targets + repeats) > 0 else 1
-    end = 1 if n_states == 1 else 2
-    seek = 0
-    for t in range(1, n_frames):
-        if n_frames - t <= n_targets + repeats:
-            # The C++ reads targets[start / 2 + 1] here even at the last target (one past the
-            # end: unknown memory, taken as different); no sweep of the bookkeeping got there.
-            after = targets[start // 2 + 1] if start // 2 + 1 < n_targets else None
-            if start % 2 == 1 and targets[start // 2] != after:
-                start += 1
-            start += 1
-        if t <= n_targets + repeats:
-            if end % 2 == 0 and end < 2 * n_targets and targets[end // 2 - 1] != targets[end // 2]:
-                end += 1
-            end += 1
-        first = start
-        if start == 0:
-            first += 1
-            seek += 1
-        if end > first and seek + (end - first) > size:
-            return True
-        seek += end - first  # the C++ adds this signed difference to an unsigned counter
-    return False
-
-
 def viterbi_refusal(log_probs, targets: list[int]) -> str | None:
-    """Why the library's Viterbi must not run over these log-probabilities for these targets, or
-    None: fewer frames than the targets need (T < L + R; the library raises "targets length is too
-    long for CTC"), exactly as many with no repeated letter (T == L + R, R == 0: its back-pointer
-    buffers are empty and it segfaults), or values that are not all finite (a NaN frame makes it
-    return a path that does not spell the text)."""
+    """Why no Viterbi pass can run over these log-probabilities for these targets, or None:
+    fewer frames than the targets need (T < L + R: no path exists; the library raised "targets
+    length is too long for CTC"), or values that are not all finite (a NaN frame has no best
+    path: every comparison with it is false)."""
     import numpy as np
 
     n_frames = int(log_probs.shape[0])
     repeats = _repeats(targets)
     if targets and n_frames < len(targets) + repeats:
         return "the text needs more frames than the audio has"
-    if targets and repeats == 0 and n_frames == len(targets):
-        return "the text fills the audio exactly with no repeated letter (the library crashes)"
     if not np.isfinite(np.asarray(log_probs)).all():
         return "the emissions are not all finite"
     return None
 
 
-def _note_overrun(star_frequency: str, n_frames: int, targets: list[int]) -> None:
-    """A pass in the library's overrun region: logged with the song, the window, the pass, T, L
-    and R, and handed to the `overruns()` sink when one is open."""
-    hit = {"where": _VITERBI_WHERE.get(), "pass": star_frequency, "T": n_frames,
-           "L": len(targets), "R": _repeats(targets)}
-    song = _VITERBI_SONG.get()
-    logger.warning(
-        "%s%s, %s pass: the aligner library writes past its buffers here "
-        "(T=%d, L=%d, R=%d); a crash or an unreadable path would come from it",
-        f"{song}: " if song else "", hit["where"], star_frequency, n_frames, hit["L"], hit["R"],
-    )
-    sink = _OVERRUN_SINK.get()
-    if sink is not None:
-        sink.append(hit)
+def get_alignments(emissions, tokens_starred: list[str], tokenizer):
+    """ctc_forced_aligner's get_alignments (0.3.0, alignment_utils.py) with its compiled Viterbi
+    replaced by `trellis.forced_align` (since 2026-11-19): the same dictionary, targets, blank,
+    checks and return value (segments, per-frame scores, the blank's token). The compiled one
+    reads and writes outside its buffers on some inputs (`trellis` says which); this one returns
+    the library's path wherever the library stays inside them, and a defined one everywhere
+    else."""
+    import numpy as np
+    from ctc_forced_aligner import merge_repeats  # pyright: ignore[reportMissingImports]
+
+    from kashi_server.pipeline.trellis import forced_align
+
+    assert len(tokens_starred) > 0, "Empty transcript"
+    dictionary = tokenizer.get_vocab()
+    if len(dictionary) > tokenizer.vocab_size:
+        raise ValueError(
+            "Tokenizer vocabulary contains more tokens than expected. "
+            "Please open an issue on Github to report this and include the model name."
+        )
+    dictionary = {k.lower(): v for k, v in dictionary.items()}
+    dictionary[STAR_TOKEN] = len(dictionary)
+    token_indices = [dictionary[c] for c in " ".join(tokens_starred).split(" ") if c in dictionary]
+    blank_id = dictionary.get("<blank>", tokenizer.pad_token_id)
+    log_probs = _numpy_log_probs(emissions).astype(np.float32, copy=False)
+    targets = np.asarray(token_indices, dtype=np.int64)
+    # The library's own forced_align checks, in its order.
+    if blank_id in targets:
+        raise ValueError(f"targets Tensor shouldn't contain blank index. Found {targets}.")
+    if blank_id >= log_probs.shape[-1] or blank_id < 0:
+        raise ValueError("blank must be within [0, log_probs.shape[-1])")
+    if targets.size and np.max(targets) >= log_probs.shape[-1] and np.min(targets) >= 0:
+        raise ValueError("targets values must be within [0, log_probs.shape[-1])")
+    path, scores = forced_align(log_probs, token_indices, blank_id)
+    idx_to_token_map = {v: k for k, v in dictionary.items()}
+    segments = merge_repeats(path.tolist(), idx_to_token_map)
+    return segments, scores, idx_to_token_map[blank_id]
 
 
 def _numpy_log_probs(emissions):
@@ -929,15 +880,12 @@ def _viterbi(
     _hold_line_starts); `tally` counts what that did. `letters` (2.35.0)
     gives each row its `"first_letter"` (_first_letters).
 
-    Guarded: what the library cannot do at all (`viterbi_refusal`, checked before its Viterbi
-    whenever the tokenizer has the vocabulary get_alignments reads) and a path that does not spell
-    the text (get_spans' AssertionError, or the IndexError of a path that runs out of tokens)
-    raise one AlignerRefusal (`alignment_failed`) naming the window, the pass, T, L and R, instead
-    of a RuntimeError, a segfault or an uncaught error; a pass in which the library overruns its
-    buffers (`library_overruns`) is logged with the song and handed to an `overruns()` sink. Every
-    input the library completes today passes untouched."""
+    The Viterbi is `get_alignments` (this module's: the library's with its compiled Viterbi
+    replaced, since 2026-11-19). What no Viterbi can do (`viterbi_refusal`, checked whenever the
+    tokenizer has the vocabulary get_alignments reads) and a path that does not spell the text
+    (get_spans' AssertionError, or the IndexError of a path that runs out of tokens) raise one
+    AlignerRefusal (`alignment_failed`) naming the window, the pass, T, L and R."""
     from ctc_forced_aligner import (  # pyright: ignore[reportMissingImports]
-        get_alignments,
         get_spans,
         postprocess_results,
         preprocess_text,
@@ -965,8 +913,6 @@ def _viterbi(
         refusal = viterbi_refusal(_numpy_log_probs(emissions), targets)
         if refusal is not None:
             raise _refused(star_frequency, refusal, n_frames, targets)
-        if library_overruns(n_frames, targets):
-            _note_overrun(star_frequency, n_frames, targets)
     segments, scores, blank = get_alignments(emissions, tokens_starred, tokenizer)
     floors: list[tuple[int, int, int]] = []
     if starts_ms and any(starts_ms):

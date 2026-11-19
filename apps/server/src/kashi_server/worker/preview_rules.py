@@ -87,7 +87,7 @@ FULL_JOB = "needs a full job"
 GUARDED = "keep"  # the persist guard would keep the stored document (detail: "guard: ...")
 SHEET = "sheet changed"
 VETOED = "keep"  # detail: "veto: W1, ..."
-REVIEW = "review"  # a move W2 cannot judge, an aligner overrun: for a person, not refreshed
+REVIEW = "review"  # a move W2 cannot judge: for a person, not refreshed
 UNCHANGED = "unchanged"
 REFRESH = "refresh"
 
@@ -388,16 +388,14 @@ def vetoes(comparison: dict) -> list[str]:
     return out
 
 
-def reviews(comparison: dict, overruns: int = 0) -> list[str]:
+def reviews(comparison: dict) -> list[str]:
     """What a person must look at before the song is refreshed (none of it a veto): moves W2
-    cannot judge, and passes the aligner library ran in its overrun region
-    (`alignment.library_overruns`: undefined behaviour, so the reprocess may store another path
-    than the one previewed). A palette that falls back to the default is no longer one of them:
-    persist keeps the stored album palette (`document.carried_palette`), and the preview judges
-    the document with it."""
+    cannot judge. Two earlier reasons are gone: a palette that falls back to the default
+    (persist keeps the stored album palette, `document.carried_palette`, and the preview judges
+    the document with it) and a pass in the aligner library's overrun region (since 2026-11-19
+    the job's Viterbi is `trellis.forced_align`, defined on every input, so a reprocess stores
+    the document previewed)."""
     out = []
-    if overruns:
-        out.append(f"aligner overrun region: {overruns} pass{'es' if overruns != 1 else ''}")
     unjudged = comparison.get("w2_unjudged") or []
     if unjudged:
         lines = ", ".join(str(i) for i in unjudged)
@@ -405,19 +403,17 @@ def reviews(comparison: dict, overruns: int = 0) -> list[str]:
     return out
 
 
-def reasons(comparison: dict, overruns: int = 0) -> dict:
+def reasons(comparison: dict) -> dict:
     """Every veto that fires and every review reason, whichever one the verdict names (the first
-    match hides the rest: a guard its vetoes, a veto its review reasons); a changed sheet has no
-    vetoes (its lines do not pair) and only the overrun as a review reason."""
+    match hides the rest: a guard its vetoes, a veto its review reasons); a changed sheet has
+    neither (its lines do not pair)."""
     return {
         "vetoes": [] if comparison["sheet"] else vetoes(comparison),
-        "reviews": reviews(comparison, overruns),
+        "reviews": reviews(comparison),
     }
 
 
-def verdict(
-    comparison: dict, guard: tuple[str, str] | None = None, overruns: int = 0
-) -> tuple[str, str]:
+def verdict(comparison: dict, guard: tuple[str, str] | None = None) -> tuple[str, str]:
     """(verdict, detail) for a built document: the persist guard first (a reprocess would keep the
     stored document whatever it measures), then a changed sheet, then the vetoes, then what needs a
     person (`review`); a document that differs only in when and by which version it was made is
@@ -429,7 +425,7 @@ def verdict(
     fired = vetoes(comparison)
     if fired:
         return VETOED, "veto: " + ", ".join(fired)
-    review = reviews(comparison, overruns)
+    review = reviews(comparison)
     if review:
         return REVIEW, "; ".join(review)
     if not comparison["differs"]:

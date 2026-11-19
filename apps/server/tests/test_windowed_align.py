@@ -75,9 +75,15 @@ def fake_library(record: dict) -> types.SimpleNamespace:
     )
 
 
+def _install(monkeypatch, fake) -> None:
+    """The stand-in library, and its get_alignments as the job's own Viterbi (since 2026-11-19)."""
+    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", fake)
+    monkeypatch.setattr(alignment, "get_alignments", fake.get_alignments)
+
+
 def test_align_texts_forwards_the_library_stride_by_default(monkeypatch):
     record: dict = {}
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", fake_library(record))
+    _install(monkeypatch, fake_library(record))
     out = alignment._align_texts(None, None, FakeAudio(SLICE_SAMPLES), ["w"], "eng")
     assert record["stride"] == 21
     assert out[0]["start"] == pytest.approx(6.321)
@@ -85,7 +91,7 @@ def test_align_texts_forwards_the_library_stride_by_default(monkeypatch):
 
 def test_align_texts_uses_the_real_step_when_asked(monkeypatch):
     record: dict = {}
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", fake_library(record))
+    _install(monkeypatch, fake_library(record))
     out = alignment._align_texts(
         None, None, FakeAudio(SLICE_SAMPLES), ["w"], "eng", exact_stride=True
     )
@@ -639,7 +645,7 @@ def test_one_emission_pass_serves_both_star_placements(monkeypatch):
         calls["align"] += 1
         return [], [], 0
 
-    monkeypatch.setitem(sys.modules, "ctc_forced_aligner", types.SimpleNamespace(
+    _install(monkeypatch, types.SimpleNamespace(
         generate_emissions=generate_emissions,
         preprocess_text=preprocess_text,
         get_alignments=get_alignments,
