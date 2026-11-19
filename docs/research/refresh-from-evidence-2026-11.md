@@ -292,11 +292,17 @@ rules in `worker/preview_rules.py`; how to run it: `docs/gpu-worker.md`).
   with another document. `refresh_ids` come from the confirmed songs only (a row says
   `refresh_confirmed`; a `refresh` without it, from an earlier format, counts as `review`).
   `--confirm-all` runs that ladder pass for every song that built a document on its stored record,
-  whatever its verdict (the verdict stays). Every row then says `ladder_same`: `true` when the
-  document it judged is the one the reprocess's own lookup builds (the ladder pass built it on the
-  same record, or the ladder or the song's override built it in the first place), `false` when the
-  ladder builds another document, another record or none, `not run` when no document was built or
-  no ladder pass ran; the summary lists it per song. `--lyrics ladder` runs
+  whatever its verdict (the verdict stays, also when that extra pass faults: its `ladder` note
+  then names the fault's class). Every row says `ladder_same`: `true` when the document it judged
+  is the one the reprocess's own lookup builds (the ladder pass built it on the same record, or
+  the ladder or the song's override built it in the first place) and no pass ran the aligner
+  library in its overrun region; `overrun` when the passes agree but one of them overran (the
+  library's undefined behaviour: the reprocess may store another path); `false` when the ladder
+  builds another document, another record or none; `not run` when a document was built but no
+  ladder pass ran; `no document` when none was built. The row's `ladder` note carries the ladder
+  pass's verdict, detail, record and overrun passes, and the row the fingerprint of the override
+  the build applied (`override`, or none); the summary lists `ladder_same` per song and says
+  whether the file's segments ran `--confirm-all` (`all`, `mixed`, `none`). `--lyrics ladder` runs
   the ladder for every song. An override's lyrics are always the override's. There is no preview
   without a request: the stamps that cut the windows and judge line QA live only in the record.
 - **Requests.** Stored mode: one by-id request a song; a title with a nightcore marker adds the
@@ -323,10 +329,13 @@ rules in `worker/preview_rules.py`; how to run it: `docs/gpu-worker.md`).
   starts moved > 100 / 500 / 1 500 ms with the largest, and for each moved start the silent lead
   before and after it (ms to the first 20 ms envelope frame at or above -25 dB re the loudest
   frame, `alignment.FIRST_HEARD_SILENCE_DB`); lines that lost or gained word timings; W1-W5 (W4
-  and W5 with both counts, W4 with the lines that newly flash) and the moves W2 cannot judge;
-  `ladder_same`; `palette_carried` (below). The summary: counts per verdict, the ids to refresh,
-  why the others are not, the vetoes, `ladder_same` per song, the counts summed over the songs
-  judged on the same sheet, what a worker
+  and W5 with both counts, W4 with the lines that newly flash and its built side split by whether
+  the stored line had word timings) and the moves W2 cannot judge; every veto and every review
+  reason in fields of their own (`vetoes`, `reviews`), whichever one the verdict names (the first
+  match hides the rest: a guard its vetoes, a veto its review reasons); `ladder_same`;
+  `palette_carried` (below). The summary: counts per verdict, the ids to refresh, why the others
+  are not (each `keep` entry with its detail, vetoes and review reasons), the vetoes,
+  `ladder_same` per song, the counts summed over the songs judged on the same sheet, what a worker
   needs for the reprocesses to replay (`replay`: the mode and the evidence key this image records
   and replays, and this environment's mode), the lrclib requests, the peak memory, the exit code.
 - **One judge a file.** Every run writes a segment line naming what judged its rows: the preview's
@@ -359,7 +368,10 @@ before the 2.34.0 and 2.35.0 runs, not tuned here (W4's count and W5: written an
    across lines) than the stored one.
    W4 was written for the lines one rule moves (a moved line whose first word lost its dwell); over
    a jump of several releases hundreds of lines move a little, and one new flash kept songs whose
-   build removes several, so it counts (decided with the owner's blind clips, below).
+   build removes several, so it counts (decided with the owner's blind clips, below). Each
+   document is counted on its own, as registered, so a line that gains its word timings counts on
+   the built side only and a line-to-word upgrade can come out `keep` (it only ever keeps a stored
+   document; the row's `w4.new_from_wordless` says when a veto is only that).
 6. `review (...)`: for a person, out of `refresh_ids`: a pass the aligner library ran in its
    buffer-overrun region (below: undefined behaviour, so the two preview passes can agree while the
    reprocess stores another path; `aligner overrun region: N passes`), or a line start moved more
@@ -367,8 +379,11 @@ before the 2.34.0 and 2.35.0 runs, not tuned here (W4's count and W5: written an
    failed artwork fetch: the palette is fetched live, it is not evidence) is no longer one: since
    2026-11-19 persist stores the stored album palette in that case (`document.carried_palette`,
    before the etag), and the preview judges the document with it (the row says
-   `palette_carried`). No other palette case loses anything: the schema allows only `album_art`
-   and `default`, and a stored default or a missing palette has nothing to keep.
+   `palette_carried`). Not under `force_persist` (the operator's document is stored as built),
+   and not when the carried document fails the schema (a malformed stored palette: the built one
+   is stored, and the worker logs it; `document.with_stored_palette`). No other palette case
+   loses anything: the schema allows only `album_art` and `default`, and a stored default or a
+   missing palette has nothing to keep.
 7. `unchanged`: the document differs only in `generated_at` and `pipeline_version` (a reprocess
    would only restamp it: not listed for refresh).
 8. `refresh` (in stored mode: confirmed by the ladder).
@@ -422,21 +437,31 @@ keeps 6 and W5 one more; W5 also fires on the `refresh` row held back by hand an
 other vetoes keep. Under the full verdict order 6 of the 22 released are `review`, not `refresh`:
 each has a start moved more than 1.5 s where W2 cannot judge, which the W4 veto had hidden. The
 reprocess that was fed from rows judged in stored mode only (the review note's last paragraph)
-leaves `--confirm-all` and `ladder_same`. A palette that falls back is carried in persist; `pipeline_version` stays 2.35.0,
-since only the `palette` key can change (no timing, lyrics or alignment field; a seeded test
-checks every other key on 500 documents) and only when the artwork fetch failed. Proven by a
-differential of main's `persist_processed_track` against the branch's on 95 160 seeded and
-boundary cases with the palette as a new axis: given a document, the branch does exactly what main
-does given that document with the stored palette where it is due, and differs from main only in
-the 11 751 due cases it stored (a kept document is kept the same way); each of five one-line
-mutations of the carry is caught. On the 39 songs: main == off == record == replay 39/39, every
-job completed, 39 replays rebuilt; a replay whose artwork fetch fails stores the record arm's
-album palette on 39 of 39, where main stores the default colours, every other field equal. The
+leaves `--confirm-all` and `ladder_same`. A palette that falls back is carried in persist;
+`pipeline_version` stays 2.35.0, since only the `palette` key can change (no timing, lyrics or
+alignment field; a seeded test checks every other key on 500 documents) and only when the artwork
+fetch failed. Proven by a differential of main's `persist_processed_track` against the branch's
+(the harness lives in the working files, `onizleme/betikler/guard_diff_r4.py`: it loads main's
+module beside the branch's, so it is not a repository test) on 113 592 seeded and boundary
+cases with the palette as a new axis (stored album, album without colours, malformed album,
+default, default with other colours, none; `force_persist` on and off): given a document, the
+branch does exactly what main does given that document with the stored palette where it is due,
+and differs from main only in the 3 554 due cases it stored (a kept document is kept the same
+way; the 4 198 malformed stored palettes over a fallback are not carried, each logged once); each
+of eight one-line mutations of the carry, its schema check and its `force_persist` exit is
+caught. On the 39 songs: main == off == record == replay 39/39, every
+job completed, 39 replays rebuilt; an ordinary reprocess whose artwork fetch fails stores the
+record arm's album palette on 39 of 39, where main stores the default colours, every other field
+equal; with `force_persist` it stores the default colours too, equal to main's 39 of 39. The
 preview on the 39 songs with stored album palettes and a failed fetch: the same verdicts as before
 (refresh 1, review 2, unchanged 36), `palette_carried` on 39, documents equal to the worker's
-replay 39/39 in stored mode, with `--confirm-all` and in ladder mode, tables unchanged;
-`--confirm-all` asked 39 ladder lookups instead of 1 and took 133 s instead of 68 s, and every
-row said `ladder_same: true` (without it 1 `true`, 38 `not run`).
+ordinary replay 39/39 in stored mode, with `--confirm-all` and in ladder mode, tables unchanged;
+`--confirm-all` asked 39 ladder lookups instead of 1 and took 136 s instead of 70 s; its rows
+said `ladder_same: true` on 38 and `overrun` on k89YEt8hocI, whose two passes both ran the
+aligner library in its overrun region (the first draft of the option had said `true` there; a
+reviewer's read caught it). Every veto and review reason now stays beside the verdict (`vetoes`,
+`reviews`, and each `keep` entry of the summary): on 2026-11-19 six songs released from W4 by hand
+were, by the full order, `review`.
 
 **What it cannot see.** Songs without evidence (not back-filled, a nightcore clock, uploads) and
 releases that change what is read off the audio (the aligner, its revision, the separator, a window
@@ -456,10 +481,12 @@ shipped mode, and (4) at most eight blind clips; then (5) the reviewer and the t
 rollout: the deployed image's preview lists the ids to refresh; the canary, one of them reprocessed
 on a worker in `replay`, must log `rebuilt from stored evidence, no download` before the rest are
 fed; each reprocess then stores the document previewed, unless the ladder's answer or the song's
-override changes in between. Reprocess only ids whose row says `ladder_same: true`, whatever their
-verdict (a `keep` or `review` song released by a later rule included: preview those with
-`--confirm-all`); on 2026-11-19 a `keep` row judged on its stored record was reprocessed, the
-ladder picked another record and a full job stored a sheet nobody had previewed.
+override changes in between. Reprocess only ids whose row says `ladder_same: true` (never said
+when the row's or its ladder note's `aligner_overruns` is not empty), whatever their verdict (a
+`keep` or `review` song released by a later rule included: preview those with `--confirm-all`,
+and read their `keep` entry's review reasons first); on 2026-11-19 a `keep` row judged on its
+stored record was reprocessed, the ladder picked another record and a full job stored a sheet
+nobody had previewed.
 
 ## The aligner library's limits: the back-fill's `AssertionError: n != i` (2026-11-16)
 

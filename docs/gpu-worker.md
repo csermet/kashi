@@ -150,9 +150,9 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   they carry lyric text), `--lyrics stored` (default: the record the stored document names, then
   a ladder pass for each `refresh`) or `ladder` (the lookup as a reprocess runs it, every song),
   `--confirm-all` (stored mode: the ladder pass for every song that built a document, whatever its
-  verdict, which stays; each row's `ladder_same` then says whether the reprocess's own lookup
-  builds the same document), `--lrclib-gap-s` (default 0.5 s between requests to lrclib.net),
-  `--beside-live-jobs`.
+  verdict, which stays, also when that pass faults; each row's `ladder_same` then says whether the
+  reprocess's own lookup builds the same document), `--lrclib-gap-s` (default 0.5 s between
+  requests to lrclib.net), `--beside-live-jobs`.
 - **lrclib requests:** stored mode one by-id request a song (a title with a nightcore marker: up to
   two searches and one more by-id), plus each `refresh`'s ladder pass (1-5 requests, up to 5 more
   for the composite-title fallback; 1.3-1.4 on average on the archive); `--confirm-all` that pass
@@ -161,17 +161,23 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
 - **Output:** one line a song on stdout (`<id>: <verdict> (<detail>)`), one JSON line a song in the
   out file (numbers and fixed reasons only), and last a JSON summary: counts per verdict,
   `refresh_ids`, `unchanged_ids`, the `review` list for a person, why the rest are kept or need a
-  full job, the vetoes (W1-W5; W4 counts lines whose first word flashes, W5 words that start
-  before the word before them), `ladder_same` per song (`true` / `false` / `not run`) with its
-  counts, the counts summed over the songs on the same sheet, `without_evidence`,
+  full job (each `keep` entry with every veto and review reason, not only the one its verdict
+  names), the vetoes (W1-W5; W4 counts, on each document, lines whose first word flashes, so a line
+  that gains its word timings counts on the built side only and the row says how many did; W5
+  words that start before the word before them), `ladder_same` per song (`true` / `false` /
+  `overrun` / `not run` / `no document`) with its counts and whether the file ran `--confirm-all`
+  (`all` / `mixed` / `none`), the counts summed over the songs on the same sheet,
+  `without_evidence`,
   `replay` (what a worker needs for these reprocesses to replay: the mode and the evidence key, and
   this environment's mode) and `this_run` (lrclib requests, seconds, peak memory, exit code).
 - **Then, the canary first:** reprocess ONE id of `refresh_ids` (one admin reprocess call) on the
   workers in `replay`; its log must say `rebuilt from stored evidence, no download`, not
   `key differs at …` or `full job (…)`. Only then feed the rest, one call each. Reprocess only ids
-  whose row says `ladder_same: true`, whatever their verdict: a `keep` or `review` song released by
-  hand is previewed again with `--confirm-all` first (a reprocess runs the lookup ladder, and a row
-  judged on the stored record alone says nothing about the record the ladder picks today).
+  whose row says `ladder_same: true` (never said when the row's or its `ladder` note's
+  `aligner_overruns` is not empty: that is `overrun`), whatever their verdict: a `keep` or `review`
+  song released by hand is previewed again with `--confirm-all` first (a reprocess runs the lookup
+  ladder, and a row judged on the stored record alone says nothing about the record the ladder
+  picks today), and its `keep` entry's review reasons are read before it is released.
 - **Exit codes:** 0 ran, 2 database schema behind the image, 3 the out file cannot be used (it
   exists: continue it with `--append`; or another preview judged it: start a new file), 4 a job is
   live (refused, or stopped between two songs), 5 the database went away,
