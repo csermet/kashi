@@ -481,6 +481,32 @@ def _kept(
     return None
 
 
+#: The palette's `source` read off the album art, and the one of the fallback
+#: (pipeline/palette.py: `palette_from_image_bytes`, DEFAULT_PALETTE).
+ARTWORK_PALETTE_SOURCE = "album_art"
+FALLBACK_PALETTE_SOURCE = "default"
+
+
+def carried_palette(stored: dict | None, new: dict) -> dict:
+    """`new`, with the stored document's palette when `new`'s is the fallback
+    and the stored one was read off the album art; otherwise `new` itself.
+
+    The palette is fetched live on every build (it is not evidence): a fetch
+    that fails on a reprocess must not replace the album's colours with the
+    default ones. Only the `palette` key can differ from `new` — no line, word,
+    timing, lyrics or alignment field — and `new` is not changed."""
+    old_palette = (stored or {}).get("palette")
+    new_palette = new.get("palette")
+    if (
+        isinstance(old_palette, dict)
+        and old_palette.get("source") == ARTWORK_PALETTE_SOURCE
+        and isinstance(new_palette, dict)
+        and new_palette.get("source") == FALLBACK_PALETTE_SOURCE
+    ):
+        return {**new, "palette": dict(old_palette)}
+    return new
+
+
 def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     """Validate (hard gate), then upsert — unless the new document regresses the
     stored one (see `regression`). Returns the etag of what is stored.
@@ -506,13 +532,19 @@ def persist_processed_track(s: Session, job: Job, doc: dict) -> str:
     otherwise the rules above. B1: a persisted run that applied the override
     records the new etag as `applied_etag`. No override row -> exactly the
     rules above.
+
+    A document whose palette fell back to the default while the stored one
+    came from the album art is stored with the stored palette
+    (`carried_palette`), and its etag is the etag of what is stored.
     """
     validate_document(doc)
-    etag = compute_etag(doc)
     override = _lock_override(s, job)  # first: see _lock_override
     existing = s.execute(
         _EXISTING_SQL, {"source_type": job.source_type, "source_id": job.source_id}
     ).first()
+    if existing is not None:
+        doc = carried_palette(existing.document, doc)
+    etag = compute_etag(doc)
     applied, built_under = _override_verdict(override, job, existing)
     kept = _kept(existing, job, doc, applied, built_under)
     if kept is not None and existing is not None:
