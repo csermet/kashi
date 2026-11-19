@@ -116,8 +116,11 @@ D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source 
 library's unsafe inputs were measured with bounds-checked ground truth and the job runs its own
 Viterbi, equal to the library wherever the library is safe. The overlay fixes for the repeated
 wordless line, words under a '♪' line and the same-start effect are on `main`; the overlay release
-waits for the owner's Windows check. 342 of the 400 songs with evidence are up to date; the '♪'
-word is still to fix at its source in the server (the aligner's fill letter becoming word text).
+waits for the owner's Windows check. 342 of the 400 songs with evidence are up to date. Server
+0.44.0 carries the '♪' word's fix at its source and sheet-token word texts as a candidate shipped
+dark (both settings off, documents unchanged), and `preview --set` to measure a candidate on the
+whole archive from evidence before it becomes a default: the next timing step is that archive run
+and, if its bars hold, the flip to 2.36.0.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set

@@ -823,6 +823,37 @@ Pipeline 2.35.0 unchanged. Detail: `refresh-from-evidence-2026-11.md`, the align
 - **Not yet measured:** the whole-archive preview under 0.43.0 (expected: the up-to-date rows stay
   unchanged; 6cvfHn9qeEw builds), which is the equality's test on real songs beyond the 39.
 
+## Server 0.44.0: a candidate shipped dark, and the preview can build it (2026-11-19)
+
+Pipeline 2.35.0 unchanged; with the defaults every document is 0.43.0's (39 of 39 local songs in
+off, record and replay mode; a reviewer's side-by-side run of main's and the branch's line QA and
+regroup code, 60 000 boundary-heavy cases, 0 differences). Detail: `letterless-lines-2026-11.md`.
+
+- **The defect at its source.** A sheet line with no letter and no digit ('♪') is given to the
+  aligner. On the path without romanisation the fitted text's filler letter becomes the stored
+  word (the lone "a" the owner saw on Öp); on the uroman path the line gets one '♪' word across
+  it. 7 such lines in 3 of the 39 songs. On the same path 384 stored word texts in 9 of 9 Turkish
+  songs differ from the sheet's own token: 371 by punctuation alone, 8 by a dotted İ stored as I.
+- **Two settings, both off:** `letterless_lines_wordless` (such a line is kept out of alignment
+  and written without words at its stamp) and `word_text_from_sheet` (word texts are the sheet's
+  tokens; no time changes). The window plan is still cut from every line, so evidence recorded
+  under main serves the candidate: 39 of 39 rebuilt from it with no miss.
+- **Bars written before the candidate's numbers (hash and time in the working files): 7 of 9
+  passed, 2 failed and stay failed.** Locality: one ad-lib line outside every '♪' neighbourhood
+  moved 10 ms, because '♪' lines no longer count in line QA's median offset — nothing bounds that
+  shift but the spread of the sung lines. The second rule alone shows three filler words as '♪';
+  it will not be switched on without the first.
+- **`preview --set NAME=VALUE`** builds the whole archive from evidence with named pipeline
+  settings overridden in that process only: validated by the settings model, labelled with a
+  fingerprint in every row, `refresh_ids` always empty (a reprocess could not reproduce it),
+  documents written only under a labelled subdirectory. The preview's rules skip a '♪' line in
+  W2/W3 only when the build ran with the first setting on; a plain preview judges as before. A
+  row now also reports line QA's offset and way out, stored and built.
+- **The flip (defaults on, 2.36.0) waits for** the archive run with bars written first — the
+  per-song offset shift and any change of QA exit, the counts the 39 songs could not give — and
+  for a decision on what follows the document (Turkish word texts may newly pass the lrclib
+  publish guard). The list is in the note; a flip is a code default and a version, never an env.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.
