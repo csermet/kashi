@@ -260,9 +260,45 @@ function heldLine(lines: readonly LineSpan[], found: number, pos: number, gapMs:
  * Index of the word covering `pos` — the LAST word whose start_ms <= pos, so
  * the previous word stays lit through inter-word gaps (no flicker between
  * words). -1 before the first word.
+ *
+ * Two words with the SAME start (40 pairs in the 39 stem songs' 2.35.0
+ * documents, 14 708 words): the later one is active from that instant and the
+ * earlier is never active — it goes straight to sung. That is the dwell rule
+ * applied exactly (a word is lit from its start to the next word's start, here
+ * 0 ms), not a skipped word: on simple, full and hype a sung word is pinned
+ * bright, so the pair lights on one frame, as a bunched start does (words 1 ms
+ * apart: the earlier is active for that 1 ms, which a frame rarely catches).
+ * Off is the one-word-at-a-time look, pixel for pixel the pre-Faz-4 one, and
+ * shows a 0 ms word as it shows any word shorter than a frame: not at all.
+ * Spacing such words apart on screen was measured and rejected (olu-fikirler,
+ * 2026-11-13). The effect a document puts on the earlier word still fires on
+ * that frame (fxEdgeIndex).
  */
 export function findActiveWord(words: readonly WordTiming[], pos: number): number {
   return lastStartedAt(words, pos);
+}
+
+/**
+ * Which word an activation step hands its effect edge to (the fx burst and
+ * the fired mark), `index` being the new active word and `previous` the one
+ * before the step: `index` itself when it carries an effect, else the latest
+ * word with an effect that starts at the very same instant and was not active
+ * yet — the earlier word of a same-start pair lights on this frame
+ * (findActiveWord) and its effect belongs to it. Words even 1 ms apart are not
+ * a pair: each has its own edge.
+ */
+export function fxEdgeIndex(
+  words: readonly WordTiming[],
+  hasEffect: (index: number) => boolean,
+  previous: number,
+  index: number,
+): number {
+  if (hasEffect(index)) return index;
+  const start = words[index]?.start_ms;
+  for (let i = index - 1; i > previous && i >= 0 && words[i]?.start_ms === start; i -= 1) {
+    if (hasEffect(i)) return i;
+  }
+  return index;
 }
 
 /**

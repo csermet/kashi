@@ -71,6 +71,7 @@ import {
   deriveView,
   findActiveWord,
   findDisplayLine,
+  fxEdgeIndex,
   popScaleCap,
   shouldAnimateLineChange,
   viewsEqual,
@@ -728,8 +729,12 @@ export function createLyricsView(
   function highlightWord(index: number): void {
     if (index === activeWordIndex) return;
     // Burst on the fx word's ACTIVATION edge only (never on rebuild/seek-back
-    // repaints of an already-passed word).
-    const fxHit = fxWordTags.get(index);
+    // repaints of an already-passed word). The edge is the new active word's,
+    // or that of a word sharing its start, which lights on this same frame
+    // (fxEdgeIndex).
+    const lineWords = lines[wordLineIndex]?.words ?? [];
+    const edge = fxEdgeIndex(lineWords, (i) => fxWordTags.has(i), activeWordIndex, index);
+    const fxHit = fxWordTags.get(edge);
     const fxTag = fxHit?.tag;
     if (fxTag && index > activeWordIndex && effectLevel === 'hype') {
       // Particles OUTSIDE the box, radiating from the whole box edge in the
@@ -759,7 +764,7 @@ export function createLyricsView(
       // burst lives a full second — the eye sees an effect with no reason.
       // This does NOT touch timing: the word is highlighted on its own clock
       // as before; only the fired mark outlives the span.
-      markFxFired(index);
+      markFxFired(edge);
       // Same edge lights the box halo — in the LINE's primary category, so a
       // two-category line does not change the halo colour halfway through.
       triggerAmbientFlash();

@@ -6,6 +6,7 @@ import {
   deriveView,
   findActiveWord,
   findDisplayLine,
+  fxEdgeIndex,
   nextLineTakeoverMs,
   popScaleCap,
   shouldAnimateLineChange,
@@ -167,6 +168,44 @@ describe('watchdogShouldReset', () => {
     expect(watchdogShouldReset(true, false, 5_001, 5_000)).toBe(true);
     expect(watchdogShouldReset(true, true, 5_001, 1_000, 5_000)).toBe(true);
     expect(watchdogShouldReset(true, true, 4_999, 1_000, 5_000)).toBe(false);
+  });
+});
+
+describe('words with the same start (findActiveWord, fxEdgeIndex)', () => {
+  const at = (...starts: number[]) => starts.map((s, i) => ({ start_ms: s, end_ms: s, text: `w${i}` }));
+
+  it('of two words with one start the later is active from that instant', () => {
+    const words = at(1000, 1400, 1400, 2000);
+    expect(findActiveWord(words, 1399)).toBe(0);
+    expect(findActiveWord(words, 1400)).toBe(2); // word 1 never active: it lights as sung
+    expect(findActiveWord(words, 1999)).toBe(2);
+  });
+
+  it('1 ms apart the earlier is active for that 1 ms', () => {
+    const words = at(1000, 1400, 1401, 2000);
+    expect(findActiveWord(words, 1400)).toBe(1);
+    expect(findActiveWord(words, 1401)).toBe(2);
+  });
+
+  it('hands the effect edge to the earlier word of a same-start pair', () => {
+    const fx = (...indices: number[]) => (i: number) => indices.includes(i);
+    const pair = at(1000, 1400, 1400, 2000);
+    expect(fxEdgeIndex(pair, fx(1), 0, 2)).toBe(1);
+    // The new active word's own effect wins; no effect anywhere: the active word.
+    expect(fxEdgeIndex(pair, fx(1, 2), 0, 2)).toBe(2);
+    expect(fxEdgeIndex(pair, fx(), 0, 2)).toBe(2);
+    // A word already active before the step had its edge then.
+    expect(fxEdgeIndex(pair, fx(1), 1, 2)).toBe(2);
+    // Three on one start: the latest with an effect.
+    expect(fxEdgeIndex(at(1000, 1400, 1400, 1400), fx(1, 2), 0, 3)).toBe(2);
+    // An effect on an earlier word with another start is not this edge.
+    expect(fxEdgeIndex(at(1000, 1400, 1400, 2000), fx(0), -1, 2)).toBe(2);
+  });
+
+  it('1 ms apart there is no pair: each word keeps its own edge', () => {
+    const fx = (i: number) => i === 1;
+    expect(fxEdgeIndex(at(1000, 1400, 1401, 2000), fx, 0, 2)).toBe(2);
+    expect(fxEdgeIndex(at(1000, 1401, 1400, 2000), fx, 0, 2)).toBe(2);
   });
 });
 
