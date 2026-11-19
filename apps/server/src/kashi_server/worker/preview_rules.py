@@ -9,7 +9,9 @@ not tuned here:
   before it, that no run of the stored line contains;
 - W2 away from the voice: a line start that moves more than 1 500 ms farther from where the voice
   returns (below);
-- W3 lost words: a line with text that had word timings and has none;
+- W3 lost words: a line with text that had word timings and has none (since 2026-11-19 a line
+  with no letter and no digit, a '♪', is no lyric: W3 and W2 below judge no such line, whose move
+  is still listed; `alignment.sung_text`);
 - W4 rushed first words, counted: the built document has MORE lines of >= 2 words whose first word
   lights < 120 ms before its second word than the stored one (each document counted on its own, as
   registered: a line that gains its word timings counts on the built side only, so a line-to-word

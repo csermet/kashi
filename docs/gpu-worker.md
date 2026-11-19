@@ -132,7 +132,9 @@ and the artwork fetch, so ~15 min for 425 songs; 542 MB at peak on the 39 pilot 
 It previews the code of the image it runs in. For the deployed release: a shell in the cluster
 worker's container (its environment has the database, the lrclib settings and the model cache; the
 tokenizer is all it loads). For a candidate: a one-off container of the candidate's image with the
-same environment, never the deployed worker. It shares the container's memory with the worker:
+same environment, never the deployed worker; or, when the candidate reached the cluster dark
+(its code in the deployed image behind pipeline settings that ship off), the deployed image with
+those settings given by `--set` (below). It shares the container's memory with the worker:
 run it while no job is queued or running (it refuses otherwise, and stops between two songs when a
 job goes live; `--beside-live-jobs` previews anyway). Mind the threads on a shared node:
 
@@ -145,14 +147,22 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   `<data_dir>/preview-<UTC time>.jsonl`; never overwritten; the root filesystem may be read-only,
   the scratch volume is not), `--append` (continue that file: a segment line, the rows, and a
   summary of the whole file, each song's latest row; refused when the file's segments were judged
-  by another preview format, pipeline, evidence key or lyrics mode; a truncated last line is
+  by another preview format, pipeline, evidence key, lyrics mode or set of `--set` overrides; a
+  truncated last line is
   skipped and counted), `--documents DIR` (each built document too:
   they carry lyric text), `--lyrics stored` (default: the record the stored document names, then
   a ladder pass for each `refresh`) or `ladder` (the lookup as a reprocess runs it, every song),
   `--confirm-all` (stored mode: the ladder pass for every song that built a document, whatever its
   verdict, which stays, also when that pass faults; each row's `ladder_same` then says whether the
   reprocess's own lookup builds the same document), `--lrclib-gap-s` (default 0.5 s between
-  requests to lrclib.net), `--beside-live-jobs`.
+  requests to lrclib.net), `--beside-live-jobs`, `--set NAME=VALUE` (repeatable: build with a
+  pipeline setting overridden in this process only; `config.PIPELINE_FIELDS` alone, each once, to
+  a value the process does not already run, VALUE read as JSON or else as a string; the judge,
+  every row and the summary carry the overrides and their 16-hex fingerprint as
+  `pipeline_overrides`, and the summary's `refresh_ids` is empty with `refresh_withheld` saying
+  why: a reprocess runs the worker's own settings and could not store what was previewed; the
+  settings are put back when the run ends). The dark-shipped candidate of 2026-11-19:
+  `--set letterless_lines_wordless=true --set word_text_from_sheet=true`.
 - **lrclib requests:** stored mode one by-id request a song (a title with a nightcore marker: up to
   two searches and one more by-id), plus each `refresh`'s ladder pass (1-5 requests, up to 5 more
   for the composite-title fallback; 1.3-1.4 on average on the archive); `--confirm-all` that pass

@@ -463,12 +463,27 @@ reviewer's read caught it). Every veto and review reason now stays beside the ve
 `reviews`, and each `keep` entry of the summary): on 2026-11-19 six songs released from W4 by hand
 were, by the full order, `review`.
 
+**A candidate shipped dark: `--set` (2026-11-19, PREVIEW_FORMAT 6).** A timing candidate whose
+code can ship behind pipeline settings that default to the production behaviour (the deployed
+`pipeline_version` then still names what runs) is measured on the archive by the deployed image
+itself: `--set NAME=VALUE` builds with a setting of `config.PIPELINE_FIELDS` overridden in the
+preview's own process, put back when the run ends. Every row, the summary and the judge carry the
+overrides and their fingerprint (`pipeline_overrides`), so a file never mixes two sets, and the
+summary names no id to refresh (`refresh_withheld`): a reprocess runs the worker's settings, not
+the preview's. Nothing else changes: the preview still writes nothing, and a setting that would
+change what is read off the audio still reads `needs a full job`. A second, small release then
+turns the default on with the version bump, and the deployed image's ordinary preview lists the
+ids to refresh. First use: the letterless-line candidate (`letterless-lines-2026-11.md`). The
+preview's W2 and W3 judge no line without a letter or a digit since then (a '♪' is nobody's voice
+returning and holds no lyric word); its move is still listed.
+
 **What it cannot see.** Songs without evidence (not back-filled, a nightcore clock, uploads) and
 releases that change what is read off the audio (the aligner, its revision, the separator, a window
 plan that cuts new slices: those songs read `needs a full job`); audio swapped behind an id with
 unchanged hints. The audit's own voice contour and the ear witness, human word times (the bench)
 and the owner's ear (clips). It previews the code it runs: a candidate is previewed by running the
-candidate's image with the deployment's database and model cache, never by the deployed worker.
+candidate's image with the deployment's database and model cache, never by the deployed worker,
+or, shipped dark, by the deployed image with `--set`.
 And whether a reprocess will replay at all: that is the worker's mode and image (the summary says
 what they must be; the canary below checks it).
 

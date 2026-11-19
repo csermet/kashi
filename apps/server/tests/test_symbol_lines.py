@@ -455,7 +455,8 @@ def test_a_window_with_no_sung_line_is_not_aligned(monkeypatch, tmp_path):
 
     monkeypatch.setattr(alignment, "_align_texts", fake)
     window = Window(0, 4_000, [0], 0, 4_000)
-    out = alignment._align_windows_each(
+    # through the wrapper: it puts the guard's window label back afterwards
+    out = alignment._align_windows(
         None,
         None,
         SliceAudio(4_000 * 16),
