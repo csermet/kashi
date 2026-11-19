@@ -752,6 +752,22 @@ documents, most built by 2.31.0, some as old as 2.8.0). Working files `onizleme/
   ladder mode with the same document coming out** — the remaining ids were, and replayed. (The
   restoring job ran in full on the CPU worker: 224 of 225 word starts equal the GPU-recorded
   replay's, one differs by 20 ms.)
+- **The same evening: whole lines moved through continuous singing.** Six of those 22 had been
+  `review` under the full verdict order (a line start moved more than 1.5 s where the envelope
+  witness cannot judge; the old W4 veto had hidden it) and were refreshed with the rest — the
+  second gap of the day in what a kept row shows (closed in 0.42.0: a row always carries its
+  review reasons). Five of them move through continuous singing, the class one rule's first-word
+  moves had left a coin toss. Registered before the clips: six blind clips from the five songs
+  (each one's largest move, Low twice), order balanced by position; the class is accepted for a
+  refresh when the built row is clearly preferred on at least two clips more than the stored one.
+  He chose the built row clearly on four (Low twice "by a margin", Krazy, Break Your Heart), the
+  stored row on none, and called Shots 3:29 and LET ME IN 0:27 wrong on both. So none of the five
+  goes back, and of the waiting `review` songs the 15 whose moves stay within the 3 s the clips
+  covered were previewed in ladder mode: 14 passed every veto (W4 as a count, W5) and were rebuilt,
+  each stored document equal to its preview; one stays (flash count up). Section carries of 10-16
+  s (three songs) and a 19-line move were not what he judged and wait. A seventh clip put NO
+  FEAR!'s two lrclib records side by side: both read wrong to him at the opening; the pin stays.
+  2.35.0 documents in the archive: 307 of 425.
 
 ## Lines of work and order
 

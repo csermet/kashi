@@ -99,6 +99,17 @@ missing order-violation veto; the aligner library's safe region, established wit
 the voiced class of early first words (GOSSIP 2:00, Black Widow 0:12); a server-side "held until"
 for line-final words; the stray one-letter word on '♪' lines; a reprocess losing an album-art
 palette when the artwork fetch fails; an overlay release.
+
+**State on 2026-11-19.** 307 of 425 archive documents are on 2.35.0. Two lists were worked through
+with rules written first and the owner's blind clips: W4 became a count (with W5, new order
+violations), and whole-line moves of up to 3 s through continuous singing are accepted for a
+refresh. Server 0.42.0 (pipeline unchanged) carries those vetoes in the preview, shows a kept
+row's review reasons, can confirm every row against the real lookup (`ladder_same`; only such
+rows may be reprocessed — a refresh fed without it switched one song's lyrics record), and keeps
+an album-art palette through a reprocess whose artwork fetch fails. Still open from the list
+above: the aligner's safe region, the voiced first words, "held until", the '♪' word, the overlay
+release — and, new: a wordless line repeating the previous line's text stays fully lit in the
+overlay; Shots 3:29 and LET ME IN 0:27 are wrong on every build; NO FEAR! has no right sheet.
 D's omniASR conversion, the narrowed LLM label trial and any paid lyrics source are shelved.
 
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
