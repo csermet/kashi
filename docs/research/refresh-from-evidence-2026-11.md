@@ -295,12 +295,12 @@ rules in `worker/preview_rules.py`; how to run it: `docs/gpu-worker.md`).
   whatever its verdict (the verdict stays, also when that extra pass faults: its `ladder` note
   then names the fault's class). Every row says `ladder_same`: `true` when the document it judged
   is the one the reprocess's own lookup builds (the ladder pass built it on the same record, or
-  the ladder or the song's override built it in the first place) and no pass ran the aligner
-  library in its overrun region; `overrun` when the passes agree but one of them overran (the
-  library's undefined behaviour: the reprocess may store another path); `false` when the ladder
+  the ladder or the song's override built it in the first place); `false` when the ladder
   builds another document, another record or none; `not run` when a document was built but no
-  ladder pass ran; `no document` when none was built. The row's `ladder` note carries the ladder
-  pass's verdict, detail, record and overrun passes, and the row the fingerprint of the override
+  ladder pass ran; `no document` when none was built. (Until 2026-11-19 a fourth value,
+  `overrun`, marked passes through the aligner library's undefined behaviour; the job's Viterbi
+  is now its own and defined everywhere, below.) The row's `ladder` note carries the ladder
+  pass's verdict, detail and record, and the row the fingerprint of the override
   the build applied (`override`, or none); the summary lists `ladder_same` per song and says
   whether the file's segments ran `--confirm-all` (`all`, `mixed`, `none`). `--lyrics ladder` runs
   the ladder for every song. An override's lyrics are always the override's. There is no preview
@@ -350,9 +350,10 @@ before the 2.34.0 and 2.35.0 runs, not tuned here (W4's count and W5: written an
 2026-11-19 before they were computed on any song):
 
 1. `failed`: the preview could not tell (lrclib weather, no stored document, no job history, the
-   stored document's record gone, evidence replaced while it was read), or the aligner guard
-   refuses a window (`failed (alignment_failed)`: the evidence's window plan, text and emissions
-   would fail a full job the same way, permanently, so nobody should pay a download for it).
+   stored document's record gone, evidence replaced while it was read), or a window no Viterbi
+   can align (`failed (alignment_failed)`: fewer frames than its text needs, or non-finite
+   emissions; the evidence's window plan, text and emissions would fail a full job the same way,
+   permanently, so nobody should pay a download for it).
 2. `needs a full job: <reason>` (above).
 3. `keep (guard: ...)`: the persist guard would keep the stored document (a newer pipeline's, an
    override's build this run does not apply, a regression).
@@ -372,11 +373,10 @@ before the 2.34.0 and 2.35.0 runs, not tuned here (W4's count and W5: written an
    document is counted on its own, as registered, so a line that gains its word timings counts on
    the built side only and a line-to-word upgrade can come out `keep` (it only ever keeps a stored
    document; the row's `w4.new_from_wordless` says when a veto is only that).
-6. `review (...)`: for a person, out of `refresh_ids`: a pass the aligner library ran in its
-   buffer-overrun region (below: undefined behaviour, so the two preview passes can agree while the
-   reprocess stores another path; `aligner overrun region: N passes`), or a line start moved more
-   than 1 500 ms that W2 cannot judge (below). A rebuilt palette that fell back to the default (a
-   failed artwork fetch: the palette is fetched live, it is not evidence) is no longer one: since
+6. `review (...)`: for a person, out of `refresh_ids`: a line start moved more than 1 500 ms
+   that W2 cannot judge (below). (Until 2026-11-19 also a pass the aligner library ran in its
+   buffer-overrun region; gone with the library's Viterbi, below.) A rebuilt palette that fell
+   back to the default (a failed artwork fetch: the palette is fetched live, it is not evidence) is no longer one: since
    2026-11-19 persist stores the stored album palette in that case (`document.carried_palette`,
    before the etag), and the preview judges the document with it (the row says
    `palette_carried`). Not under `force_persist` (the operator's document is stored as built),
@@ -481,9 +481,8 @@ shipped mode, and (4) at most eight blind clips; then (5) the reviewer and the t
 rollout: the deployed image's preview lists the ids to refresh; the canary, one of them reprocessed
 on a worker in `replay`, must log `rebuilt from stored evidence, no download` before the rest are
 fed; each reprocess then stores the document previewed, unless the ladder's answer or the song's
-override changes in between. Reprocess only ids whose row says `ladder_same: true` (never said
-when the row's or its ladder note's `aligner_overruns` is not empty), whatever their verdict (a
-`keep` or `review` song released by a later rule included: preview those with `--confirm-all`,
+override changes in between. Reprocess only ids whose row says `ladder_same: true`, whatever
+their verdict (a `keep` or `review` song released by a later rule included: preview those with `--confirm-all`,
 and read their `keep` entry's review reasons first); on 2026-11-19 a `keep` row judged on its
 stored record was reprocessed, the ladder picked another record and a full job stored a sheet
 nobody had previewed.
@@ -530,12 +529,68 @@ caught; the boundaries on the compiled library are a slow test
 segfaulting call is never made, and the library's own targets are the guard's), to re-run on every
 bump of its pin. Next time, the error message itself carries the window, the pass, T, L and R.
 
+**Ground truth, and the job's own Viterbi (2026-11-19).** The bookkeeping above was a model of
+one buffer; the CI runner then died on an input it called safe. Measured instead (working files
+`kashi-gozden-gecirme/hizalayici/`): a line-by-line port of `forced_align_impl.cpp` with every
+array access bounds-checked, checked against the unchanged source compiled outside Python with
+AddressSanitizer (3 996 inputs: the same verdicts, the same paths), swept over every repeat
+pattern for L = 1..7 and T from L + R to 2L + 4 under five score families, and checked at L 15 to
+160. The compiled Viterbi leaves its buffers on exactly three kinds of input:
+
+1. T = L + R: its last back-pointer read (frame 0, a value it never uses) is at
+   0 + 1 - (2 or 3), computed unsigned (2^64 - 1 or 2^64 - 2); with R = 0 the back-pointer
+   vectors have no storage at all and the forward pass writes through a null pointer.
+2. T = L + R + 1 when the path starts with a blank: the same read, at -1.
+3. R = 0 and a band that claims more back-pointer bits than the vectors' 64-bit words hold: the
+   band is (T - L)(2L + 1) + L - 2 bits (with repeats never more than the (2L + 2)(T - L) the
+   vectors are given), so 2L - 2 - T > (-(2L + 2)(T - L)) mod 64; the spill lands in the next
+   allocation (backPtrBit0's in backPtrBit1's) and the backtrace reads it back.
+
+Everything else stays inside, for every score tried (ties, -inf columns, no finite path at all).
+What the reads of 1 and 2 do depends on the C++ library the extension was built against: GCC 13
+and 14 index the bit vector through a signed iterator (the 8 bytes before the buffer: the heap
+chunk's header, harmless), GCC 15 divides the unsigned index (a read some 2^61 bytes away). The
+CI crash, concretely: the slow test ran the repeat text ("abbd efgh ijkl", with segment stars
+L = 15, R = 1) at T = 16 = L + R: case 1, read index -2 -> 2^64 - 2; ubuntu-latest was migrating
+to Ubuntu 26.04 then (the runs' own annotation), whose g++ is GCC 15; the same input through the
+same source built with GCC 15.3 dies, built with GCC 14.2 (the image's extension) it passes - the
+300 of 300 here. (Not verified on the runner itself: its logs need a token.) `library_overruns`
+modelled only case 3, and by logical size: blind to 1 and 2, and calling unsafe the passes the
+last word absorbs. Of the archive's logged passes only 6cvfHn9qeEw's window 14 (T = 266,
+L = 138: 8 bits past, no slack in the last word) was really outside - the song whose back-fill
+died once with `n != i` and passed on the retry; AN2-czGsblw's four and k89YEt8hocI's stay inside
+the last word.
+
+The job no longer calls the compiled Viterbi. `alignment.get_alignments` is the library's
+get_alignments with `trellis.forced_align` in its place: the same band, float32 sums, tie-breaks
+and flat back-pointer layout, read back at the library's index, so it returns the library's path
+and scores wherever the library stays inside its buffers; outside them the back-pointers have room
+for the whole band and the frame-0 read is not made (its value was never used), which is the path
+the library meant. Equal to the real compiled library on 3 658 inputs of its safe set (its
+boundaries, exact ties, -inf columns, no finite path, 10 000 frames with up to 4 500 targets) and
+on every one of the 39 songs' 2 247 Viterbi passes (all of them inside the safe set); 77 of the
+library's answers are a golden file of the fast tests. Cost: a whole-track pass of 10 000 frames
+takes 0.3-0.65 s against the library's 0.04-0.24 s; on the 39 songs 35.9 s of Viterbi in all
+against 5.4 s (0.9 s a song, 1.4 s at most), next to minutes of model inference per job on the CPU
+worker; the GPU helper runs the Viterbi on its CPU as well, so the same seconds (an estimate: not
+measured there). Documents: main == off == record == replay, 39 of 39, unchanged, so no pipeline
+version change; the archive's one real case, 6cvfHn9qeEw, is for its preview to show. The
+evidence is untouched (no emission or its code changed; no re-pin). Removed with the library's
+Viterbi: `library_overruns`, the overrun log line and its sink, the song label for it, the
+preview's `aligner_overruns`, `ladder_same: overrun` and the overrun review reason. The exact fit
+is no longer refused (it has exactly one path); T < L + R and non-finite emissions still are, and
+a path that does not spell the text is still classified. The library is still needed for
+preprocess_text (stars, romanizing), get_spans, postprocess_results, merge_repeats, the emissions
+and the audio; its compiled Viterbi only for tests, inside its safe set (`tests/
+test_viterbi_library.py` states the rule; the slow workflow re-proves the equality on every pin
+bump). Mutations of the new code: 21, 19 caught by the repository's tests (every one in trellis
+also by the port differential), 2 equivalent (the first frame's blank at T = L + R, never read; a
+target read where the library itself reads out of range).
+
 ## What is left
 
 - The preview's first archive run (after the back-fill; then a candidate image's preview before the
   next timing release).
-- The aligner library's buffer overrun without a repeated letter (logged now): refuse it, or align
-  such windows another way, once the log says how often it happens.
 - The back-fill on the GPU helper is under way (180 songs recorded by the evening of 2026-11-16);
   a cluster replay of what it recorded (checks above) and a worker metric for replays and
   fallbacks have not run.

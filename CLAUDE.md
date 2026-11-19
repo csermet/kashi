@@ -97,6 +97,10 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
   after a raw-SQL claim, refresh ORM objects (identity map is stale).
 - Turkish dotless `ı` does not decompose under NFKD. `ctc_forced_aligner` emissions carry a
   `<star>` column: drop it before any argmax.
+- The job never calls `ctc_forced_aligner`'s compiled Viterbi (`trellis.forced_align` returns its
+  path wherever it is memory-safe). A test calls the compiled one only inside its safe set (the
+  rule: `tests/test_viterbi_library.py`): outside it the library reads or writes past its
+  buffers, and whether that crashes depends on the compiler that built it (GCC 15 yes, 14 no).
 - The HF cache's second copy of the English and Turkish aligners (budget ~2× model size) is
   `refs/pr/N`: safetensors that transformers' background auto-conversion downloads for .bin-only
   repos, never loaded. Since 2.33.0 aligners load from pinned commits (`config.ALIGNER_REVISIONS`)
