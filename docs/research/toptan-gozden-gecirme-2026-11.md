@@ -820,8 +820,11 @@ Pipeline 2.35.0 unchanged. Detail: `refresh-from-evidence-2026-11.md`, the align
 - **The fix lives in the image, not in the pipeline line.** A worker or GPU helper built before
   this release still calls the compiled Viterbi while logging `ready: pipeline 2.35.0`: check the
   image tag or `/v1/health`'s server version, and rebuild the helper before its next back-fill.
-- **Not yet measured:** the whole-archive preview under 0.43.0 (expected: the up-to-date rows stay
-  unchanged; 6cvfHn9qeEw builds), which is the equality's test on real songs beyond the 39.
+- **Measured on the archive (2026-11-20, plain preview under 0.44.0, bars written the night
+  before):** all 342 rows expected `unchanged` are unchanged, so the own Viterbi rebuilds the
+  stored documents on real songs beyond the 39; of the other 58 rows only the two named
+  beforehand changed verdict — 6cvfHn9qeEw builds now (kept by W2 and W4), k89YEt8hocI went from
+  `review` (the false overrun alarm) to `unchanged`.
 
 ## Server 0.44.0: a candidate shipped dark, and the preview can build it (2026-11-19)
 
@@ -853,6 +856,17 @@ regroup code, 60 000 boundary-heavy cases, 0 differences). Detail: `letterless-l
   per-song offset shift and any change of QA exit, the counts the 39 songs could not give — and
   for a decision on what follows the document (Turkish word texts may newly pass the lrclib
   publish guard). The list is in the note; a flip is a code default and a version, never an env.
+- **The archive run (2026-11-20): the candidate stays off.** On the 343 songs the plain preview
+  calls unchanged, with both settings on: no failure; the 297 songs without a '♪' line change in
+  no time, QA value or fluency counter (the sheet-token texts move nothing; 39 songs refresh by
+  text alone); the 46 songs with one (84 lines) shift line QA's offset by at most 40 ms; no veto,
+  no review. The registered fluency bar failed by one word (dwell under 120 ms, 5140 → 5141).
+  Reading the 46 built documents against the stored ones showed what no bar or veto looks at: in
+  32 of the 84 cases the last word of the sung line before the '♪' changes, and in three songs it
+  is held 4.8, 8.7 and 20.2 s — the '♪' line moves from where the filler word had landed to its
+  stamp, and the held end runs to it across what was an interlude. A preview that judges line
+  starts called all of them `refresh`. Next: the first rule must never lengthen a sung word; the
+  preview row reports holds and line ends; then a new registration and a second archive run.
 
 ## Lines of work and order
 
