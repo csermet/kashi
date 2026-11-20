@@ -3,9 +3,12 @@ sits, and what it does to the sung word before it (line_qa._place_unaligned, _cu
 
 A marker never lengthens a sung word and never leaves one shorter than its floor: its natural
 length (the document's median ms per character times its characters, at least TRIM_MIN_HOLD_MS)
-or its own length when shorter. The boundary tests below sit exactly on each bound; the seeded
-test at the end compares every document with the same document WITHOUT its letterless lines
-(the sheet as if they were not there), values on every threshold and either side of it."""
+or its own length when shorter. Only a marker on its stamp cuts; any other (stampless, or
+bounded by a line) shortens nothing, the held-end restore included (it passes over every marker,
+which settles after it: line_qa._settle_markers). The boundary tests below sit exactly on each
+bound; the seeded test compares every document, after the restore, with the same document
+WITHOUT its letterless lines (the sheet as if they were not there), values on every threshold
+and either side of it. Its one carve-out, ad-lib lines, is stated beside it."""
 
 import random
 
@@ -139,11 +142,66 @@ def test_when_the_next_line_leaves_less_than_the_floor_the_word_keeps_its_floor(
         [],
         [AlignedWord(1_700, 1_900, "oh", 0.2)],
     ]
-    placed = _place_unaligned(lines, [900, 2_900, 1_600], 100, frozenset({2}), words, None)
-    assert placed[1].start_ms == 1_700
-    assert placed[0].end_ms == 1_500 + TRIM_MIN_HOLD_MS
-    cut = _cut_at_unaligned(placed, words)
-    assert (cut[0][1].start_ms, cut[0][1].end_ms) == (1_500, 1_500 + TRIM_MIN_HOLD_MS)
+    for stamp in (1_500, 2_900):  # inside the floor, and past the next line
+        placed = _place_unaligned(lines, [900, stamp, 1_600], 100, frozenset({2}), words, None)
+        # bounded by the next line, not on its stamp: it shortens nothing
+        assert (placed[1].start_ms, placed[1].placed) == (1_700, "next")
+        assert placed[0] == lines[0]
+        assert _cut_at_unaligned(placed, words) == words
+
+
+def test_the_cut_reads_the_median_for_the_floor():
+    # "tonight" (7 characters) at 100 ms per character: its natural length is 700 ms
+    lines = [
+        LineTiming(1_000, 3_000, "tonight", 0.5),
+        LineTiming(1_400, 1_400, MARK, 0.0, True, "stamp"),
+        LineTiming(5_000, 5_300, "go", 0.5),
+    ]
+    words = [
+        [AlignedWord(1_000, 3_000, "tonight", 0.2)],
+        [],
+        [AlignedWord(5_000, 5_300, "go", 0.2)],
+    ]
+    assert _cut_at_unaligned(lines, words, 100.0)[0][0].end_ms == 1_700
+    assert _cut_at_unaligned(lines, words, None)[0][0].end_ms == 1_400  # 350 ms: the stamp
+
+
+def test_without_a_median_a_marker_still_follows_the_words_before_it():
+    # under 8 measured words nothing is restored; the marker off its stamp still moves to the
+    # end of the word before it
+    lines = [
+        LineTiming(1_000, 1_500, "one two", 0.5),
+        LineTiming(1_200, 1_200, MARK, 0.0, True, "previous"),
+        LineTiming(5_000, 5_300, "go", 0.5),
+    ]
+    words = [
+        [AlignedWord(1_000, 1_100, "one", 0.2), AlignedWord(1_100, 1_500, "two", 0.2)],
+        [],
+        [AlignedWord(5_000, 5_300, "go", 0.2)],
+    ]
+    out, restored = restore_held_ends(AlignResult("word", lines, words, 0.5, windowed=True))
+    assert restored == 0
+    assert out.lines[1].start_ms == out.lines[1].end_ms == 1_500
+    assert out.words_per_line == words
+
+
+def test_a_degraded_marker_cuts_the_line_before_only_from_its_stamp():
+    from kashi_server.pipeline.line_qa import _degrade_to_line
+
+    lines = [
+        LineTiming(1_000, 3_000, "one two", 0.5),
+        LineTiming(2_000, 2_000, MARK, 0.0, True),
+        LineTiming(6_000, 6_500, "three", 0.5),
+    ]
+    result = AlignResult("word", lines, [[], [], []], 0.5, windowed=True)
+    # stampless (regroup put it at 2 000): after the line before, which keeps its end
+    out = _degrade_to_line(result, [1_000, None, 6_000], [0], 0).result.lines
+    assert [(x.start_ms, x.end_ms) for x in out] == [(1_000, 6_000), (6_000, 6_000), (6_000, 6_500)]
+    assert out[1].placed == "stampless"
+    # on its stamp (2 400), after the line before starts: that line ends there
+    out = _degrade_to_line(result, [1_000, 2_400, 6_000], [0], 0).result.lines
+    assert [(x.start_ms, x.end_ms) for x in out] == [(1_000, 2_400), (2_400, 2_400), (6_000, 6_500)]
+    assert out[1].placed == "stamp"
 
 
 def test_a_stamp_past_the_next_line_puts_the_marker_on_its_start():
@@ -225,128 +283,187 @@ def test_a_degraded_document_writes_its_letterless_lines_as_0_ms_markers():
 
 
 # --- the seeded comparison with the sheet without its letterless lines ------------------------
+#
+# Every document is put through line QA and the held-end restore twice: as it is, and with its
+# letterless lines removed (the sheet as if they were not there, same stamps for the rest). What
+# must hold, after the restore:
+#   - a sung word starts where the marker-free document starts it, and never ends later;
+#   - it is never shorter than min(its marker-free length, its floor), the floor stated here on
+#     its own: max(350 ms, characters x the median ms per character of the document's measured
+#     sung words (>= 8 of them; the lower of the QA input's and QA output's medians, since the
+#     placement reads the one and the restore the other));
+#   - a line document's sung line starts equal the marker-free document's;
+#   - a sung line ends no later than in the marker-free document, and never before its last
+#     word starts unless the marker-free document's does too;
+#   - a marker is 0 ms, never past the next sung line's start nor before a marker before it,
+#     and sits where its kind says (`placed`).
+# Carve-out: ad-lib lines. `rederive_adlib_words` holds an ad-lib to the next line's start and
+# respreads its words over that span; the next line is the marker, as it was the filler line in
+# a stored document, so a marker can end an ad-lib's hold where the sheet without it would not.
+
+_WORDS = ["one", "two", "three", "we", "go", "again", "tonight"]
 
 
 def _random_case(rng: random.Random):
-    """Sung lines 100 ms after their stamps (QA's offset is then 100), one far line now and
-    then (snapped), ad-libs, letterless lines after a line whose last word is often stretched
-    to the next sung line; each letterless stamp + 100 lands on or next to a bound."""
+    """Sung lines near their stamps (monotone, or with a stamp jumbled now and then), far lines
+    (snapped, words rescued or dropped), ad-libs, letterless lines first, last, consecutive,
+    stampless, after a line whose last word is often stretched to the next sung line, their
+    stamps (+ the offset) on or next to every bound; now and then a line document."""
     entries, stamps = [], []
-    t = 1_000
-    n = rng.randint(4, 9)
-    for k in range(n):
-        if k > 0 and entries[-1][1] is not None and rng.random() < 0.35:
+    t = rng.choice([500, 1_000])
+    for k in range(rng.randint(4, 10)):
+        first = k == 0 and rng.random() < 0.1
+        after_mark = bool(entries) and entries[-1][1] is None
+        if first or (k > 0 and rng.random() < (0.15 if after_mark else 0.3)):
             entries.append((MARK, None))
-            stamps.append(None)  # set once the next line is known
+            stamps.append(None)  # set once the neighbours are known
             continue
         adlib = rng.random() < 0.15
-        n_words = rng.randint(1, 4)
         spans, w = [], t
-        for _ in range(n_words):
+        for _ in range(rng.randint(1, 4)):
             dur = rng.choice([0, 60, 200, 349, 350, 351, 600, 1_200])
             spans.append((w, w + dur))
             w += dur + rng.choice([0, 40, 300])
-        text = (
-            " ".join(["oh"] * n_words)
-            if adlib
-            else " ".join(
-                rng.choice(["one", "two", "three", "we", "go", "again"]) for _ in range(n_words)
-            )
-        )
+        n = len(spans)
+        text = " ".join(["oh"] * n) if adlib else " ".join(rng.choice(_WORDS) for _ in range(n))
         entries.append((text, spans))
-        far = rng.random() < 0.08 and k > 2
-        stamps.append(None if rng.random() < 0.05 else t - 100 - (30_000 if far else 0))
+        far = k > 2 and rng.random() < 0.08
+        jumble = rng.random() < 0.08
+        stamp = t - 100 - (30_000 if far else 0) + (rng.choice([-4_000, 4_000]) if jumble else 0)
+        stamps.append(None if rng.random() < 0.05 else max(0, stamp))
         t = w + rng.choice([300, 2_000, 8_000])
+    if rng.random() < 0.15:
+        entries.append((MARK, None))
+        stamps.append(None)
     for i, (text, _spans) in enumerate(entries):
         if text != MARK:
             continue
-        prev_spans = entries[i - 1][1]
+        prev = next((e[1] for e in reversed(entries[:i]) if e[1] is not None), None)
         nxt = next((e[1][0][0] for e in entries[i + 1 :] if e[1] is not None), None)
-        if nxt is not None and rng.random() < 0.6:  # the stretched last word
-            s0, _ = prev_spans[-1]
-            prev_spans[-1] = (s0, max(s0, nxt - 40))
-        last_start, last_end = prev_spans[-1]
-        bounds = [
-            last_start - 1,
-            last_start,
-            last_start + 1,
-            last_start + TRIM_MIN_HOLD_MS - 1,
-            last_start + TRIM_MIN_HOLD_MS,
-            last_start + TRIM_MIN_HOLD_MS + 1,
-            last_end - 1,
-            last_end,
-            last_end + 1,
-        ]
+        if prev is not None and nxt is not None and entries[i - 1][1] is not None:
+            if rng.random() < 0.6:  # the stretched last word
+                s0, _ = prev[-1]
+                prev[-1] = (s0, max(s0, nxt - 40))
+        bounds = [0, 5_000]
+        if prev is not None:
+            last_start, last_end = prev[-1]
+            bounds += [
+                last_start - 1,
+                last_start,
+                last_start + 1,
+                last_start + 349,
+                last_start + 350,
+                last_start + 351,
+                last_end - 1,
+                last_end,
+                last_end + 1,
+            ]
         if nxt is not None:
             bounds += [nxt - 1, nxt, nxt + 1, nxt + 5_000]
-        target = rng.choice(bounds)
-        stamps[i] = None if rng.random() < 0.1 else target - 100
-    return entries, stamps
+        stamps[i] = None if rng.random() < 0.12 else max(0, rng.choice(bounds) - 100)
+    return entries, stamps, rng.random() < 0.08
 
 
 def _sung(entries):
     return [i for i, (text, _) in enumerate(entries) if text != MARK]
 
 
+def _median(result):
+    speeds = [
+        (w.end_ms - w.start_ms) / len(w.text)
+        for line, chunk in zip(result.lines, result.words_per_line, strict=False)
+        if not is_adlib(line.text)
+        for w in chunk
+        if w.text and w.end_ms > w.start_ms
+    ]
+    if len(speeds) < 8:
+        return None
+    speeds.sort()
+    mid = len(speeds) // 2
+    return speeds[mid] if len(speeds) % 2 else (speeds[mid - 1] + speeds[mid]) / 2
+
+
 def test_a_marker_never_lengthens_a_word_nor_cuts_one_below_its_floor():
     rng = random.Random(20261120)
-    seen = {"cut": 0, "on_stamp": 0, "snapped": 0}
-    for _ in range(1_500):
-        entries, stamps = _random_case(rng)
+    seen = dict.fromkeys(
+        (
+            "documents",
+            "line_documents",
+            "cut",
+            "snapped",
+            "rescued",
+            "consecutive",
+            "first",
+            "last",
+            *("stamp", "floor", "next", "previous", "stampless"),
+        ),
+        0,
+    )
+    for _ in range(3_000):
+        entries, stamps, line_doc = _random_case(rng)
         texts = [t for t, _ in entries]
-        result = _result(entries)
+        result = _result(entries, sync="line" if line_doc else "word")
         with_marks = apply_line_qa(result, texts, stamps)
         a, _ = restore_held_ends(with_marks.result)
         keep = _sung(entries)
         plain_entries = [entries[i] for i in keep]
         plain = apply_line_qa(
-            _result(plain_entries), [t for t, _ in plain_entries], [stamps[i] for i in keep]
+            _result(plain_entries, sync="line" if line_doc else "word"),
+            [t for t, _ in plain_entries],
+            [stamps[i] for i in keep],
         )
         b, _ = restore_held_ends(plain.result)
-        med = _median_char_ms(result)
+        seen["documents"] += 1
         assert with_marks.flagged == [keep[j] for j in plain.flagged]
+        assert with_marks.degraded_to_line == plain.degraded_to_line
         seen["snapped"] += bool(with_marks.flagged)
+        seen["rescued"] += bool(with_marks.uncertain)
+        if a.sync == "line":
+            seen["line_documents"] += 1
+            assert [a.lines[i].start_ms for i in keep] == [x.start_ms for x in b.lines]
+        meds = [m for m in (_median(result), _median(with_marks.result)) if m is not None]
+        med = min(meds) if meds else None
         for j, i in enumerate(keep):
-            if is_adlib(texts[i]) or a.sync != "word" or b.sync != "word":
-                continue  # an ad-lib is respread over its held span, which a marker can end
-            given, wa, wb = result.words_per_line[i], a.words_per_line[i], b.words_per_line[j]
+            if is_adlib(texts[i]):
+                continue
+            la, lb = a.lines[i], b.lines[j]
+            assert la.start_ms == lb.start_ms
+            assert la.end_ms <= lb.end_ms
+            if a.sync != "word":
+                continue
+            wa, wb = a.words_per_line[i], b.words_per_line[j]
             assert len(wa) == len(wb)
-            if len(wa) != len(given):
-                continue  # words line QA dropped, in both
-            before_mark = i + 1 < len(texts) and texts[i + 1] == MARK
-            for g, x, y in zip(given, wa, wb, strict=True):
-                assert x.start_ms == y.start_ms  # a marker moves no sung word's start
-                assert x.end_ms <= y.end_ms  # ... and lengthens none
-                if before_mark and x.start_ms == g.start_ms:
-                    floor = min(g.end_ms - g.start_ms, _natural_ms(g, med))
-                    assert x.end_ms - x.start_ms >= floor  # ... nor cuts one below its floor
-                    seen["cut"] += x.end_ms < y.end_ms
+            if wa and la.end_ms < wa[-1].start_ms:
+                assert lb.end_ms < wb[-1].start_ms  # only where the sheet without it does too
+            for x, y in zip(wa, wb, strict=True):
+                assert x.start_ms == y.start_ms
+                assert x.end_ms <= y.end_ms
+                natural = max(350, round(len(x.text) * med)) if med else 350
+                assert x.end_ms - x.start_ms >= min(y.end_ms - y.start_ms, natural)
+                seen["cut"] += x.end_ms < y.end_ms
+        previous_marker = None
         for i, line in enumerate(a.lines):
             if not line.unaligned:
                 continue
-            assert line.start_ms == line.end_ms  # a 0 ms marker
+            seen[line.placed] += 1
+            seen["first"] += i == 0
+            seen["last"] += i == len(a.lines) - 1
+            seen["consecutive"] += i > 0 and a.lines[i - 1].unaligned
+            assert line.start_ms == line.end_ms
             after = next((x.start_ms for x in a.lines[i + 1 :] if not x.unaligned), None)
             assert after is None or line.start_ms <= after
-            prev = result.words_per_line[i - 1]
-            if (
-                stamps[i] is not None
-                and not with_marks.flagged
-                and prev
-                and not is_adlib(texts[i - 1])
-                and with_marks.offset_ms == 100
-                and not with_marks.degraded_to_line
-            ):
-                want = stamps[i] + 100 if after is None else min(stamps[i] + 100, after)
-                last = prev[-1]
-                if want > last.start_ms:
-                    floor_end = last.start_ms + min(
-                        last.end_ms - last.start_ms, _natural_ms(last, med)
-                    )
-                    expected = max(want, floor_end)
-                    expected = expected if after is None else min(expected, after)
-                    assert line.start_ms == expected
-                    seen["on_stamp"] += 1
-    assert all(v > 30 for v in seen.values()), seen
+            assert previous_marker is None or line.start_ms >= previous_marker
+            previous_marker = line.start_ms
+            stamp = None if stamps[i] is None else max(0, stamps[i] + with_marks.offset_ms)
+            if line.placed == "stamp" and a.sync == "word":
+                assert line.start_ms == stamp
+            elif line.placed == "floor":
+                assert stamp is not None and line.start_ms > stamp
+            elif line.placed == "next":  # (the clamp may lift that line on afterwards)
+                assert after is not None
+            if stamps[i] is None:  # never a kind that may cut
+                assert line.placed in ("stampless", "next", "previous")
+    assert all(v > 20 for v in seen.values()), seen
 
 
 # --- the preview's report ---------------------------------------------------------------------
@@ -401,7 +518,112 @@ def test_the_preview_reports_both_directions_around_letterless_lines():
     assert report["adlib_shifted"] == [0, 1] and report["flagged"] == [0, 0]
     assert report["final_shortened"] == 1
     assert report["cut_voiced"] == [{"line": 0, "old_ms": 500, "new_ms": 100, "voiced": 0.25}]
+    # FORMAT 9: the 100 ms "two" ends on the marker, under its natural 350 ms: a stopped hold
+    assert report["final_held_stopped"] == [0, 1]
+    assert report["markers_before_previous_last_start"] == [0, 0]
+    assert report["markers_before_previous_last_end"] == [0, 0]
+    assert report["final_unpaired"] == 0 and report["nonlast_words_cut_at_marker"] == 0
+    assert report["line_sync_sung_starts_moved"] == 0
+    assert report["marker_kinds"] == [None, None] and report["uncertain"] == [None, None]
     # report only: the verdict reads none of it
     comparison = rules.compare(old, new, None)
     assert "voiced" not in comparison["letterless"]["cut_voiced"][0]
     assert rules.verdict(comparison) == rules.verdict({**comparison, "letterless": {}})
+
+
+def test_a_document_counts_how_its_markers_were_placed_and_nothing_without_one():
+    from kashi_server.pipeline.document import _qa_counts
+
+    result, texts, stamps = _case((1_500, 2_100), 1_401)  # lifted to the floor of "two"
+    outcome = apply_line_qa(result, texts, stamps)
+    final, _ = restore_held_ends(outcome.result)
+    counts = _qa_counts(outcome, final)
+    assert counts["markers"] == {"stamp": 0, "floor": 1, "next": 0, "previous": 0, "stampless": 0}
+    # without a letterless line (the setting off) the block is what it was before
+    keep = [0, 2, 3]
+    plain = _result(
+        [(texts[i], [(w.start_ms, w.end_ms) for w in result.words_per_line[i]]) for i in keep]
+    )
+    outcome = apply_line_qa(plain, [texts[i] for i in keep], [stamps[i] for i in keep])
+    final, _ = restore_held_ends(outcome.result)
+    assert "markers" not in _qa_counts(outcome, final)
+    assert set(_qa_counts(outcome, final)) == {
+        "flagged",
+        "density_dropped",
+        "adlib_shifted",
+        "nudged",
+        "adlib_rederived",
+        "response_shifted",
+        "offset_ms",
+        "trimmed_ends",
+        "uncertain",
+    }
+
+
+def test_the_preview_counts_markers_before_the_previous_word_and_what_they_cut():
+    from kashi_server.worker import preview_rules as rules
+
+    old = {
+        "sync": "word",
+        "alignment": {"qa": {"uncertain": 0}},
+        "lines": [
+            _doc_line("one two", 1_000, 1_600, [("one", 1_000, 1_100), ("two", 1_100, 1_600)]),
+            _doc_line(MARK, 1_600, 1_900, [("a", 1_600, 1_900)]),
+            _doc_line("three", 2_400, 3_000, [("three", 2_400, 3_000)]),
+        ],
+    }
+    kinds = {"stamp": 1, "floor": 0, "next": 0, "previous": 0, "stampless": 0}
+    new = {
+        "sync": "word",
+        "alignment": {"qa": {"uncertain": 1, "markers": kinds}},
+        "lines": [
+            # a marker before the last word starts: "one" (not the last word) ends on it, and
+            # "two" moved its start (so no stored word pairs it) and lost length
+            _doc_line("one two", 1_000, 1_100, [("one", 1_000, 1_050), ("two", 1_060, 1_100)]),
+            _doc_line(MARK, 1_050, 1_050),
+            _doc_line("three", 2_400, 3_000, [("three", 2_400, 3_000)]),
+        ],
+    }
+    report = rules.compare(old, new, None)["letterless"]
+    assert report["final_held_stopped"] == [0, 0]  # "two" is short, but the marker is not on it
+    assert report["markers_before_previous_last_start"] == [0, 1]
+    assert report["markers_before_previous_last_end"] == [0, 1]
+    assert report["uncertain"] == [0, 1] and report["marker_kinds"] == [None, kinds]
+    assert report["nonlast_words_cut_at_marker"] == 1
+    assert report["final_shortened"] == 0 and report["final_unpaired"] == 1
+    assert report["line_sync_sung_starts_moved"] == 0
+    # a line-sync build with a letterless line: the sung starts against the stored ones
+    line_doc = {
+        "sync": "line",
+        "alignment": {"qa": {}},
+        "lines": [
+            _doc_line("one two", 1_000, 1_600),
+            _doc_line(MARK, 1_600, 1_600),
+            _doc_line("three", 2_500, 3_000),
+        ],
+    }
+    assert rules.compare(old, line_doc, None)["letterless"]["line_sync_sung_starts_moved"] == 1
+
+    def built(two_end, mark, three_start):
+        return {
+            "sync": "word",
+            "alignment": {"qa": {}},
+            "lines": [
+                _doc_line(
+                    "one two", 1_000, two_end, [("one", 1_000, 1_100), ("two", 1_100, two_end)]
+                ),
+                _doc_line(MARK, mark, mark),
+                _doc_line("three", three_start, 3_000, [("three", three_start, 3_000)]),
+            ],
+        }
+
+    # "two" 300 ms, the marker on its end: over 200 ms but under its natural 350 ms; and a word
+    # build whose sung start moved is no line-sync move
+    report = rules.compare(old, built(1_400, 1_400, 2_500), None)["letterless"]
+    assert report["final_held_stopped"] == [0, 1]
+    assert report["line_sync_sung_starts_moved"] == 0
+    assert report["markers_before_previous_last_end"] == [0, 0]
+    # a marker inside the last word: before its end, not before its start
+    report = rules.compare(old, built(1_600, 1_300, 2_400), None)["letterless"]
+    assert report["markers_before_previous_last_start"] == [0, 0]
+    assert report["markers_before_previous_last_end"] == [0, 1]

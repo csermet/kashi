@@ -93,6 +93,10 @@ class LineTiming:
     # words and never given to the aligner (`letterless_lines_wordless`).
     # Its times are provisional until line QA places it (line_qa._place_unaligned).
     unaligned: bool = False
+    # How line QA placed such a line (line_qa.MARKER_KINDS): on its stamp, lifted to the floor
+    # of the word before it, bounded by the next line, after the line before it, or stampless.
+    # Empty for every other line.
+    placed: str = ""
 
 
 def sung_text(text: str) -> bool:

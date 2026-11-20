@@ -102,8 +102,10 @@ LYRICS_MODES = ("stored", "ladder")
 #: `aligner_overruns`, no `ladder_same: overrun`, no such review reason; 6: `--set` overrides
 #: in the judge, on every row and in the summary; W2 and W3 judge no letterless line in a build
 #: that gave it none, `qa`; 7: `ends`, what word ends and neighbouring starts did, report only;
-#: 8: `letterless`, both directions around letterless lines and the breaks, report only).
-PREVIEW_FORMAT = 8
+#: 8: `letterless`, both directions around letterless lines and the breaks, report only;
+#: 9: `letterless` also counts stopped holds, markers before the previous line's last word,
+#: unpaired and non-last cut words, line-sync start moves and how each marker was placed).
+PREVIEW_FORMAT = 9
 #: A row's `ladder_same` other than True / False: a document was built but no ladder pass ran (not
 #: asked, or it faulted: the `ladder` note names the fault) ...
 LADDER_NOT_RUN = "not run"

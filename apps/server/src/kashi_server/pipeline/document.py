@@ -22,7 +22,7 @@ from kashi_server.db.models import Job
 from kashi_server.pipeline.alignment import AlignResult
 from kashi_server.pipeline.beats import Beats
 from kashi_server.pipeline.energy import Energy, Section
-from kashi_server.pipeline.line_qa import LineQAOutcome, is_adlib
+from kashi_server.pipeline.line_qa import LineQAOutcome, is_adlib, marker_kinds
 from kashi_server.pipeline.lrclib import LyricsText, normalize_artist
 from kashi_server.pipeline.semantics import FxTags
 from kashi_server.vdl_kit.errors import PipelineError
@@ -138,7 +138,7 @@ def build_document(
         # QA provenance (Faz 5 P1): how much the document was repaired. The
         # publish quality gate (P6) and field debugging read this — counts
         # only, never indexes (indexes would drift the etag on no-op edits).
-        doc["alignment"]["qa"] = _qa_counts(qa)
+        doc["alignment"]["qa"] = _qa_counts(qa, align_result)
     if beats is not None:
         doc["beats"] = {
             "bpm": beats.bpm,
@@ -215,7 +215,17 @@ def _track_block(job: Job, hints: dict, duration_ms: int | None) -> dict:
     return track
 
 
-def _qa_counts(qa: LineQAOutcome) -> dict:
+def _qa_counts(qa: LineQAOutcome, result: AlignResult) -> dict:
+    counts = _repair_counts(qa)
+    # How line QA placed each letterless line (`letterless_lines_wordless`); absent without one,
+    # so a document built with the setting off carries nothing new.
+    kinds = marker_kinds(result.lines)
+    if kinds:
+        counts["markers"] = kinds
+    return counts
+
+
+def _repair_counts(qa: LineQAOutcome) -> dict:
     return {
             "flagged": len(qa.flagged),
             # The density drop was removed in 2.34.0, the nudge, the response

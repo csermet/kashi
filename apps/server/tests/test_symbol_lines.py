@@ -206,14 +206,15 @@ def test_the_cut_leaves_a_word_that_starts_after_the_marker_alone():
 
     lines = [
         LineTiming(1_000, 3_900, "one two three", 0.5),
-        LineTiming(3_000, 3_000, "♪", 0.0, unaligned=True),
+        LineTiming(3_000, 3_000, "♪", 0.0, unaligned=True, placed="stamp"),
         LineTiming(6_000, 6_300, "four", 0.5),
     ]
     words = [
         [
             AlignedWord(1_000, 2_000, "one", 0.2),
             AlignedWord(2_500, 4_000, "two", 0.2),
-            AlignedWord(3_500, 3_900, "three", 0.2),
+            AlignedWord(3_000, 3_900, "three", 0.2),  # starts on the marker, longer than 350 ms
+            AlignedWord(3_500, 3_900, "four", 0.2),
         ],
         [],
         [AlignedWord(6_000, 6_300, "four", 0.2)],
@@ -223,6 +224,7 @@ def test_the_cut_leaves_a_word_that_starts_after_the_marker_alone():
     assert [(w.start_ms, w.end_ms) for w in cut[0]] == [
         (1_000, 2_000),
         (2_500, 3_000),
+        (3_000, 3_900),
         (3_500, 3_900),
     ]
     assert cut[2] == words[2]
@@ -301,20 +303,38 @@ def test_too_few_sung_references_leave_it_where_regroup_put_it():
     assert (outcome.result.lines[1].start_ms, outcome.result.lines[1].end_ms) == (1_800, 1_800)
 
 
-def test_a_held_end_stops_at_a_line_not_given():
+def _held_before(placed):
     entries = [("one two", [1_100, 1_500]), ("♪", None), ("three four", [5_100, 5_500])]
     doc = _doc(entries)
     words = [list(chunk) for chunk in doc.words_per_line]
     words[0][1] = AlignedWord(1_500, 1_800, "two", 0.2, held_ms=3_000)
-    lines = [doc.lines[0], LineTiming(2_000, 5_100, "♪", 0.0, True), doc.lines[2]]
-    # enough words for the document's median speed
+    marker = LineTiming(2_000, 2_000, "♪", 0.0, True, placed)
+    lines = [doc.lines[0], marker, doc.lines[2]]
+    # enough words for the document's median speed: 300 ms per character, so "two" may be
+    # restored to 2 700 ms (3 x) and its natural length (its floor) is 900 ms
     filler = [("w", [k * 1_000 + 10_000]) for k in range(8)]
     extra = _doc(filler)
     result = AlignResult(
         "word", lines + extra.lines, words + extra.words_per_line, 0.5, windowed=True
     )
     restored, _ = restore_held_ends(result)
-    assert restored.words_per_line[0][1].end_ms == 2_000  # the '♪' start, not 5 100
+    return restored.words_per_line[0][1], restored.lines[1], restored.lines[0]
+
+
+def test_a_held_end_is_cut_at_a_marker_on_its_stamp_but_not_below_its_floor():
+    two, marker, line = _held_before("stamp")
+    # restored as if no '♪' were there (to 4 200), then cut at the stamp (2 000), but not
+    # below the floor (900 ms): 2 400, and the marker moves there
+    assert (two.start_ms, two.end_ms) == (1_500, 2_400)
+    assert (marker.start_ms, marker.end_ms, marker.placed) == (2_400, 2_400, "floor")
+    assert line.end_ms == 2_400
+
+
+def test_a_marker_off_its_stamp_shortens_nothing_and_follows_the_line_before():
+    for placed in ("previous", "stampless"):
+        two, marker, line = _held_before(placed)
+        assert (two.start_ms, two.end_ms) == (1_500, 4_200)  # what the sheet without it gives
+        assert marker.start_ms == marker.end_ms == 4_200 == line.end_ms
 
 
 # --- sheet texts --------------------------------------------------------------------------------
