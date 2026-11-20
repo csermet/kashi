@@ -182,10 +182,100 @@ note, and the deployed image's ordinary preview lists the ids to refresh.
   word-text guard (`pipeline/publish.py`, `pipeline/lyricsfile.py`) - the publish wave is
   decided before any refresh.
 
+## The archive step (2026-11-20) and the hold fix
+
+**The archive** (server 0.44.0, the candidate shipped dark). Step 0, the plain preview of 400
+songs: the 342 rows expected `unchanged` are unchanged; the only verdict changes are the two named
+beforehand (6cvfHn9qeEw now builds: `keep`, W2 + W4; k89YEt8hocI `review` -> `unchanged`). Step 1,
+the candidate (`--set` both) on the 343 songs the plain run calls unchanged, against bars
+registered before: no failure or full job; on the 297 songs without a letterless line no line
+start, QA offset, QA exit or fluency counter differs (the sheet texts move no time on the
+archive); on the 46 songs with one (84 letterless lines) |Δ QA offset| <= 40 ms (mostly 0-10), one
+QA exit snapped -> clean; no veto, no review; but words dwelling < 120 ms 5 140 -> 5 141
+(LO71pC20BDI): that bar failed, and the candidate stays off. 39 songs refresh by text alone.
+
+**What no veto read.** In 32 of the 84 cases the last word of the sung line before the letterless
+line changes (23 songs), mostly by ±10-825 ms, but c9xGRpozwYU line 62's last word went from
+2.55 s to 20.18 s (the letterless line moved from 181 170 to 198 800 ms, 40 ms before the next
+sung line), 16GpicX09gk line 32 1.21 -> 8.68 s, 5YH4YCqcPjI line 51 0.17 -> 4.82 s,
+DxC-PpNdwxo line 19 2.60 -> 3.30 s, fxHjlCBHuzA line 1 0.52 -> 1.20 s; and LO71pC20BDI line 32's
+last word starts 1.13 s earlier (the extra short dwell).
+
+**Why.** A segment-starred pass puts a star before every word and none after the last, and
+ctc_forced_aligner's `get_spans` pads the last span to the end of the trailing blank: a window
+pass's last word gets every frame to the slice's end. `hybrid_star_words` takes the segment row
+(end included) whenever the two passes' starts agree, so only the whole-track vote (its end, the
+rest as `held`, restored to at most 4 s) or regroup's clip at the next word's start bounds it.
+On main the letterless line's filler "a" was that last word whenever the line shared a window
+with the sung line before it; without it the sung word is last and runs over the interlude. Then
+the letterless line, placed "never before the line before ends", was pushed onto that end.
+Reproduced with the job's own `_viterbi` on synthetic emissions (one 12 s slice, two sung words,
+music to the end): with the filler the last sung word is (1 500, 1 640) ms with 2 240 ms held;
+without it (1 500, 11 980); and exactly the same (1 500, 11 980) for a sheet with no letterless
+line at all, i.e. this is what main does at any long gap inside a window. Main's own documents
+show it: on the 39 songs, of 84 line-final words before a gap of 3 s or more, 12 last over 4 s, the
+longest 17.76 s (mamKQo4yM8Q line 39). On the 39 songs every letterless line already sat on its
+stamp (6 of 7 open their window), so none was pushed.
+
+**The fix** (`line_qa._place_unaligned`, `_cut_at_unaligned`): a letterless line never lengthens a
+sung word. It is a 0 ms marker (its end is its start); when the line before it is an ordinary sung
+line whose last word starts before the stamp (+ QA's offset), the stamp wins and that line's words
+that reach past it, and its end, are cut there; otherwise it starts no earlier than the line before
+ends, as before (a stamp before that last word starts says nothing about where the music begins).
+A word starting at or after the marker is never cut (a snapped line's rescued words can lie past
+it). The held-end bound stays the marker. Against the sheet without the letterless line a word can
+only end earlier; against main a word whose held end the filler stopped can now reach the stamp
+(DxC-PpNdwxo's +700 ms is of that kind). The marker is 0 ms for the overlay's sake
+(`packages/view/src/view-logic.ts`): a line ending at the next line's start takes that line's
+500 ms lead-in and, over a long interlude, shows a static '♪' instead of the interlude view; a
+40 ms line flashes for two frames. A 0 ms marker leaves the gap a gap (held up to 5 s, the
+interlude beyond, the next line led in). The schema sets no minimum and none is needed; one case
+remains: a stamp at or past the next sung line's start puts the marker on that start, and the
+marker then takes that line's lead-in (the '♪' shows for 500 ms).
+
+**The removed token and its neighbours.** On the 39 songs one neighbouring word's start moved by
+more than 100 ms (GgGPuuGNPAE line 2, -170 ms; the stem is silent at both places, -85 to -127 dB,
+the voice returns 5.7 s later, so the envelope cannot judge it). In the archive's 46 songs (84
+letterless lines): 5 words in 4 songs next to a letterless line (+825, -170, -1 130, +220,
++280 ms) and 1 elsewhere (-160 ms); their evidence is not readable from here. The token took
+frames; without it the window's last words are re-placed. Sized, not fixed.
+
+**The preview sees it now** (`preview_rules.ends_report`, every same-sheet row's `ends`, report
+only, no veto, PREVIEW_FORMAT 7): words whose duration grew by more than 1 s, the line-final word
+that grew most (line, old and new duration), sung line ends moved by more than 500 ms, and starts
+of the words next to a letterless line moved by more than 100 ms. With the production setting its
+verdicts equal 0.44.0's (156 pairs of the 39 songs).
+
+**The 39 songs with the fix** (bars written and hashed before the numbers; main 2730a0d recording
+its evidence, the branch's arms through `process_job`): every bar passes. The branch with its
+defaults equals main 39/39 (and main 0.44.0 equals 0.43.0's documents 39/39); with the fix no
+sung word's duration grows by more than 500 ms against main (one grows at all: VMn4mN7TeAk line
+33's last word +300 ms, its held end no longer stopped by the filler); the unit test of the
+archive's shape cuts the stretched word at the stamp and never later than the sheet without the
+letterless line; main's evidence serves the candidate 39/39 and off == record == replay; no
+letterless line carries a word; neighbour line starts within 1 600 ms (the letterless lines
+themselves -1 315 to +1 465 ms), word moves GgGPuuGNPAE line 2 -170 ms and the +300 above;
+timing and texts independent; fluency counters not worse in any song; the preview with `--set`:
+11 refresh, 28 unchanged, no veto, `ends` on every row. Against the earlier
+candidate only the 7 letterless lines' ends changed (each is now its start): on these songs no
+letterless line had been pushed. Upper bound of the fix's reach in the archive's 46 songs: 9 of the
+84 letterless lines sit exactly at the end of the sung line before them with its last word grown
+(the six largest above among them); the archive preview with `--set` will say which move.
+
+A seeded differential against 0.44.0's line QA (3 000 cases, unaligned lines after stretched last
+words, stamps on and either side of the last word's start, the stretched end and the next line's
+start) holds: identical without an unaligned line; no sung word starts elsewhere or ends later
+(shorter only through the cut and, elsewhere, through the held-end cap's document median, 83
+cases); every unaligned line a 0 ms marker on its stamp whenever the stamp lies after the last
+word's start and no later than the next sung line; no word 0.44.0 gave a length comes out 0 ms
+(the first draft cut a snapped line's rescued words lying after the marker to 0 ms; fixed).
+Each of four one-line mutations of the fix is caught by it.
+
 ## What is open
 
-- The archive preview with `--set` (the step above), human truth's verdict (by construction
-  here) and the owner's clips; then the release that turns the defaults on.
+- The archive preview with `--set` again, with the hold fix and the `ends` report; human truth's
+  verdict (by construction here) and the owner's clips; then the release that turns the defaults
+  on.
 - Two bars failed as registered (locality: one ad-lib line +10 ms through QA's median offset;
   sheet texts alone: three filler words more than measured). Whether they block is a decision.
 - Not converted on purpose: `plan_windows`' word count and `line_regions`' stamp count (evidence
