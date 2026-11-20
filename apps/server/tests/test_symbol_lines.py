@@ -10,8 +10,10 @@ another form of it (the romanize=False path drops what its vocabulary lacks); ev
 still reads the aligner's form.
 """
 
+import json
 import sys
 import types
+from dataclasses import replace
 
 import pytest
 
@@ -137,13 +139,66 @@ FOUR = [
 FOUR_STAMPS = [1_000, 5_000, 8_000, 12_000, 16_000]
 
 
-def test_line_qa_places_a_line_not_given_on_its_stamp_and_ends_it_at_the_next_start():
+def test_line_qa_places_a_line_not_given_on_its_stamp_as_a_0_ms_marker():
     outcome = apply_line_qa(_doc(FOUR), [t for t, _ in FOUR], FOUR_STAMPS)
     assert outcome.offset_ms == 100  # the four sung lines; the '♪' has no aligner time
     music = outcome.result.lines[2]
-    assert (music.start_ms, music.end_ms) == (8_100, 12_100)
+    # a marker: the gap after it stays a gap for the overlay (hold, interlude, lead-in)
+    assert (music.start_ms, music.end_ms) == (8_100, 8_100)
     assert outcome.flagged == [] and outcome.result.words_per_line[2] == []
     assert outcome.result.quality_score == 1.0  # agreement over the sung lines only
+
+
+def _stretched(stamp_ms, held_ms=0):
+    """The archive's shape (c9xGRpozwYU line 62): the sung line's last word runs over the whole
+    interlude to the next sung line, as a segment-starred window pass gives its last word every
+    frame to the slice end once the letterless line's filler is no longer after it."""
+    entries = [
+        ("one two", [1_100, 1_500]),
+        ("♪", None),
+        ("five six", [12_100, 12_500]),
+        ("seven eight", [16_100, 16_500]),
+    ]
+    doc = _doc(entries)
+    words = [list(chunk) for chunk in doc.words_per_line]
+    words[0][1] = AlignedWord(1_500, 12_060, "two", 0.2, held_ms=held_ms)
+    lines = [replace(doc.lines[0], end_ms=12_060), *doc.lines[1:]]
+    return (
+        AlignResult("word", lines, words, 0.5, windowed=True),
+        [t for t, _ in entries],
+        [1_000, stamp_ms, 12_000, 16_000],
+    )
+
+
+def test_a_last_word_stretched_over_the_interlude_is_cut_at_the_stamp():
+    result, texts, stamps = _stretched(3_000, held_ms=5_000)
+    outcome = apply_line_qa(result, texts, stamps)
+    lines, words = outcome.result.lines, outcome.result.words_per_line
+    assert outcome.offset_ms == 100
+    assert (lines[1].start_ms, lines[1].end_ms) == (3_100, 3_100)  # on its stamp, not 12 060
+    assert (words[0][1].start_ms, words[0][1].end_ms) == (1_500, 3_100)
+    assert lines[0].end_ms == 3_100
+    restored, _ = restore_held_ends(outcome.result)
+    assert restored.words_per_line[0][1].end_ms == 3_100  # the held end stops there too
+    # without the letterless line (the sheet without it) the same word keeps the stretch: the
+    # line only ever shortens it
+    plain = AlignResult(
+        "word",
+        [result.lines[0], *result.lines[2:]],
+        [result.words_per_line[0], *result.words_per_line[2:]],
+        0.5,
+        windowed=True,
+    )
+    ordinary = apply_line_qa(plain, [texts[0], *texts[2:]], [stamps[0], *stamps[2:]])
+    assert ordinary.result.words_per_line[0][1].end_ms == 12_060 >= words[0][1].end_ms
+
+
+def test_a_stamp_before_the_last_word_starts_cuts_nothing():
+    result, texts, stamps = _stretched(1_200)  # the '♪' stamp inside the line's last word
+    outcome = apply_line_qa(result, texts, stamps)
+    lines, words = outcome.result.lines, outcome.result.words_per_line
+    assert words[0][1].end_ms == 12_060  # the ordinary end, untouched
+    assert lines[1].start_ms == lines[1].end_ms == 12_060  # after the line before it
 
 
 def test_a_line_not_given_counts_in_no_median_and_no_flag():
@@ -159,7 +214,7 @@ def test_a_line_not_given_counts_in_no_median_and_no_flag():
     outcome = apply_line_qa(_doc(entries), [t for t, _ in entries], stamps)
     assert outcome.offset_ms == 200
     assert outcome.flagged == []
-    assert (outcome.result.lines[2].start_ms, outcome.result.lines[2].end_ms) == (8_200, 12_400)
+    assert (outcome.result.lines[2].start_ms, outcome.result.lines[2].end_ms) == (8_200, 8_200)
 
 
 def test_a_line_not_given_never_starts_before_the_line_before_it_ends():
@@ -216,7 +271,7 @@ def test_too_few_sung_references_leave_it_where_regroup_put_it():
         windowed=True,
     )
     outcome = apply_line_qa(doc, [t for t, _ in entries], [1_000, 3_000, 5_000])
-    assert (outcome.result.lines[1].start_ms, outcome.result.lines[1].end_ms) == (1_800, 5_100)
+    assert (outcome.result.lines[1].start_ms, outcome.result.lines[1].end_ms) == (1_800, 1_800)
 
 
 def test_a_held_end_stops_at_a_line_not_given():
@@ -530,6 +585,35 @@ def test_a_letterless_line_losing_its_word_is_no_lost_lyric_and_no_unjudged_move
     # a sung line losing its words still vetoes
     new["lines"][2] = _line("two", 9_000)
     assert rules.compare(old, new, None, letterless_wordless=True)["w3"] == [2]
+
+
+def test_the_rules_report_what_word_ends_and_neighbouring_starts_did():
+    old = {
+        "lines": [
+            _line("one two", 1_000, [("one", 1_000), ("two", 1_500)]),
+            _line("♪", 2_000, [("a", 2_000)]),
+            _line("three four", 9_000, [("three", 9_000), ("four", 9_400)]),
+            _line("five", 12_000, [("five", 12_000)]),
+        ]
+    }
+    new = json.loads(json.dumps(old))
+    new["lines"][1].pop("words")
+    two = new["lines"][0]["words"][1]
+    two["end_ms"] = two["start_ms"] + 2_000  # 200 -> 2 000 ms: grew by more than 1 s
+    new["lines"][0]["end_ms"] = two["end_ms"]  # a sung line's end moved by more than 500 ms
+    new["lines"][2]["words"][0]["start_ms"] += 150  # a neighbour's start
+    new["lines"][3]["words"][0]["start_ms"] += 150  # not a neighbour
+    for comparison in (
+        rules.compare(old, new, None),
+        rules.compare(old, new, None, letterless_wordless=True),
+    ):
+        assert comparison["ends"] == {
+            "words_grew_over_1000": 1,
+            "largest_final_hold": {"line": 0, "old_ms": 200, "new_ms": 2_000},
+            "sung_ends_moved_over_500": 1,
+            "neighbour_starts_moved_over_100": 1,
+        }
+        assert rules.vetoes(comparison) in ([], ["W3"])  # report only: no veto of its own
 
 
 def test_the_rules_report_qa_s_offset_and_way_out():

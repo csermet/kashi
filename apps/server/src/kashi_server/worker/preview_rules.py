@@ -87,6 +87,13 @@ LINE_VOICE_MAX_MS = 1500
 #: The silence line and the shortest silence (the 2.35.0 rule's, the audit voice witness's own).
 SILENCE_DB = FIRST_HEARD_SILENCE_DB
 MIN_SILENCE_MS = FIRST_HEARD_MIN_SILENCE_MS
+#: `ends` (report only, 2026-11-20): what no veto reads. A word whose duration grew by more than
+#: this, ...
+GREW_MS = 1000
+#: ... a sung line whose end moved by more than this, ...
+END_MOVED_MS = 500
+#: ... and a word next to a letterless line whose start moved by more than this.
+NEIGHBOUR_START_MS = 100
 
 #: Verdicts, in the order they are decided.
 FAILED = "failed"
@@ -406,7 +413,44 @@ def compare(
     }
     out["w1"], out["w2"], out["w3"], out["w4"], out["w5"] = w1, w2, lost, w4, w5
     out["w2_unjudged"] = unjudged
+    out["ends"] = ends_report(la, lb)
     return out
+
+
+def ends_report(la: list[dict], lb: list[dict]) -> dict:
+    """Report only, never a veto (2026-11-20: on the archive the letterless-line candidate gave a
+    sung line's last word a 20 s hold and the preview called it `refresh`, since no veto reads a
+    word's end): over the sung lines of one sheet (lines with a letter or a digit), words paired
+    by index where a line keeps its word count, the words whose duration grew by more than
+    GREW_MS; the line-final word whose duration grew most (line, old and new duration in ms; None
+    when none grew); the sung lines whose end moved by more than END_MOVED_MS; and the words of
+    the lines next to a letterless line whose start moved by more than NEIGHBOUR_START_MS."""
+    letterless = [i for i, line in enumerate(la) if not sung_text(line.get("text") or "")]
+    near = {j for i in letterless for j in (i - 1, i + 1)}
+    grew = ends = neighbours = 0
+    largest: dict | None = None
+    for i, (a, b) in enumerate(zip(la, lb, strict=True)):
+        if not sung_text(a.get("text") or ""):
+            continue
+        ends += abs(b["end_ms"] - a["end_ms"]) > END_MOVED_MS
+        wa, wb = _words(a), _words(b)
+        if not wa or len(wa) != len(wb):
+            continue
+        for x, y in zip(wa, wb, strict=True):
+            grew += (y["end_ms"] - y["start_ms"]) - (x["end_ms"] - x["start_ms"]) > GREW_MS
+            neighbours += i in near and abs(y["start_ms"] - x["start_ms"]) > NEIGHBOUR_START_MS
+        old_ms = wa[-1]["end_ms"] - wa[-1]["start_ms"]
+        new_ms = wb[-1]["end_ms"] - wb[-1]["start_ms"]
+        if new_ms > old_ms and (
+            largest is None or new_ms - old_ms > largest["new_ms"] - largest["old_ms"]
+        ):
+            largest = {"line": i, "old_ms": old_ms, "new_ms": new_ms}
+    return {
+        f"words_grew_over_{GREW_MS}": grew,
+        "largest_final_hold": largest,
+        f"sung_ends_moved_over_{END_MOVED_MS}": ends,
+        f"neighbour_starts_moved_over_{NEIGHBOUR_START_MS}": neighbours,
+    }
 
 
 def vetoes(comparison: dict) -> list[str]:

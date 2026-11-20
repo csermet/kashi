@@ -415,14 +415,27 @@ def _place_unaligned(
     refs: list[int | None] | None,
     offset_ms: int,
     snapped: set[int] | frozenset[int] = frozenset(),
+    last_word_starts: dict[int, int] | None = None,
 ) -> list[LineTiming]:
     """The lines the aligner was not given (`unaligned`: no letter, no digit) placed as a
     snapped line's start is: on their stamp on the aligner's clock (ref + offset_ms); stampless,
     or with no references, where regroup put them (the gap between the words around them).
-    Never before the line before ends (before it starts, when that line was snapped or is
-    unaligned too: such an end follows the next start), nor past the next aligned line's start:
-    a line the aligner never heard moves no sung line. Ends are `_recompute_ends`' (the next
-    line's start). Pure; lines come back as they were when none is unaligned."""
+    Never past the next aligned line's start: a line the aligner never heard moves no sung line.
+    Each is a marker, 0 ms long (its end is its start): the gap after it stays a gap, which the
+    overlay holds (<= 5 s), shows as an interlude (longer) and leads the next line into, as it
+    does when no such line is there.
+
+    Never before the line before it ends, with one exception (`last_word_starts`, the start of
+    each line's last word): when the line before is an ordinary sung line whose last word starts
+    before the stamp, the stamp wins and that line's end is cut to it (`_cut_at_unaligned` cuts
+    its words). A segment-starred window pass gives the last word of its text every frame to the
+    slice's end (ctc_forced_aligner's get_spans pads the last span to the end of the trailing
+    blank), so without the letterless line's filler after it, the word before such a line can
+    run over the whole interlude, and the line would then be pushed to the next sung line
+    (2026-11-20, the archive: a 20 s hold, the line 40 ms long). When the line before was
+    snapped or is unaligned too, or the stamp is not after its last word's start, the line
+    starts no earlier than the line before ends (starts, when snapped or unaligned: such an end
+    follows the next start). Pure; lines come back as they were when none is unaligned."""
     if not any(line.unaligned for line in lines):
         return lines
     out = list(lines)
@@ -431,14 +444,46 @@ def _place_unaligned(
             continue
         ref = refs[i] if refs is not None else None
         start = line.start_ms if ref is None else max(0, ref + offset_ms)
+        after = next((later.start_ms for later in out[i + 1 :] if not later.unaligned), None)
         if i > 0:
             before = out[i - 1]
             held = before.unaligned or (i - 1) in snapped
-            start = max(start, before.start_ms if held else before.end_ms)
-        after = next((later.start_ms for later in out[i + 1 :] if not later.unaligned), None)
+            last = None if held or last_word_starts is None else last_word_starts.get(i - 1)
+            if last is not None and start > last:
+                start = start if after is None else min(start, after)
+                if before.end_ms > start:
+                    out[i - 1] = replace(before, end_ms=max(before.start_ms, start))
+            else:
+                start = max(start, before.start_ms if held else before.end_ms)
         if after is not None:
             start = min(start, after)
-        out[i] = replace(line, start_ms=start, end_ms=max(start, line.end_ms))
+        out[i] = replace(line, start_ms=start, end_ms=start)
+    return out
+
+
+def _last_word_starts(words: list[list[AlignedWord]]) -> dict[int, int]:
+    """Line index -> its last word's start, for the lines with words."""
+    return {i: chunk[-1].start_ms for i, chunk in enumerate(words) if chunk}
+
+
+def _cut_at_unaligned(
+    lines: list[LineTiming], words: list[list[AlignedWord]]
+) -> list[list[AlignedWord]]:
+    """The words of the line before each unaligned line end no later than that line starts
+    (`_place_unaligned` may have put it on its stamp inside the stretched last word); a word is
+    never cut before its own start. Only shortens; words come back as they were when nothing
+    reaches past such a start."""
+    if not any(line.unaligned for line in lines):
+        return words
+    out = [list(chunk) for chunk in words]
+    for i, line in enumerate(lines):
+        j = i - 1
+        if not line.unaligned or j < 0 or j >= len(out) or lines[j].unaligned:
+            continue
+        out[j] = [
+            replace(w, end_ms=max(w.start_ms, line.start_ms)) if w.end_ms > line.start_ms else w
+            for w in out[j]
+        ]
     return out
 
 
@@ -448,14 +493,16 @@ def _settle(
     refs: list[int | None] | None,
     offset_ms: int,
     snapped: set[int] | frozenset[int] = frozenset(),
+    words: list[list[AlignedWord]] | None = None,
 ) -> list[LineTiming]:
-    """The line timeline QA hands on: the unaligned lines placed (`_place_unaligned`), the
-    snapped and the unaligned lines ending at the next line's start (`_recompute_ends`), starts
+    """The line timeline QA hands on: the unaligned lines placed (`_place_unaligned`, 0 ms
+    markers), the snapped lines ending at the next line's start (`_recompute_ends`), starts
     monotonic. Without unaligned lines: `_clamp_monotonic(_recompute_ends(lines, snapped, ...))`,
     what QA ran before them."""
-    lines = _place_unaligned(lines, refs, offset_ms, snapped)
-    ends = set(snapped) | {i for i, line in enumerate(lines) if line.unaligned}
-    return _clamp_monotonic(_recompute_ends(lines, ends, originals))
+    lines = _place_unaligned(
+        lines, refs, offset_ms, snapped, None if words is None else _last_word_starts(words)
+    )
+    return _clamp_monotonic(_recompute_ends(lines, set(snapped), originals))
 
 
 def _recompute_ends(
@@ -574,7 +621,12 @@ def apply_line_qa(
         if ref is not None
     ]
     offset_ms = round(median(deviations))
-    result = replace(result, lines=_place_unaligned(result.lines, refs, offset_ms))
+    result = replace(
+        result,
+        lines=_place_unaligned(
+            result.lines, refs, offset_ms, last_word_starts=_last_word_starts(result.words_per_line)
+        ),
+    )
     result, adlib_shifted = _shift_adlibs(result, refs, offset_ms)
     flagged = [
         i
@@ -595,6 +647,7 @@ def apply_line_qa(
     flagged_set = set(flagged)
     lines = _snap_flagged_lines(result, refs, flagged_set, offset_ms)
     words_per_line, uncertain = _rescue_or_drop_words(result, lines, flagged_set, onset_ms)
+    words_per_line = _cut_at_unaligned(lines, words_per_line)
 
     _log_snaps(result, lines, flagged)
 
@@ -649,7 +702,10 @@ def _finish_unreferenced(result: AlignResult) -> LineQAOutcome:
     # No reference ≠ no ad-libs: document assembly still writes the adlib
     # flag and the overlay still sweeps, so the rederive must run here too
     # (retro finding — QA-less docs swept CTC's scattered spans).
-    clamped = replace(result, lines=_settle(result.lines, result.lines, None, 0))
+    lines = _settle(result.lines, result.lines, None, 0, words=result.words_per_line)
+    clamped = replace(
+        result, lines=lines, words_per_line=_cut_at_unaligned(lines, result.words_per_line)
+    )
     clamped, rederived = rederive_adlib_words(clamped)
     return LineQAOutcome(
         result=clamped,
@@ -667,7 +723,10 @@ def _finish_clean(
     adlib_shifted: list[int],
 ) -> LineQAOutcome:
     """No line flagged: clamp, score and the ad-lib rederive."""
-    clean = replace(result, lines=_settle(result.lines, result.lines, refs, offset_ms))
+    lines = _settle(result.lines, result.lines, refs, offset_ms, words=result.words_per_line)
+    clean = replace(
+        result, lines=lines, words_per_line=_cut_at_unaligned(lines, result.words_per_line)
+    )
     all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
     # Undamaged, but the basis still has to name the formula: an unflagged
     # non-windowed document is "probs+anchors" with an agreement of 1.0,
@@ -696,7 +755,7 @@ def _snap_flagged_lines(
         if i in flagged_set and ref is not None:
             line = replace(line, start_ms=max(0, ref + offset_ms))
         lines.append(line)
-    return _settle(lines, result.lines, refs, offset_ms, flagged_set)
+    return _settle(lines, result.lines, refs, offset_ms, flagged_set, result.words_per_line)
 
 
 def _rescue_or_drop_words(
