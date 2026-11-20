@@ -469,10 +469,11 @@ def _last_word_starts(words: list[list[AlignedWord]]) -> dict[int, int]:
 def _cut_at_unaligned(
     lines: list[LineTiming], words: list[list[AlignedWord]]
 ) -> list[list[AlignedWord]]:
-    """The words of the line before each unaligned line end no later than that line starts
-    (`_place_unaligned` may have put it on its stamp inside the stretched last word); a word is
-    never cut before its own start. Only shortens; words come back as they were when nothing
-    reaches past such a start."""
+    """The words of the line before each unaligned line that start before it and reach past its
+    start end there (`_place_unaligned` may have put it on its stamp inside the stretched last
+    word). A word starting at or after it is left as it is: cutting it would leave it 0 ms long
+    (a snapped line's rescued words can lie after the marker). Only shortens; words come back as
+    they were when nothing reaches past such a start."""
     if not any(line.unaligned for line in lines):
         return words
     out = [list(chunk) for chunk in words]
@@ -480,9 +481,9 @@ def _cut_at_unaligned(
         j = i - 1
         if not line.unaligned or j < 0 or j >= len(out) or lines[j].unaligned:
             continue
+        cut = line.start_ms
         out[j] = [
-            replace(w, end_ms=max(w.start_ms, line.start_ms)) if w.end_ms > line.start_ms else w
-            for w in out[j]
+            replace(w, end_ms=cut) if w.start_ms < cut < w.end_ms else w for w in out[j]
         ]
     return out
 
