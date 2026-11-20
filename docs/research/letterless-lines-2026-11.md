@@ -271,6 +271,59 @@ word's start and no later than the next sung line; no word 0.44.0 gave a length 
 (the first draft cut a snapped line's rescued words lying after the marker to 0 ms; fixed).
 Each of four one-line mutations of the fix is caught by it.
 
+**Round 3: a floor, and the order** (the reviewer's read of the fix). The cut had no floor: a
+stamp just after an ordinary last word's start left it 1 ms long, the mirror image of the hold
+and the owner's first-ranked failure (a word that flashes past), invisible to every row field.
+The aligner's end of a pass's last word is no evidence either way: it runs to the slice end, or
+it is a true short end. So the marker now never cuts a sung word below its floor and never
+lengthens one; the floor is the pipeline's own notion of a word's natural length, the held-end
+restore's measure (the document's median ms per character times the word's characters, at least
+TRIM_MIN_HOLD_MS 350 ms), or the word's own length when that is shorter (`_natural_ms`,
+`_floor_end`): a stamp inside the last word puts the marker at the floor's end instead. On the
+two document sets the natural length of the line-final words before a letterless line is
+350-1 003 ms (median 417) on the 39 songs and 350-2 250 ms (median 354) in the archive's 46;
+main's filler had left 25 of the archive's 84 shorter than that, the 0.44.0 candidate 59 longer.
+The envelope (option ii) was sized on the 39 songs' seven cases: where the stem's voice first
+falls silent for 150 ms after the word starts lies before the word's end once (VMn4mN7TeAk line
+33, 156 000 against 156 260), near it twice, and seconds after the marker in three (backing
+vocals keep the stem voiced): as a bound it needs the floor beside it, and line QA does not hold
+the envelope today (align() does; `apply_line_qa` would take it from `align_and_review`, which
+already reads it from the evidence). It is the honest answer for main's ordinary long-gap holds
+too, so it belongs to that candidate, not this one.
+
+Also: the next aligned line bounds the stamp before it is compared with the last word's start
+(a snapped next line before that word no longer cuts the line before it); markers are placed
+once, after the ad-lib shifts and the snaps, with the words as they then stand (an ad-lib
+shifted onto its anchor had kept a 12.5 s hold when placed from the words before the shift),
+and an ad-lib snap passes over a marker (`_snap_end`), so a marker no longer refuses a snap
+0.44.0 allowed nor feeds the arbiter a cut span; a degraded (line) document writes its markers
+0 ms as well. All of it is pinned in the repository (`tests/test_letterless_marker.py`): each
+bound exactly, and a seeded comparison of every document with the same document without its
+letterless lines (1 500 cases, stamps on and either side of every bound): no sung word's start
+moves, none grows, none falls below its floor, every marker 0 ms and on its (bounded) stamp. 20
+one-line mutations, the reviewer's five among them, each fail it.
+
+The preview reports both directions (`letterless`, every row, report only, FORMAT 8): per
+document the line-final words before a letterless line, the shortest of them, how many under
+120 / 200 ms and over 4 s, every line-final word held over 4 s before a break of 3 s or more
+(the next candidate's baseline), markers within 500 ms of or on the next line's start or on the
+previous line's end (stamps are not in documents: a marker on a bound did not sit on its stamp),
+sung lines ending before their last word starts, 0 ms sung lines and words, and QA's ad-lib
+shifts, rederives and flags, each stored -> built; on one sheet also each shortened line-final
+word with, from the stem's envelope, the voiced share of the span cut off (near 0 a cut hold,
+near 1 a cut sung word).
+
+On the 39 songs (bars written and hashed before the numbers): every bar passes. The branch with
+its defaults equals main 39/39; with both settings no sung word grows by more than 500 ms (one
+grows at all, VMn4mN7TeAk line 33's last word +300 ms) and none is shortened at all, let alone
+below its floor; main's evidence serves 39/39 and off == record == replay; the earlier bars hold;
+the preview with `--set`: 11 refresh, 28 unchanged, no veto, `ends` and `letterless` on every row
+(two markers that main's filler had put on the previous line's end now sit on their stamps; the
+break-hold baseline: 12 line-final words held over 4 s before a break of 3 s or more, in 8 of the
+39 songs, unchanged); the branch's verdicts with the production setting equal 0.44.0's on all 156
+pairs. The documents equal round 2's: on these songs neither the floor nor the new order binds.
+Whether they bind in the archive is the next `--set` preview's to say (its `letterless` report).
+
 ## What is open
 
 - The archive preview with `--set` again, with the hold fix and the `ends` report; human truth's
