@@ -56,7 +56,9 @@ median offset), never before the line before it ends (its start, if that line wa
 past the next sung line's start, and ends it at the next line's start; it counts in no median, no
 flag, no MIN_REFERENCE_LINES and no agreement (`judged`), in line mode it is placed like every
 line; `restore_held_ends` stops a held end at its start. A sheet with no sung line aligns as
-before (nothing else to time).
+before (nothing else to time). (As first built; rounds 2-4 below changed the placement: the marker
+is 0 ms, cuts only from its stamp and never below a word's floor, and the restore passes over
+it.)
 
 **Deliberately not converted:** `plan_windows`' MIN_WORDS still counts a '♪' as a word and
 `line_regions`' "two or more stamped lines" still counts its stamp. Converting either would cut
@@ -278,7 +280,8 @@ The aligner's end of a pass's last word is no evidence either way: it runs to th
 it is a true short end. So the marker now never cuts a sung word below its floor and never
 lengthens one; the floor is the pipeline's own notion of a word's natural length, the held-end
 restore's measure (the document's median ms per character times the word's characters, at least
-TRIM_MIN_HOLD_MS 350 ms), or the word's own length when that is shorter (`_natural_ms`,
+TRIM_MIN_HOLD_MS 350 ms: 1x the median, where the restore lets a held end grow to 3x it, capped at
+4 s), or the word's own length when that is shorter (`_natural_ms`,
 `_floor_end`): a stamp inside the last word puts the marker at the floor's end instead. On the
 two document sets the natural length of the line-final words before a letterless line is
 350-1 003 ms (median 417) on the 39 songs and 350-2 250 ms (median 354) in the archive's 46;
@@ -300,8 +303,12 @@ and an ad-lib snap passes over a marker (`_snap_end`), so a marker no longer ref
 0 ms as well. All of it is pinned in the repository (`tests/test_letterless_marker.py`): each
 bound exactly, and a seeded comparison of every document with the same document without its
 letterless lines (1 500 cases, stamps on and either side of every bound): no sung word's start
-moves, none grows, none falls below its floor, every marker 0 ms and on its (bounded) stamp. 20
-one-line mutations, the reviewer's five among them, each fail it.
+moves, none grows, none falls below its floor, every marker 0 ms and on its (bounded) stamp; ad-lib
+lines aside (`rederive_adlib_words` respreads an ad-lib over the span to the next line, which the
+marker now is, as stored documents read their filler line) and line documents (no words) not
+compared. That comparison stopped at line QA: the held-end restore after it was not in it, which
+round 4 found and fixed. 20 one-line mutations, the reviewer's five among them, each failed it at
+that commit; round 4 re-states them on its own code.
 
 The preview reports both directions (`letterless`, every row, report only, FORMAT 8): per
 document the line-final words before a letterless line, the shortest of them, how many under
@@ -324,11 +331,83 @@ break-hold baseline: 12 line-final words held over 4 s before a break of 3 s or 
 pairs. The documents equal round 2's: on these songs neither the floor nor the new order binds.
 Whether they bind in the archive is the next `--set` preview's to say (its `letterless` report).
 
+**Round 4: the restore, the degraded path, the count** (the reviewer's second read; its own
+generators, 28 837 monotone and 37 548 wild documents, each compared with the same document
+without its letterless lines). Dark was safe (80 000 seeded documents without a letterless line:
+0 differences); what it found is candidate-only.
+
+- *The floor did not cover the held end.* The held-end restore runs after line QA and stopped
+  every held end at a marker. A stampless marker, or one bounded or placed after the line before,
+  sits on that word's TRIMMED end, so the word kept its trimmed length: 60 ms where the sheet
+  without the '♪' gives 860 ms; in the reviewer's monotone run 12 497 uncut words lost held
+  length (up to 3 999 ms), 1 154 ended under 200 ms where the marker-free document gives 200 or
+  more. Fixed by order: the restore now passes over every marker (as if the sheet had none), and
+  the markers settle after it (`_settle_markers`). Each marker carries how line QA placed it
+  (`LineTiming.placed`: on its stamp, lifted to the floor, bounded by the next line, after the
+  line before, stampless). Only a marker on its stamp ("stamp", "floor") cuts: it cuts the
+  restored word before it at itself, never below the floor on the restored length, and moves to
+  the end of a word it cannot cut (a rescued word that starts after it). Any other marker cuts
+  nothing and follows the line before to its restored end.
+- *The degraded path* bounded no marker by the next aligned line, and the clamp then lifted the
+  sung lines after it (a sung line at 4 991 instead of 3 490; 161 of 2 317 degraded documents).
+  It now chains each sung line's end to the next SUNG line, as without the markers, clamps that
+  timeline, and places each marker against it: on its stamp when that lies after the start of
+  the sung line before (which then ends there), otherwise at that line's end, never past the next
+  sung line. A snapped line, likewise, now ends at the next sung line's start.
+- *Smaller:* the word cut follows only a marker on its stamp (round 3 cut any word reaching past
+  a marker, also where the placement had decided not to cut: the reviewer's 7779-8579 line beside
+  an ad-lib anchored at 7780); a marker the clamp lifted is "previous", not "stamp"; the median
+  is read for the floor only when a line is unaligned (dark by construction).
+
+What the comparison with the marker-free document guarantees now, AFTER the restore, pinned in
+the repository by a seeded generator (`tests/test_letterless_marker.py`, 3 000 documents:
+monotone and jumbled stamps; stampless, consecutive, first and last markers; snapped lines with
+rescued and dropped words; ad-lib neighbours; line documents): every sung word outside an ad-lib
+line starts where the marker-free document starts it, never ends later, and is never shorter than
+min(its marker-free length, its floor), the floor stated in the test on its own (max(350 ms,
+characters x the lower of the two medians line QA and the restore read)); every sung line starts
+where the marker-free one does (line documents included), ends no later, and ends before its last
+word starts only where the marker-free one does; markers are 0 ms, never past the next sung line,
+never before a marker before them, and one without a stamp never cuts. The one carve-out is
+ad-lib lines: `rederive_adlib_words` holds an ad-lib to the next line's start and respreads its
+words, and the next line is the marker, exactly as stored documents read their filler line.
+
+A document with a letterless line now says how its markers were placed (`alignment.qa.markers`,
+kind -> count; logged once per document); a document without one carries nothing new (like
+`uncertain`, the key is not among the schema's listed `qa` properties, which allow others: no
+contract change). The preview's `letterless` report (FORMAT 9) adds per document: line-final
+words before a marker whose hold it stopped (the marker on the word's end, the word under its
+natural length or under 200 ms), markers that start before the previous sung line's last word
+starts or ends (with the document's `uncertain` beside them), `marker_kinds`, and on one sheet
+`final_unpaired` (shortened finals `cut_voiced` leaves out because their start moved),
+`nonlast_words_cut_at_marker`, and for a line-sync build `line_sync_sung_starts_moved`.
+
+Proof. The dark ship: the branch's line QA and restore equal 0.44.0's on 30 000 seeded documents
+without a letterless line (values on and either side of every threshold the module reads, with
+and without onsets, line documents, stampless and unpaired sheets; 11 183 with a snapped line,
+1 911 degraded); the harness fails on three one-line changes to that path and passes the two
+changes that are equivalent there by construction. The repository's tests kill every mutation
+named by either review and this round's own: round 3's re-stated on this code (19 of its 20; the
+order of the next line's bound and the floor no longer changes a document, since a bounded marker
+cuts nothing) and 31 new, each failing `pytest` (a word starting on a marker cut, the cut and the snapped placement without the
+median, the restore stopping at a marker, no settling with or without a median, settling below the
+floor or past the next line, the degraded path chaining through markers or letting a stampless
+marker cut, the count, each new report field). On the 39 songs, against bars written and hashed
+before the numbers (12 bars): every bar passes. Dark equals main 39/39 and no dark document
+carries the count; with both settings no sung word grows by more than 500 ms (VMn4mN7TeAk line 33's
+last word +300 ms, as in round 3) and none is shortened; main's evidence serves 39/39 and off ==
+record == replay with 0 cache misses; the preview with `--set` (FORMAT 9 on every row): 11 refresh,
+28 unchanged, no veto; the production setting's verdicts equal 0.44.0's on all 156 pairs. All
+seven markers sit on their stamps (`markers`: 3 / 2 / 2 "stamp"), so the documents equal round 3's
+line for line; only the new count differs. The songs here do not reach the paths this round
+changed; the archive's `--set` preview is what will (its FORMAT 9 fields say how often).
+
 ## What is open
 
-- The archive preview with `--set` again, with the hold fix and the `ends` report; human truth's
-  verdict (by construction here) and the owner's clips; then the release that turns the defaults
-  on.
+- The archive preview with `--set` again, with the hold fix, the floor, round 4's order and the
+  FORMAT 9 report (stopped holds, markers before the previous word, how each marker was placed);
+  human truth's verdict (by construction here) and the owner's clips; then the release that
+  turns the defaults on.
 - Two bars failed as registered (locality: one ad-lib line +10 ms through QA's median offset;
   sheet texts alone: three filler words more than measured). Whether they block is a decision.
 - Not converted on purpose: `plan_windows`' word count and `line_regions`' stamp count (evidence
