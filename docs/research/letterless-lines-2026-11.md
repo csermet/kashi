@@ -402,12 +402,65 @@ seven markers sit on their stamps (`markers`: 3 / 2 / 2 "stamp"), so the documen
 line for line; only the new count differs. The songs here do not reach the paths this round
 changed; the archive's `--set` preview is what will (its FORMAT 9 fields say how often).
 
+**Round 5: one median, and the contract** (the reviewer's third read: dark safe on 400 000
+seeded documents through line QA, the restore, the sheet texts and the QA counts; round 4's
+findings closed). The dark release the archive is measured on must carry the final candidate
+code, so the rest went in before it.
+
+- *Which median the restore reads.* In round 4 line QA had already cut the word before an
+  on-stamp marker when the restore computed its median ms per character, so "as if the sheet had
+  none" held for the bounds but not for the median (on paper: an even count of measured words
+  whose upper middle is the cut one moves the median 275 -> 162.5, and a held word in another
+  line is restored to 1 950 ms where the marker-free document gives 3 300). Now line QA only
+  places the markers and cuts nothing, no word and no line end: every sung line leaves it as the
+  sheet without letterless lines leaves it, so the restore reads that document's median and
+  bounds, and the settle after it cuts with the same median. One value, the marker-free one, for
+  the restore and for the floor.
+- *What a marker cuts.* Only the last word of the line before a marker on its stamp, when that
+  word starts before the stamp and reaches past it: at the stamp, or at the word's floor when
+  that is later (the marker then moves there, "floor"); the line ends there too. When the line's
+  last word starts at or after the stamp (a snapped line's rescued words), the stamp is no end of
+  that line: the marker follows it and cuts nothing ("previous"). A marker moved by the marker
+  before it is "previous" too, and a cutting marker bounded by the next line keeps its kind (it
+  did cut).
+- *The restore's bound* reads no word chunk past the last line (0.44.0's arithmetic exactly;
+  alignment never builds such a document, a test pins it).
+- *The contract.* `alignment.qa.uncertain` (on every document since 2.19.0) and
+  `alignment.qa.markers` (an object of the five kinds, present only with a letterless line) are
+  declared in `processed-track.v1.schema.json`, optional and additive, and in the generated TS
+  type. The overlay reads nothing from `qa` (its mapper takes `speed_factor` and `quality_score`
+  from `alignment`); the protocol package does not carry it.
+
+The seeded comparison is now exact (4 000 documents, held ends on every word, line documents,
+both sides of the median's 8 words): line QA's output equals the marker-free one for every sung
+line outside an ad-lib; after the restore every such word equals the marker-free one except the
+cut last word, which ends exactly at max(stamp, its start + min(its length, its natural length
+on the marker-free median)), and its line ends at that marker; every other line ends as
+marker-free.
+
+Proof. Every mutation named by either review and this round's own dies in `pytest`: the two
+call-site median mutants are gone with their call sites (line QA reads no median now); their
+successors, the settle's floor without the median and the restore handing the settle none, die
+in `test_when_the_next_line_starts_inside_the_floor_the_word_keeps_its_floor` and
+`test_the_snapped_path_cuts_after_the_restore_at_the_restore_s_median` (ten 4-character words at
+200 ms per character: "tonight" keeps 1 400 ms, not 350); the chunk past the last line in
+`test_the_restore_reads_no_chunk_past_the_last_line`; the relabel in
+`test_a_marker_moved_by_the_marker_before_it_is_no_longer_on_its_stamp`. On the 39 songs, against
+bars hashed before the numbers (`bars-39-r5`): every bar passes; dark equals main 39/39 to the
+byte (generated_at aside) and main's and the dark documents validate against the old schema and
+the new; the candidate documents validate against the new one, carry the count, and equal round
+4's on all 39 songs (all seven markers on their stamps after the line before ended: nothing was
+cut there before either, and the median is unchanged); the production verdicts equal 0.44.0's on
+156 pairs. CI's TypeScript path (install, validate, codegen, versions, typecheck, lint, test,
+build) is green with the generated type committed.
+
 ## What is open
 
-- The archive preview with `--set` again, with the hold fix, the floor, round 4's order and the
-  FORMAT 9 report (stopped holds, markers before the previous word, how each marker was placed);
-  human truth's verdict (by construction here) and the owner's clips; then the release that
-  turns the defaults on.
+- The dark release with this code (the candidate as final: line QA cuts nothing, the settle
+  after the restore cuts on the marker-free median, the declared counts); then the archive
+  preview with `--set` on it, with the FORMAT 9 report (stopped holds, markers before the
+  previous word, how each marker was placed); human truth's verdict (by construction here) and
+  the owner's clips; then the flip, a default and version commit only.
 - Two bars failed as registered (locality: one ad-lib line +10 ms through QA's median offset;
   sheet texts alone: three filler words more than measured). Whether they block is a decision.
 - Not converted on purpose: `plan_windows`' word count and `line_regions`' stamp count (evidence
