@@ -176,10 +176,13 @@ def test_a_last_word_stretched_over_the_interlude_is_cut_at_the_stamp():
     lines, words = outcome.result.lines, outcome.result.words_per_line
     assert outcome.offset_ms == 100
     assert (lines[1].start_ms, lines[1].end_ms) == (3_100, 3_100)  # on its stamp, not 12 060
-    assert (words[0][1].start_ms, words[0][1].end_ms) == (1_500, 3_100)
-    assert lines[0].end_ms == 3_100
+    # line QA cuts nothing (the restore must read the marker-free median and bounds) ...
+    assert (words[0][1].start_ms, words[0][1].end_ms) == (1_500, 12_060)
+    assert lines[0].end_ms == 12_060
+    # ... the marker cuts after the restore, held end included
     restored, _ = restore_held_ends(outcome.result)
-    assert restored.words_per_line[0][1].end_ms == 3_100  # the held end stops there too
+    assert restored.words_per_line[0][1].end_ms == 3_100 == restored.lines[0].end_ms
+    assert restored.lines[1].start_ms == 3_100
     # without the letterless line (the sheet without it) the same word keeps the stretch: the
     # line only ever shortens it
     plain = AlignResult(
@@ -201,13 +204,13 @@ def test_a_stamp_before_the_last_word_starts_cuts_nothing():
     assert lines[1].start_ms == lines[1].end_ms == 12_060  # after the line before it
 
 
-def test_the_cut_leaves_a_word_that_starts_after_the_marker_alone():
-    from kashi_server.pipeline.line_qa import _cut_at_unaligned
+def test_a_marker_before_the_last_word_s_start_follows_the_line_and_cuts_nothing():
+    from kashi_server.pipeline.line_qa import _settle_after_restore
 
     lines = [
-        LineTiming(1_000, 3_900, "one two three", 0.5),
+        LineTiming(1_000, 3_900, "one two three four", 0.5),
         LineTiming(3_000, 3_000, "♪", 0.0, unaligned=True, placed="stamp"),
-        LineTiming(6_000, 6_300, "four", 0.5),
+        LineTiming(6_000, 6_300, "five", 0.5),
     ]
     words = [
         [
@@ -217,17 +220,14 @@ def test_the_cut_leaves_a_word_that_starts_after_the_marker_alone():
             AlignedWord(3_500, 3_900, "four", 0.2),
         ],
         [],
-        [AlignedWord(6_000, 6_300, "four", 0.2)],
+        [AlignedWord(6_000, 6_300, "five", 0.2)],
     ]
-    cut = _cut_at_unaligned(lines, words)
-    # a snapped line's rescued words can lie past the marker: they keep their length (0 ms else)
-    assert [(w.start_ms, w.end_ms) for w in cut[0]] == [
-        (1_000, 2_000),
-        (2_500, 3_000),
-        (3_000, 3_900),
-        (3_500, 3_900),
-    ]
-    assert cut[2] == words[2]
+    # a snapped line's rescued words can lie past the marker: the line's last word starts after
+    # it, so the stamp is no end of that line; the marker follows it and nothing is cut
+    settled, cut = _settle_after_restore(lines, words, None)
+    assert cut == words
+    assert (settled[1].start_ms, settled[1].placed) == (3_900, "previous")
+    assert settled[0] == lines[0]
 
 
 def test_a_line_not_given_counts_in_no_median_and_no_flag():
