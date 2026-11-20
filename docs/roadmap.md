@@ -122,6 +122,15 @@ dark (both settings off, documents unchanged), and `preview --set` to measure a 
 whole archive from evidence before it becomes a default: the next timing step is that archive run
 and, if its bars hold, the flip to 2.36.0.
 
+**State on 2026-11-20.** The first archive run kept the candidate off: with the '♪' filler gone, a
+sung line's last word was held up to 20 s (and, after a first fix, could be cut to a flash). Five
+rounds and three reviews later a letterless line is a 0 ms marker that can shorten the word before
+it only at its stamp and never below the word's floor; server 0.45.0 carries that form, still dark,
+for a second archive run against bars registered before it. What the work exposed, and the next
+candidate: before any long gap a line-final word is held far too long on today's pipeline (12 of 84
+such words over 4 s in the 39 local documents). Overlay 0.32.0 is the shared-view work and the
+fixes above, released after the owner's check on Windows.
+
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
 of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).
