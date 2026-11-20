@@ -868,6 +868,43 @@ regroup code, 60 000 boundary-heavy cases, 0 differences). Detail: `letterless-l
   starts called all of them `refresh`. Next: the first rule must never lengthen a sung word; the
   preview row reports holds and line ends; then a new registration and a second archive run.
 
+## Server 0.45.0: the candidate's final form, still dark (2026-11-20)
+
+Pipeline 2.35.0 unchanged; both settings stay off. Detail: `letterless-lines-2026-11.md`.
+
+- **Why the hold happened.** A pass's last sung word takes every frame to the slice end (the
+  library's spans run through the trailing blank). On main the '♪' filler was that last token; with
+  it gone the last sung word ran across the interlude, and the '♪' line was pushed behind it. The
+  same mechanism is main's ordinary behaviour before any long gap: in the 39 local documents 12 of
+  84 line-final words before a gap of 3 s or more last over 4 s, the longest 17.76 s. That is a
+  defect of its own and the next candidate, not part of this one.
+- **The rule now.** A letterless line is a 0 ms marker. Line QA only places it; held-end restore
+  runs exactly as if the sheet had no such line. Afterwards a marker that sits on its stamp may cut
+  the last word of the line before it there — never below the word's floor, min(its own duration,
+  max(350 ms, characters × the document's median ms per character)), the marker moving to the
+  floor's end when the stamp is earlier; every other marker (stampless, bounded by its neighbours)
+  shortens nothing. Against the same document without its letterless lines: no sung word starts
+  elsewhere or ends later, no sung line starts elsewhere. Ad-lib lines keep reading a marker as the
+  next line, as stored documents read the filler line.
+- **Five rounds, three reviews.** The first fix cut without a floor (a stamp inside an ordinary
+  last word left it 1-30 ms); the second let a marker stop held-end restore; the third read the
+  median from words already cut. Each was found by a reviewer running its own generator against the
+  marker-free document, none by the 39 songs, where all seven markers sit on their stamps and
+  nothing binds. The comparison is now a seeded test in the repo (4 000 documents, held ends and
+  line-sync documents included, expected ends from an independent formula).
+- **Dark equals 0.44.0:** 39 of 39 documents byte-identical apart from the timestamp; 400 000
+  seeded documents without a letterless line through main's line QA and restore and the branch's,
+  0 differences, measured by the author and separately by the reviewer.
+- **Contract:** `alignment.qa.markers` (how each marker was placed; only in a document that has
+  one) and `alignment.qa.uncertain` (emitted since long, never declared) are optional in the schema.
+- **The preview row** (`PREVIEW_FORMAT` 9) reports, without judging: words that grew, the largest
+  line-final hold, sung line ends that moved, starts next to a marker that moved, line-final words
+  before a marker under 120 / 200 ms and over 4 s, what a cut removed and whether the stem was
+  voiced there, marker kinds, and every line-final hold over 4 s before a gap of 3 s or more —
+  the next candidate's archive baseline.
+- **Next:** the plain preview under 0.45.0 (nothing may change), then the candidate on the archive
+  against bars registered before the run, then reading the built documents line by line.
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.
