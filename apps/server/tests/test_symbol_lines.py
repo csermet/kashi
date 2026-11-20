@@ -201,6 +201,33 @@ def test_a_stamp_before_the_last_word_starts_cuts_nothing():
     assert lines[1].start_ms == lines[1].end_ms == 12_060  # after the line before it
 
 
+def test_the_cut_leaves_a_word_that_starts_after_the_marker_alone():
+    from kashi_server.pipeline.line_qa import _cut_at_unaligned
+
+    lines = [
+        LineTiming(1_000, 3_900, "one two three", 0.5),
+        LineTiming(3_000, 3_000, "♪", 0.0, unaligned=True),
+        LineTiming(6_000, 6_300, "four", 0.5),
+    ]
+    words = [
+        [
+            AlignedWord(1_000, 2_000, "one", 0.2),
+            AlignedWord(2_500, 4_000, "two", 0.2),
+            AlignedWord(3_500, 3_900, "three", 0.2),
+        ],
+        [],
+        [AlignedWord(6_000, 6_300, "four", 0.2)],
+    ]
+    cut = _cut_at_unaligned(lines, words)
+    # a snapped line's rescued words can lie past the marker: they keep their length (0 ms else)
+    assert [(w.start_ms, w.end_ms) for w in cut[0]] == [
+        (1_000, 2_000),
+        (2_500, 3_000),
+        (3_500, 3_900),
+    ]
+    assert cut[2] == words[2]
+
+
 def test_a_line_not_given_counts_in_no_median_and_no_flag():
     # Three sung lines 0, 200 and 400 ms late (median 200); the '♪' sits at 0 against its 8 s
     # stamp, which as a counted line would pull the median to 100 and be flagged.
