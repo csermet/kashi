@@ -194,7 +194,7 @@ def test_a_last_word_stretched_over_the_interlude_is_cut_at_the_stamp():
 
 
 def test_a_stamp_before_the_last_word_starts_cuts_nothing():
-    result, texts, stamps = _stretched(1_200)  # the '♪' stamp inside the line's last word
+    result, texts, stamps = _stretched(1_200)  # stamp + offset 1 300: before the last word starts
     outcome = apply_line_qa(result, texts, stamps)
     lines, words = outcome.result.lines, outcome.result.words_per_line
     assert words[0][1].end_ms == 12_060  # the ordinary end, untouched
