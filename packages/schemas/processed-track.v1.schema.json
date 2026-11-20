@@ -78,7 +78,21 @@
             "offset_ms": { "type": "integer" },
             "trimmed_ends": { "type": "integer", "minimum": 0 },
             "nudged": { "type": "integer", "minimum": 0 },
-            "response_shifted": { "type": "integer", "minimum": 0 }
+            "response_shifted": { "type": "integer", "minimum": 0 },
+            "uncertain": { "type": "integer", "minimum": 0 },
+            "markers": {
+              "type": "object",
+              "description": "How line QA placed each letterless sheet line (a line with no letter and no digit, e.g. '♪', which the aligner was not given; `letterless_lines_wordless`): on its stamp, past it at the end of the word it cut to that word's floor, bounded by the next sung line, after the line before it, or stampless. Present only when the document has such a line.",
+              "required": ["stamp", "floor", "next", "previous", "stampless"],
+              "additionalProperties": false,
+              "properties": {
+                "stamp": { "type": "integer", "minimum": 0 },
+                "floor": { "type": "integer", "minimum": 0 },
+                "next": { "type": "integer", "minimum": 0 },
+                "previous": { "type": "integer", "minimum": 0 },
+                "stampless": { "type": "integer", "minimum": 0 }
+              }
+            }
           }
         }
       }

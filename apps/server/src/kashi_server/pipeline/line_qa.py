@@ -195,19 +195,34 @@ def restore_held_ends(result: AlignResult) -> tuple[AlignResult, int]:
     first word for a line's last word) nor past the
     TRIM_* cap at the document's median ms per character. Only ever LENGTHENS
     an end; ad-lib lines are exempt (their spans belong to
-    `rederive_adlib_words`). Returns (result, words lengthened)."""
+    `rederive_adlib_words`). Returns (result, words lengthened).
+
+    A letterless line (`unaligned`, a 0 ms marker) is passed over, as if the
+    sheet had none: line QA cut no word at it, so the median here is the one
+    the sheet without it gives too, and the bounds are. `_settle_markers` then
+    lets a marker on its stamp cut the restored word before it (never below its
+    floor, on this same median) and moves any other marker to the restored end
+    of the line before it."""
     if result.sync != "word":
         return result, 0
     med_char_ms = _median_char_ms(result)
     if med_char_ms is None:
-        return result, 0
+        if not any(line.unaligned for line in result.lines):
+            return result, 0
+        lines, words = _settle_markers(list(result.lines), result.words_per_line, None)
+        return replace(result, lines=lines, words_per_line=words), 0
     words_out = [list(chunk) for chunk in result.words_per_line]
     lines_out = list(result.lines)
     restored = 0
+    last_line = min(len(result.lines), len(words_out))
     for i, line in enumerate(result.lines):
         if is_adlib(line.text) or i >= len(words_out) or not words_out[i]:
             continue
-        later = _next_bound(result.lines, words_out, i)
+        # the next line's first word (a line without words, a marker among them, passed over;
+        # never a chunk past the last line)
+        later = next(
+            (words_out[j][0].start_ms for j in range(i + 1, last_line) if words_out[j]), None
+        )
         chunk = words_out[i]
         for k, w in enumerate(chunk):
             if w.held_ms <= 0:
@@ -226,21 +241,19 @@ def restore_held_ends(result: AlignResult) -> tuple[AlignResult, int]:
     if restored:
         logger.info("held ends restored: %d word(s) lengthened (med %.0fms/char)",
                     restored, med_char_ms)
+    lines_out, words_out = _settle_markers(lines_out, words_out, med_char_ms)
     return replace(result, lines=lines_out, words_per_line=words_out), restored
 
 
-def _next_bound(
-    lines: list[LineTiming], words: list[list[AlignedWord]], i: int
-) -> int | None:
-    """Where a held end of line ``i``'s last word must stop: the next word's start, or the start
-    of a line the aligner was not given (`unaligned`, its '♪') when that comes first. A line
-    whose words QA dropped is passed over, as before such lines existed."""
-    for j in range(i + 1, len(lines)):
-        if j < len(words) and words[j]:
-            return words[j][0].start_ms
-        if lines[j].unaligned:
-            return lines[j].start_ms
-    return None
+def _settle_markers(
+    lines: list[LineTiming], words: list[list[AlignedWord]], med_char_ms: float | None
+) -> tuple[list[LineTiming], list[list[AlignedWord]]]:
+    """`_settle_after_restore`, and the placement count logged once per document."""
+    if not any(line.unaligned for line in lines):
+        return lines, words
+    lines, words = _settle_after_restore(lines, words, med_char_ms)
+    logger.info("letterless lines placed: %s", marker_kinds(lines))
+    return lines, words
 
 
 def _median_char_ms(result: AlignResult) -> float | None:
@@ -410,36 +423,153 @@ def _clamp_monotonic(lines: list[LineTiming]) -> list[LineTiming]:
     return out
 
 
+def _natural_ms(word: AlignedWord, med_char_ms: float | None) -> int:
+    """A word's natural length: the document's median ms per character (`_median_char_ms`, the
+    held-end restore's own measure; restore allows up to 3x it, capped at TRIM_MAX_HOLD_MS)
+    times its characters, never under TRIM_MIN_HOLD_MS (the shortest hold the restore gives).
+    TRIM_MIN_HOLD_MS alone without a median."""
+    spoken = round(len(word.text) * med_char_ms) if med_char_ms else 0
+    return max(TRIM_MIN_HOLD_MS, spoken)
+
+
+def _floor_end(word: AlignedWord, med_char_ms: float | None) -> int:
+    """Where a letterless line may at the earliest end ``word``: its natural length from its
+    start (`_natural_ms`), or its own end when it is shorter."""
+    return word.start_ms + min(word.end_ms - word.start_ms, _natural_ms(word, med_char_ms))
+
+
+#: How a letterless line was placed (`LineTiming.placed`): on its stamp + QA's offset; past its
+#: stamp, at the end of the word before it, which it cut to that word's floor; bounded by the
+#: next aligned line's start; after the line before it (its stamp lay earlier, or a marker before
+#: it or the clamp moved it); stampless (where regroup put it).
+MARKER_KINDS = ("stamp", "floor", "next", "previous", "stampless")
+#: The kinds that cut the word before them (at the stamp, never below its floor). The others
+#: shorten nothing: the restore passes over them and they follow the line before
+#: (`_settle_markers`).
+CUT_KINDS = ("stamp", "floor")
+
+
+def marker_kinds(lines: list[LineTiming]) -> dict[str, int]:
+    """How many letterless lines were placed each way (`MARKER_KINDS`); empty without one."""
+    placed = [line.placed for line in lines if line.unaligned]
+    return {kind: placed.count(kind) for kind in MARKER_KINDS} if placed else {}
+
+
 def _place_unaligned(
     lines: list[LineTiming],
     refs: list[int | None] | None,
     offset_ms: int,
     snapped: set[int] | frozenset[int] = frozenset(),
+    words: list[list[AlignedWord]] | None = None,
+    originals: list[LineTiming] | None = None,
 ) -> list[LineTiming]:
-    """The lines the aligner was not given (`unaligned`: no letter, no digit) placed as a
-    snapped line's start is: on their stamp on the aligner's clock (ref + offset_ms); stampless,
-    or with no references, where regroup put them (the gap between the words around them).
-    Never before the line before ends (before it starts, when that line was snapped or is
-    unaligned too: such an end follows the next start), nor past the next aligned line's start:
-    a line the aligner never heard moves no sung line. Ends are `_recompute_ends`' (the next
-    line's start). Pure; lines come back as they were when none is unaligned."""
+    """The lines the aligner was not given (`unaligned`: no letter, no digit) placed, each a
+    marker 0 ms long (its end is its start): the gap after it stays a gap, which the overlay
+    holds (<= 5 s), shows as an interlude (longer) and leads the next line into, as it does when
+    no such line is there. Never past the next aligned line's start, which bounds the stamp
+    first: a line the aligner never heard moves no sung line.
+
+    Line QA only places them and cuts nothing: every word and every sung line leaves QA as the
+    sheet without letterless lines leaves it, so the held-end restore reads the same median and
+    bounds. A marker shortens a sung word only after the restore (`_settle_markers`), by cutting
+    at its own stamp and never below the word's floor (`_floor_end`). A segment-starred window
+    pass gives the last word of its text every frame to the slice end (ctc_forced_aligner's
+    get_spans pads the last span to the end of the trailing blank), so the aligner's end of the
+    word before a letterless line is no evidence either way: it can run over the whole interlude
+    (2026-11-20, the archive: a 20 s hold), or be a true short end. With a stamp (ref +
+    offset_ms) not past the next line:
+
+    - after the start of the last word of an ordinary sung line before it: on the stamp
+      ("stamp", the kind that cuts);
+    - otherwise after the line before it ends (starts, when that line is a marker; when it was
+      snapped, after its rescued words): on the stamp when it lies later ("stamp"), else at that
+      end ("previous");
+
+    a stamp past the next line puts it on that line's start ("next"); without one, where regroup
+    put it ("stampless", after the line before). `words` are the result's words per line,
+    `originals` the lines before the snaps (where a snapped line's rescued words will lie).
+    Pure; lines come back as they were when none is unaligned."""
     if not any(line.unaligned for line in lines):
         return lines
     out = list(lines)
     for i, line in enumerate(out):
         if not line.unaligned:
             continue
-        ref = refs[i] if refs is not None else None
-        start = line.start_ms if ref is None else max(0, ref + offset_ms)
-        if i > 0:
-            before = out[i - 1]
-            held = before.unaligned or (i - 1) in snapped
-            start = max(start, before.start_ms if held else before.end_ms)
         after = next((later.start_ms for later in out[i + 1 :] if not later.unaligned), None)
-        if after is not None:
-            start = min(start, after)
-        out[i] = replace(line, start_ms=start, end_ms=max(start, line.end_ms))
+        before = out[i - 1] if i > 0 else None
+        chunk = words[i - 1] if words is not None and 0 < i <= len(words) else []
+        held = before is not None and (before.unaligned or (i - 1) in snapped)
+        if before is None:
+            lo = 0
+        elif not held:
+            lo = before.end_ms
+        else:
+            lo = before.start_ms
+            if (i - 1) in snapped and chunk and originals is not None:
+                # the rescue block-shifts the snapped line's words with its start
+                lo = max(lo, chunk[-1].end_ms + before.start_ms - originals[i - 1].start_ms)
+        ref = refs[i] if refs is not None else None
+        last = chunk[-1] if chunk and not held else None
+        if ref is None:
+            start, kind = max(line.start_ms, lo), "stampless"
+        else:
+            want = max(0, ref + offset_ms)
+            if after is not None and want > after:
+                start, kind = after, "next"
+            elif last is not None and want > last.start_ms:
+                start, kind = want, "stamp"
+            else:
+                start = max(want, lo)
+                kind = "stamp" if start == want else "previous"
+        if after is not None and start > after:
+            start, kind = after, "next"
+        out[i] = replace(line, start_ms=start, end_ms=start, placed=kind)
     return out
+
+
+def _settle_after_restore(
+    lines: list[LineTiming], words: list[list[AlignedWord]], med_char_ms: float | None
+) -> tuple[list[LineTiming], list[list[AlignedWord]]]:
+    """After the held-end restore, which passes over every marker (as if no letterless line were
+    there), with the restore's own median (`med_char_ms`, the one the sheet without letterless
+    lines gives). A marker on its stamp ("stamp") after the start of the last word of the line
+    before cuts that word, when it reaches past the stamp, at the stamp or at the word's floor
+    when that is later, and moves to the cut end when it is the floor ("floor"); the line ends
+    there too. When that last word starts at or after the stamp, the marker follows it and cuts
+    nothing ("previous"). Any other marker follows the line before it to its restored words' end
+    and shortens nothing. Never past the next aligned line's start (there "next", unless it cut),
+    never before a marker before it ("previous" when that moved it). Words and lines come back
+    as they were when none is unaligned."""
+    if not any(line.unaligned for line in lines):
+        return lines, words
+    lines, words = list(lines), [list(chunk) for chunk in words]
+    for i, line in enumerate(lines):
+        if not line.unaligned or i == 0:
+            continue
+        after = next((later.start_ms for later in lines[i + 1 :] if not later.unaligned), None)
+        before = lines[i - 1]
+        start, kind = line.start_ms, line.placed
+        if before.unaligned:
+            if start < before.start_ms:
+                start = before.start_ms
+                kind = "previous" if kind in CUT_KINDS else kind
+        elif i - 1 < len(words) and words[i - 1]:
+            last = words[i - 1][-1]
+            if kind in CUT_KINDS and last.start_ms < start:
+                if start < last.end_ms:
+                    end = max(start, _floor_end(last, med_char_ms))
+                    words[i - 1] = [*words[i - 1][:-1], replace(last, end_ms=end)]
+                    if end > start:
+                        start, kind = end, "floor"
+                if before.end_ms > start:
+                    lines[i - 1] = replace(before, end_ms=max(before.start_ms, start))
+            elif kind != "next":
+                kind = "previous" if kind in CUT_KINDS else kind
+                start = max(start, last.end_ms)
+        if after is not None and start > after:
+            start, kind = after, kind if kind in CUT_KINDS else "next"
+        lines[i] = replace(line, start_ms=start, end_ms=start, placed=kind)
+    return lines, words
 
 
 def _settle(
@@ -448,14 +578,23 @@ def _settle(
     refs: list[int | None] | None,
     offset_ms: int,
     snapped: set[int] | frozenset[int] = frozenset(),
+    words: list[list[AlignedWord]] | None = None,
 ) -> list[LineTiming]:
-    """The line timeline QA hands on: the unaligned lines placed (`_place_unaligned`), the
-    snapped and the unaligned lines ending at the next line's start (`_recompute_ends`), starts
-    monotonic. Without unaligned lines: `_clamp_monotonic(_recompute_ends(lines, snapped, ...))`,
-    what QA ran before them."""
-    lines = _place_unaligned(lines, refs, offset_ms, snapped)
-    ends = set(snapped) | {i for i, line in enumerate(lines) if line.unaligned}
-    return _clamp_monotonic(_recompute_ends(lines, ends, originals))
+    """The line timeline QA hands on: the unaligned lines placed (`_place_unaligned`, 0 ms
+    markers, after the ad-lib shifts and the snaps), the snapped lines ending at the next sung
+    line's start (`_recompute_ends`), starts monotonic. Without unaligned lines:
+    `_clamp_monotonic(_recompute_ends(lines, snapped, ...))`, what QA ran before them."""
+    placed = _place_unaligned(lines, refs, offset_ms, snapped, words, originals)
+    out = _clamp_monotonic(_recompute_ends(placed, set(snapped), originals))
+    if placed is lines:
+        return out
+    # a marker the clamp lifted (a sung line before it starts later) sits after that line
+    return [
+        replace(c, placed="previous")
+        if c.unaligned and c.placed != "stampless" and c.start_ms != p.start_ms
+        else c
+        for c, p in zip(out, placed, strict=True)
+    ]
 
 
 def _recompute_ends(
@@ -466,8 +605,10 @@ def _recompute_ends(
     duration (the snapped start makes the local end/start delta meaningless)."""
     out = list(lines)
     for i in sorted(flagged):
-        if i + 1 < len(out):
-            end = out[i + 1].start_ms
+        # the next SUNG line: a letterless line (`unaligned`, a 0 ms marker) is passed over
+        nxt = next((j for j in range(i + 1, len(out)) if not out[j].unaligned), None)
+        if nxt is not None:
+            end = out[nxt].start_ms
         else:
             end = out[i].start_ms + max(0, originals[i].end_ms - originals[i].start_ms)
         out[i] = replace(out[i], end_ms=max(end, out[i].start_ms))
@@ -485,6 +626,49 @@ def _offset_is_a_clock_difference(deviations: list[int] | None, offset_ms: int) 
         return False
     mad = median([abs(d - offset_ms) for d in deviations])
     return mad <= OFFSET_TRUST_MAD_MS
+
+
+def _degraded_with_markers(
+    result: AlignResult, refs: list[int | None], starts: list[int]
+) -> list[LineTiming]:
+    """`_degrade_to_line`'s timeline when the sheet has letterless lines: the sung lines exactly
+    as the sheet without them gives them (starts, ends chained to the next SUNG line, the
+    clamp), then each marker, 0 ms, against that timeline. On its stamp when that lies after the
+    start of the sung line before it, which then ends there ("stamp"); otherwise, or without a
+    stamp, at that line's end ("previous" / "stampless"); after a marker, never before it; never
+    past the next sung line's start ("next"). A marker moves no sung start and lengthens no sung
+    line."""
+    sung = [i for i, line in enumerate(result.lines) if not line.unaligned]
+    chained: list[LineTiming] = []
+    for k, i in enumerate(sung):
+        line = result.lines[i]
+        if k + 1 < len(sung):
+            end = starts[sung[k + 1]]
+        else:
+            end = starts[i] + max(0, line.end_ms - line.start_ms)
+        chained.append(replace(line, start_ms=starts[i], end_ms=max(end, starts[i])))
+    out: list[LineTiming] = list(result.lines)
+    for i, line in zip(sung, _clamp_monotonic(chained), strict=True):
+        out[i] = line
+    for i, line in enumerate(out):
+        if not line.unaligned:
+            continue
+        after = next((later.start_ms for later in out[i + 1 :] if not later.unaligned), None)
+        before = out[i - 1] if i > 0 else None
+        start, kind = starts[i], "stamp" if refs[i] is not None else "stampless"
+        if before is not None and before.unaligned:
+            if start < before.start_ms:
+                start, kind = before.start_ms, "previous" if kind == "stamp" else kind
+        elif before is not None:
+            if kind == "stampless" or start <= before.start_ms:
+                start, kind = max(start, before.end_ms), "previous" if kind == "stamp" else kind
+        if after is not None and start > after:
+            start, kind = after, "next"
+        if kind == "stamp" and before is not None and not before.unaligned:
+            if before.end_ms > start:
+                out[i - 1] = replace(before, end_ms=start)
+        out[i] = replace(line, start_ms=start, end_ms=start, placed=kind)
+    return out
 
 
 def _degrade_to_line(
@@ -525,13 +709,17 @@ def _degrade_to_line(
         max(0, ref + shift) if ref is not None else max(0, line.start_ms - offset_ms + shift)
         for line, ref in zip(result.lines, refs, strict=True)
     ]
-    lines: list[LineTiming] = []
-    for i, line in enumerate(result.lines):
-        if i + 1 < len(result.lines):
-            end = starts[i + 1]
-        else:
-            end = starts[i] + max(0, line.end_ms - line.start_ms)
-        lines.append(replace(line, start_ms=starts[i], end_ms=max(end, starts[i])))
+    if any(line.unaligned for line in result.lines):
+        clamped = _degraded_with_markers(result, refs, starts)
+    else:
+        lines: list[LineTiming] = []
+        for i, line in enumerate(result.lines):
+            if i + 1 < len(result.lines):
+                end = starts[i + 1]
+            else:
+                end = starts[i] + max(0, line.end_ms - line.start_ms)
+            lines.append(replace(line, start_ms=starts[i], end_ms=max(end, starts[i])))
+        clamped = _clamp_monotonic(lines)
     # A line the aligner was not given is placed like every line here, but judged by nothing.
     referenced = sum(
         ref is not None and not line.unaligned for line, ref in zip(result.lines, refs, strict=True)
@@ -540,7 +728,7 @@ def _degrade_to_line(
     return LineQAOutcome(
         result=AlignResult(
             sync="line",
-            lines=_clamp_monotonic(lines),
+            lines=clamped,
             words_per_line=[],
             quality_score=agreement,
             windowed=result.windowed,
@@ -574,7 +762,8 @@ def apply_line_qa(
         if ref is not None
     ]
     offset_ms = round(median(deviations))
-    result = replace(result, lines=_place_unaligned(result.lines, refs, offset_ms))
+    # Lines the aligner was not given are placed last (`_settle`), after the ad-lib shifts and
+    # the snaps, and no sung line's decision reads them (`_snap_end` passes over them).
     result, adlib_shifted = _shift_adlibs(result, refs, offset_ms)
     flagged = [
         i
@@ -649,7 +838,8 @@ def _finish_unreferenced(result: AlignResult) -> LineQAOutcome:
     # No reference ≠ no ad-libs: document assembly still writes the adlib
     # flag and the overlay still sweeps, so the rederive must run here too
     # (retro finding — QA-less docs swept CTC's scattered spans).
-    clamped = replace(result, lines=_settle(result.lines, result.lines, None, 0))
+    lines = _settle(result.lines, result.lines, None, 0, words=result.words_per_line)
+    clamped = replace(result, lines=lines)
     clamped, rederived = rederive_adlib_words(clamped)
     return LineQAOutcome(
         result=clamped,
@@ -667,7 +857,8 @@ def _finish_clean(
     adlib_shifted: list[int],
 ) -> LineQAOutcome:
     """No line flagged: clamp, score and the ad-lib rederive."""
-    clean = replace(result, lines=_settle(result.lines, result.lines, refs, offset_ms))
+    lines = _settle(result.lines, result.lines, refs, offset_ms, words=result.words_per_line)
+    clean = replace(result, lines=lines)
     all_probs = [w.prob for chunk in result.words_per_line for w in chunk]
     # Undamaged, but the basis still has to name the formula: an unflagged
     # non-windowed document is "probs+anchors" with an agreement of 1.0,
@@ -696,7 +887,7 @@ def _snap_flagged_lines(
         if i in flagged_set and ref is not None:
             line = replace(line, start_ms=max(0, ref + offset_ms))
         lines.append(line)
-    return _settle(lines, result.lines, refs, offset_ms, flagged_set)
+    return _settle(lines, result.lines, refs, offset_ms, flagged_set, result.words_per_line)
 
 
 def _rescue_or_drop_words(
@@ -866,10 +1057,14 @@ def _snap_end(lines: list[LineTiming], i: int, start: int, end: int, n_words: in
 
     ``lines`` holds the snaps made so far, so the previous line is where it
     now stands; the next one is still the aligner's."""
-    if i > 0 and start <= lines[i - 1].start_ms:
+    # A line the aligner was not given (`unaligned`, a '♪') is no neighbour here: it is placed
+    # after the snaps (`_place_unaligned`), and a sung line is never moved by one.
+    before = next((lines[j] for j in range(i - 1, -1, -1) if not lines[j].unaligned), None)
+    after = next((lines[j] for j in range(i + 1, len(lines)) if not lines[j].unaligned), None)
+    if before is not None and start <= before.start_ms:
         return None
-    if i + 1 < len(lines):
-        next_start = lines[i + 1].start_ms
+    if after is not None:
+        next_start = after.start_ms
         if start >= next_start:
             return None
         if end > next_start:

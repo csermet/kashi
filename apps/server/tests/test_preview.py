@@ -1088,7 +1088,7 @@ def test_no_row_carries_an_overrun_any_more(db_session, audio, monkeypatch, get_
     row = _preview(db_session, lyrics="stored", confirm_all=True)
     assert row["verdict"] == rules.REFRESH
     assert "aligner_overruns" not in row and "aligner_overruns" not in row["ladder"]
-    assert preview.PREVIEW_FORMAT == 6 and not hasattr(preview, "LADDER_OVERRUN")
+    assert preview.PREVIEW_FORMAT == 9 and not hasattr(preview, "LADDER_OVERRUN")
 
 
 def test_an_aligner_refusal_is_a_failure_not_a_full_job(db_session, audio, monkeypatch):

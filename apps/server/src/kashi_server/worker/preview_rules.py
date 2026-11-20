@@ -61,6 +61,7 @@ from kashi_server.pipeline.alignment import (
     sung_text,
 )
 from kashi_server.pipeline.level import Envelope
+from kashi_server.pipeline.line_qa import is_adlib
 from kashi_server.pipeline.lrclib import strip_inline_tags
 
 #: W1: words of one line form a run while each starts less than this after the one before it.
@@ -87,6 +88,13 @@ LINE_VOICE_MAX_MS = 1500
 #: The silence line and the shortest silence (the 2.35.0 rule's, the audit voice witness's own).
 SILENCE_DB = FIRST_HEARD_SILENCE_DB
 MIN_SILENCE_MS = FIRST_HEARD_MIN_SILENCE_MS
+#: `ends` (report only, 2026-11-20): what no veto reads. A word whose duration grew by more than
+#: this, ...
+GREW_MS = 1000
+#: ... a sung line whose end moved by more than this, ...
+END_MOVED_MS = 500
+#: ... and a word next to a letterless line whose start moved by more than this.
+NEIGHBOUR_START_MS = 100
 
 #: Verdicts, in the order they are decided.
 FAILED = "failed"
@@ -316,6 +324,7 @@ def compare(
         "old": shape(old),
         "new": shape(new),
         "sheet": sheet_changes(old, new),
+        "letterless": letterless_report(old, new, envelope),
         "qa": {
             "offset_ms": [
                 ((d.get("alignment") or {}).get("qa") or {}).get("offset_ms") for d in (old, new)
@@ -406,6 +415,229 @@ def compare(
     }
     out["w1"], out["w2"], out["w3"], out["w4"], out["w5"] = w1, w2, lost, w4, w5
     out["w2_unjudged"] = unjudged
+    out["ends"] = ends_report(la, lb)
+    return out
+
+
+def ends_report(la: list[dict], lb: list[dict]) -> dict:
+    """Report only, never a veto (2026-11-20: on the archive the letterless-line candidate gave a
+    sung line's last word a 20 s hold and the preview called it `refresh`, since no veto reads a
+    word's end): over the sung lines of one sheet (lines with a letter or a digit), words paired
+    by index where a line keeps its word count, the words whose duration grew by more than
+    GREW_MS; the line-final word whose duration grew most (line, old and new duration in ms; None
+    when none grew); the sung lines whose end moved by more than END_MOVED_MS; and the words of
+    the lines next to a letterless line whose start moved by more than NEIGHBOUR_START_MS."""
+    letterless = [i for i, line in enumerate(la) if not sung_text(line.get("text") or "")]
+    near = {j for i in letterless for j in (i - 1, i + 1)}
+    grew = ends = neighbours = 0
+    largest: dict | None = None
+    for i, (a, b) in enumerate(zip(la, lb, strict=True)):
+        if not sung_text(a.get("text") or ""):
+            continue
+        ends += abs(b["end_ms"] - a["end_ms"]) > END_MOVED_MS
+        wa, wb = _words(a), _words(b)
+        if not wa or len(wa) != len(wb):
+            continue
+        for x, y in zip(wa, wb, strict=True):
+            grew += (y["end_ms"] - y["start_ms"]) - (x["end_ms"] - x["start_ms"]) > GREW_MS
+            neighbours += i in near and abs(y["start_ms"] - x["start_ms"]) > NEIGHBOUR_START_MS
+        old_ms = wa[-1]["end_ms"] - wa[-1]["start_ms"]
+        new_ms = wb[-1]["end_ms"] - wb[-1]["start_ms"]
+        if new_ms > old_ms and (
+            largest is None or new_ms - old_ms > largest["new_ms"] - largest["old_ms"]
+        ):
+            largest = {"line": i, "old_ms": old_ms, "new_ms": new_ms}
+    return {
+        f"words_grew_over_{GREW_MS}": grew,
+        "largest_final_hold": largest,
+        f"sung_ends_moved_over_{END_MOVED_MS}": ends,
+        f"neighbour_starts_moved_over_{NEIGHBOUR_START_MS}": neighbours,
+    }
+
+
+#: `letterless` (report only, 2026-11-20): a line-final word's dwell that reads as a flash ...
+FINAL_SHORT_MS = (120, 200)
+#: ... a hold that reads as one, ...
+HOLD_MS = 4000
+#: ... the gap after a line-final word that makes it the last word before a break, ...
+GAP_MS = 3000
+#: ... and a marker this close to the next sung line.
+MARKER_NEAR_MS = 500
+
+
+def _final_words_before_letterless(doc: dict) -> dict[int, dict]:
+    """Line index -> the last word of each sung line right before a line with no letter and no
+    digit."""
+    lines = _lines(doc)
+    return {
+        i: _words(line)[-1]
+        for i, line in enumerate(lines)
+        if i + 1 < len(lines)
+        and sung_text(line.get("text") or "")
+        and _words(line)
+        and not sung_text(lines[i + 1].get("text") or "")
+    }
+
+
+def _gap_holds(doc: dict) -> int:
+    """Line-final words of sung lines whose next word starts >= GAP_MS after them and that last
+    longer than HOLD_MS (the hold before a break, letterless line or not)."""
+    flat = [
+        (i, w)
+        for i, line in enumerate(_lines(doc))
+        if sung_text(line.get("text") or "")
+        for w in _words(line)
+    ]
+    held = 0
+    for k, (i, w) in enumerate(flat):
+        if k + 1 < len(flat) and flat[k + 1][0] != i:
+            if flat[k + 1][1]["start_ms"] - w["start_ms"] >= GAP_MS:
+                held += w["end_ms"] - w["start_ms"] > HOLD_MS
+    return held
+
+
+def _natural_ms(doc: dict) -> float | None:
+    """The document's median ms per character over its sung, non-ad-lib words (>= 8 of them,
+    as line QA measures it for a word's natural length), or None."""
+    speeds = sorted(
+        (w["end_ms"] - w["start_ms"]) / len(w.get("text") or "")
+        for line in _lines(doc)
+        if sung_text(line.get("text") or "") and not is_adlib(line.get("text") or "")
+        for w in _words(line)
+        if w.get("text") and w["end_ms"] > w["start_ms"]
+    )
+    if len(speeds) < 8:
+        return None
+    mid = len(speeds) // 2
+    return speeds[mid] if len(speeds) % 2 else (speeds[mid - 1] + speeds[mid]) / 2
+
+
+def _doc_counts(doc: dict) -> dict:
+    """One document's side of `letterless_report`."""
+    lines = _lines(doc)
+    sung_lines = [line for line in lines if sung_text(line.get("text") or "")]
+    finals = _final_words_before_letterless(doc)
+    durations = [w["end_ms"] - w["start_ms"] for w in finals.values()]
+    med = _natural_ms(doc)
+    held_stopped = 0
+    for i, w in finals.items():
+        natural = max(350, round(len(w.get("text") or "") * med)) if med else 350
+        dur = w["end_ms"] - w["start_ms"]
+        held_stopped += lines[i + 1]["start_ms"] == w["end_ms"] and (
+            dur < natural or dur < FINAL_SHORT_MS[1]
+        )
+    markers = near = at_next = at_previous_end = before_last_start = before_last_end = 0
+    for i, line in enumerate(lines):
+        if sung_text(line.get("text") or ""):
+            continue
+        markers += 1
+        nxt = next((x for x in lines[i + 1 :] if sung_text(x.get("text") or "")), None)
+        if nxt is not None:
+            near += nxt["start_ms"] - line["start_ms"] < MARKER_NEAR_MS
+            at_next += nxt["start_ms"] == line["start_ms"]
+        if i > 0 and sung_text(lines[i - 1].get("text") or ""):
+            at_previous_end += lines[i - 1]["end_ms"] == line["start_ms"]
+        prev = next((x for x in reversed(lines[:i]) if sung_text(x.get("text") or "")), None)
+        if prev is not None and _words(prev):
+            before_last_start += line["start_ms"] < _words(prev)[-1]["start_ms"]
+            before_last_end += line["start_ms"] < _words(prev)[-1]["end_ms"]
+    qa = (doc.get("alignment") or {}).get("qa") or {}
+    return {
+        "final_held_stopped": held_stopped,
+        "markers_before_previous_last_start": before_last_start,
+        "markers_before_previous_last_end": before_last_end,
+        "uncertain": qa.get("uncertain"),
+        "marker_kinds": qa.get("markers"),
+        "final_words_before_letterless": len(finals),
+        "final_smallest_ms": min(durations) if durations else None,
+        **{f"final_under_{ms}": sum(d < ms for d in durations) for ms in FINAL_SHORT_MS},
+        f"final_holds_over_{HOLD_MS}": sum(d > HOLD_MS for d in durations),
+        f"gap_holds_over_{HOLD_MS}": _gap_holds(doc),
+        "letterless_lines": markers,
+        f"markers_under_{MARKER_NEAR_MS}_to_next": near,
+        "markers_at_next_start": at_next,
+        "markers_at_previous_end": at_previous_end,
+        "lines_ending_before_last_word": sum(
+            1
+            for line in sung_lines
+            if _words(line) and line["end_ms"] < _words(line)[-1]["start_ms"]
+        ),
+        "zero_ms_sung_lines": sum(
+            1 for line in sung_lines if _words(line) and line["end_ms"] == line["start_ms"]
+        ),
+        "zero_ms_words": sum(
+            1 for line in sung_lines for w in _words(line) if w["end_ms"] == w["start_ms"]
+        ),
+        "adlib_shifted": qa.get("adlib_shifted"),
+        "adlib_rederived": qa.get("adlib_rederived"),
+        "flagged": qa.get("flagged"),
+    }
+
+
+def letterless_report(old: dict, new: dict, envelope: Envelope | None) -> dict:
+    """Report only, never a veto (2026-11-20): what a build that keeps letterless lines out of
+    alignment does around them, in both directions. Each count is [stored, built]: the line-final
+    words right before a letterless line (how many, the shortest, how many under 120 / 200 ms,
+    how many held over HOLD_MS), every line-final word held over HOLD_MS before a gap of GAP_MS
+    or more (any break: the next candidate's baseline), letterless lines within MARKER_NEAR_MS
+    of the next sung line or on its start, or on the previous sung line's end (a stamp is not in
+    a document: a marker on a bound is one that did not sit on its stamp), sung lines ending
+    before their last word starts, 0 ms sung lines and words, and line QA's ad-lib shifts,
+    rederives and flags. Since FORMAT 9 also: line-final words whose hold a letterless line
+    stopped (it starts on the word's end, and the word is under its natural length or under
+    200 ms), letterless lines starting before the previous sung line's last word starts / ends
+    (with the document's `uncertain` beside them), and how line QA placed each letterless line
+    (`marker_kinds`, from `alignment.qa.markers`). On one sheet also: `final_shortened`, the
+    paired line-final words whose duration fell, and with the stem's envelope `cut_voiced`, per
+    shortened word the cut span (built end -> stored end) and the share of its 20 ms frames at
+    or above the silence line: near 0 a cut hold, near 1 a cut sung word; `final_unpaired`, the
+    shortened ones left out because their start moved; `nonlast_words_cut_at_marker`, words
+    other than a line's last that now end on the letterless line after it, shorter than stored;
+    and for a line-sync build with letterless lines, `line_sync_sung_starts_moved`."""
+    a, b = _doc_counts(old), _doc_counts(new)
+    out: dict[str, Any] = {key: [a[key], b[key]] for key in a}
+    if sheet_changes(old, new):
+        return out
+    fa, fb = _final_words_before_letterless(old), _final_words_before_letterless(new)
+    shortened = []
+    for i, w in fb.items():
+        x = fa.get(i)
+        if x is None or w["start_ms"] != x["start_ms"] or w["end_ms"] >= x["end_ms"]:
+            continue
+        row: dict[str, Any] = {"line": i, "old_ms": x["end_ms"] - x["start_ms"],
+                               "new_ms": w["end_ms"] - w["start_ms"]}
+        if envelope is not None:
+            quiet = envelope.quiet_share(w["end_ms"], x["end_ms"], SILENCE_DB)
+            row["voiced"] = None if quiet is None else round(1 - quiet, 2)
+        shortened.append(row)
+    out["final_shortened"] = len(shortened)
+    out["cut_voiced"] = shortened
+    # shortened finals left out of cut_voiced: their start moved, so no stored word pairs them
+    out["final_unpaired"] = sum(
+        1
+        for i, w in fb.items()
+        if (x := fa.get(i)) is not None
+        and w["start_ms"] != x["start_ms"]
+        and w["end_ms"] - w["start_ms"] < x["end_ms"] - x["start_ms"]
+    )
+    la, lb = _lines(old), _lines(new)
+    nonlast = 0
+    for i in range(min(len(la), len(lb)) - 1):
+        if sung_text(lb[i + 1].get("text") or "") or not sung_text(lb[i].get("text") or ""):
+            continue
+        mark = lb[i + 1]["start_ms"]
+        for x, y in zip(_words(la[i])[:-1], _words(lb[i])[:-1], strict=False):
+            nonlast += y["start_ms"] == x["start_ms"] and y["end_ms"] == mark < x["end_ms"]
+    out["nonlast_words_cut_at_marker"] = nonlast
+    out["line_sync_sung_starts_moved"] = (
+        sum(
+            1
+            for x, y in zip(la, lb, strict=False)
+            if sung_text(y.get("text") or "") and x["start_ms"] != y["start_ms"]
+        )
+        if new.get("sync") == "line" and out["letterless_lines"][1]
+        else 0
+    )
     return out
 
 

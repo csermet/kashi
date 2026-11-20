@@ -100,8 +100,12 @@ LYRICS_MODES = ("stored", "ladder")
 #: 3: W4 counts, W5, `ladder_same`, the palette carried; 4: `ladder_same`'s other values, every
 #: veto and review reason beside the verdict; 5: no aligner overrun region - no
 #: `aligner_overruns`, no `ladder_same: overrun`, no such review reason; 6: `--set` overrides
-#: in the judge, on every row and in the summary; W2 and W3 judge no letterless line).
-PREVIEW_FORMAT = 6
+#: in the judge, on every row and in the summary; W2 and W3 judge no letterless line in a build
+#: that gave it none, `qa`; 7: `ends`, what word ends and neighbouring starts did, report only;
+#: 8: `letterless`, both directions around letterless lines and the breaks, report only;
+#: 9: `letterless` also counts stopped holds, markers before the previous line's last word,
+#: unpaired and non-last cut words, line-sync start moves and how each marker was placed).
+PREVIEW_FORMAT = 9
 #: A row's `ladder_same` other than True / False: a document was built but no ladder pass ran (not
 #: asked, or it faulted: the `ladder` note names the fault) ...
 LADDER_NOT_RUN = "not run"
@@ -666,8 +670,11 @@ def documents_dir(documents: Path | None, label: dict | None) -> Path | None:
 def validated_settings(pipeline_set: dict[str, Any]) -> Any:
     """This process's settings with `pipeline_set` applied, validated by the `Settings` model
     itself, its field validators included (`align_models`' language keys are normalised there);
-    raises what the model refuses. The environment is not read again; only the pipeline fields
-    are carried over (the operational ones take their defaults in this throwaway copy)."""
+    raises what the model refuses. `model_validate` runs BaseSettings' own `__init__`, so the
+    environment IS read again for the fields not given (checked 2026-11-20, pydantic-settings
+    2.14: an env value of an operational field lands in this copy), and given values win over
+    it; every pipeline field is given (this process's value, or the override), so none of them
+    can come from the environment here, and only pipeline fields are taken from the copy."""
     from kashi_server.config import PIPELINE_FIELDS, Settings
 
     data = {name: getattr(settings, name) for name in PIPELINE_FIELDS}

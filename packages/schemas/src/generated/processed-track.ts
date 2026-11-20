@@ -63,6 +63,17 @@ export interface KashiProcessedTrackV1 {
       trimmed_ends: number;
       nudged?: number;
       response_shifted?: number;
+      uncertain?: number;
+      /**
+       * How line QA placed each letterless sheet line (a line with no letter and no digit, e.g. '♪', which the aligner was not given; `letterless_lines_wordless`): on its stamp, past it at the end of the word it cut to that word's floor, bounded by the next sung line, after the line before it, or stampless. Present only when the document has such a line.
+       */
+      markers?: {
+        stamp: number;
+        floor: number;
+        next: number;
+        previous: number;
+        stampless: number;
+      };
     };
   };
   lines: {
