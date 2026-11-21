@@ -307,17 +307,20 @@ class Settings(BaseSettings):
     # GIRL was the acceptance case); the code default followed in 2.33.0.
     structure_sections: bool = True
     # A sheet line with no letter and no digit ('♪', '...'): the sheet marking music, not words.
-    # True: it stays a line of the document, without words, never given to the aligner, and line
-    # QA places it on its stamp (alignment.align, line_qa._place_unaligned). False (production
-    # through 2.35.0): it is aligned like a sung line and carries one word, the filler "a" on the
-    # romanize=False path (Turkish, alignment._fit_to_vocab), the '♪' itself over the whole line
-    # on the uroman path. Candidate (2026-11-19, docs/research/letterless-lines-2026-11.md).
-    letterless_lines_wordless: bool = False
-    # True: a word's stored text is the sheet's own token (punctuation, a dotted capital I, an
-    # accent) wherever the aligner was given another form of it, which only the romanize=False
-    # path does; every timing step still reads the aligner's form (alignment.with_sheet_texts).
-    # False (production through 2.35.0): the aligner's form. Candidate, as above.
-    word_text_from_sheet: bool = False
+    # True (the default since 2.36.0): it stays a line of the document, without words, never
+    # given to the aligner, a 0 ms marker line QA places on its stamp and the settle after the
+    # held-end restore lets cut the word before it, never below its floor (alignment.align,
+    # line_qa._place_unaligned, line_qa._settle_after_restore). False (production through
+    # 2.35.0; the rollback): it is aligned like a sung line and carries one word, the filler "a"
+    # on the romanize=False path (Turkish, alignment._fit_to_vocab), the '♪' itself over the
+    # whole line on the uroman path. docs/research/letterless-lines-2026-11.md.
+    letterless_lines_wordless: bool = True
+    # True (the default since 2.36.0): a word's stored text is the sheet's own token
+    # (punctuation, a dotted capital I, an accent) wherever the aligner was given another form
+    # of it, which only the romanize=False path does; every timing step still reads the
+    # aligner's form (alignment.with_sheet_texts). False (production through 2.35.0): the
+    # aligner's form. As above.
+    word_text_from_sheet: bool = True
     # Refresh without download (prototype, 2026-11-15; pipeline/evidence.py). "record": every
     # completed full job stores what it read off the audio (the aligner's emissions per slice,
     # the stem's onsets, the mix features, the download's duration) in `track_evidence`.

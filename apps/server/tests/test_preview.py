@@ -1356,8 +1356,10 @@ def test_the_preview_keeps_the_built_palette_when_the_stored_one_fails_the_schem
 
 # --- --set: a pipeline setting overridden for the build only (2026-11-19) -------------------------
 
-CANDIDATE = ["letterless_lines_wordless=true", "word_text_from_sheet=true"]
-CANDIDATE_SET = {"letterless_lines_wordless": True, "word_text_from_sheet": True}
+# Since 2.36.0 both are on by default; the reverse override builds what 2.35.0 built (the
+# rollback within an image), and a value the process already runs is refused.
+ROLLBACK = ["letterless_lines_wordless=false", "word_text_from_sheet=false"]
+ROLLBACK_SET = {"letterless_lines_wordless": False, "word_text_from_sheet": False}
 
 
 def _set_args(*pairs):
@@ -1365,15 +1367,15 @@ def _set_args(*pairs):
 
 
 def test_set_takes_a_pipeline_setting_once_and_only_a_value_it_does_not_run():
-    assert preview.parse_overrides(CANDIDATE) == CANDIDATE_SET
+    assert preview.parse_overrides(ROLLBACK) == ROLLBACK_SET
     assert preview.parse_overrides([]) == {}
     for bad in (
         ["evidence_mode=replay"],  # operational: not what a document depends on
         ["database_url=x"],
         ["nope=1"],
         ["letterless_lines_wordless"],
-        [CANDIDATE[0], CANDIDATE[0]],
-        ["letterless_lines_wordless=false"],  # what this process already runs
+        [ROLLBACK[0], ROLLBACK[0]],
+        ["letterless_lines_wordless=true"],  # what this process already runs
         ["letterless_lines_wordless=maybe"],
     ):
         with pytest.raises(preview.OverrideError):
@@ -1384,20 +1386,20 @@ def test_set_takes_a_pipeline_setting_once_and_only_a_value_it_does_not_run():
 
 def test_overridden_settings_come_back_also_when_the_run_fails():
     with pytest.raises(RuntimeError):
-        with preview.overridden(CANDIDATE_SET):
-            assert settings.letterless_lines_wordless is True
+        with preview.overridden(ROLLBACK_SET):
+            assert settings.letterless_lines_wordless is False
             raise RuntimeError("stop")
-    assert settings.letterless_lines_wordless is False
-    assert settings.word_text_from_sheet is False
+    assert settings.letterless_lines_wordless is True
+    assert settings.word_text_from_sheet is True
 
 
 def test_under_overrides_the_summary_names_no_id_to_refresh():
     rows = [{"source_id": "a", "verdict": rules.REFRESH, "detail": "", "refresh_confirmed": True}]
     plain = preview.summarize(rows)
     assert plain["refresh_ids"] == ["a"] and plain["pipeline_overrides"] is None
-    overridden = preview.summarize(rows, CANDIDATE_SET)
+    overridden = preview.summarize(rows, ROLLBACK_SET)
     assert overridden["refresh_ids"] == [] and overridden["verdicts"][rules.REFRESH] == 1
-    assert overridden["pipeline_overrides"] == preview.overrides_label(CANDIDATE_SET)
+    assert overridden["pipeline_overrides"] == preview.overrides_label(ROLLBACK_SET)
     assert "refresh_withheld" in overridden
 
 
@@ -1422,16 +1424,16 @@ def test_an_override_reaches_the_build_and_nothing_else(db_session, audio, monke
     monkeypatch.setattr(rules, "compare", compare)
     before = _snapshot(db_session)
     out = tmp_path / "rows.jsonl"
-    assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(*CANDIDATE)) == 0
-    assert seen and set(seen) == {(True, True)}
-    assert judged and set(judged) == {True}
+    assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(*ROLLBACK)) == 0
+    assert seen and set(seen) == {(False, False)}
+    assert judged and set(judged) == {False}  # the rules judge as the build ran: as 2.35.0
     # put back for whatever this process runs next; nothing stored, no evidence touched
-    assert (settings.letterless_lines_wordless, settings.word_text_from_sheet) == (False, False)
+    assert (settings.letterless_lines_wordless, settings.word_text_from_sheet) == (True, True)
     assert _snapshot(db_session) == before
-    label = preview.overrides_label(CANDIDATE_SET)
+    label = preview.overrides_label(ROLLBACK_SET)
     assert label is not None and len(label["fingerprint"]) == 16
     lines = _lines(out)
-    assert lines[0]["segment"]["judge"]["pipeline_overrides"] == CANDIDATE_SET
+    assert lines[0]["segment"]["judge"]["pipeline_overrides"] == ROLLBACK_SET
     assert lines[1]["verdict"] == rules.REFRESH and lines[1]["pipeline_overrides"] == label
     summary = lines[-1]["summary"]
     assert summary["pipeline_overrides"] == label and summary["refresh_ids"] == []
@@ -1444,8 +1446,11 @@ def test_an_override_reaches_the_build_and_nothing_else(db_session, audio, monke
     # the same song without an override is an id to refresh, its rows unlabelled
     plain = tmp_path / "plain.jsonl"
     judged.clear()
+    seen.clear()
     assert _main(monkeypatch, tmp_path, "--out", str(plain)) == 0
-    assert judged and set(judged) == {False}  # judged exactly as 0.43.0 judges
+    # a plain run builds the 2.36.0 chain and judges as it ran (W2/W3 pass over a letterless line)
+    assert seen and set(seen) == {(True, True)}
+    assert judged and set(judged) == {True}
     assert "pipeline_overrides" not in _lines(plain)[1]
     assert _lines(plain)[-1]["summary"]["refresh_ids"] == [SONG]
 
@@ -1453,15 +1458,15 @@ def test_an_override_reaches_the_build_and_nothing_else(db_session, audio, monke
 def test_append_never_mixes_two_sets_of_overrides(db_session, audio, monkeypatch, tmp_path):
     _run(db_session, monkeypatch, "record")
     out = tmp_path / "rows.jsonl"
-    assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(CANDIDATE[0])) == 0
+    assert _main(monkeypatch, tmp_path, "--out", str(out), *_set_args(ROLLBACK[0])) == 0
     first = out.read_text()
-    for other in ([], _set_args(CANDIDATE[1]), _set_args(*CANDIDATE)):
+    for other in ([], _set_args(ROLLBACK[1]), _set_args(*ROLLBACK)):
         assert _main(monkeypatch, tmp_path, "--out", str(out), "--append", *other) == (
             preview.EXIT_OUT_EXISTS
         )
         assert out.read_text() == first
     assert _main(
-        monkeypatch, tmp_path, "--out", str(out), "--append", *_set_args(CANDIDATE[0])
+        monkeypatch, tmp_path, "--out", str(out), "--append", *_set_args(ROLLBACK[0])
     ) == 0
 
 
@@ -1472,14 +1477,14 @@ def test_documents_built_under_set_go_to_their_fingerprint_s_directory(
     docs = tmp_path / "docs"
     out = tmp_path / "rows.jsonl"
     assert _main(monkeypatch, tmp_path, "--out", str(out), "--documents", str(docs),
-                 *_set_args(*CANDIDATE)) == 0
-    label = preview.overrides_label(CANDIDATE_SET)
+                 *_set_args(*ROLLBACK)) == 0
+    label = preview.overrides_label(ROLLBACK_SET)
     assert label is not None
     target = docs / f"set-{label['fingerprint']}"
     assert sorted(p.name for p in docs.iterdir()) == [target.name]  # nothing beside it
     assert (target / f"{SONG}.json").exists()
     named = json.loads((target / "OVERRIDES.json").read_text())
-    assert named["set"] == CANDIDATE_SET and named["fingerprint"] == label["fingerprint"]
+    assert named["set"] == ROLLBACK_SET and named["fingerprint"] == label["fingerprint"]
     # without --set: the directory itself, as before
     plain = tmp_path / "plain-docs"
     assert _main(monkeypatch, tmp_path, "--out", str(tmp_path / "plain.jsonl"),

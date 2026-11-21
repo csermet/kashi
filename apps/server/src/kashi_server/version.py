@@ -902,5 +902,52 @@
 # worse, La rumba del coronavirus L71 better at +-400 ms and +3 s,
 # LUNABLIND L10 and Le musée L45 better at +3 s), and two archive lines whose
 # old start sat on the voice's return (Ras-XCBl3Hw L64, 3mTDbDbryO8 L39).
-PIPELINE_VERSION = "2.35.0"
+# 2.36.0: (1) a sheet line with no letter and no digit ('♪', '...') is no
+# longer aligned (letterless_lines_wordless, default on): it stays a line of
+# the document without words, a 0 ms marker. Before, the filler "a" (the
+# romanize=False path) or the '♪' itself (uroman) was aligned there, timed on
+# any a-like sound, and the segment-starred pass's last word before it could
+# run to the slice end (a 20.2 s hold in the archive). Line QA places the
+# marker on its stamp (+ its median offset), never past the next sung line,
+# after the line before when the stamp lies earlier, where regroup put it
+# without a stamp (line_qa._place_unaligned); it cuts nothing and counts in
+# no median, flag or agreement. After the held-end restore, which passes over
+# it (so the restore reads the marker-free median and bounds), a marker on its
+# stamp cuts the last word of the line before when that word starts before the
+# stamp and reaches past it: at the stamp, never below the word's floor (its
+# natural length, the restore's median ms per character x its characters, at
+# least 350 ms, or its own length when shorter); any other marker shortens
+# nothing (line_qa._settle_after_restore). A degraded document chains its sung
+# lines' ends through sung lines. `alignment.qa.markers` counts how each was
+# placed (stamp / floor / next / previous / stampless), present only with
+# one; it and `alignment.qa.uncertain` are declared in the schema. (2) A
+# word's stored text is the sheet's token on every path (word_text_from_sheet,
+# default on): punctuation, a dotted capital I, accents the romanize=False
+# path normalised away come back; every timing step still reads the aligner's
+# form (alignment.with_sheet_texts). Measured against bars hashed before the
+# numbers: the 39 local songs over five review rounds (no sung word longer by
+# more than 500 ms, none below its floor, main's evidence replays 39/39);
+# the archive, where a plain 0.45.0 preview left 343 of 343 rows unchanged
+# that were expected unchanged, and the candidate (--set, fingerprint
+# d95316c0eb6e0de7) on those 343: the 297 songs without a letterless line
+# untouched; in the 46 with one (83 lines made wordless) QA's offset moves at
+# most 40 ms, no QA exit is lost, no consistency counter and no line-final
+# word under 120 ms goes up; markers on their stamps 81, after the line
+# before 2, at a floor 1; line-final words before a marker under 120 ms
+# 6 -> 2, under 200 ms 10 -> 6, held ends stopped 10 -> 3; the first run's
+# holds 4.8 / 8.7 / 20.2 s -> 1.7 / 1.67 / 3.02 s; 39 songs refresh by their
+# sheet text alone. One hard bar failed as registered: 5YH4YCqcPjI L51's
+# line-final word grows 170 -> 1725 ms against the stored document, whose
+# 170 ms was the filler cutting it (the candidate gives the marker-free value,
+# a "previous" marker); the owner decided (2026-11-21) to ship. Seven songs a
+# registered per-song rule vetoed keep their stored documents (4qv16WcOCYA,
+# 5YH4YCqcPjI, Di2RuX_2FnI, LO71pC20BDI, GgGPuuGNPAE, h1Zn0aHceVM,
+# hTWygWXZ0FY); 78 of the 85 refresh rows refresh from evidence. Open: two
+# known limits of the rule, none in the archive (an ad-lib line stretched past
+# 12 s before an on-stamp marker; a wordless snapped line no marker ends); the
+# removed token can move a neighbouring word's alignment (32 sung word starts
+# differ in the 46 songs, 6 by more than 100 ms, five of them next to a
+# marker); line-final holds before long gaps in general (68 over 4 s before a
+# gap of 3 s or more in the 343 songs, unchanged) are the next candidate's.
+PIPELINE_VERSION = "2.36.0"
 PIPELINE_MAJOR = 2

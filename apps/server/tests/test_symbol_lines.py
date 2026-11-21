@@ -415,16 +415,17 @@ def test_align_maps_the_romanize_false_forms_back_to_the_sheet(monkeypatch, tmp_
     # the uroman path's texts are the sheet's already: nothing to give back
     uroman = alignment.align(*args[:5], True, 0, None, letterless_wordless=False, sheet_texts=True)
     assert [w.sheet_text for w in uroman.words_per_line[0]] == ["", ""]
-    # with no switch passed, align() reads the setting itself, as the worker's job does
+    # with no switch passed, align() reads the setting itself, as the worker's job does: on by
+    # default since 2.36.0, off where the setting is switched off (2.35.0's form, the rollback)
     from kashi_server.worker import preview
 
     def sheet_texts():
         return [w.sheet_text for w in alignment.align(*args).words_per_line[0]]
 
-    assert sheet_texts() == ["", ""]
-    with preview.overridden({"word_text_from_sheet": True}):
-        assert sheet_texts() == ["İyi,", "hâl"]
-    assert sheet_texts() == ["", ""]
+    assert sheet_texts() == ["İyi,", "hâl"]
+    with preview.overridden({"word_text_from_sheet": False}):
+        assert sheet_texts() == ["", ""]
+    assert sheet_texts() == ["İyi,", "hâl"]
 
 
 def test_align_and_review_hands_on_the_sheets_texts_after_the_timing_chain(monkeypatch, tmp_path):
@@ -523,11 +524,12 @@ def run(monkeypatch, tmp_path, wordless, lines=LINES, **kwargs):
 def test_align_reads_the_letterless_setting_itself(monkeypatch, tmp_path):
     from kashi_server.worker import preview
 
+    # on by default since 2.36.0; switched off, the '♪' is aligned as 2.35.0 aligned it
     default, _ = run(monkeypatch, tmp_path, "settings")
-    assert [w.text for w in default.words_per_line[1]] == ["♪"] and not default.lines[1].unaligned
-    with preview.overridden({"letterless_lines_wordless": True}):
-        on, _ = run(monkeypatch, tmp_path, "settings")
-    assert on.words_per_line[1] == [] and on.lines[1].unaligned
+    assert default.words_per_line[1] == [] and default.lines[1].unaligned
+    with preview.overridden({"letterless_lines_wordless": False}):
+        off, _ = run(monkeypatch, tmp_path, "settings")
+    assert [w.text for w in off.words_per_line[1]] == ["♪"] and not off.lines[1].unaligned
     after, _ = run(monkeypatch, tmp_path, "settings")
     assert after == default
 

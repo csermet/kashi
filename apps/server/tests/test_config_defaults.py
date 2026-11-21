@@ -64,12 +64,14 @@ def test_the_production_chain_is_the_default():
     assert _default("align_offset_ms") == 0
 
 
-def test_the_letterless_line_and_sheet_text_candidate_ships_dark():
-    """2026-11-19: both switches reach the cluster OFF, so that pipeline 2.35.0 is still what
-    its version names, and the archive preview measures them with `--set` before a release
-    turns them on with a version bump."""
-    assert _default("letterless_lines_wordless") is False
-    assert _default("word_text_from_sheet") is False
+def test_the_2_36_0_chain_is_the_default():
+    """2026-11-21: the letterless-line and sheet-text candidate, measured dark on the archive
+    with `--set` (0.44.0, 0.45.0), is the code default from pipeline 2.36.0 on: a worker
+    without either env value runs what its version names. False in the env is the rollback
+    within an image (the worker's `ready:` line names it)."""
+    assert _default("letterless_lines_wordless") is True
+    assert _default("word_text_from_sheet") is True
+    assert PIPELINE_VERSION == "2.36.0"
 
 
 def test_the_default_table_is_a_fresh_copy_per_instance(monkeypatch):
@@ -156,6 +158,27 @@ def test_the_ready_line_says_when_the_version_does_not_name_the_pipeline(monkeyp
     monkeypatch.setattr(settings, "separation_model_filename", "other.ckpt")
     assert main._config_note() == (
         "env overrides separation_model_filename (not what the version names)"
+    )
+
+
+def test_the_2_36_0_rollback_in_the_env_is_named_on_the_ready_line(monkeypatch):
+    """LETTERLESS_LINES_WORDLESS=false (WORD_TEXT_FROM_SHEET=false) in a 2.36.0 image builds
+    what 2.35.0 built: the version no longer names the pipeline, and the ready line says so."""
+    from kashi_server.config import settings
+    from kashi_server.worker import main
+
+    rollback = _settings_from(
+        monkeypatch, {"LETTERLESS_LINES_WORDLESS": "false", "WORD_TEXT_FROM_SHEET": "false"}
+    )
+    assert rollback.letterless_lines_wordless is False and rollback.word_text_from_sheet is False
+    assert pipeline_overrides(rollback) == ["letterless_lines_wordless", "word_text_from_sheet"]
+    bare = _settings_from(monkeypatch, {})
+    for name in PIPELINE_FIELDS:
+        monkeypatch.setattr(settings, name, getattr(bare, name))
+    assert main._config_note() == "code-default configuration"
+    monkeypatch.setattr(settings, "letterless_lines_wordless", False)
+    assert main._config_note() == (
+        "env overrides letterless_lines_wordless (not what the version names)"
     )
 
 
