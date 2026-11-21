@@ -168,7 +168,9 @@ model itself and the model's value is what runs; `--documents DIR` writes the bu
 into `DIR/set-<fingerprint>/` beside an `OVERRIDES.json`; the summary also names what the
 environment already overrides (`env_pipeline_overrides`). Human truth and clips follow the usual
 order. A second release then turns both defaults on with `PIPELINE_VERSION = "2.36.0"` and its
-note, and the deployed image's ordinary preview lists the ids to refresh.
+note, and the deployed image's ordinary preview lists the ids to refresh (every `refresh` row:
+a per-song veto of the registered bars is not one of the preview's vetoes, so the wave is fed
+from an explicit list — see the decision below).
 
 **The flip must not happen without** (the reviewer's list, 2026-11-19; the coordinator owns it;
 what became of each item is under "The second archive run and the flip" below):
@@ -467,7 +469,8 @@ word_text_from_sheet=true`, fingerprint d95316c0eb6e0de7) on those 343, against 
 before the run (two working files with hashes, 2026-11-20T14:45:19Z and T15:35:00Z):
 
 - the 297 songs without a letterless line are untouched in every time, QA value, counter and end;
-- the 46 with one (83 lines made wordless): |delta QA offset| <= 40 ms, no QA exit lost; no
+- the 46 with one (84 letterless lines, 83 of them made wordless: one carried no word in its
+  stored document already): |delta QA offset| <= 40 ms, no QA exit lost; no
   consistency counter and no count of line-final words under 120 ms goes up in any song; markers
   on their stamps 81, after the line before 2, at a floor 1, bounded by the next line 0,
   stampless 0; line-final words before a marker under 120 ms 6 -> 2, under 200 ms 10 -> 6, held
@@ -478,7 +481,8 @@ before the run (two working files with hashes, 2026-11-20T14:45:19Z and T15:35:0
   46 - 4qv16WcOCYA, 5YH4YCqcPjI, Di2RuX_2FnI, LO71pC20BDI (a line end moved more than 500 ms or a
   final hold grew more than 500 ms); LO71pC20BDI (a dwell counter up); 4qv16WcOCYA, GgGPuuGNPAE,
   LO71pC20BDI, h1Zn0aHceVM (a start next to a marker moved more than 100 ms); hTWygWXZ0FY (a final
-  word cut by 436 ms where the stem is voiced). Those songs keep their stored documents.
+  word cut by 436 ms where the stem is voiced). Those songs are left out of the refresh (how:
+  under the decision).
 - **One hard bar failed:** "no sung word grows by more than 1000 ms against the stored document".
   5YH4YCqcPjI L51's line-final word grows 170 -> 1725 ms: the stored 170 ms was the filler cutting
   the word, and the candidate gives the marker-free value (a "previous" marker). The bar measured
@@ -491,6 +495,23 @@ before the run (two working files with hashes, 2026-11-20T14:45:19Z and T15:35:0
 **The decision** (the owner, 2026-11-21): flip, with the seven vetoed songs (5YH4YCqcPjI among
 them) left on their stored documents; 78 of the 85 `refresh` rows are refreshed from evidence.
 lrclib publishing happens only on a person's click in the tray; a refresh publishes nothing.
+
+- **How the seven stay.** Nothing in the code holds them: the registered per-song rules are not
+  among the preview's vetoes, and a plain 2.36.0 preview lists all 85 in `refresh_ids`. The wave
+  is fed from an explicit list, `refresh_ids` minus the seven ids named above, each id confirmed
+  against the real lookup (`ladder_same: true`). That is an operator's act, not a guard: a later
+  full job or the next release's wave rebuilds them under whatever pipeline runs then, unless its
+  own bars veto them again.
+- **Human truth:** not applicable by construction — the bench's 79 songs hold no letterless line
+  and none takes the path without romanisation. That is a count, not a measurement.
+- **Clips for the owner:** none were drawn. The visible part of this change is a marker's place
+  and a final word's length by a few hundred milliseconds; two days earlier he had been shown
+  four clips of the overlay-side fix and could tell only the one with the stray letter apart.
+  He decided on the numbers and the one failed bar, stated to him as failed.
+- **What was not measured.** The bars ran on the 343 songs whose stored document equals what
+  production builds. The other 57 songs with evidence (kept by a veto, to review, changed sheet,
+  full job) and the songs without evidence meet the 2.36.0 chain unmeasured against these bars,
+  as does every song processed from now on.
 
 **The flip** (pipeline 2.36.0): both code defaults on, the version and its paragraph, nothing
 else in the pipeline. On the 39 local songs under the new defaults (no setting touched): off ==
@@ -522,7 +543,11 @@ gap of 3 s or more, 68 in the 343 songs, in 45 songs, unchanged by this candidat
   migration belongs to the flip, so the image tag alone undoes it. `LETTERLESS_LINES_WORDLESS=false`
   and `WORD_TEXT_FROM_SHEET=false` in a 2.36.0 image build what 2.35.0 built, but the version then
   no longer names the pipeline (the ready line says `env overrides ...`): use the tag.
-- Documents already refreshed under 2.36.0 stay as they are until reprocessed.
+- Documents already refreshed under 2.36.0 stay as they are, and under the older image a plain
+  reprocess does NOT replace them: persist keeps a stored document whose pipeline version is
+  newer than the writer's (`stale_writer`, the first check of `_kept`). Putting a song back on a
+  2.35.0 document under the 0.45.0 image takes a reprocess with `options.force_persist`; its
+  evidence is intact (a replay does not store evidence again).
 - A song FIRST recorded under 2.36.0 whose sheet has a window of only letterless lines has no
   evidence for that window (it is not aligned): under an older image it needs a full job, not a
   refresh from evidence.
@@ -540,8 +565,11 @@ gap of 3 s or more, 68 in the 343 songs, in 45 songs, unchanged by this candidat
   the 46 songs, six by more than 100 ms).
 - Line-final holds before long gaps in general (68 over 4 s in the 343 songs): the next
   candidate's.
-- Two bars failed as registered (locality: one ad-lib line +10 ms through QA's median offset;
-  sheet texts alone: three filler words more than measured). Whether they block is a decision.
+- Bars that failed as registered stay failed in the record, none retuned: on the 39 songs,
+  locality (one ad-lib line +10 ms through QA's median offset) and sheet texts alone (three
+  filler words more than measured); on the archive, the first run's fluency total (+1 word) and
+  the second run's hard bar on a word's growth (one word). The flip went ahead on the owner's
+  decision, not because any of them was reread as a pass.
 - Not converted on purpose: `plan_windows`' word count and `line_regions`' stamp count (evidence
   slices). A letterless TOKEN inside a sung line ('-', '&') is still aligned as the filler "a" on
   the romanize=False path and stored as the sheet's token with `word_text_from_sheet`: none in
