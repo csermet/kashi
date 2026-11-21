@@ -131,6 +131,12 @@ candidate: before any long gap a line-final word is held far too long on today's
 such words over 4 s in the 39 local documents). Overlay 0.32.0 is the shared-view work and the
 fixes above, released after the owner's check on Windows.
 
+**State on 2026-11-21.** Pipeline 2.36.0 (server 0.46.0): letterless lines are wordless markers
+and word texts are the sheet's tokens. The second archive run passed every bar but one hard one
+(a single word, against a stored value that was itself the defect); the owner chose the flip with
+seven songs left on their stored documents. Next in timing: the line-final hold before a long gap
+(68 words over 4 s in 343 songs), with the stem's level envelope as the evidence to try first.
+
 **Archive refresh policy (owner, 2026-10-25):** the whole archive is re-processed only after a large
 improvement (~5-10 % or more, or a change that breaks documents); smaller changes refresh a fixed set
 of 10-20 favourite tracks. A full refresh runs on the GPU helper worker (phase 9.3).

@@ -905,6 +905,40 @@ Pipeline 2.35.0 unchanged; both settings stay off. Detail: `letterless-lines-202
 - **Next:** the plain preview under 0.45.0 (nothing may change), then the candidate on the archive
   against bars registered before the run, then reading the built documents line by line.
 
+## Release 2.36.0: letterless lines and the sheet's word texts (2026-11-21)
+
+Server 0.46.0. The two settings are on by default. Detail and rollback:
+`letterless-lines-2026-11.md`.
+
+- **Step 0 under 0.45.0:** 343 of 343 rows expected unchanged are unchanged, the other 57 keep
+  verdict and detail.
+- **The candidate on those 343, bars registered before the run:** the 297 songs without a
+  letterless line untouched in every time, QA value, counter and end; 46 songs with one (83 lines
+  now wordless), line QA's offset shifted by at most 40 ms, no QA exit lost; line-final words
+  before a marker under 200 ms 10 → 6, held ends stopped 10 → 3, none over 4 s; the first run's
+  holds of 4.8 / 8.7 / 20.2 s are 1.7 / 1.7 / 3.0 s; 39 songs change by text alone (punctuation
+  and the dotted İ back in Turkish word texts). Seven songs carry a per-song veto, within the
+  registered limits (a line end or final hold moved by more than 500 ms, a dwell counter up, a
+  start beside a marker moved by more than 100 ms, a final word cut where the stem is voiced).
+- **One hard bar failed and the owner overrode it.** "No sung word grows by more than 1 000 ms
+  against the stored document": one word in one song, 170 → 1 725 ms. The stored 170 ms was the
+  filler cutting the word; the build gives the value the document has without the '♪' line. The
+  bar compared against a document that is itself defective at that spot — a flaw of the bar, and
+  it stays recorded as failed. Asked with the numbers, the owner chose the flip with that song
+  (one of the seven) and the other six left on their stored documents; 78 are refreshed from
+  evidence.
+- **Read line by line, the 46 built documents against the stored ones:** 32 sung word starts
+  differ, 19 of them by 10 ms or less and 6 by more than 100 ms; 209 word ends differ, 181 by
+  50 ms or less (the median without the filler words). Nothing no bar had looked at this time.
+- **Not done, and why:** the human-truth step cannot apply (its 79 songs have no letterless line
+  and none on the path without romanisation) — a count, not a measurement. No clips for the
+  owner: an earlier set had shown him three differences of this size and he could tell none.
+- **Open:** before a long gap a line-final word is held too long on every build (68 such words
+  over 4 s in the 343 songs, in 45 of them) — the next candidate; the removed token moves a
+  neighbouring word's start by more than 100 ms in a handful of songs, which nothing recorded can
+  judge; two shapes a reviewer built that the archive does not contain (an ad-lib line stretched
+  past 12 s before a marker, a wordless snapped line not ended by one).
+
 ## Lines of work and order
 
 Three lines can run at once; they share only the document schema and the server API.
