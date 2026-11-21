@@ -27,6 +27,11 @@ changes: the CPU worker keeps the queue.
   lines must show the same version, and since server 0.37.0 the configuration
   must read `code-default configuration`. `env overrides <fields> (not what the
   version names)` means an env value changes a pipeline setting: remove it.
+  A helper image built before server 0.46.0 runs pipeline 2.35.0 (a '♪' line
+  aligned with a filler word) while a 0.46.0 worker runs 2.36.0: rebuild it at
+  the new tag before its next use. Its documents would say 2.35.0, so a mix is
+  visible, but do not mix (docs/research/letterless-lines-2026-11.md, "The
+  flip and its rollback").
 - **Schema first.** Only the API deployment migrates the database (its
   initContainer). Since 0.37.0 a worker whose database is behind its code does
   not claim: before its ready line it logs `not claiming jobs: database schema
@@ -165,8 +170,9 @@ OMP_NUM_THREADS=2 nice -n 10 python -m kashi_server.worker.preview --out /scratc
   model's value is the one applied; `--documents DIR` then writes into `DIR/set-<fingerprint>/`
   beside an `OVERRIDES.json`, never into DIR itself; the summary and segment line also name the
   pipeline settings the environment already overrides, `env_pipeline_overrides`). The
-  dark-shipped candidate of 2026-11-19:
-  `--set letterless_lines_wordless=true --set word_text_from_sheet=true`.
+  candidate of 2026-11-19, measured this way while dark (`=true`), is the default since 2.36.0;
+  what the rollback would build is now the override:
+  `--set letterless_lines_wordless=false --set word_text_from_sheet=false`.
 - **lrclib requests:** stored mode one by-id request a song (a title with a nightcore marker: up to
   two searches and one more by-id), plus each `refresh`'s ladder pass (1-5 requests, up to 5 more
   for the composite-title fallback; 1.3-1.4 on average on the archive); `--confirm-all` that pass

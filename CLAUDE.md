@@ -9,8 +9,9 @@ Lyrics overlay for YouTube Music: browser extension (`apps/extension`) → Elect
 1. `docs/research/INDEX.md` — why each decision was made.
 2. Current state. `docs/research/toptan-gozden-gecirme-2026-11.md` is the whole-project review
    (2026-11-13: what was measured, the proposed steps A-G, what waits for the owner) and the entry
-   point; its last sections carry the releases since (2.32.0 … 2.35.0, each with what was measured
-   and what was left open). `docs/research/refresh-from-evidence-2026-11.md` is how a release
+   point; its last sections carry the releases since (2.32.0 … 2.36.0, each with what was measured
+   and what was left open; 2.36.0, the letterless '♪' lines and the sheet's word texts, is told in
+   full in `docs/research/letterless-lines-2026-11.md`). `docs/research/refresh-from-evidence-2026-11.md` is how a release
    reaches the archive without downloading (what a job keeps, the back-fill, replay). Behind them `docs/research/faz-5-zamanlama-yeniden-plan-2026-11.md` (the timing re-plan and
    everything up to 2.31.0, the owner's listen included), then, newest first: the 2.29 / 2.29.1 paragraphs that
    close `faz-9-pencere-saati-2026-10.md`, then `yerel-model-denetim-2026-11.md` (Faz 3.5 local

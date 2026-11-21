@@ -1,4 +1,4 @@
-# Letterless sheet lines and the sheet's own word texts (2026-11-19, candidate for 2.36.0)
+# Letterless sheet lines and the sheet's own word texts (2026-11-19; the default since pipeline 2.36.0, 2026-11-21)
 
 **Question.** A synced sheet marks music with a line that has no letter and no digit ('♪'). The
 pipeline gave that line to the aligner like a sung one, so the stored document carried a word on
@@ -17,6 +17,9 @@ release turns them on:
   without words, placed on its stamp by line QA.
 - `word_text_from_sheet`: a word's stored text is the sheet's token wherever the aligner was given
   another form of it; every timing step still reads the aligner's form.
+
+Both are on by default since pipeline 2.36.0 (2026-11-21), after two archive runs and the owner's
+decision: see "The second archive run and the flip" at the end, and its rollback.
 
 ## Measured first (39 local songs, main's documents)
 
@@ -167,7 +170,8 @@ environment already overrides (`env_pipeline_overrides`). Human truth and clips 
 order. A second release then turns both defaults on with `PIPELINE_VERSION = "2.36.0"` and its
 note, and the deployed image's ordinary preview lists the ids to refresh.
 
-**The flip must not happen without** (the reviewer's list, 2026-11-19; the coordinator owns it):
+**The flip must not happen without** (the reviewer's list, 2026-11-19; the coordinator owns it;
+what became of each item is under "The second archive run and the flip" below):
 
 - the archive `--set` preview, with the per-song QA-offset delta and any change of QA's way out
   (both in every row);
@@ -454,13 +458,88 @@ cut there before either, and the median is unchanged); the production verdicts e
 156 pairs. CI's TypeScript path (install, validate, codegen, versions, typecheck, lint, test,
 build) is green with the generated type committed.
 
+## The second archive run and the flip (2026-11-20/21)
+
+The final candidate shipped dark in server 0.45.0. **A plain preview** under 0.45.0: 343 of the
+343 rows expected unchanged are unchanged, and the other 57 keep their verdict and detail (dark
+equals 0.44.0 on the archive). **The candidate** (`--set letterless_lines_wordless=true
+word_text_from_sheet=true`, fingerprint d95316c0eb6e0de7) on those 343, against bars registered
+before the run (two working files with hashes, 2026-11-20T14:45:19Z and T15:35:00Z):
+
+- the 297 songs without a letterless line are untouched in every time, QA value, counter and end;
+- the 46 with one (83 lines made wordless): |delta QA offset| <= 40 ms, no QA exit lost; no
+  consistency counter and no count of line-final words under 120 ms goes up in any song; markers
+  on their stamps 81, after the line before 2, at a floor 1, bounded by the next line 0,
+  stampless 0; line-final words before a marker under 120 ms 6 -> 2, under 200 ms 10 -> 6, held
+  ends stopped 10 -> 3, over 4 s 0 -> 0; no marker within 500 ms of the next sung line; no
+  line-sync sung start moved; 39 songs refresh by their sheet text alone. The first run's three
+  holds (4.8 / 8.7 / 20.2 s) are 1.7 / 1.67 / 3.02 s.
+- Per-song vetoes, within the registered limits (each rule <= 10 %, their union <= 20 %): 7 of
+  46 - 4qv16WcOCYA, 5YH4YCqcPjI, Di2RuX_2FnI, LO71pC20BDI (a line end moved more than 500 ms or a
+  final hold grew more than 500 ms); LO71pC20BDI (a dwell counter up); 4qv16WcOCYA, GgGPuuGNPAE,
+  LO71pC20BDI, h1Zn0aHceVM (a start next to a marker moved more than 100 ms); hTWygWXZ0FY (a final
+  word cut by 436 ms where the stem is voiced). Those songs keep their stored documents.
+- **One hard bar failed:** "no sung word grows by more than 1000 ms against the stored document".
+  5YH4YCqcPjI L51's line-final word grows 170 -> 1725 ms: the stored 170 ms was the filler cutting
+  the word, and the candidate gives the marker-free value (a "previous" marker). The bar measured
+  against a stored document that is itself wrong at that spot; it stays recorded as failed.
+- Read against the stored documents, the 46 built ones differ in 32 sung word starts (19 by
+  <= 10 ms; 6 by more than 100 ms, five next to a marker, one elsewhere: P_LNW8IDHZg L26,
+  -160 ms) and 209 word ends (181 by <= 50 ms, the median without the filler words; 5 by more
+  than 500 ms, all in the vetoed songs). Nothing that no bar looked at.
+
+**The decision** (the owner, 2026-11-21): flip, with the seven vetoed songs (5YH4YCqcPjI among
+them) left on their stored documents; 78 of the 85 `refresh` rows are refreshed from evidence.
+lrclib publishing happens only on a person's click in the tray; a refresh publishes nothing.
+
+**The flip** (pipeline 2.36.0): both code defaults on, the version and its paragraph, nothing
+else in the pipeline. On the 39 local songs under the new defaults (no setting touched): off ==
+record == replay 39/39, 0 cache misses; main 0.45.0's evidence (recorded under 2.35.0) replays
+39/39 with every audio reader forbidden; every document says 2.36.0, validates against the
+schema, and equals the round-5 candidate document of its song (the code the archive run measured
+with `--set`) apart from `pipeline_version` and `generated_at`: what ships is what was measured.
+
+**The reviewer's list, as it ended:** the archive `--set` preview with the per-song QA-offset
+delta and QA's way out: done, above. The flip as a code default and version bump only: done
+(pipeline 2.36.0, no env value). The publish question: settled by the above (no refresh
+publishes). The counts over the archive (letterless-only windows, letterless tokens inside sung
+lines, songs whose stamped sung lines fall below `MIN_REFERENCE_LINES`), the end-to-end `align()`
+test over a letterless-only window with the real seam, vote and first-heard functions, and the
+score / `quality_basis` of wordless lines are not recorded in this note; the owner's decision
+did not wait for them, and they stay open below.
+
+**Known limits of the rule, accepted** (the reviewer's two open shapes; neither occurs in the 46
+built documents): an ad-lib line stretched past 12 s before an on-stamp marker keeps its stretch
+(`rederive_adlib_words` reads the marker as the next line, the carve-out of the seeded
+comparison); a wordless snapped line is not ended by a marker after it.
+
+**Baseline for the next candidate**, from the same rows: line-final words held over 4 s before a
+gap of 3 s or more, 68 in the 343 songs, in 45 songs, unchanged by this candidate.
+
+### The flip and its rollback
+
+- **Rollback:** the previous image tag (server 0.45.0, pipeline 2.35.0 with the code dark). No
+  migration belongs to the flip, so the image tag alone undoes it. `LETTERLESS_LINES_WORDLESS=false`
+  and `WORD_TEXT_FROM_SHEET=false` in a 2.36.0 image build what 2.35.0 built, but the version then
+  no longer names the pipeline (the ready line says `env overrides ...`): use the tag.
+- Documents already refreshed under 2.36.0 stay as they are until reprocessed.
+- A song FIRST recorded under 2.36.0 whose sheet has a window of only letterless lines has no
+  evidence for that window (it is not aligned): under an older image it needs a full job, not a
+  refresh from evidence.
+- A GPU helper image built before server 0.46.0 runs the 2.35.0 chain while a newer worker runs
+  2.36.0: rebuild it before its next use (`docs/gpu-worker.md`). Its documents would carry its own
+  pipeline version, so a mix is visible, but do not mix.
+- The preview measures the rollback the other way now: `--set letterless_lines_wordless=false
+  --set word_text_from_sheet=false`.
+
 ## What is open
 
-- The dark release with this code (the candidate as final: line QA cuts nothing, the settle
-  after the restore cuts on the marker-free median, the declared counts); then the archive
-  preview with `--set` on it, with the FORMAT 9 report (stopped holds, markers before the
-  previous word, how each marker was placed); human truth's verdict (by construction here) and
-  the owner's clips; then the flip, a default and version commit only.
+- The reviewer's items above that are not recorded here (archive counts, the end-to-end
+  `align()` test over a letterless-only window, the wordless lines' score and `quality_basis`).
+- The removed token's effect on a neighbouring word's alignment (32 sung word starts differ in
+  the 46 songs, six by more than 100 ms).
+- Line-final holds before long gaps in general (68 over 4 s in the 343 songs): the next
+  candidate's.
 - Two bars failed as registered (locality: one ad-lib line +10 ms through QA's median offset;
   sheet texts alone: three filler words more than measured). Whether they block is a decision.
 - Not converted on purpose: `plan_windows`' word count and `line_regions`' stamp count (evidence
